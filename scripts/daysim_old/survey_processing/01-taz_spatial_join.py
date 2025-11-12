@@ -32,13 +32,13 @@ import pandas as pd
 def taz_spatial_join(config):
     """
     Perform spatial joins between survey data and transportation analysis zones.
-    
+
     Args:
         config (dict): Configuration dictionary containing:
                       - File paths and names for input/output directories
                       - Agency model specification (SFCTA_CHAMP or MTC_TM1)
                       - Zone file paths for TAZ/MAZ geography
-    
+
     Returns:
         None: Outputs spatially joined CSV files to 01-taz_spatial_join directory
     """
@@ -54,13 +54,13 @@ def taz_spatial_join(config):
             ["MAZID", "TAZ", "geometry"]
         ]
     elif agency_model == "MTC_TM1":
-        # MTC's TM1 only has TAZ but this proces expects both TAZ and MAZ (so MAZID is set to be the same value as TAZ to satisfy downstream code) 
+        # MTC's TM1 only has TAZ but this proces expects both TAZ and MAZ (so MAZID is set to be the same value as TAZ to satisfy downstream code)
         maz = gpd.read_file(config["01-taz_spatial_join"]["maz_filepath"])[
             ["TAZ1454", "geometry"]
         ].rename(columns={"TAZ1454": "TAZ"}).assign(MAZID=lambda df: df["TAZ"])
     else:
-        raise ValueError(f"Unsupported agency_model: {agency_model}")    
-    
+        raise ValueError(f"Unsupported agency_model: {agency_model}")
+
     hh = pd.read_csv(preprocess_dir / config["hh_filename"])
     person = pd.read_csv(preprocess_dir / config["person_filename"])
     trip = pd.read_csv(preprocess_dir / config["trip_filename"])
@@ -78,17 +78,17 @@ def taz_spatial_join(config):
 def sjoin_maz(df: pd.DataFrame, maz: gpd.GeoDataFrame, id_col: str, var_prefix: str):
     """
     Perform spatial join between survey data points and MAZ/TAZ geography.
-    
+
     Uses nearest neighbor spatial join with distance buffer to handle gaps
     in zone coverage. Converts coordinates to projected CRS for accurate
     distance calculations.
-    
+
     Args:
         df (pd.DataFrame): Survey data with lat/lon coordinates
         maz (gpd.GeoDataFrame): Zone geography with MAZID and TAZ columns
         id_col (str): Column name for unique identifier in survey data
         var_prefix (str): Prefix for location type (e.g., 'home', 'work', 'o', 'd')
-    
+
     Returns:
         pd.DataFrame: Survey data with added zone identifiers:
                      {prefix}_maz and {prefix}_taz columns

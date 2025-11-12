@@ -31,14 +31,14 @@ import pandas as pd
 def link_dt(df):
     """
     Link drive-transit trips by connecting access and main transit segments.
-    
+
     Drive-transit trips are split into separate drive and transit components
     during tour extraction. This function reconnects them by updating the
     origin zone of transit segments to match the destination of drive segments.
-    
+
     Args:
         df (pd.DataFrame): Trip data with potentially split drive-transit trips
-    
+
     Returns:
         pd.DataFrame: Trip data with properly linked drive-transit trips
     """
@@ -60,20 +60,20 @@ def link_dt(df):
 def assign_day(config):
     """
     Assign days to tours/trips and apply survey weights for model estimation.
-    
+
     This function processes the weekly tour/trip data to:
     1. Determine the primary day-of-week for each tour based on trip frequency
     2. Apply person-day weights based on complete survey days
     3. Generate weighted person-day activity patterns
     4. Create final Daysim input files focused on representative weekdays
-    
+
     The weighting strategy focuses on 3-day weekday patterns (typically
     Tuesday-Thursday) to capture representative travel behavior while
     avoiding day-of-week effects from Mondays and Fridays.
-    
+
     Args:
         config (dict): Configuration dictionary with file paths and weighting parameters
-    
+
     Returns:
         None: Outputs day-assigned, weighted CSV files to 03b-assign_day directory
     """

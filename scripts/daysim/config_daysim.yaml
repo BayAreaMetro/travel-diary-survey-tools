@@ -1,0 +1,50 @@
+# DaySim Processing Pipeline Configuration for BATS 2023
+# This config file demonstrates the full pipeline with DaySim formatting
+
+# Define directory shortcuts
+survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
+output_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/BATS2023_DaysimTest"
+taz_shapefile: "X:/travel-model-one-master/utilities/geographies/bayarea_rtaz1454_rev1_WGS84.shp"
+
+# Pipeline configuration
+pipeline:
+  steps:
+    # Step 1: Data cleaning and loading
+    - name: cleaning
+      inputs:
+        household: "{{ survey_dir }}/household.csv"
+        person: "{{ survey_dir }}/person.csv"
+        unlinked_trip: "{{ survey_dir }}/trip.csv"
+        tour: "{{ survey_dir }}/tour.csv"
+        taz: "{{ taz_shapefile }}"
+      # No outputs - data passed internally between steps
+
+    # Step 2: Link trips based on mode changes and dwell times
+    - name: linking
+      # Uses output from previous step
+      # No explicit inputs needed
+
+    # Step 3: Build tour structures from linked trips
+    - name: tour_building
+      inputs:
+        person: "{{ survey_dir }}/person.csv"
+      parameters:
+        # Tour building parameters can be added here
+        max_dwell_time_minutes: 120
+
+    # Step 4: Format to DaySim specification
+    - name: daysim_formatting
+      inputs:
+        day_completeness_path: "{{ survey_dir }}/day.csv"
+      parameters:
+        weighted: true
+      outputs:
+        household: "{{ output_dir }}/daysim/hh.csv"
+        person: "{{ output_dir }}/daysim/person.csv"
+        unlinked_trips: "{{ output_dir }}/daysim/trip.csv"
+
+    # Step 5: Save other outputs (optional)
+    - name: formatting
+      outputs:
+        linked_trips: "{{ output_dir }}/linked_trips.csv"
+        tours: "{{ output_dir }}/tours.csv"

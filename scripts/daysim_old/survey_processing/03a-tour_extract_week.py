@@ -52,15 +52,15 @@ WT_COMPLETE_COL = "num_days_complete_3dayweekday"
 def isclose(a, b, rel_tol=1e-09, abs_tol=0.000001):
     """
     Compare floating point numbers for approximate equality.
-    
+
     Used for comparing coordinates to identify when trip origins/destinations
     match known locations (home, work, school).
-    
+
     Args:
         a, b (float): Numbers to compare
         rel_tol (float): Relative tolerance for comparison
         abs_tol (float): Absolute tolerance for comparison
-    
+
     Returns:
         bool: True if numbers are approximately equal
     """
@@ -72,13 +72,13 @@ def isclose(a, b, rel_tol=1e-09, abs_tol=0.000001):
 def clock(mins):
     """
     Convert minutes past midnight to HHMM clock time format.
-    
+
     Handles time values that exceed 24 hours by wrapping to next day.
     Used for formatting departure and arrival times in tour output.
-    
+
     Args:
         mins (int): Minutes past midnight
-    
+
     Returns:
         str: Time in HHMM format (e.g., '1430' for 2:30 PM)
     """
@@ -92,11 +92,11 @@ def clock(mins):
 def tour_extract_week(config):
     """
     Extract tours from weekly trip data and generate Daysim model inputs.
-    
+
     This is the main function that processes trip data through the tour
     extraction algorithm, identifying travel patterns and generating
     comprehensive outputs for activity-based travel demand modeling.
-    
+
     The algorithm:
     1. Loads and processes household, person, and trip data
     2. Identifies tour boundaries based on location patterns
@@ -105,11 +105,11 @@ def tour_extract_week(config):
     5. Organizes trips into tour stops and calculates tour modes
     6. Generates person-day activity patterns
     7. Outputs weighted data for model estimation
-    
+
     Args:
         config (dict): Configuration dictionary with file paths, weighting options,
                       and model parameters
-    
+
     Returns:
         None: Outputs multiple CSV files (tour, trip, personday, person, hh)
               to 03a-tour_extract_week directory

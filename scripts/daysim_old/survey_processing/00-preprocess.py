@@ -25,11 +25,11 @@ import pandas as pd
 def preprocess(config):
     """
     Main preprocessing function that processes all survey data files.
-    
+
     Args:
         config (dict): Configuration dictionary containing file paths and names
                       from the TOML configuration file
-    
+
     Returns:
         None: Outputs processed CSV files to the 00-preprocess directory
     """
@@ -56,15 +56,15 @@ def preprocess(config):
 def preprocess_trip(raw_dir, preprocess_dir, trip_filename):
     """
     Process trip data by adding formatted time columns.
-    
+
     Converts separate hour, minute, second columns into formatted time strings
     (HH:MM:SS format) for both departure and arrival times.
-    
+
     Args:
         raw_dir (Path): Path to directory containing raw CSV files
         preprocess_dir (Path): Path to output directory for processed files
         trip_filename (str): Name of the trip CSV file
-    
+
     Returns:
         pd.DataFrame: Processed trip dataframe with added time columns
     """
@@ -92,16 +92,16 @@ def preprocess_trip(raw_dir, preprocess_dir, trip_filename):
 def preprocess_location(raw_dir, preprocess_dir, location_filename, trip):
     """
     Process location data by adding person_id references from trip data.
-    
+
     Merges location data with trip data to add person_id for each location,
     enabling better linkage between person and location records.
-    
+
     Args:
         raw_dir (Path): Path to directory containing raw CSV files
         preprocess_dir (Path): Path to output directory for processed files
         location_filename (str): Name of the location CSV file
         trip (pd.DataFrame): Processed trip dataframe containing person_id mappings
-    
+
     Returns:
         pd.DataFrame: Location dataframe with added person_id column
     """

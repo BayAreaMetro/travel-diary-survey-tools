@@ -34,14 +34,14 @@ Output: Linked trip data with merged multi-modal journeys
 def link_trips_week(config):
     """
     Link related trips that represent single multi-modal journeys.
-    
+
     This function processes the trip data to identify and merge trips that
     should be considered as segments of a single journey, particularly for
     complex transit access/egress and mode change scenarios.
-    
+
     Args:
         config (dict): Configuration dictionary containing file paths and parameters
-    
+
     Returns:
         None: Outputs linked trip data and access/egress mode data
               to 02b-link_trips_week directory
@@ -148,24 +148,24 @@ def link_trips_week(config):
             "egr_mode",
         ]
     )
-    
+
     tmp_dict = {}
     tmp_flag = False
 
     def merge_trips(rownum, skip, mode, tmp_flag):
         """
         Merge current trip with next trip(s) in sequence.
-        
+
         Updates trip attributes by combining current trip with subsequent trip,
         preserving the highest-level transportation mode and extending the
         destination to the final stop.
-        
+
         Args:
             rownum (int): Current trip row index
             skip (int): Number of trips to skip/merge
             mode (int): Transportation mode for the merged trip
             tmp_flag (bool): Flag for tracking access/egress mode combinations
-        
+
         Returns:
             bool: Updated tmp_flag for access/egress tracking
         """
@@ -221,7 +221,7 @@ def link_trips_week(config):
         )
         return tmp_flag
 
-    # loop through trips 
+    # loop through trips
     i = 0
     while i < len(trip):
         if i % 1000 == 0:
@@ -253,9 +253,9 @@ def link_trips_week(config):
         path_nxt = trip.loc[i, "path_nxt"]
 
         dpurp = trip.loc[i, "dpurp"]
-        
-        # Handle change-mode exceptions.  
-        # Not a change mode.  Move on.  
+
+        # Handle change-mode exceptions.
+        # Not a change mode.  Move on.
         if dpurp != 10:
             if (
                 hhno == prev_hhno
@@ -266,7 +266,7 @@ def link_trips_week(config):
                 trip.loc[i, "opurp"] = 4
             i += 1
             continue
-        # Last trip of the person, it can't be a change mode. Recode it. 
+        # Last trip of the person, it can't be a change mode. Recode it.
         elif trip.loc[i, "last_ofper"] == 1 and dpurp == 10:
             trip.loc[i, "dpurp"] = 4  # just assume this is personal business
             if tmp_flag:
@@ -274,7 +274,7 @@ def link_trips_week(config):
                 tmp_flag = False
             i += 1
             continue
-        # Last trip of the day can't be change mode.  Recode it.  
+        # Last trip of the day can't be change mode.  Recode it.
         elif trip.loc[i, "last_ofday"] == 1 and np.isnan(trip.loc[i, "dpurp_nxt"]):
             trip.loc[i, "dpurp"] = 4  # just assume this is personal business
             if tmp_flag:
@@ -292,8 +292,8 @@ def link_trips_week(config):
         # Merge access, egress, and sequential transit trips where the activity duration < ACT_DUR_LIMIT
         # walk + walk-transit
         if (
-            (mode in WALK_MODES and mode_nxt == 6)    
-            or (mode == 6 and mode_nxt in WALK_MODES) 
+            (mode in WALK_MODES and mode_nxt == 6)
+            or (mode == 6 and mode_nxt in WALK_MODES)
         ) and act_dur <= ACT_DUR_LIMIT:
             tmp_flag = merge_trips(i, j, 6, tmp_flag)
             j += 1
