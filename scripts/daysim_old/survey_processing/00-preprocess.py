@@ -19,7 +19,7 @@ import tomllib
 from pathlib import Path
 from shutil import copy2
 
-import pandas as pd
+import polars as pl
 
 
 def preprocess(config):
@@ -35,7 +35,7 @@ def preprocess(config):
     """
     raw_dir = Path(config["raw"]["dir"])
     preprocess_dir = Path(config["00-preprocess"]["dir"])
-    preprocess_dir.mkdir(exist_ok=True)
+    preprocess_dir.mkdir(exist_ok=True)    
 
     trip = preprocess_trip(raw_dir, preprocess_dir, config["trip_filename"])
     _ = preprocess_location(raw_dir, preprocess_dir, config["location_filename"], trip)
@@ -68,24 +68,29 @@ def preprocess_trip(raw_dir, preprocess_dir, trip_filename):
     Returns:
         pd.DataFrame: Processed trip dataframe with added time columns
     """
-    trip = pd.read_csv(raw_dir / trip_filename)
+    trip = pl.read_csv(raw_dir / trip_filename)
     print("trip raw len:", len(trip))
+    
     if "depart_seconds" in trip.columns:
-        trip.rename(columns={"depart_seconds": "depart_second"}, inplace=True)
-    trip["depart_time"] = trip.apply(
-        lambda x: "{:02d}:{:02d}:{:02d}".format(
-            x["depart_hour"], x["depart_minute"], x["depart_second"]
-        ),
-        axis=1,
-    )
-    trip["arrive_time"] = trip.apply(
-        lambda x: "{:02d}:{:02d}:{:02d}".format(
-            x["arrive_hour"], x["arrive_minute"], x["arrive_second"]
-        ),
-        axis=1,
-    )
+        trip = trip.rename({"depart_seconds": "depart_second"})
+    
+    trip.with_columns([
+        pl.format(
+            "{}:{}:{}",
+            pl.col("depart_hour").cast(pl.Utf8).str.zfill(2),
+            pl.col("depart_minute").cast(pl.Utf8).str.zfill(2),
+            pl.col("depart_second").cast(pl.Utf8).str.zfill(2),
+        ).alias("depart_time"),
+        pl.format(
+            "{}:{}:{}",
+            pl.col("arrive_hour").cast(pl.Utf8).str.zfill(2),
+            pl.col("arrive_minute").cast(pl.Utf8).str.zfill(2),
+            pl.col("arrive_second").cast(pl.Utf8).str.zfill(2),
+        ).alias("arrive_time"),
+    ])
     print("trip preprocessed len:", len(trip))
-    trip.to_csv(preprocess_dir / trip_filename, index=False)
+    trip.write_csv(preprocess_dir / trip_filename)
+
     return trip
 
 
@@ -105,16 +110,17 @@ def preprocess_location(raw_dir, preprocess_dir, location_filename, trip):
     Returns:
         pd.DataFrame: Location dataframe with added person_id column
     """
-    location = pd.read_csv(raw_dir / location_filename)
+    location = pl.read_csv(raw_dir / location_filename)
     print("location raw len:", len(location))
-    location = pd.merge(
-        location,
-        trip[["trip_id", "person_id"]],
+    
+    location = location.join(
+        trip.select(["trip_id", "person_id"]),
         on="trip_id",
         how="left",
     )
+    
     print("location preprocessed len:", len(location))
-    location.to_csv(preprocess_dir / location_filename, index=False)
+    location.write_csv(preprocess_dir / location_filename)
     return location
 
 

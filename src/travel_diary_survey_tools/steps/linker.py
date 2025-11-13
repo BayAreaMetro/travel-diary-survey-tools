@@ -4,7 +4,6 @@ import logging
 
 import polars as pl
 
-from .models import LinkedTripModel, TripModel
 from .utils import add_time_columns, expr_haversine
 
 logging.basicConfig(level=logging.INFO)
@@ -282,8 +281,9 @@ def link_trips(
     # Concatenate/parse time columns first (before validation)
     trips = add_time_columns(trips)
 
-    # Validate input
-    trips = TripModel.validate(trips)
+    # Validate input (sample only for performance)
+    from .data.models import validate_trips, validate_linked_trips
+    validate_trips(trips, sample_size=100)
 
     # Link trip IDs
     trips_with_ids = link_trip_ids(
@@ -299,8 +299,8 @@ def link_trips(
         transit_mode_codes,
     )
 
-    # Validate output
-    linked_trips = LinkedTripModel.validate(linked_trips)
+    # Validate output (sample only for performance)
+    validate_linked_trips(linked_trips, sample_size=100)
 
     logger.info("Trip linking completed.")
     return trips_with_ids, linked_trips

@@ -35,8 +35,8 @@ import polars as pl
 import pytest
 
 from travel_diary_survey_tools import DaysimFormatter, TourBuilder, link_trips
-from travel_diary_survey_tools.person_type import derive_person_type
-from travel_diary_survey_tools.utils import add_time_columns
+from travel_diary_survey_tools.utils.person_type import derive_person_type
+from travel_diary_survey_tools.utils.helpers import add_time_columns
 
 logger = logging.getLogger(__name__)
 

@@ -31,7 +31,7 @@ def datetime_from_parts(
 def add_time_columns(
     trips: pl.DataFrame,
     datetime_format: str = "%Y-%m-%d %H:%M:%S",
-    ) -> pl.DataFrame:
+) -> pl.DataFrame:
     """Add datetime columns for departure and arrival times if missing.
 
     If datetime columns exist as strings, parse them to datetime type.
@@ -39,51 +39,31 @@ def add_time_columns(
     """
     logger.info("Adding datetime columns...")
 
-    suffixes = ["date", "hour", "minute", "seconds"]
-    d_cols = [f"depart_{s}" for s in suffixes]
-    a_cols = [f"arrive_{s}" for s in suffixes]
-
-    # Helper function to handle datetime columns
-    def _to_datetime_column(
-        df: pl.DataFrame, col_name: str, component_cols: list[str]
-    ) -> pl.DataFrame:
-        if col_name not in df.columns:
+    for prefix in ["depart", "arrive"]:
+        col_name = f"{prefix}_time"
+        component_cols = [f"{prefix}_{s}" for s in ["date", "hour", "minute", "seconds"]]
+        
+        if col_name not in trips.columns:
             logger.info("Constructing %s...", col_name)
-            return df.with_columns(
-                datetime_from_parts(
-                    *[pl.col(c) for c in component_cols]
-                ).alias(col_name)
+            trips = trips.with_columns(
+                datetime_from_parts(*[pl.col(c) for c in component_cols]).alias(col_name)
             )
-        if df[col_name].dtype == pl.Utf8:
+        elif trips[col_name].dtype == pl.Utf8:
             logger.info("Parsing %s from string...", col_name)
-            df = df.with_columns(
-                pl.col(col_name).str.to_datetime(
-                    format=datetime_format,
-                    strict=False)
-                )
-
-            # If parsing failed for some rows, reconstruct from components
-            if df[col_name].null_count() > 0:
-                logger.info(
-                    "Reconstructing null %s from components...",
-                    col_name
-                    )
-                df = df.with_columns(
+            trips = trips.with_columns(
+                pl.col(col_name).str.to_datetime(format=datetime_format, strict=False)
+            )
+            
+            if trips[col_name].null_count() > 0:
+                logger.info("Reconstructing null %s from components...", col_name)
+                trips = trips.with_columns(
                     pl.when(pl.col(col_name).is_null())
-                    .then(
-                        datetime_from_parts(
-                            *[pl.col(c) for c in component_cols]
-                        )
-                    )
+                    .then(datetime_from_parts(*[pl.col(c) for c in component_cols]))
                     .otherwise(pl.col(col_name))
                     .alias(col_name)
                 )
-        return df
 
-    trips = _to_datetime_column(trips, "depart_time", d_cols)
-    trips = _to_datetime_column(trips, "arrive_time", a_cols)
-
-    return trips  # noqa: RET504
+    return trips
 
 
 def expr_haversine(

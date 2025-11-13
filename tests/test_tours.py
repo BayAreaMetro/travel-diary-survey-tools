@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from travel_diary_survey_tools.constants import (
+from travel_diary_survey_tools.data.constants import (
     LocationType,
     ModeType,
     PersonCategory,

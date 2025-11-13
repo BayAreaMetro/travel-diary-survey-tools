@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from travel_diary_survey_tools.utils import add_time_columns, expr_haversine
+from travel_diary_survey_tools.utils.helpers import add_time_columns, expr_haversine
 
 # Test constants
 EXPECTED_SAN_JOSE_DISTANCE_MIN = 1300  # meters

@@ -89,13 +89,10 @@ class Pipeline:
 
         logger.info("Pipeline completed!")
 
+    # NOTE: Simple non-dynamic method for simplicity
+    # Eventually to use decorators / dynamic registration
     def link_trips(self, step_config: dict[str, Any]) -> None:
-        """Link trips based on mode changes and dwell times.
-
-        Args:
-            step_config: Step configuration from YAML
-
-        """
+        """Link trips based on mode changes and dwell times."""
         # Load raw trips
         unlinked_trip_path = step_config["input"]["unlinked_trip"]
         self.unlinked_trips = pl.read_csv(unlinked_trip_path)
@@ -106,12 +103,7 @@ class Pipeline:
         )
 
     def build_tours(self, step_config: dict[str, Any]) -> None:
-        """Build tour structures from linked trips.
-
-        Args:
-            step_config: Step configuration from YAML
-
-        """
+        """Build tour structures from linked trips."""
         # Load persons data
         person_path = step_config["input"]["person"]
         persons = pl.read_csv(person_path)
@@ -124,12 +116,7 @@ class Pipeline:
         self.tours = tours
 
     def format_daysim(self, step_config: dict[str, Any]) -> None:
-        """Format data to DaySim model specification.
-
-        Args:
-            step_config: Step configuration from YAML
-
-        """
+        """Format data to DaySim model specification."""
         logger.info("Formatting data to DaySim specification")
 
         # Initialize formatter
@@ -160,12 +147,7 @@ class Pipeline:
         logger.info("DaySim formatting completed")
 
     def save_outputs(self, step_config: dict[str, Any]) -> None:
-        """Save processed data to output files.
-
-        Args:
-            step_config: Step configuration from YAML
-
-        """
+        """Save processed data to output files."""
         for output_name, output_path in step_config["outputs"].items():
             if hasattr(self, output_name):
                 df = getattr(self, output_name)

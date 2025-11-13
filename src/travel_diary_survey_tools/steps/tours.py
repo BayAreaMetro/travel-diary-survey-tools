@@ -114,7 +114,7 @@ from .constants import (
     TourCategory,
     TripPurpose,
 )
-from .models import HouseholdModel, LinkedTripModel, PersonModel
+from .data.models import HouseholdModel, LinkedTripModel, PersonModel
 from .utils import expr_haversine
 
 logging.basicConfig(level=logging.INFO)
@@ -195,10 +195,12 @@ class TourBuilder:
         """
         logger.info("Initializing TourBuilder...")
 
-        households = HouseholdModel.validate(households)
-
-        # Join home_lat and home_lon from households if provided
+        from .data.models import validate_households, validate_persons
+        
         if households is not None:
+            validate_households(households, sample_size=100)
+            
+            # Join home_lat and home_lon from households if provided
             persons = persons.join(
                 households.select(
                     ["hh_id", "home_lat", "home_lon"]
@@ -207,7 +209,8 @@ class TourBuilder:
                 how="left",
             )
 
-        self.persons = PersonModel.validate(persons)
+        validate_persons(persons, sample_size=100)
+        self.persons = persons
         self.config = {**DEFAULT_CONFIG, **(config or {})}
         self._prepare_location_cache()
         logger.info("TourBuilder ready for %d persons", len(self.persons))
@@ -917,7 +920,8 @@ class TourBuilder:
             - tours: Aggregated tour records with purpose, mode, timing
         """
         logger.info("Building tours from linked trip data...")
-        linked_trips = LinkedTripModel.validate(linked_trips)
+        from .data.models import validate_linked_trips
+        validate_linked_trips(linked_trips, sample_size=100)
 
         # Step 1: Classify trip locations
         linked_trips_classified = self._classify_trip_locations(linked_trips)

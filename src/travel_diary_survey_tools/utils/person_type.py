@@ -1,7 +1,7 @@
 """Module for deriving person type from person attributes."""
 import polars as pl
 
-from .constants import AgeCodes, PersonType
+from ..data.constants import AgeCodes, PersonType
 
 
 def derive_person_type(persons: pl.DataFrame) -> pl.DataFrame:
