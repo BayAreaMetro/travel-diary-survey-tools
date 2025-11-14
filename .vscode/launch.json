@@ -16,11 +16,11 @@
             "name": "Python Debugger: Pipeline",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.processing.pipeline",
+            "program": "${workspaceFolder}/scripts/daysim/run.py",
             "console": "integratedTerminal",
             "args": [
                 "--config",
-                "config.yaml",
+                "config_daysim.yaml",
                 "--steps",
                 "link_trips,build_tours"
             ]

@@ -4,17 +4,63 @@ import logging
 
 import polars as pl
 
-from .utils import add_time_columns, expr_haversine
+from travel_diary_survey_tools.pipeline.decoration import step
+from travel_diary_survey_tools.utils.helpers import (
+    expr_haversine,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 # Trip Linker Functions --------------------------------------------------------
+@step(validate_input=True, validate_output=True)
+def link_trips(
+    unlinked_trips: pl.DataFrame,
+    change_mode_code: int,
+    transit_mode_codes: list[int],
+    max_dwell_time: float = 120,
+    dwell_buffer_distance: float = 100,
+) -> dict[str, pl.DataFrame]:
+    """Link trips and aggregate them into complete journey records.
+
+    Args:
+        unlinked_trips: DataFrame containing trip data
+        change_mode_code: Purpose code indicating a mode change
+        transit_mode_codes: List of mode codes that count as transit
+        max_dwell_time: Maximum time gap between trips to link them (minutes)
+        dwell_buffer_distance: Maximum distance between trips to link (miles)
+
+    Returns:
+        Tuple of (trips with linked_trip_id, aggregated linked trips)
+
+    """
+    logger.info("Linking trips...")
+
+    # Link trip IDs
+    unlinked_trips_with_ids = link_trip_ids(
+        unlinked_trips,
+        change_mode_code,
+        max_dwell_time,
+        dwell_buffer_distance,
+    )
+
+    # Aggregate linked trips
+    linked_trips = aggregate_linked_trips(
+        unlinked_trips_with_ids,
+        transit_mode_codes,
+    )
+
+    logger.info("Trip linking completed.")
+    return {
+        "trips_with_ids": unlinked_trips_with_ids,
+        "linked_trips": linked_trips,
+    }
+
 
 
 def link_trip_ids(
-    trips: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
     change_mode_code: int,
     max_dwell_time: float = 120,
     dwell_buffer_distance: float = 100,
@@ -31,7 +77,7 @@ def link_trip_ids(
      local linked trip index.
 
     Args:
-        trips: DataFrame containing trip data
+        unlinked_trips: DataFrame containing trip data
         change_mode_code: Purpose code indicating a mode change
         max_dwell_time: Maximum time gap between trips to link them (minutes)
         dwell_buffer_distance: Maximum distance between trips to link (miles)
@@ -43,28 +89,14 @@ def link_trip_ids(
     logger.info("Linking trip IDs...")
 
     # Step 1: Sort trips by day and departure time and arrive time.
-    linked_trips = trips.sort(["day_id", "depart_time", "arrive_time"])
+    unlinked_trips = unlinked_trips.sort(["day_id", "depart_time", "arrive_time"])
 
     # Step 2: Get previous trip purpose category within the same person
-    linked_trips = linked_trips.with_columns(
-        [
-            pl.col("d_purpose_category")
-            .shift(fill_value=None)
-            .over("person_id")
-            .alias("prev_purpose"),
-            pl.col("d_lon")
-            .shift(fill_value=None)
-            .over("person_id")
-            .alias("prev_d_lon"),
-            pl.col("d_lat")
-            .shift(fill_value=None)
-            .over("person_id")
-            .alias("prev_d_lat"),
-            pl.col("arrive_time")
-            .shift(fill_value=None)
-            .over("person_id")
-            .alias("prev_arrive_time"),
-        ]
+    unlinked_trips = unlinked_trips.with_columns(
+        pl.col("d_purpose_category", "d_lon", "d_lat", "arrive_time")
+        .shift(fill_value=None)
+        .over("person_id")
+        .name.map(lambda c: f"prev_{c.removeprefix('d_')}")
     )
 
     # Step 3: Is new linked trips when:
@@ -72,11 +104,11 @@ def link_trip_ids(
     #  - prev_purpose is missing
     #  - distance between prev_d_coord and o_coord > threshold
     #  - time between prev_arrive_time and depart_time > threshold
-    linked_trips = linked_trips.with_columns(
+    unlinked_trips = unlinked_trips.with_columns(
         [
             (
-                (pl.col("prev_purpose") != change_mode_code)
-                | pl.col("prev_purpose").is_null()
+                (pl.col("prev_purpose_category") != change_mode_code)
+                | pl.col("prev_purpose_category").is_null()
                 | (
                     expr_haversine(
                         pl.col("prev_d_lat"),
@@ -101,7 +133,7 @@ def link_trip_ids(
     )
 
     # Step 4: Assign linked trip IDs using cumulative sum
-    linked_trips = linked_trips.with_columns(
+    unlinked_trips = unlinked_trips.with_columns(
         [
             pl.col("new_trip_flag")
             .cum_sum()
@@ -111,7 +143,7 @@ def link_trip_ids(
     )
 
     # Step 5: Make linked_trip_id globally unique across days
-    linked_trips = linked_trips.with_columns(
+    unlinked_trips_with_id = unlinked_trips.with_columns(
         [
             (
                 pl.col("day_id").cast(pl.Utf8)
@@ -123,11 +155,11 @@ def link_trip_ids(
     )
 
     # Step 6: Clean up temporary columns
-    return linked_trips.drop(["prev_purpose", "new_trip_flag"])
+    return unlinked_trips_with_id.drop(["prev_purpose", "new_trip_flag"])
 
 
 def aggregate_linked_trips(
-    trips: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
     transit_mode_codes: list[int],
 ) -> pl.DataFrame:
     """Aggregate linked trips into single records, summarizing key info.
@@ -143,7 +175,7 @@ def aggregate_linked_trips(
         Use mode of longest duration trip segment.
 
     Args:
-        trips: DataFrame with linked_trip_id column
+        unlinked_trips: DataFrame with linked_trip_id column
         transit_mode_codes: List of mode codes that count as transit
 
     Returns:
@@ -154,7 +186,7 @@ def aggregate_linked_trips(
 
     # First, find the mode type from the longest duration trip segment
     mode_selection = (
-        trips
+        unlinked_trips
         # Calculate trip durations
         .with_columns(
             [
@@ -193,7 +225,7 @@ def aggregate_linked_trips(
 
     # Now aggregate with proper time ordering
     linked_trips = (
-        trips
+        unlinked_trips
         # Sort by departure time
         .sort(["linked_trip_id", "depart_time", "arrive_time"])
         .group_by(
@@ -250,137 +282,7 @@ def aggregate_linked_trips(
 
     # Join day_id back for reference
     return linked_trips.join(
-        trips.select(["linked_trip_id", "day_id"]).unique(),
+        unlinked_trips.select(["linked_trip_id", "day_id"]).unique(),
         on="linked_trip_id",
         how="left",
-    )
-
-
-def link_trips(
-    trips: pl.DataFrame,
-    change_mode_code: int,
-    transit_mode_codes: list[int],
-    max_dwell_time: float = 120,
-    dwell_buffer_distance: float = 100,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Link trips and aggregate them into complete journey records.
-
-    Args:
-        trips: DataFrame containing trip data
-        change_mode_code: Purpose code indicating a mode change
-        transit_mode_codes: List of mode codes that count as transit
-        max_dwell_time: Maximum time gap between trips to link them (minutes)
-        dwell_buffer_distance: Maximum distance between trips to link (miles)
-
-    Returns:
-        Tuple of (trips with linked_trip_id, aggregated linked trips)
-
-    """
-    logger.info("Linking trips...")
-
-    # Concatenate/parse time columns first (before validation)
-    trips = add_time_columns(trips)
-
-    # Validate input (sample only for performance)
-    from .data.models import validate_trips, validate_linked_trips
-    validate_trips(trips, sample_size=100)
-
-    # Link trip IDs
-    trips_with_ids = link_trip_ids(
-        trips,
-        change_mode_code,
-        max_dwell_time,
-        dwell_buffer_distance,
-    )
-
-    # Aggregate linked trips
-    linked_trips = aggregate_linked_trips(
-        trips_with_ids,
-        transit_mode_codes,
-    )
-
-    # Validate output (sample only for performance)
-    validate_linked_trips(linked_trips, sample_size=100)
-
-    logger.info("Trip linking completed.")
-    return trips_with_ids, linked_trips
-
-
-# Some debugging...
-if __name__ == "__main__":  # pragma: no cover
-    import logging
-    from pathlib import Path
-
-    import polars as pl
-
-    logger = logging.getLogger(__name__)
-    logging.basicConfig(level=logging.INFO)
-
-    # Not really sure where everything should live but all this is pretty sinful
-    DATA_DIR = Path(
-        "E:\\Box\\Modeling and Surveys\\Surveys\\Travel Diary Survey"
-    )
-    DATA_DIR = (
-        DATA_DIR / "BATS_2023\\MTC_RSG_Partner Repository\\5.Deliverables"
-    )
-    DATA_DIR = DATA_DIR / "Task 10 - Weighting and Expansion Data Files"
-    DATA_DIR = DATA_DIR / "WeightedDataset_12112024"
-    TRIP_PATH = DATA_DIR / "trip.csv"
-
-    CHANGE_MODE_CODE: int = 11  # Purpose code for 'change_mode'
-    TRANSIT_MODES: list[str] = [12, 13, 14]
-
-    # Load data
-    trips_df = pl.read_csv(TRIP_PATH)
-
-    # Much wow...
-    trips_df = trips_df.rename({"arrive_second": "arrive_seconds"})
-
-    # Add time columns if missing
-    trips_df = add_time_columns(trips_df)
-
-    # "Correct" trips when depart_time > arrive_time, flip them
-    # including the separate hours, minutes, seconds columns
-    # Create a swap condition to reuse
-    swap_condition = pl.col("depart_time") > pl.col("arrive_time")
-    trips_df = trips_df.with_columns(
-        pl.when(swap_condition)
-        .then(pl.col("arrive_time"))
-        .otherwise(pl.col("depart_time"))
-        .alias("depart_time"),
-        pl.when(swap_condition)
-        .then(pl.col("depart_time"))
-        .otherwise(pl.col("arrive_time"))
-        .alias("arrive_time"),
-        pl.when(swap_condition)
-        .then(pl.col("arrive_hour"))
-        .otherwise(pl.col("depart_hour"))
-        .alias("depart_hour"),
-        pl.when(swap_condition)
-        .then(pl.col("arrive_minute"))
-        .otherwise(pl.col("depart_minute"))
-        .alias("depart_minute"),
-        pl.when(swap_condition)
-        .then(pl.col("arrive_seconds"))
-        .otherwise(pl.col("depart_seconds"))
-        .alias("depart_seconds"),
-        pl.when(swap_condition)
-        .then(pl.col("depart_hour"))
-        .otherwise(pl.col("arrive_hour"))
-        .alias("arrive_hour"),
-        pl.when(swap_condition)
-        .then(pl.col("depart_minute"))
-        .otherwise(pl.col("arrive_minute"))
-        .alias("arrive_minute"),
-        pl.when(swap_condition)
-        .then(pl.col("depart_seconds"))
-        .otherwise(pl.col("arrive_seconds"))
-        .alias("arrive_seconds"),
-    )
-
-    # Link trips
-    trips_with_ids, linked_trips = link_trips(
-        trips_df,
-        CHANGE_MODE_CODE,
-        TRANSIT_MODES,
     )

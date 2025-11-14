@@ -1,172 +1,150 @@
-"""Simple pipeline runner for travel diary survey processing."""
-
+"""Pipeline execution module for running data processing steps."""
+import inspect
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import polars as pl
 import yaml
 
-from travel_diary_survey_tools import DaysimFormatter, TourBuilder, link_trips
+from travel_diary_survey_tools.data.validation import CanonicalData
+from travel_diary_survey_tools.steps import link_trips, load_data
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class Pipeline:
-    """Travel diary survey processing pipeline."""
+    """Class to run a data processing pipeline based on a configuration file."""
 
-    def __init__(self, config_path: str | Path) -> None:
-        """Initialize pipeline with configuration.
+    data: CanonicalData
+    steps: dict[str, Callable]
+
+
+    def __init__(
+        self,
+        config_path: str,
+        custom_steps: dict[str, Callable] | None = None
+        ) -> None:
+        """Initialize the Pipeline with configuration and custom steps.
 
         Args:
-            config_path: Path to YAML config file
-
+            config_path: Path to the YAML configuration.
+                steps.
+            custom_steps: Mapping of step names to custom functions
+                (overrides default steps), optional.
         """
-        self.config_path = Path(config_path)
+        self.config_path = config_path
         self.config = self._load_config()
+        self.data = CanonicalData()
 
-        # Canonical tables - always present
-        self.household: pl.DataFrame | None = None
-        self.person: pl.DataFrame | None = None
-        self.day: pl.DataFrame | None = None
-        self.unlinked_trips: pl.DataFrame | None = None
-        self.linked_trips: pl.DataFrame | None = None
-        self.tours: pl.DataFrame | None = None
-
-        # Map step names to methods
+        # Update with default steps from the config
         self.steps = {
-            "cleaning": self.load_data,
-            "linking": self.link_trips,
-            "tour_building": self.build_tours,
-            "daysim_formatting": self.format_daysim,
-            "formatting": self.save_outputs,
+            "load_data": load_data,
+            "link_trips": link_trips,
         }
+        self.steps.update(custom_steps or {})
 
     def _load_config(self) -> dict[str, Any]:
-        """Load and parse YAML config file with shorthand replacement."""
-        with self.config_path.open() as f:
+        """Load the pipeline configuration from a YAML file.
+
+        Replaces template variables in the format {{ variable_name }} with
+        their corresponding values defined in the config.
+
+        Returns:
+            The configuration dictionary.
+        """
+        with Path(self.config_path).open() as f:
             config = yaml.safe_load(f)
 
+        # Extract top-level variables for substitution
         variables = {
-            k: v
-            for k, v in config.items()
-            if k != "pipeline" and isinstance(v, str)
+            key: value for key, value in config.items()
+            if isinstance(value, str)
         }
 
-        def expand_dict(d: dict) -> None:
-            for key, value in d.items():
-                if isinstance(value, str):
-                    expanded_value = value
-                    for var_name, var_value in variables.items():
-                        expanded_value = expanded_value.replace(
-                            f"{{{{ {var_name} }}}}", var_value
-                        )
-                    d[key] = expanded_value
-                elif isinstance(value, dict):
-                    expand_dict(value)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, dict):
-                            expand_dict(item)
+        # Recursively replace template variables
+        def replace_templates(obj: Any) -> Any:  # noqa: ANN401
+            if isinstance(obj, str):
+                # Replace {{ variable_name }} with actual values
+                for var_name, var_value in variables.items():
+                    obj = obj.replace(
+                        f"{{{{ {var_name} }}}}",
+                        str(var_value)
+                    )
+                return obj
 
-        return expand_dict(config)
+            if isinstance(obj, dict):
+                return {k: replace_templates(v) for k, v in obj.items()}
+
+            if isinstance(obj, list):
+                return [replace_templates(item) for item in obj]
+
+            return obj
+
+        return replace_templates(config)
+
+    def parse_step_args(
+        self, step_name: str, step_obj: Callable
+    ) -> dict[str, Any]:
+        """Separate the canonical data and parameters.
+
+        If argument name matches a canonical table, it is passed from self.data.
+        Else, it is taken from the step configuration "parameters".
+
+        Args:
+            step_name: Name of the step.
+            step_obj: The step function or class.
+
+        """
+        step_args = inspect.signature(step_obj).parameters
+
+        # if the arg name is a canonical table, pass it from self.data
+        data_kwargs = {}
+        config_kwargs = {}
+
+        for arg_name, param in step_args.items():
+            if hasattr(self.data, arg_name):
+                data_kwargs[arg_name] = getattr(self.data, arg_name)
+            else:
+                step_cfg = self.config["steps"]
+                params = next(
+                    (
+                        s.get("parameters", {}) for s in step_cfg
+                        if s["name"] == step_name
+                    ), {}
+                )
+                # Only add if parameter exists in config or has default
+                if arg_name in params:
+                    config_kwargs[arg_name] = params[arg_name]
+                elif param.default is not inspect.Parameter.empty:
+                    # Has default value, don't need to provide it
+                    pass
+                # If no default and not in config, omit it
+                # This will cause TypeError if it's required
+
+        return {**data_kwargs, **config_kwargs}
+
 
     def run(self) -> None:
-        """Run pipeline steps defined in config.yaml."""
-        for step_config in self.config["pipeline"]["steps"]:
-            step_name = step_config["name"]
-            logger.info("Running step: %s", step_name)
+        """Run a data processing pipeline based on a configuration file."""
+        for step_cfg in self.config["steps"]:
+            step_name = step_cfg["name"]
+            step_obj = self.steps.get(step_name)
 
-            step_func = self.steps[step_name]
-            step_func(step_config)
+            logger.info("▶ Running step: %s", step_name)
 
-            # Check if outputs required for step
-            if "outputs" in step_config:
-                self.save_outputs(step_config)
+            kwargs = self.parse_step_args(step_name, step_obj)
 
-            logger.info("Completed step: %s", step_name)
+            # Add canonical_data for validation tracking
+            # Decorated steps will pop it out, undecorated steps need **kwargs
+            kwargs["canonical_data"] = self.data
 
-        logger.info("Pipeline completed!")
-
-    # NOTE: Simple non-dynamic method for simplicity
-    # Eventually to use decorators / dynamic registration
-    def link_trips(self, step_config: dict[str, Any]) -> None:
-        """Link trips based on mode changes and dwell times."""
-        # Load raw trips
-        unlinked_trip_path = step_config["input"]["unlinked_trip"]
-        self.unlinked_trips = pl.read_csv(unlinked_trip_path)
-
-        # Link trips using travel_diary_survey_tools
-        self.unlinked_trips, self.linked_trips = link_trips.link_trips(
-            self.unlinked_trips
-        )
-
-    def build_tours(self, step_config: dict[str, Any]) -> None:
-        """Build tour structures from linked trips."""
-        # Load persons data
-        person_path = step_config["input"]["person"]
-        persons = pl.read_csv(person_path)
-
-        # Build tours
-        builder = TourBuilder(persons, step_config.get("parameters", {}))
-        self.linked_trips, tours = builder.build_tours(self.linked_trips)
-
-        # Store tours as attribute
-        self.tours = tours
-
-    def format_daysim(self, step_config: dict[str, Any]) -> None:
-        """Format data to DaySim model specification."""
-        logger.info("Formatting data to DaySim specification")
-
-        # Initialize formatter
-        formatter = DaysimFormatter(step_config.get("parameters", {}))
-
-        # Load day completeness if path provided
-        day_completeness = None
-        if "day_completeness_path" in step_config.get("inputs", {}):
-            day_path = step_config["inputs"]["day_completeness_path"]
-            logger.info("Loading day completeness from: %s", day_path)
-            day_completeness = formatter.load_day_completeness(day_path)
-
-        # Format each table
-        if self.person is not None:
-            logger.info("Formatting person data")
-            self.person = formatter.format_person(self.person, day_completeness)
-
-        if self.household is not None:
-            logger.info("Formatting household data")
-            self.household = formatter.format_household(
-                self.household, self.person
-            )
-
-        if self.unlinked_trips is not None:
-            logger.info("Formatting trip data")
-            self.unlinked_trips = formatter.format_trip(self.unlinked_trips)
-
-        logger.info("DaySim formatting completed")
-
-    def save_outputs(self, step_config: dict[str, Any]) -> None:
-        """Save processed data to output files."""
-        for output_name, output_path in step_config["outputs"].items():
-            if hasattr(self, output_name):
-                df = getattr(self, output_name)
-                if df is not None:
-                    df.write_csv(output_path)
-                    logger.info(
-                        "Saved output %s to %s",
-                        output_name,
-                        output_path,
-                    )
-                else:
-                    logger.warning(
-                        "Output %s is None, not saving to %s",
-                        output_name,
-                        output_path,
-                    )
+            # Execute step
+            # Decorated steps will update self.data via canonical_data
+            if hasattr(step_obj, "run"):  # class-based
+                step_instance = step_obj(**kwargs)
+                step_instance.run()
             else:
-                logger.warning(
-                    "No attribute %s found for output, skipping save to %s",
-                    output_name,
-                    output_path,
-                )
+                # function-based
+                step_obj(**kwargs)
+
+        logger.info("Pipeline completed.")

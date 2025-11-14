@@ -195,11 +195,7 @@ class TourBuilder:
         """
         logger.info("Initializing TourBuilder...")
 
-        from .data.models import validate_households, validate_persons
-        
         if households is not None:
-            validate_households(households, sample_size=100)
-            
             # Join home_lat and home_lon from households if provided
             persons = persons.join(
                 households.select(
@@ -209,7 +205,6 @@ class TourBuilder:
                 how="left",
             )
 
-        validate_persons(persons, sample_size=100)
         self.persons = persons
         self.config = {**DEFAULT_CONFIG, **(config or {})}
         self._prepare_location_cache()
@@ -920,8 +915,6 @@ class TourBuilder:
             - tours: Aggregated tour records with purpose, mode, timing
         """
         logger.info("Building tours from linked trip data...")
-        from .data.models import validate_linked_trips
-        validate_linked_trips(linked_trips, sample_size=100)
 
         # Step 1: Classify trip locations
         linked_trips_classified = self._classify_trip_locations(linked_trips)

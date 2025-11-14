@@ -1,53 +1,80 @@
-"""Main entry point for running the processing pipeline."""
+"""Runner script for the BATS 2023 DaySim processing pipeline."""
 
-import argparse
+import logging
+import os
 from pathlib import Path
 
-from travel_diary_survey_tools.pipeline import Pipeline
+import polars as pl
+
+from travel_diary_survey_tools.pipeline.decoration import step
+from travel_diary_survey_tools.pipeline.pipeline import Pipeline
+from travel_diary_survey_tools.utils.helpers import add_time_columns
+
+# ---------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------
+
+os.system(r"net use M: \\models.ad.mtc.ca.gov\data\models")  # noqa: S605, S607
+os.system(r"net use X: \\model3-a\Model3A-Share")  # noqa: S605, S607
+
+# Path to the YAML config file you provided
+CONFIG_PATH = Path(__file__).parent / "config_daysim.yaml"
 
 
-def main() -> None:
-    """Run the travel diary processing pipeline.
+# ---------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
-    This function serves as the command-line interface entry point for
-    processing travel diary survey data. It accepts a configuration file path
-    as a command-line argument and executes the processing pipeline.
+logger = logging.getLogger(__name__)
 
-    Usage:
-        python run.py <config_path>
-        Where <config_path> is the path to a YAML configuration file.
+# Optional: project-specific custom step functions
+# You can define or import them here if needed
+@step(validate_input=False, validate_output=True)
+def custom_cleaning(unlinked_trips: pl.DataFrame) -> dict[str, pl.DataFrame]:
+    """Custom cleaning steps go here, not in the main pipeline."""
+     # Much wow...
+    unlinked_trips = unlinked_trips.rename({"arrive_second": "arrive_seconds"})
 
-    Example:
-        python run.py config/processing_config.yaml
+    # Add time columns if missing
+    unlinked_trips = add_time_columns(unlinked_trips)
 
-    Args:
-        None (arguments are parsed from command line)
+    # "Correct" trips when depart_time > arrive_time, flip them
+    # including the separate hours, minutes, seconds columns
+    # Create a swap condition to reuse
+    swap_condition = pl.col("depart_time") > pl.col("arrive_time")
+    # Swap depart/arrive columns when depart_time > arrive_time
+    swap_cols = [
+        ("depart_time", "arrive_time"),
+        ("depart_hour", "arrive_hour"),
+        ("depart_minute", "arrive_minute"),
+        ("depart_seconds", "arrive_seconds"),
+    ]
 
-    Raises:
-        FileNotFoundError: If the specified configuration file does not exist.
-    Command-line Arguments:
-        config (str): Path to the YAML configuration file that defines the
-                      processing pipeline parameters.
-    """
-    parser = argparse.ArgumentParser(
-        description="Process travel diary survey data"
+    unlinked_trips = unlinked_trips.with_columns(
+        [
+            pl.when(swap_condition).then(pl.col(b)).otherwise(pl.col(a)).alias(a)
+            for a, b in swap_cols
+        ] +
+        [
+            pl.when(swap_condition).then(pl.col(a)).otherwise(pl.col(b)).alias(b)
+            for a, b in swap_cols
+        ]
     )
-    parser.add_argument(
-        "config",
-        type=str,
-        help="Path to YAML configuration file",
-    )
+    return {"unlinked_trips": unlinked_trips}
 
-    args = parser.parse_args()
+custom_steps = {
+    "custom_cleaning": custom_cleaning,
+}
 
-    config_path = Path(args.config)
-    if not config_path.exists():
-        msg = f"Config file not found: {config_path}"
-        raise FileNotFoundError(msg)
-
-    pipeline = Pipeline(config_path)
-    pipeline.run()
-
-
+# ---------------------------------------------------------------------
 if __name__ == "__main__":
-    main()
+    logger.info("Starting BATS 2023 DaySim Processing Pipeline")
+
+    pipeline = Pipeline(config_path=CONFIG_PATH, custom_steps=custom_steps)
+    result = pipeline.run()
+
+    logger.info("Pipeline finished successfully.")

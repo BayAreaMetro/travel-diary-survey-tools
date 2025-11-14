@@ -6,10 +6,8 @@ Polars DataFrames by iterating through rows.
 """
 
 from datetime import datetime
-from typing import Annotated
 
-import polars as pl
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 # Data Models ------------------------------------------------------------------
@@ -25,14 +23,18 @@ class PersonModel(BaseModel):
 
     person_id: int = Field(ge=1)
     hh_id: int = Field(ge=1)
-    person_type: int = Field(ge=1)
     age: int | None = Field(ge=0, default=None)
-    home_lat: float = Field(ge=-90, le=90)
-    home_lon: float = Field(ge=-180, le=180)
     work_lat: float | None = Field(ge=-90, le=90, default=None)
     work_lon: float | None = Field(ge=-180, le=180, default=None)
     school_lat: float | None = Field(ge=-90, le=90, default=None)
     school_lon: float | None = Field(ge=-180, le=180, default=None)
+
+
+class PersonModelProcessed(PersonModel):
+    """Person attributes for tour building with output fields."""
+
+    person_type: int = Field(ge=1, default=None)
+
 
 
 class HouseholdModel(BaseModel):
@@ -43,8 +45,16 @@ class HouseholdModel(BaseModel):
     home_lon: float = Field(ge=-180, le=180)
 
 
+class DayModel(BaseModel):
+    """Day-level attributes for tour building."""
+
+    day_id: int = Field(ge=1)
+    person_id: int = Field(ge=1)
+    hh_id: int = Field(ge=1)
+    travel_dow: int = Field(ge=1, le=7)  # 1=Sunday, 7=Saturday
+
 # Minimal data schema for trip linking
-class TripModel(BaseModel):
+class UnlinkedTripModel(BaseModel):
     """Trip data model for validation."""
 
     trip_id: int = Field(ge=1)
@@ -69,10 +79,13 @@ class TripModel(BaseModel):
     arrive_time: datetime
 
     @model_validator(mode="after")
-    def arrival_after_departure(self) -> "TripModel":
+    def arrival_after_departure(self) -> "UnlinkedTripModel":
         """Ensure arrive_time is after depart_time."""
         if self.arrive_time < self.depart_time:
-            msg = f"arrive_time ({self.arrive_time}) must be >= depart_time ({self.depart_time})"
+            msg = (
+                f"arrive_time ({self.arrive_time}) must be >= "
+                f"depart_time ({self.depart_time})"
+            )
             raise ValueError(msg)
         return self
 
@@ -131,7 +144,7 @@ class TourModel(BaseModel):
     o_location_type: str  # 'home', 'work', 'school', 'other'
     d_location_type: str
 
-    # Mode (hierarchical)
+    # Mode hierarchical
     tour_mode: int = Field(ge=1)
     outbound_mode: int = Field(ge=1)
     inbound_mode: int = Field(ge=1)
@@ -162,12 +175,12 @@ class TourTripModel(BaseModel):
     tour_sequence_num: int = Field(ge=1)
     half_tour: str  # 'outbound' or 'inbound'
     stop_sequence: int = Field(ge=1)  # Within half-tour
-    
+
     # Flags
     is_tour_origin_trip: bool  # First trip of tour
     is_tour_dest_trip: bool  # Last trip to primary destination
     is_tour_return_trip: bool  # Last trip of tour
-    
+
     # Trip details (from LinkedTripModel)
     linked_trip_id: int | None = Field(ge=1, default=None)
     day_id: int = Field(ge=1)
