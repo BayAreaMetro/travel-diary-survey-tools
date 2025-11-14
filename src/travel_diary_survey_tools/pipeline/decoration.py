@@ -113,8 +113,9 @@ def _validate_inputs(
         if not _is_canonical_dataframe(param_name, param_value):
             continue
 
-        # Check if already validated
-        if validator and validator.is_validated(param_name):
+        # Check if already validated for this step
+        step_name = func.__name__
+        if validator and validator.is_validated(param_name, step=step_name):
             logger.debug(
                 "Skipping validation of '%s' for step '%s' "
                 "(already validated)",
@@ -129,13 +130,14 @@ def _validate_inputs(
             func.__name__,
         )
         # Use validator instance if available, otherwise create temporary
+        step_name = func.__name__
         if validator:
             setattr(validator, param_name, param_value)
-            validator.validate(param_name)
+            validator.validate(param_name, step=step_name)
         else:
             temp_validator = CanonicalData()
             setattr(temp_validator, param_name, param_value)
-            temp_validator.validate(param_name)
+            temp_validator.validate(param_name, step=step_name)
 
 
 def _validate_dict_outputs(
@@ -148,8 +150,8 @@ def _validate_dict_outputs(
         if not _is_canonical_dataframe(key, value):
             continue
 
-        # Check if already validated
-        if canonical_data and canonical_data.is_validated(key):
+        # Check if already validated for this step
+        if canonical_data and canonical_data.is_validated(key, step=func_name):
             logger.debug(
                 "Skipping validation of '%s' from step '%s' "
                 "(already validated)",
@@ -166,12 +168,12 @@ def _validate_dict_outputs(
         # Validate using canonical_data instance or create temporary
         if canonical_data:
             # Data already updated by wrapper, just validate
-            canonical_data.validate(key)
+            canonical_data.validate(key, step=func_name)
         else:
             # No canonical_data instance, validate with temporary
             temp_validator = CanonicalData()
             setattr(temp_validator, key, value)
-            temp_validator.validate(key)
+            temp_validator.validate(key, step=func_name)
 
 
 def _is_canonical_dataframe(name: str, value: Any) -> bool:  # noqa: ANN401

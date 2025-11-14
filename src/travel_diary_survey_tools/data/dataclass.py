@@ -17,11 +17,11 @@ from .models import (
     TourModel,
     UnlinkedTripModel,
 )
+from .step_validation import validate_row_for_step
 from .validators import (
     ValidationError,
     check_foreign_keys,
     check_unique_constraints,
-    validate_rows_with_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,14 +42,10 @@ class CanonicalData:
     tours: pl.DataFrame | None = None
 
     # Track validation status - use field() to ensure proper initialization
-    _validation_status: dict[str, bool] = field(default_factory=lambda: {
-        "households": False,
-        "persons": False,
-        "days": False,
-        "unlinked_trips": False,
-        "linked_trips": False,
-        "tours": False,
-    })
+    # Key format: (table_name, step_name) or table_name for non-step validation
+    _validation_status: dict[str | tuple[str, str], bool] = field(
+        default_factory=dict
+    )
 
     # Model mapping for validation
     _models: dict[str, type[BaseModel]] = field(default_factory=lambda: {
@@ -119,23 +115,31 @@ class CanonicalData:
             and name in self._models
             and hasattr(self, "_validation_status")
         ):
-            self._validation_status[name] = False
+            # Clear all validation status for this table (all steps)
+            keys_to_remove = [
+                k for k in self._validation_status
+                if (isinstance(k, tuple) and k[0] == name) or k == name
+            ]
+            for k in keys_to_remove:
+                del self._validation_status[k]
             logger.debug(
-                "Table '%s' modified - validation status reset to False",
+                "Table '%s' modified - validation status reset",
                 name
             )
 
-    def validate(self, table_name: str) -> None:
+    def validate(self, table_name: str, step: str | None = None) -> None:
         """Validate a table through all validation layers.
 
         Runs validation in this order:
         1. Column constraints (uniqueness)
         2. Foreign key constraints
-        3. Row-level Pydantic validation
+        3. Row-level Pydantic validation (step-aware if step provided)
         4. Custom user-registered validators
 
         Args:
             table_name: Name of the table to validate
+            step: Pipeline step name for step-aware validation.
+                 If None, validates all fields strictly.
 
         Raises:
             ValidationError: If any validation check fails
@@ -157,9 +161,11 @@ class CanonicalData:
             return
 
         start_time = time.time()
+        step_info = f" for step '{step}'" if step else ""
         logger.info(
-            "Validating table '%s' (%s rows)",
+            "Validating table '%s'%s (%s rows)",
             table_name,
+            step_info,
             f"{len(df):,}"
         )
 
@@ -180,11 +186,12 @@ class CanonicalData:
                 lambda t: getattr(self, t),
             )
 
-        # 3. Row validation
-        validate_rows_with_model(
+        # 3. Row validation (step-aware)
+        self._validate_rows_for_step(
             table_name,
             df,
             self._models[table_name],
+            step,
         )
 
         # 4. Custom validators
@@ -194,13 +201,68 @@ class CanonicalData:
         self._check_required_children(table_name, df)
 
         # Mark as validated
-        self._validation_status[table_name] = True
+        status_key = (table_name, step) if step else table_name
+        self._validation_status[status_key] = True
         elapsed = time.time() - start_time
         logger.info(
-            "✓ Table '%s' validated successfully in %.2fs",
+            "✓ Table '%s'%s validated successfully in %.2fs",
             table_name,
+            step_info,
             elapsed
         )
+
+    def _validate_rows_for_step(
+        self,
+        table_name: str,
+        df: pl.DataFrame,
+        model: type[BaseModel],
+        step: str | None = None,
+    ) -> None:
+        """Validate DataFrame rows using step-aware validation.
+
+        Args:
+            table_name: Name of the table being validated
+            df: DataFrame to validate
+            model: Pydantic model class for row validation
+            step: Pipeline step name for step-aware validation
+
+        Raises:
+            ValidationError: If any row fails validation
+        """
+        total_rows = len(df)
+        start_time = time.time()
+        last_update_time = start_time
+
+        for i, row in enumerate(df.iter_rows(named=True)):
+            try:
+                validate_row_for_step(row, model, step)
+            except Exception as e:
+                raise ValidationError(
+                    table=table_name,
+                    rule="row_validation",
+                    row_id=i,
+                    message=str(e),
+                ) from e
+
+            # Progress updates for large datasets
+            progress_threshold = 100_000
+            update_interval = 5
+            if total_rows > progress_threshold:
+                current_time = time.time()
+                if (
+                    current_time - last_update_time >= update_interval
+                    or (i + 1) % (total_rows // 4) == 0
+                ):
+                    percent_done = (i + 1) / total_rows * 100
+                    logger.info(
+                        "Row validation progress for '%s': %.1f%% "
+                        "(%s/%s rows)",
+                        table_name,
+                        percent_done,
+                        i + 1,
+                        total_rows,
+                    )
+                    last_update_time = current_time
 
     def _run_custom_validators(
         self,
@@ -356,23 +418,26 @@ class CanonicalData:
 
         return decorator
 
-    def is_validated(self, table_name: str) -> bool:
+    def is_validated(self, table_name: str, step: str | None = None) -> bool:
         """Check if a table has been validated.
 
         Args:
             table_name: Name of the table to check
+            step: Optional step name to check step-specific validation
 
         Returns:
             True if table has been validated and not modified since
         """
-        if table_name not in self._validation_status:
-            return False
-        return self._validation_status[table_name]
+        status_key = (table_name, step) if step else table_name
+        return self._validation_status.get(status_key, False)
 
-    def get_validation_status(self) -> dict[str, bool]:
-        """Get validation status for all tables.
+    def get_validation_status(
+        self,
+    ) -> dict[str | tuple[str, str], bool]:
+        """Get validation status for all tables and steps.
 
         Returns:
-            Dictionary mapping table names to validation status
+            Dictionary mapping table names (or table,step tuples)
+            to validation status
         """
         return self._validation_status.copy()

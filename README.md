@@ -6,6 +6,12 @@ For collaborating on Travel Diary Survey Tools
 - **Trip Linking**: Link sequential trips by mode changes to create linked trip chains
 - **Tour Building**: Identify home-based and work-based tours from linked trips
 - **Relational Structure**: Maintains foreign key relationships for database integration
+- **Step-Aware Validation**: Validates data requirements specific to each pipeline step
+
+## Documentation
+
+- [Validation Framework](VALIDATION_README.md) - Comprehensive data validation system
+- [Column Requirements](COLUMN_REQUIREMENTS.md) - Field requirements per pipeline step
 
 ## Setup Instructions for Windows Users
 

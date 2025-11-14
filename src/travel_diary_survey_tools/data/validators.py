@@ -96,7 +96,7 @@ def check_unique_constraints(
                 column=col,
                 message=(
                     f"Duplicate values found: {dup_values[:10]}"
-                    f"{' ...' if len(dup_values) > 10 else ''}"
+                    f"{' ...' if len(dup_values) > 10 else ''}"  # noqa: PLR2004
                 ),
             )
 
@@ -250,7 +250,7 @@ def validate_rows_with_model(
 
 __all__ = [
     "ValidationError",
-    "check_unique_constraints",
     "check_foreign_keys",
+    "check_unique_constraints",
     "validate_rows_with_model",
 ]
