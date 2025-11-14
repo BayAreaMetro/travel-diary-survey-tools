@@ -7,12 +7,90 @@ from typing import Any
 
 import polars as pl
 
-from travel_diary_survey_tools.data.validation import CanonicalData
+from travel_diary_survey_tools.data.dataclass import CanonicalData
 
 logger = logging.getLogger(__name__)
 
 # Canonical table names that can be validated
 CANONICAL_TABLES = set(CanonicalData.__annotations__.keys())
+
+
+def step(
+    *,
+    validate_input: bool = True,
+    validate_output: bool = True,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator for pipeline steps with automatic validation.
+
+    This decorator validates canonical data inputs and/or outputs using
+    the Pydantic models defined in data.models. Only parameters/returns
+    that match canonical table names (households, persons, days,
+    unlinked_trips, linked_trips, tours) are validated.
+
+    Validation is skipped for tables that have already been validated
+    if a CanonicalData instance is passed as 'canonical_data' parameter.
+
+    Args:
+        validate_input: If True, validate input DataFrames that match
+            canonical table names
+        validate_output: If True, validate output DataFrames that match
+            canonical table names (for dict returns) or the single
+            DataFrame if return type matches a canonical table name
+
+    Example:
+        >>> @step(validate_input=True, validate_output=True)
+        ... def link_trips(
+        ...     unlinked_trips: pl.DataFrame,
+        ...     config: dict
+        ... ) -> dict[str, pl.DataFrame]:
+        ...     # Process trips
+        ...     linked_trips = ...
+        ...     return {"linked_trips": linked_trips}
+
+        >>> @step(validate_output=True)
+        ... def load_data(input_paths: dict) -> dict[str, pl.DataFrame]:
+        ...     return {
+        ...         "households": households_df,
+        ...         "persons": persons_df,
+        ...         ...
+        ...     }
+
+    Returns:
+        Decorated function with validation
+    """
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            # Extract and remove canonical_data from kwargs
+            canonical_data = kwargs.pop("canonical_data", None)
+
+            if validate_input:
+                _validate_inputs(func, args, kwargs, canonical_data)
+
+            result = func(*args, **kwargs)
+
+            # Update canonical_data with results if available
+            if canonical_data and isinstance(result, dict):
+                for key, value in result.items():
+                    if _is_canonical_dataframe(key, value):
+                        setattr(canonical_data, key, value)
+
+            # Validate outputs if requested
+            if validate_output and isinstance(result, dict):
+                _validate_dict_outputs(result, func.__name__, canonical_data)
+            elif validate_output and isinstance(result, tuple):
+                logger.warning(
+                    "Step '%s' returns tuple - cannot auto-validate. "
+                    "Consider returning dict with table names as keys.",
+                    func.__name__,
+                )
+
+            return result
+
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
 
 
 def _validate_inputs(
@@ -100,80 +178,3 @@ def _is_canonical_dataframe(name: str, value: Any) -> bool:  # noqa: ANN401
     """Check if a value is a DataFrame for a canonical table."""
     return name in CANONICAL_TABLES and isinstance(value, pl.DataFrame)
 
-
-def step(
-    *,
-    validate_input: bool = False,
-    validate_output: bool = False,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator for pipeline steps with automatic validation.
-
-    This decorator validates canonical data inputs and/or outputs using
-    the Pydantic models defined in data.models. Only parameters/returns
-    that match canonical table names (households, persons, days,
-    unlinked_trips, linked_trips, tours) are validated.
-
-    Validation is skipped for tables that have already been validated
-    if a CanonicalData instance is passed as 'canonical_data' parameter.
-
-    Args:
-        validate_input: If True, validate input DataFrames that match
-            canonical table names
-        validate_output: If True, validate output DataFrames that match
-            canonical table names (for dict returns) or the single
-            DataFrame if return type matches a canonical table name
-
-    Example:
-        >>> @step(validate_input=True, validate_output=True)
-        ... def link_trips(
-        ...     unlinked_trips: pl.DataFrame,
-        ...     config: dict
-        ... ) -> dict[str, pl.DataFrame]:
-        ...     # Process trips
-        ...     linked_trips = ...
-        ...     return {"linked_trips": linked_trips}
-
-        >>> @step(validate_output=True)
-        ... def load_data(input_paths: dict) -> dict[str, pl.DataFrame]:
-        ...     return {
-        ...         "households": households_df,
-        ...         "persons": persons_df,
-        ...         ...
-        ...     }
-
-    Returns:
-        Decorated function with validation
-    """
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            # Extract and remove canonical_data from kwargs
-            canonical_data = kwargs.pop("canonical_data", None)
-
-            if validate_input:
-                _validate_inputs(func, args, kwargs, canonical_data)
-
-            result = func(*args, **kwargs)
-
-            # Update canonical_data with results if available
-            if canonical_data and isinstance(result, dict):
-                for key, value in result.items():
-                    if _is_canonical_dataframe(key, value):
-                        setattr(canonical_data, key, value)
-
-            # Validate outputs if requested
-            if validate_output and isinstance(result, dict):
-                _validate_dict_outputs(result, func.__name__, canonical_data)
-            elif validate_output and isinstance(result, tuple):
-                logger.warning(
-                    "Step '%s' returns tuple - cannot auto-validate. "
-                    "Consider returning dict with table names as keys.",
-                    func.__name__,
-                )
-
-            return result
-
-        return wrapper  # type: ignore[return-value]
-
-    return decorator

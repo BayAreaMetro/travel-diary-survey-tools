@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from travel_diary_survey_tools.steps.linker import (
+from travel_diary_survey_tools.steps.link import (
     aggregate_linked_trips,
     link_trip_ids,
     link_trips,

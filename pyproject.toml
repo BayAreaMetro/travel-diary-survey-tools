@@ -55,6 +55,7 @@ exclude = ["scripts/daysim_old"]
     "PLR2004",   # allow magic numbers in tests
     "ANN",       # type annotations optional in tests
     "SLF001",    # allow access to private members in tests
+    "DTZ001",    # allow naive datetime in tests
 ]
 
 [tool.pytest.ini_options]

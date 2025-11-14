@@ -7,7 +7,7 @@ Polars DataFrames by iterating through rows.
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 # Data Models ------------------------------------------------------------------
@@ -77,17 +77,6 @@ class UnlinkedTripModel(BaseModel):
 
     depart_time: datetime
     arrive_time: datetime
-
-    @model_validator(mode="after")
-    def arrival_after_departure(self) -> "UnlinkedTripModel":
-        """Ensure arrive_time is after depart_time."""
-        if self.arrive_time < self.depart_time:
-            msg = (
-                f"arrive_time ({self.arrive_time}) must be >= "
-                f"depart_time ({self.depart_time})"
-            )
-            raise ValueError(msg)
-        return self
 
 
 # Subclassing allows you to extend TripModel cleanly

@@ -893,7 +893,7 @@ class TourBuilder:
         logger.info("Aggregated %d person-days", len(person_days))
         return person_days
 
-    def build_tours(
+    def extract_tours(
         self, linked_trips: pl.DataFrame
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Build tours from linked trip data.
