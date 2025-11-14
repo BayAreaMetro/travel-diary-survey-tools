@@ -96,7 +96,7 @@ def link_trip_ids(
         pl.col("d_purpose_category", "d_lon", "d_lat", "arrive_time")
         .shift(fill_value=None)
         .over("person_id")
-        .name.map(lambda c: f"prev_{c.removeprefix('d_')}")
+        .name.map(lambda c: f"prev_{c}")
     )
 
     # Step 3: Is new linked trips when:
@@ -107,8 +107,8 @@ def link_trip_ids(
     unlinked_trips = unlinked_trips.with_columns(
         [
             (
-                (pl.col("prev_purpose_category") != change_mode_code)
-                | pl.col("prev_purpose_category").is_null()
+                (pl.col("prev_d_purpose_category") != change_mode_code)
+                | pl.col("prev_d_purpose_category").is_null()
                 | (
                     expr_haversine(
                         pl.col("prev_d_lat"),
