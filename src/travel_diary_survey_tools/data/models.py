@@ -98,8 +98,12 @@ class UnlinkedTripModel(BaseModel):
     day_id: int = step_field(ge=1, required_in_steps="all")
     person_id: int = step_field(ge=1, required_in_steps="all")
     hh_id: int = step_field(ge=1, required_in_steps="all")
-    linked_trip_id: int = step_field(ge=1, required_in_steps=["extract_tours"])
-    tour_id: int = step_field(ge=1, required_in_steps=["extract_tours"])
+    linked_trip_id: int | None = step_field(
+        ge=1, required_in_steps=["extract_tours"], default=None
+    )
+    tour_id: int | None = step_field(
+        ge=1, required_in_steps=["extract_tours"], default=None
+    )
     depart_date: str
     depart_hour: int = step_field(ge=0, le=23)
     depart_minute: int = step_field(ge=0, le=59)
@@ -114,8 +118,12 @@ class UnlinkedTripModel(BaseModel):
     duration_minutes: float = step_field(ge=0)
     distance_miles: float = step_field(ge=0)
 
-    depart_time: datetime = step_field(required_in_steps=["link_trip"])
-    arrive_time: datetime = step_field(required_in_steps=["link_trip"])
+    depart_time: datetime | None = step_field(
+        required_in_steps=["link_trip"], default=None
+    )
+    arrive_time: datetime | None = step_field(
+        required_in_steps=["link_trip"], default=None
+    )
 
 
 # Subclassing allows you to extend TripModel cleanly
@@ -126,8 +134,12 @@ class LinkedTripModel(BaseModel):
     person_id: int = step_field(ge=1)
     hh_id: int = step_field(ge=1)
 
-    linked_trip_id: int = step_field(ge=1, required_in_steps=["link_trip"])
-    tour_id: int = step_field(ge=1, required_in_steps=["extract_tours"])
+    linked_trip_id: int | None = step_field(
+        ge=1, required_in_steps=["link_trip"], default=None
+    )
+    tour_id: int | None = step_field(
+        ge=1, required_in_steps=["extract_tours"], default=None
+    )
 
     depart_date: str
     depart_hour: int = step_field(ge=0, le=23)
@@ -142,11 +154,17 @@ class LinkedTripModel(BaseModel):
     mode_type: int
     duration_minutes: float = step_field(ge=0)
     distance_miles: float = step_field(ge=0)
-    depart_time: datetime = step_field(required_in_steps=["link_trip"])
-    arrive_time: datetime = step_field(required_in_steps=["link_trip"])
+    depart_time: datetime | None = step_field(
+        required_in_steps=["link_trip"], default=None
+    )
+    arrive_time: datetime | None = step_field(
+        required_in_steps=["link_trip"], default=None
+    )
 
     # Tour level assignment fields
-    is_primary_dest_trip: bool = step_field(required_in_steps=["extract_tours"])
+    is_primary_dest_trip: bool | None = step_field(
+        required_in_steps=["extract_tours"], default=None
+    )
 
 class TourModel(BaseModel):
     """Tour-level records with clear, descriptive step_field names."""
@@ -156,7 +174,9 @@ class TourModel(BaseModel):
     day_id: int = step_field(ge=1, required_in_steps="all")
     tour_sequence_num: int = step_field(ge=1)
     tour_category: str  # 'home_based' or 'work_based'
-    parent_tour_id: int = step_field(ge=1, required_in_steps=["extract_tours"])
+    parent_tour_id: int | None = step_field(
+        ge=1, required_in_steps=["extract_tours"], default=None
+    )
 
     # Purpose and priority
     primary_purpose: int = step_field(ge=1)

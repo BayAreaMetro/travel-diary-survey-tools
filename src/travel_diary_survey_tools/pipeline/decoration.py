@@ -7,7 +7,7 @@ from typing import Any
 
 import polars as pl
 
-from travel_diary_survey_tools.data.dataclass import CanonicalData
+from travel_diary_survey_tools.pipeline import CanonicalData
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ CANONICAL_TABLES = set(CanonicalData.__annotations__.keys())
 def step(
     *,
     validate_input: bool = True,
-    validate_output: bool = True,
+    validate_output: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for pipeline steps with automatic validation.
 
@@ -29,6 +29,10 @@ def step(
 
     Validation is skipped for tables that have already been validated
     if a CanonicalData instance is passed as 'canonical_data' parameter.
+
+    The default value is to only validate inputs to avoid duplicate validation.
+    Recommend putting a final step full_check step at the end of the pipeline
+    to validate all tables after all processing is complete.
 
     Args:
         validate_input: If True, validate input DataFrames that match
@@ -113,17 +117,6 @@ def _validate_inputs(
         if not _is_canonical_dataframe(param_name, param_value):
             continue
 
-        # Check if already validated for this step
-        step_name = func.__name__
-        if validator and validator.is_validated(param_name, step=step_name):
-            logger.debug(
-                "Skipping validation of '%s' for step '%s' "
-                "(already validated)",
-                param_name,
-                func.__name__,
-            )
-            continue
-
         logger.info(
             "Validating input '%s' for step '%s'",
             param_name,
@@ -148,16 +141,6 @@ def _validate_dict_outputs(
     """Validate outputs in dict format."""
     for key, value in result.items():
         if not _is_canonical_dataframe(key, value):
-            continue
-
-        # Check if already validated for this step
-        if canonical_data and canonical_data.is_validated(key, step=func_name):
-            logger.debug(
-                "Skipping validation of '%s' from step '%s' "
-                "(already validated)",
-                key,
-                func_name,
-            )
             continue
 
         logger.info(

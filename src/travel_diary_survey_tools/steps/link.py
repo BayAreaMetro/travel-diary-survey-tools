@@ -155,7 +155,13 @@ def link_trip_ids(
     )
 
     # Step 6: Clean up temporary columns
-    return unlinked_trips_with_id.drop(["prev_purpose", "new_trip_flag"])
+    return unlinked_trips_with_id.drop([
+        "prev_d_purpose_category",
+        "prev_d_lon",
+        "prev_d_lat",
+        "prev_arrive_time",
+        "new_trip_flag",
+    ])
 
 
 def aggregate_linked_trips(

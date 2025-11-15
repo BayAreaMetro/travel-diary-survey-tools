@@ -5,29 +5,8 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from travel_diary_survey_tools.data.dataclass import CanonicalData
-from travel_diary_survey_tools.data.validators import ValidationError
-
-
-class TestValidationTracking:
-    """Tests for validation status tracking."""
-
-    def test_status_starts_false(self):
-        """Validation status should start as False."""
-        data = CanonicalData()
-        assert not data.is_validated("households")
-
-    def test_status_resets_on_modification(self):
-        """Validation status should reset when table modified."""
-        data = CanonicalData()
-        data.households = pl.DataFrame({
-            "hh_id": [1], "home_taz": [100], "income": [50000],
-            "hh_size": [2], "num_vehicles": [1],
-        })
-        data._validation_status["households"] = True
-
-        data.households = data.households.with_columns(pl.col("income") * 2)
-        assert not data.is_validated("households")
+from travel_diary_survey_tools.pipeline.data_canon import CanonicalData
+from travel_diary_survey_tools.pipeline.validators import ValidationError
 
 
 class TestUniqueConstraints:
@@ -44,7 +23,6 @@ class TestUniqueConstraints:
             "hh_size": [2, 3, 4], "num_vehicles": [1, 2, 2],
         })
         data.validate("households")
-        assert data.is_validated("households")
 
     def test_unique_fails_with_duplicates(self):
         """Should fail with duplicate IDs."""
@@ -79,7 +57,6 @@ class TestForeignKeys:
             "worker": [True, True], "student": [False, False],
         })
         data.validate("persons")
-        assert data.is_validated("persons")
 
     def test_fk_fails_with_orphans(self):
         """Should fail with orphaned FKs."""
@@ -118,7 +95,6 @@ class TestRequiredChildren:
             "worker": [True, True], "student": [False, False],
         })
         data.validate("households")
-        assert data.is_validated("households")
 
     def test_required_children_fails(self):
         """Should fail when parent missing children."""
@@ -228,4 +204,3 @@ class TestCustomValidators:
             "worker": [True, True], "student": [False, False],
         })
         data.validate("persons")
-        assert data.is_validated("persons")

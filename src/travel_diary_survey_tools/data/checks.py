@@ -14,8 +14,10 @@ from collections.abc import Callable
 
 import polars as pl
 
+from travel_diary_survey_tools.utils.helpers import expr_haversine
+
 # Registry of custom validators
-# Format: {table_name: [check_function1, check_function2, ...]}
+# Format: {table_name: [check_function1, check_function2, ...]}  # noqa: ERA001
 # Each check function should return list[str] of error messages
 CUSTOM_VALIDATORS: dict[str, list[Callable]] = {
     "unlinked_trips": [],  # Registered checks defined below
@@ -47,36 +49,43 @@ def check_arrival_after_departure(unlinked_trips: pl.DataFrame) -> list[str]:
     return errors
 
 
-def check_coordinate_bounds(
-    latitude: float,
-    longitude: float,
-    min_lat: float = -90.0,
-    max_lat: float = 90.0,
-    min_lon: float = -180.0,
-    max_lon: float = 180.0,
-) -> None:
-    """Ensure coordinates are within valid bounds.
+def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
+    """Check for when trip destination is too far from next trip origin."""
+    errors = []
+    max_distance = 1000  # Define threshold distance in meters
 
-    Args:
-        latitude: Latitude value
-        longitude: Longitude value
-        min_lat: Minimum allowed latitude (default: -90.0)
-        max_lat: Maximum allowed latitude (default: 90.0)
-        min_lon: Minimum allowed longitude (default: -180.0)
-        max_lon: Maximum allowed longitude (default: 180.0)
+    # Compare o_lat/o_lon of the next trip to d_lat/d_lon of current trip
+    # Compute distance, and compare to threshold over person_id and day_id
+    teleports = unlinked_trips.with_columns(
+        pl.col("d_lat").alias("current_d_lat"),
+        pl.col("d_lon").alias("current_d_lon"),
+        pl.col("o_lat").shift(-1).over(["person_id", "day_id"])
+            .alias("next_o_lat"),
+        pl.col("o_lon").shift(-1).over(["person_id", "day_id"])
+            .alias("next_o_lon")
+    ).with_columns(
+        expr_haversine(
+            pl.col("current_d_lat"),
+            pl.col("current_d_lon"),
+            pl.col("next_o_lat"),
+            pl.col("next_o_lon")
+        ).alias("distance_meters")
+    ).filter(
+        pl.col("distance_meters") > max_distance
+    ).select(
+        pl.col("trip_id"),
+        pl.col("person_id"),
+        pl.col("day_id"),
+        pl.col("distance_meters")
+    )
 
-    Raises:
-        ValueError: If coordinates are outside bounds
-    """
-    if not (min_lat <= latitude <= max_lat):
-        msg = f"latitude ({latitude}) must be between {min_lat} and {max_lat}"
-        raise ValueError(msg)
-
-    if not (min_lon <= longitude <= max_lon):
-        msg = (
-            f"longitude ({longitude}) must be between "
-            f"{min_lon} and {max_lon}"
+    if len(teleports) > 0:
+        trip_ids = teleports["trip_id"].to_list()[:5]
+        errors.append(
+            f"Found {len(teleports)} trips where destination "
+            f"is more than {max_distance}m away from next trip origin. "
+            f"Sample trip IDs: {trip_ids}"
         )
-        raise ValueError(msg)
+    return errors
 
 

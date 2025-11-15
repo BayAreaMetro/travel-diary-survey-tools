@@ -106,14 +106,10 @@ import logging
 
 import polars as pl
 
-from .constants import (
-    LocationType,
-    ModeType,
-    PersonCategory,
-    PersonType,
-    TourCategory,
-    TripPurpose,
+from travel_diary_survey_tools.data.codebook import (
+    ModeType
 )
+
 from .data.models import HouseholdModel, LinkedTripModel, PersonModel
 from .utils import expr_haversine
 

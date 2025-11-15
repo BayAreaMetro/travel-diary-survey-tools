@@ -41,24 +41,30 @@ def add_time_columns(
 
     for prefix in ["depart", "arrive"]:
         col_name = f"{prefix}_time"
-        component_cols = [f"{prefix}_{s}" for s in ["date", "hour", "minute", "seconds"]]
-        
+        comp_cols = [
+            f"{prefix}_{s}" for s in ["date", "hour", "minute", "seconds"]
+        ]
+
         if col_name not in trips.columns:
             logger.info("Constructing %s...", col_name)
             trips = trips.with_columns(
-                datetime_from_parts(*[pl.col(c) for c in component_cols]).alias(col_name)
+                datetime_from_parts(*[pl.col(c) for c in comp_cols])
+                .alias(col_name)
             )
         elif trips[col_name].dtype == pl.Utf8:
             logger.info("Parsing %s from string...", col_name)
             trips = trips.with_columns(
-                pl.col(col_name).str.to_datetime(format=datetime_format, strict=False)
+                pl.col(col_name).str
+                .to_datetime(format=datetime_format, strict=False)
             )
-            
+
             if trips[col_name].null_count() > 0:
-                logger.info("Reconstructing null %s from components...", col_name)
+                logger.info(
+                    "Reconstructing null %s from components...", col_name
+                )
                 trips = trips.with_columns(
                     pl.when(pl.col(col_name).is_null())
-                    .then(datetime_from_parts(*[pl.col(c) for c in component_cols]))
+                    .then(datetime_from_parts(*[pl.col(c) for c in comp_cols]))
                     .otherwise(pl.col(col_name))
                     .alias(col_name)
                 )

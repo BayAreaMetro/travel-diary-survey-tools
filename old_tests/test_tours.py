@@ -4,7 +4,7 @@ import polars as pl
 import pytest
 from travel_diary_survey_tools.tours import DEFAULT_CONFIG, TourBuilder
 
-from travel_diary_survey_tools.data.constants import (
+from travel_diary_survey_tools.data.codebook import (
     LocationType,
     ModeType,
     PersonCategory,

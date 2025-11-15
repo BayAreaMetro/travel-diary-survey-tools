@@ -28,12 +28,6 @@ data.persons = pl.read_csv("persons.csv")
 # Validate tables
 data.validate("households")
 data.validate("persons")
-
-# Check validation status
-# This avoids redundant re-validation between pipeline steps
-# Status is returned to false when data is modified
-if data.is_validated("households"):
-    print("Households validated successfully!")
 ```
 
 ## Validation Layers
@@ -308,32 +302,6 @@ data.validate("households")  # ✗ ValidationError: Missing required children
 
 See [examples/validation_required_children.py](examples/validation_required_children.py) for full example.
 
-## Validation Status Tracking
-
-The framework automatically tracks which tables have been validated and resets validation status when tables are modified.
-
-```python
-# Initial state: nothing validated
-data = CanonicalData()
-print(data.get_validation_status())
-# {'households': False, 'persons': False, ...}
-
-# Load and validate
-data.households = pl.read_csv("households.csv")
-data.validate("households")
-print(data.is_validated("households"))  # True
-
-# Modify table - validation status resets automatically
-data.households = data.households.with_columns(
-    pl.col("income").mul(1.1)
-)
-print(data.is_validated("households"))  # False (needs revalidation)
-
-# Revalidate
-data.validate("households")
-print(data.is_validated("households"))  # True
-```
-
 ## Pipeline Integration
 
 The validation framework integrates seamlessly with the pipeline decorator:
@@ -411,11 +379,10 @@ except ValidationError as e:
 
 1. **Validate early and often** - Run validation after each transformation step
 2. **Use custom validators** for business logic specific to your domain
-3. **Leverage validation status** - Check `is_validated()` to avoid redundant validation
-4. **Register validators at module level** - Define validators once, use everywhere
-5. **Return empty list for success** - Custom validators should return `[]` when passing
-6. **Provide informative messages** - Include context and sample data in error messages
-7. **Use multi-table validators** - Check cross-table consistency where needed
+3. **Register validators at module level** - Define validators once, use everywhere
+4. **Return empty list for success** - Custom validators should return `[]` when passing
+5. **Provide informative messages** - Include context and sample data in error messages
+6. **Use multi-table validators** - Check cross-table consistency where needed
 
 ## Examples
 

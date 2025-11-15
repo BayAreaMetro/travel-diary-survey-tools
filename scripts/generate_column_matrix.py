@@ -19,7 +19,7 @@ from travel_diary_survey_tools.data.models import (
     TourModel,
     UnlinkedTripModel,
 )
-from travel_diary_survey_tools.data.step_validation import (
+from travel_diary_survey_tools.pipeline.validators import (
     get_step_validation_summary,
 )
 
