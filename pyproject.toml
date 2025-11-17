@@ -39,6 +39,7 @@ packages = ["src/processing", "src/data_canon"]
 [tool.ruff]
 line-length = 80
 lint.select = ["ALL"]
+lint.pylint.max-args = 8  # Increase from default of 5 to accomodate 6 canon tables
 lint.ignore = [
     "COM812",  # Trailing comma - conflicts with formatter
     "D203",    # Use D211 (no blank line before class)
@@ -56,6 +57,9 @@ exclude = ["scripts/daysim_old"]
     "ANN",       # type annotations optional in tests
     "SLF001",    # allow access to private members in tests
     "DTZ001",    # allow naive datetime in tests
+]
+"scripts/**/*.py" = [
+    "INP001",      # script not part of package
 ]
 
 [tool.pytest.ini_options]

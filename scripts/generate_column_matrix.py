@@ -11,6 +11,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from pydantic import BaseModel
+
 from data_canon.models import (
     HouseholdModel,
     LinkedTripModel,
@@ -24,7 +26,25 @@ from data_canon.validators import (
 )
 
 
-def generate_matrix_markdown(models: dict[str, type]) -> str:
+def get_field_creation_info(model: type[BaseModel]) -> dict[str, str]:
+    """Get information about which step creates each field.
+
+    Args:
+        model: Pydantic model class
+
+    Returns:
+        Dictionary mapping field names to the step that creates them
+    """
+    creation_info = {}
+    for field_name, field_info in model.model_fields.items():
+        extra = field_info.json_schema_extra or {}
+        created_in_step = extra.get("created_in_step")
+        if created_in_step:
+            creation_info[field_name] = created_in_step
+    return creation_info
+
+
+def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
     """Generate markdown table showing column requirements per step.
 
     Args:
@@ -36,10 +56,12 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:
     # Collect all unique steps across all models
     all_steps = set()
     model_summaries = {}
+    creation_info = {}
 
     for table_name, model in models.items():
         summary = get_step_validation_summary(model)
         model_summaries[table_name] = summary
+        creation_info[table_name] = get_field_creation_info(model)
         for step in summary:
             if step != "ALL":
                 all_steps.add(step)
@@ -59,45 +81,60 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:
     )
     lines.append("")
 
-    for table_name, model in models.items():
-        lines.append(f"## {table_name}")
-        lines.append("")
+    # Create table header
+    header = ["Table", "Field", *sorted_steps]
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("| " + " | ".join(["---"] * len(header)) + " |")
 
+    for table_name, model in models.items():
         summary = model_summaries[table_name]
         all_steps_fields = set(summary.get("ALL", []))
+        field_creation = creation_info[table_name]
 
         # Get all fields from model
         all_fields = list(model.model_fields.keys())
 
-        # Create table header
-        header = ["Field", *sorted_steps]
-        lines.append("| " + " | ".join(header) + " |")
-        lines.append("| " + " | ".join(["---"] * len(header)) + " |")
-
         # Create rows for each field
-        for field_name in all_fields:
-            row = [f"`{field_name}`"]
+        for i, field_name in enumerate(all_fields):
+            # Add table name only in first row for this table
+            if i == 0:
+                row = [f"**{table_name}**", f"`{field_name}`"]
+            else:
+                # Other rows - leave table name blank
+                row = ["", f"`{field_name}`"]
 
             # Check if field is required in ALL steps
             if field_name in all_steps_fields:
-                row.extend(["✓"] * len(sorted_steps))
+                # Check if created in any step
+                for step in sorted_steps:
+                    created_in = field_creation.get(field_name)
+                    if created_in == step:
+                        row.append("+")
+                    else:
+                        row.append("✓")
             else:
                 # Check each step
                 for step in sorted_steps:
                     step_fields = summary.get(step, [])
-                    if field_name in step_fields:
+                    created_in = field_creation.get(field_name)
+
+                    if created_in == step:
+                        # Field is created in this step
+                        row.append("+")
+                    elif field_name in step_fields:
+                        # Field is required in this step
                         row.append("✓")
                     else:
                         row.append("")
 
             lines.append("| " + " | ".join(row) + " |")
 
-        lines.append("")
+    lines.append("")
 
     return "\n".join(lines)
 
 
-def generate_matrix_csv(models: dict[str, type]) -> str:
+def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
     """Generate CSV showing column requirements per step.
 
     Args:
@@ -109,10 +146,12 @@ def generate_matrix_csv(models: dict[str, type]) -> str:
     # Collect all unique steps across all models
     all_steps = set()
     model_summaries = {}
+    creation_info = {}
 
     for table_name, model in models.items():
         summary = get_step_validation_summary(model)
         model_summaries[table_name] = summary
+        creation_info[table_name] = get_field_creation_info(model)
         for step in summary:
             if step != "ALL":
                 all_steps.add(step)
@@ -128,6 +167,7 @@ def generate_matrix_csv(models: dict[str, type]) -> str:
     for table_name, model in models.items():
         summary = model_summaries[table_name]
         all_steps_fields = set(summary.get("ALL", []))
+        field_creation = creation_info[table_name]
 
         # Get all fields from model
         all_fields = list(model.model_fields.keys())
@@ -137,12 +177,24 @@ def generate_matrix_csv(models: dict[str, type]) -> str:
 
             # Check if field is required in ALL steps
             if field_name in all_steps_fields:
-                row.extend(["x"] * len(sorted_steps))
+                # Check if any are creation steps
+                for step in sorted_steps:
+                    created_in = field_creation.get(field_name)
+                    if created_in == step:
+                        row.append("+")
+                    else:
+                        row.append("x")
             else:
                 # Check each step
                 for step in sorted_steps:
                     step_fields = summary.get(step, [])
-                    if field_name in step_fields:
+                    created_in = field_creation.get(field_name)
+
+                    if created_in == step:
+                        # Field is created in this step
+                        row.append("+")
+                    elif field_name in step_fields:
+                        # Field is required in this step
                         row.append("x")
                     else:
                         row.append("")
@@ -171,7 +223,7 @@ def main() -> None:
 
     # Generate CSV in scripts folder
     csv = generate_matrix_csv(models)
-    csv_path = Path(__file__).parent / "column_requirements.csv"
+    csv_path = Path(__file__).parent.parent / "column_requirements.csv"
     csv_path.write_text(csv, encoding="utf-8")
     print(f"Generated: {csv_path}")  # noqa: T201
 
