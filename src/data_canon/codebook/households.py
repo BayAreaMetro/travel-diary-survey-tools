@@ -1,6 +1,6 @@
 """Codebook enumerations for hh table."""
 
-from .labeled_enum import LabeledEnum
+from data_canon.labeled_enum import LabeledEnum
 
 
 class BicycleType(LabeledEnum):

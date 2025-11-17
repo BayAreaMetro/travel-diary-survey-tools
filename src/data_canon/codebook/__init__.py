@@ -12,6 +12,5 @@ Available modules:
 """
 
 from . import days, households, persons, trips, vehicles
-from .labeled_enum import LabeledEnum
 
-__all__ = ["LabeledEnum", "days", "households", "persons", "trips", "vehicles"]
+__all__ = ["days", "households", "persons", "trips", "vehicles"]

@@ -1,7 +1,8 @@
 """Codebook enumerations for trip table."""
 
+from data_canon.labeled_enum import LabeledEnum
+
 from .days import TravelDow
-from .labeled_enum import LabeledEnum
 from .mode import Mode, ModeType
 from .purpose import Purpose, PurposeCategory
 

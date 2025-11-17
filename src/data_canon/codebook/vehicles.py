@@ -1,6 +1,7 @@
 """Codebook enumerations for vehicle table."""
 
-from .labeled_enum import LabeledEnum
+from data_canon.labeled_enum import LabeledEnum
+
 
 class FuelType(LabeledEnum):
     """fuel_type value labels."""

@@ -1,6 +1,6 @@
 """Codebook enumerations for trip purpose codes in trip table."""
-from typing import ClassVar
-from .labeled_enum import LabeledEnum
+
+from data_canon.labeled_enum import LabeledEnum
 
 
 class Purpose(LabeledEnum):
