@@ -67,4 +67,4 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--cov=travel_diary_survey_tools --cov-report=term-missing"
+addopts = "--cov=src/processing --cov=src/data_canon --cov-report=term-missing"
