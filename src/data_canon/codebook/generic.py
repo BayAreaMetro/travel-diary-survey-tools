@@ -16,3 +16,12 @@ class YesNoMissing(LabeledEnum):
     YES = (1, "Yes")
     NO = (2, "No")
     MISSING = (995, "Missing Response")
+
+class LocationType(LabeledEnum):
+    """Generic location type labels."""
+
+    HOME = (1, "Home")
+    WORK = (2, "Work")
+    SCHOOL = (3, "School")
+    OTHER = (4, "Other")
+

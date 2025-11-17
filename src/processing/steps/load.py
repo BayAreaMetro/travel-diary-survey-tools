@@ -5,7 +5,7 @@ import logging
 import geopandas as gpd
 import polars as pl
 
-from processing.pipeline.decoration import step
+from processing.decoration import step
 
 logger = logging.getLogger(__name__)
 

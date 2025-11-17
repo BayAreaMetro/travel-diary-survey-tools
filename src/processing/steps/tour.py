@@ -80,7 +80,7 @@ Configuration:
     - distance_threshold: Miles within which to match trip ends to locations
     - purpose_priority: Priority order for tour purpose assignment
     - mode_priority: Priority order for tour mode assignment
-    - person_category_map: Mapping from PersonType to PersonCategory
+    - person_category_map: Mapping from PersonType to PersonType
 
 Input Requirements:
     Trips DataFrame must contain:
@@ -106,7 +106,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook import ModeType
+from data_canon.codebook import LocationType, ModeType, PersonType, TripPurpose
 from processing.utils import expr_haversine
 
 logging.basicConfig(level=logging.INFO)
@@ -132,18 +132,18 @@ DEFAULT_CONFIG = {
     "purpose_priority_by_person_category": {
         # Priority order for determining primary tour purpose
         # Lower number = higher priority
-        PersonCategory.WORKER: {
+        PersonType.WORKER: {
             TripPurpose.WORK: 1,  # Highest priority for workers
             TripPurpose.SCHOOL: 2,
             TripPurpose.ESCORT: 3,
             # All other purposes get default priority of 4
         },
-        PersonCategory.STUDENT: {
+        PersonType.STUDENT: {
             TripPurpose.SCHOOL: 1,  # Highest priority for students
             TripPurpose.WORK: 2,
             TripPurpose.ESCORT: 3,
         },
-        PersonCategory.OTHER: {
+        PersonType.OTHER: {
             TripPurpose.WORK: 1,
             TripPurpose.SCHOOL: 2,
             TripPurpose.ESCORT: 3,
@@ -152,14 +152,14 @@ DEFAULT_CONFIG = {
     "default_purpose_priority": 4,
     "person_type_mapping": {
         # Maps person_type codes to categories for priority lookup
-        PersonType.FULL_TIME_WORKER: PersonCategory.WORKER,
-        PersonType.PART_TIME_WORKER: PersonCategory.WORKER,
-        PersonType.RETIRED: PersonCategory.OTHER,
-        PersonType.NON_WORKER: PersonCategory.OTHER,
-        PersonType.UNIVERSITY_STUDENT: PersonCategory.STUDENT,
-        PersonType.HIGH_SCHOOL_STUDENT: PersonCategory.STUDENT,
-        PersonType.CHILD_5_15: PersonCategory.STUDENT,
-        PersonType.CHILD_UNDER_5: PersonCategory.OTHER,
+        PersonType.FULL_TIME_WORKER: PersonType.WORKER,
+        PersonType.PART_TIME_WORKER: PersonType.WORKER,
+        PersonType.RETIRED: PersonType.OTHER,
+        PersonType.NON_WORKER: PersonType.OTHER,
+        PersonType.UNIVERSITY_STUDENT: PersonType.STUDENT,
+        PersonType.HIGH_SCHOOL_STUDENT: PersonType.STUDENT,
+        PersonType.CHILD_5_15: PersonType.STUDENT,
+        PersonType.CHILD_UNDER_5: PersonType.OTHER,
     },
 }
 
@@ -222,7 +222,7 @@ class TourBuilder:
         self.person_locations = self.person_locations.with_columns(
             [
                 pl.col("person_type")
-                .replace_strict(person_type_map, default=PersonCategory.OTHER)
+                .replace_strict(person_type_map, default=PersonType.OTHER)
                 .alias("person_category")
             ]
         )
@@ -608,7 +608,7 @@ class TourBuilder:
         # Purpose priority depends on person category
         def get_purpose_priority(purpose: int, category: str) -> int:
             category_map = purpose_priority_by_category.get(
-                category, purpose_priority_by_category[PersonCategory.OTHER]
+                category, purpose_priority_by_category[PersonType.OTHER]
             )
             return category_map.get(purpose, default_priority)
 
@@ -749,7 +749,7 @@ class TourBuilder:
             def get_purpose_priority(purpose: int, category: str) -> int:
                 category_map = purpose_priority_by_category.get(
                     category,
-                    purpose_priority_by_category[PersonCategory.OTHER],
+                    purpose_priority_by_category[PersonType.OTHER],
                 )
                 return category_map.get(purpose, default_priority)
 

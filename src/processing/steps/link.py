@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from processing.pipeline.decoration import step
+from processing.decoration import step
 from processing.utils.helpers import (
     expr_haversine,
 )
@@ -89,7 +89,9 @@ def link_trip_ids(
     logger.info("Linking trip IDs...")
 
     # Step 1: Sort trips by day and departure time and arrive time.
-    unlinked_trips = unlinked_trips.sort(["day_id", "depart_time", "arrive_time"])
+    unlinked_trips = unlinked_trips.sort(
+        ["day_id", "depart_time", "arrive_time"]
+    )
 
     # Step 2: Get previous trip purpose category within the same person
     unlinked_trips = unlinked_trips.with_columns(
@@ -142,11 +144,12 @@ def link_trip_ids(
         ]
     )
 
-    # Step 5: Make linked_trip_id globally unique across days
+    # Step 5: Make linked_trip_id globally unique across persons and days
     unlinked_trips_with_id = unlinked_trips.with_columns(
         [
             (
-                pl.col("day_id").cast(pl.Utf8)
+                pl.col("person_id").cast(pl.Utf8)
+                + pl.col("day_id").cast(pl.Utf8).str.pad_start(3, "0")
                 + pl.col("linked_trip_id").cast(pl.Utf8).str.pad_start(2, "0")
             )
             .cast(pl.Int64)
