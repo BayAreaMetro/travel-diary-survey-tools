@@ -6,7 +6,7 @@ from data_canon.labeled_enum import LabeledEnum
 class TravelDow(LabeledEnum):
     """travel_dow value labels."""
 
-    canonical_field_name = "travel_dow"
+    field_description = "Day of the week enumeration"
 
     MONDAY = (1, "Monday")
     TUESDAY = (2, "Tuesday")
@@ -20,7 +20,7 @@ class TravelDow(LabeledEnum):
 class AttendSchool(LabeledEnum):
     """attend_school value labels."""
 
-    canonical_field_name = "attend_school"
+    field_description = "Whether the person attends school on the survey day"
 
     YES_USUAL = (1, "Yes, attend school at usual location")
     NO_ANOTHER = (2, "Yes, attend school at another location")
@@ -32,7 +32,7 @@ class AttendSchool(LabeledEnum):
 class NoSchoolReason(LabeledEnum):
     """no_school_reason value labels."""
 
-    canonical_field_name = "no_school_reason"
+    field_description = "Reason for not attending school"
 
     SICK = (1, "Sick")
     ONLINE_HOME = (2, "Online / at home")
@@ -48,6 +48,8 @@ class NoSchoolReason(LabeledEnum):
 class BeginEndDay(LabeledEnum):
     """begin_day and end_day value labels."""
 
+    field_description = "Location at the beginning or end of the day"
+
     HOME = (1, "Home")
     SOMEONE_ELSES_HOME = (2, "Someone else's home")
     WORK = (3, "Work")
@@ -57,22 +59,11 @@ class BeginEndDay(LabeledEnum):
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other")
 
-# Inherit BeginEndDay for EndDay since they have the same labels
-class BeginDay(BeginEndDay):
-    """begin_day value labels."""
-
-    canonical_field_name = "begin_day"
-
-class EndDay(BeginEndDay):
-    """end_day value labels."""
-
-    canonical_field_name = "end_day"
-
 
 class Delivery(LabeledEnum):
     """delivery value labels."""
 
-    canonical_field_name = "delivery"
+    field_description = "Type of delivery received"
 
     TAKEOUT = (1, "Take-out / prepared food delivery")
     SERVICES = (2, "Someone came to provide a service (e.g., cleaning, repair)")
@@ -88,7 +79,7 @@ class Delivery(LabeledEnum):
 class MadeTravel(LabeledEnum):
     """made_travel value labels."""
 
-    canonical_field_name = "made_travel"
+    field_description = "Whether the person made trips on the survey day"
 
     YES = (1, "Yes, made trips")
     NO = (2, "No, did not go anywhere or make trips")
@@ -99,7 +90,7 @@ class MadeTravel(LabeledEnum):
 class NoTravelReason(LabeledEnum):
     """no_travel_reason value labels."""
 
-    canonical_field_name = "no_travel_reason"
+    field_description = "Reason for not making trips"
 
     DID_TRAVEL = (0, "I did make trips")
     NOWORK = (1, "No work/school, took day off")
@@ -115,13 +106,3 @@ class NoTravelReason(LabeledEnum):
     OTHER = (997, "Other")
     MISSING = (995, "Missing Response")
     PNTA = (999, "Prefer not to answer")
-
-class ProxyComplete(LabeledEnum):
-    """proxy_complete value labels."""
-
-    canonical_field_name = "proxy_complete"
-    field_description = "Indicates if day was completed by proxy respondent"
-
-    NO = (0, "No")
-    YES = (1, "Yes")
-    MISSING = (995, "Missing Response")

@@ -11,6 +11,9 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from .codebook.days import TravelDow
+from .codebook.persons import AgeCategory
+from .codebook.trips import ModeType, PurposeCategory
 from .step_field import step_field
 
 
@@ -28,12 +31,12 @@ class PersonModel(BaseModel):
 
     person_id: int = step_field(ge=1, required_in_steps="all")
     hh_id: int = step_field(ge=1, required_in_steps="all")
-    age: int | None = step_field(ge=0, default=None)
+    age: AgeCategory
     work_lat: float | None = step_field(ge=-90, le=90, default=None)
     work_lon: float | None = step_field(ge=-180, le=180, default=None)
     school_lat: float | None = step_field(ge=-90, le=90, default=None)
     school_lon: float | None = step_field(ge=-180, le=180, default=None)
-    person_type: int = step_field(ge=1, default=None)
+    person_type: int | None = step_field(default=None)
 
 
 class PersonDayModel(BaseModel):
@@ -42,7 +45,7 @@ class PersonDayModel(BaseModel):
     person_id: int = step_field(ge=1, required_in_steps="all")
     day_id: int = step_field(ge=1, required_in_steps="all")
     hh_id: int = step_field(ge=1, required_in_steps="all")
-    travel_dow: int = step_field(ge=1, le=7)
+    travel_dow: TravelDow
 
 # Minimal data schema for trip linking
 class UnlinkedTripModel(BaseModel):
@@ -58,17 +61,19 @@ class UnlinkedTripModel(BaseModel):
     tour_id: int | None = step_field(
         ge=1, required_in_steps=["extract_tours"], default=None
     )
-    depart_date: str
+    depart_date: datetime | str
     depart_hour: int = step_field(ge=0, le=23)
     depart_minute: int = step_field(ge=0, le=59)
     depart_seconds: int = step_field(ge=0, le=59)
-    arrive_date: str
+    arrive_date: datetime | str
     arrive_hour: int = step_field(ge=0, le=23)
     arrive_minute: int = step_field(ge=0, le=59)
     arrive_seconds: int = step_field(ge=0, le=59)
-    o_purpose_category: int
-    d_purpose_category: int
-    mode_type: int
+    o_purpose: PurposeCategory
+    d_purpose: PurposeCategory
+    o_purpose_category: PurposeCategory
+    d_purpose_category: PurposeCategory
+    mode_type: ModeType
     duration_minutes: float = step_field(ge=0)
     distance_miles: float = step_field(ge=0)
 
@@ -95,17 +100,17 @@ class LinkedTripModel(BaseModel):
         ge=1, created_in_step=["extract_tours"], default=None
     )
 
-    depart_date: str
+    depart_date: str | datetime = step_field(created_in_step="link_trip")
     depart_hour: int = step_field(ge=0, le=23, created_in_step="link_trip")
     depart_minute: int = step_field(ge=0, le=59, created_in_step="link_trip")
     depart_seconds: int = step_field(ge=0, le=59, created_in_step="link_trip")
-    arrive_date: str = step_field(created_in_step="link_trip")
+    arrive_date: datetime | str = step_field(created_in_step="link_trip")
     arrive_hour: int = step_field(ge=0, le=23, created_in_step="link_trip")
     arrive_minute: int = step_field(ge=0, le=59, created_in_step="link_trip")
     arrive_seconds: int = step_field(ge=0, le=59, created_in_step="link_trip")
     o_purpose_category: int = step_field(created_in_step="link_trip")
     d_purpose_category: int = step_field(created_in_step="link_trip")
-    mode_type: int = step_field(created_in_step="link_trip")
+    mode_type: ModeType = step_field(created_in_step="link_trip")
     duration_minutes: float = step_field(ge=0, created_in_step="link_trip")
     distance_miles: float = step_field(ge=0, created_in_step="link_trip")
     depart_time: datetime | None = step_field(
@@ -152,7 +157,7 @@ class TourModel(BaseModel):
     d_location_type: str = step_field(created_in_step="extract_tours")
 
     # Mode hierarchical
-    tour_mode: int = step_field(ge=1, created_in_step="extract_tours")
+    tour_mode: ModeType = step_field(created_in_step="extract_tours")
     outbound_mode: int = step_field(ge=1, created_in_step="extract_tours")
     inbound_mode: int = step_field(ge=1, created_in_step="extract_tours")
 

@@ -5,6 +5,7 @@ a documentation matrix showing which columns are required in which
 pipeline steps.
 """
 
+import inspect
 import sys
 import types
 from pathlib import Path
@@ -14,6 +15,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from pydantic import BaseModel
 
+import data_canon.codebook.days as days_module
+import data_canon.codebook.households as households_module
+import data_canon.codebook.persons as persons_module
+import data_canon.codebook.trips as trips_module
+import data_canon.codebook.vehicles as vehicles_module
+from data_canon.labeled_enum import LabeledEnum
 from data_canon.models import (
     HouseholdModel,
     LinkedTripModel,
@@ -249,7 +256,7 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
             field_info = model.model_fields[field_name]
             field_type = get_field_type_description(field_info)
             constraints = get_field_constraints(field_info)
-            
+
             row = [table_name, field_name, field_type, constraints]
 
             # Check if field is required in ALL steps
@@ -281,6 +288,90 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
     return "\n".join(lines)
 
 
+def collect_labeled_enums() -> dict[str, type]:
+    """Collect all LabeledEnum classes from codebook modules.
+
+    Returns:
+        Dictionary mapping enum class names to enum classes
+    """
+    modules = [
+        days_module,
+        households_module,
+        persons_module,
+        trips_module,
+        vehicles_module,
+    ]
+
+    return {
+        name: obj
+        for module in modules
+        for name, obj in inspect.getmembers(module)
+        # Check if it's a class, subclass of LabeledEnum,
+        # and not LabeledEnum itself
+        if (
+            inspect.isclass(obj)
+            and issubclass(obj, LabeledEnum)
+            and obj is not LabeledEnum
+            and not name.endswith("Map")  # Skip mapping classes
+        )
+    }
+
+
+
+def generate_enum_codebook_markdown(enums: dict[str, type]) -> str:
+    """Generate markdown table showing enum values and labels.
+
+    Args:
+        enums: Dictionary mapping enum class names to enum classes
+
+    Returns:
+        Markdown formatted table string
+    """
+    lines = []
+    lines.append("# Codebook Enum Values")
+    lines.append("")
+    lines.append(
+        "This section shows the categorical values and labels "
+        "for custom enum fields."
+    )
+    lines.append("")
+
+    # Sort enums by name for consistent ordering
+    sorted_enum_names = sorted(enums.keys())
+
+    for enum_name in sorted_enum_names:
+        enum_class = enums[enum_name]
+
+        # Get field name and description if available
+        field_name = enum_class.get_field_name()
+        description = enum_class.get_description()
+
+        # Create section header
+        lines.append(f"## {enum_name}")
+        lines.append("")
+
+        if field_name:
+            lines.append(f"**Field name:** `{field_name}`")
+            lines.append("")
+
+        if description:
+            lines.append(f"**Description:** {description}")
+            lines.append("")
+
+        # Create table header
+        lines.append("| Value | Label |")
+        lines.append("| --- | --- |")
+
+        # Add enum members
+        lines.extend(
+            [f"| {member.value} | {member.label} |" for member in enum_class]
+        )
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def main() -> None:
     """Generate and save column requirement matrices."""
     models = {
@@ -292,8 +383,16 @@ def main() -> None:
         "tours": TourModel,
     }
 
+    # Collect enum classes
+    enums = collect_labeled_enums()
+
     # Generate markdown in repo root
     markdown = generate_matrix_markdown(models)
+
+    # Add enum codebook section
+    enum_markdown = generate_enum_codebook_markdown(enums)
+    markdown += "\n\n" + enum_markdown
+
     output_path = Path(__file__).parent.parent / "COLUMN_REQUIREMENTS.md"
     output_path.write_text(markdown, encoding="utf-8")
     print(f"Generated: {output_path}")  # noqa: T201

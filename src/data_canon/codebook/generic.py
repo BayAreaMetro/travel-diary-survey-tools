@@ -1,0 +1,18 @@
+"""Generic codebook enums used across multiple data canon modules."""
+
+from data_canon.labeled_enum import LabeledEnum
+
+
+class Select(LabeledEnum):
+    """Generic selected/not selected value labels."""
+
+    SELECTED = (1, "Selected")
+    NOT_SELECTED = (0, "Not selected")
+    MISSING = (995, "Missing Response")
+
+class YesNoMissing(LabeledEnum):
+    """Generic yes/no/missing value labels."""
+
+    YES = (1, "Yes")
+    NO = (2, "No")
+    MISSING = (995, "Missing Response")

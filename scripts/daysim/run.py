@@ -6,8 +6,8 @@ from pathlib import Path
 
 import polars as pl
 
-from processing.pipeline.decoration import step
-from processing.pipeline.pipeline import Pipeline
+from processing.decoration import step
+from processing.pipeline import Pipeline
 from processing.utils.helpers import add_time_columns
 
 # ---------------------------------------------------------------------

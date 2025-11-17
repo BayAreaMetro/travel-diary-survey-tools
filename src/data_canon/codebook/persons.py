@@ -21,41 +21,6 @@ class AgeCategory(LabeledEnum):
     AGE_85_AND_UP = (11, "85 and up")
 
 
-class CanDrive(LabeledEnum):
-    """can_drive value labels."""
-
-    canonical_field_name = "can_drive"
-
-    NO = (0, "No, does not drive")
-    YES = (1, "Yes, drives")
-    MISSING = (995, "Missing Response")
-
-class CanTelework(LabeledEnum):
-    """can_telework value labels."""
-
-    canonical_field_name = "can_telework"
-
-    YES = (1, "Yes")
-    NO = (2, "No")
-    MISSING = (995, "Missing Response")
-
-class CommuteFreq(LabeledEnum):
-    """commute_freq value labels."""
-
-    canonical_field_name = "commute_freq"
-
-    COMMUTE_6_7_DAYS = (0, "Commute 6-7 days a week")
-    COMMUTE_5_DAYS = (2, "Commute 5 days a week")
-    COMMUTE_4_DAYS = (3, "Commute 4 days a week")
-    COMMUTE_3_DAYS = (4, "Commute 3 days a week")
-    COMMUTE_2_DAYS = (5, "Commute 2 days a week")
-    COMMUTE_1_DAY = (6, "Commute 1 day a week")
-    COMMUTE_1_3_PER_MONTH = (7, "Commute 1-3 days a month")
-    LESS_THAN_MONTHLY = (8, "Less than monthly")
-    MISSING = (995, "Missing Response")
-    NEVER = (996, "Never")
-
-
 class CommuteSubsidy(LabeledEnum):
     """commute_subsidy value labels, parent class to be referenced by specific subsidy types."""  # noqa: E501
 
@@ -74,16 +39,6 @@ class CommuteSubsidy(LabeledEnum):
     OTHER = (11, "Other commute subsidy provided by employer")
     NONE = (12, "No commute subsidies provided by employer")
     DONT_KNOW = (13, "Don't know")
-
-class CommuteSubsidyOffered(CommuteSubsidy):
-    """commute_subsidy_offered value labels."""
-
-    canonical_field_name = "commute_subsidy_offered"
-
-class CommuteSubsidyUsed(CommuteSubsidy):
-    """commute_subsidy_used value labels."""
-
-    canonical_field_name = "commute_subsidy_used"
 
 
 class Education(LabeledEnum):
@@ -185,20 +140,6 @@ class JobCommuteType(LabeledEnum):
     HYBRID = (5, "Work remotely some days and travel to a work location some days")  # noqa: E501
     MISSING = (995, "Missing Response")
 
-
-class NumJobs(LabeledEnum):
-    """num_jobs value labels."""
-
-    canonical_field_name = "num_jobs"
-
-    VALUE_1_JOB = (1, "1 job")
-    VALUE_2_JOBS = (2, "2 jobs")
-    VALUE_3_JOBS = (3, "3 jobs")
-    VALUE_4_JOBS = (4, "4 jobs")
-    VALUE_5_JOBS = (5, "5 jobs")
-    VALUE_6_OR_MORE_JOBS = (6, "6 or more jobs")
-    MISSING = (995, "Missing Response")
-
 class Occupation(LabeledEnum):
     """occupation value labels."""
 
@@ -246,77 +187,6 @@ class Race(LabeledEnum):
     MISSING = (995, "Missing Response")
     PNTA = (999, "Prefer not to answer")
 
-# Individual race fields to capture multiple selections
-class RaceAfam(LabeledEnum):
-    """race_afam value labels."""
-
-    canonical_field_name = "race_afam"
-    field_description = "Indicates whether the person identifies as African American or Black"  # noqa: E501
-
-    NOT_SELECTED = (0, "Not selected")
-    SELECTED = (1, "Selected")
-    MISSING = (995, "Missing Response")
-
-class RaceNative(LabeledEnum):
-    """race_native value labels."""
-
-    canonical_field_name = "race_native"
-    field_description = "Indicates whether the person identifies as American Indian or Alaska Native"  # noqa: E501
-
-    NOT_SELECTED = (0, "Not selected")
-    SELECTED = (1, "Selected")
-    MISSING = (995, "Missing Response")
-
-class RaceAsian(LabeledEnum):
-    """race_asian value labels."""
-
-    canonical_field_name = "race_asian"
-    field_description = "Indicates whether the person identifies as Asian"
-
-    NOT_SELECTED = (0, "Not selected")
-    SELECTED = (1, "Selected")
-    MISSING = (995, "Missing Response")
-
-class RacePacific(LabeledEnum):
-    """race_pacific value labels."""
-
-    canonical_field_name = "race_pacific"
-    field_description = "Indicates whether the person identifies as Native Hawaiian or Other Pacific Islander"  # noqa: E501
-
-    NOT_SELECTED = (0, "Not selected")
-    SELECTED = (1, "Selected")
-    MISSING = (995, "Missing Response")
-
-class RaceWhite(LabeledEnum):
-    """race_white value labels."""
-
-    canonical_field_name = "race_white"
-    field_description = "Indicates whether the person identifies as White"
-
-    NOT_SELECTED = (0, "Not selected")
-    SELECTED = (1, "Selected")
-    MISSING = (995, "Missing Response")
-
-class RaceOther(LabeledEnum):
-    """race_other value labels."""
-
-    canonical_field_name = "race_other"
-    field_description = "Indicates whether the person identifies as some other race"  # noqa: E501
-
-    NOT_SELECTED = (0, "Not selected")
-    SELECTED = (1, "Selected")
-    MISSING = (995, "Missing Response")
-
-class RacePNTA(LabeledEnum):
-    """race_pnta value labels."""
-
-    canonical_field_name = "race_pnta"
-    field_description = "Indicates whether the person prefers not to answer the race question"  # noqa: E501
-
-    NOT_SELECTED = (0, "Not selected")
-    SELECTED = (1, "Selected")
-    MISSING = (995, "Missing Response")
-
 class Relationship(LabeledEnum):
     """relationship value labels."""
 
@@ -330,6 +200,7 @@ class Relationship(LabeledEnum):
     SIBLING = (4, "Sibling or sibling-in-law")
     OTHER_RELATIVE = (5, "Other relative (grandchild, cousin)")
     NONRELATIVE = (6, "Nonrelative (friend, roommate, household help)")
+
 
 class RemoteClassFreq(LabeledEnum):
     """remote_class_freq value labels."""
@@ -366,7 +237,7 @@ class ResidenceType(LabeledEnum):
 
     canonical_field_name = "residence_type"
 
-    DETACHEDSFH = (1, "Single-family house (detached house)")
+    SFH = (1, "Single-family house (detached house)")
     TOWNHOUSE = (2, "Single-family house attached to one or more houses (rowhouse or townhouse)")  # noqa: E501
     MULTIFAMILY = (3, "Building with 2-4 units (duplexes, triplexes, quads)")
     CONDO_5TO50_UNITS = (4, "Building with 5-49 apartments/condos")
@@ -393,52 +264,6 @@ class SchoolFreq(LabeledEnum):
     MISSING = (995, "Missing Response")
     NEVER = (996, "Never")
 
-class SchoolInRegion(LabeledEnum):
-    """school_in_region value labels."""
-
-    canonical_field_name = "school_in_region"
-
-    NO = (0, "No")
-    YES = (1, "Yes")
-    MISSING = (995, "Missing Response")
-
-class SchoolMode(LabeledEnum):
-    """school_mode value labels."""
-
-    canonical_field_name = "school_mode"
-
-    WALK = (1, "Walk (or jog/wheelchair)")
-    SCHOOL_BUS = (24, "School bus")
-    MEDICAL_TRANS = (27, "Medical transportation service")
-    HOUSEHOLD_VEHICLE = (100, "Household vehicle (or motorcycle)")
-    OTHER_VEHICLE = (101, "Other vehicle (e.g., friend's car, rental, carshare, work car)")  # noqa: E501
-    SHUTTLE = (102, "Bus, shuttle, or vanpool")
-    BICYCLE = (103, "Bicycle")
-    OTHER = (104, "Other")
-    RAIL = (105, "Rail (e.g., train, light rail, trolley, BART, MUNI Metro)")
-    TNC = (106, "Uber/Lyft, taxi, car service")
-    MICROMOBILITY = (107, "Micromobility (e.g., scooter, moped, skateboard)")
-    MISSING = (995, "Missing Response")
-
-class WorkMode(LabeledEnum):
-    """work_mode value labels."""
-
-    canonical_field_name = "work_mode"
-
-    WALK = (1, "Walk (or jog/wheelchair)")
-    MEDICAL_TRANSPORTATION_SERVICE = (27, "Medical transportation service")
-    HOUSEHOLD_VEHICLE_OR_MOTORCYCLE = (100, "Household vehicle (or motorcycle)")
-    OTHER_VEHICLE_E_G_FRIENDS_CAR_RENTAL_CARSHARE_WORK_CAR = (101, "Other vehicle (e.g., friend's car, rental, carshare, work car)")
-    BUS_SHUTTLE_OR_VANPOOL = (102, "Bus, shuttle, or vanpool")
-    BICYCLE = (103, "Bicycle")
-    OTHER = (104, "Other")
-    RAIL_E_G_TRAIN_LIGHT_RAIL_TROLLEY_BART_MUNI_METRO = (105, "Rail (e.g., train, light rail, trolley, BART, MUNI Metro)")
-    UBER_OR_LYFT_TAXI_CAR_SERVICE = (106, "Uber/Lyft, taxi, car service")
-    MICROMOBILITY_E_G_SCOOTER_MOPED_SKATEBOARD = (107, "Micromobility (e.g., scooter, moped, skateboard)")
-    MISSING = (995, "Missing Response")
-
-
-
 
 class SchoolType(LabeledEnum):
     """school_type value labels."""
@@ -459,25 +284,6 @@ class SchoolType(LabeledEnum):
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other")
 
-class SecondHome(LabeledEnum):
-    """second_home value labels."""
-
-    canonical_field_name = "second_home"
-    field_description = "Indicates whether the person regularly spends nights at a second home"  # noqa: E501
-
-    NO = (0, "Does not regularly spend night at second home")
-    YES = (1, "Regularly spends night at second home")
-    MISSING = (995, "Missing Response")
-
-
-class SecondHomeInRegion(LabeledEnum):
-    """second_home_in_region value labels."""
-
-    canonical_field_name = "second_home_in_region"
-
-    NO = (0, "No")
-    YES = (1, "Yes")
-    MISSING = (995, "Missing Response")
 
 class Student(LabeledEnum):
     """student value labels."""
@@ -491,21 +297,21 @@ class Student(LabeledEnum):
     FULLTIME_ONLINE = (4, "Full-time student, ONLY online classes")
     MISSING = (995, "Missing Response")
 
-class TeleworkFreq(LabeledEnum):
-    """telework_freq value labels."""
 
-    canonical_field_name = "telework_freq"
+class CommuteFreq(LabeledEnum):
+    """commute and telework frequency value labels."""
 
-    WFH_6_7_DAYS = (1, "6-7 days a week")
-    WFH_5_DAYS = (2, "5 days a week")
-    WFH_4_DAYS = (3, "4 days a week")
-    WFH_3_DAYS = (4, "3 days a week")
-    WFH_2_DAYS = (5, "2 days a week")
-    WFH_1_DAY = (6, "1 day a week")
-    WFH_1_3_DAYS_A_MONTH = (7, "1-3 days a month")
+    DAYS_6_7 = (1, "6-7 days a week")
+    DAYS_5 = (2, "5 days a week")
+    DAYS_4 = (3, "4 days a week")
+    DAYS_3 = (4, "3 days a week")
+    DAYS_2 = (5, "2 days a week")
+    DAY_1 = (6, "1 day a week")
+    DAYS_1_3_PER_MONTH = (7, "1-3 days a month")
     LESS_THAN_MONTHLY = (8, "Less than monthly")
     MISSING = (995, "Missing Response")
     NEVER = (996, "Never")
+
 
 class Vehicle(LabeledEnum):
     """vehicle value labels."""
