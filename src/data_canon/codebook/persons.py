@@ -330,3 +330,19 @@ class Vehicle(LabeledEnum):
     MISSING = (995, "Missing Response")
     NONE = (996, "None (I do not drive a vehicle)")
     OTHER_VEHICLE = (997, "Other vehicle")
+
+
+class PersonType(LabeledEnum):
+    """Derived person type from employment status, student status, and age."""
+
+    canonical_field_name = "person_type"
+    field_description = "Person type derived from employment, student status, and age"
+
+    FULL_TIME_WORKER = (1, "Full-time worker")
+    PART_TIME_WORKER = (2, "Part-time worker")
+    RETIRED = (3, "Non-working adult 65+")
+    NON_WORKER = (4, "Non-working adult < 65")
+    UNIVERSITY_STUDENT = (5, "University student")
+    HIGH_SCHOOL_STUDENT = (6, "High school student 16+")
+    CHILD_5_15 = (7, "Child 5-15")
+    CHILD_UNDER_5 = (8, "Child 0-4")

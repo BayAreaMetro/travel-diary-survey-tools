@@ -106,65 +106,18 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook import LocationType, ModeType, PersonType, TripPurpose
+from data_canon.codebook import (
+    LocationType,
+    PersonType,
+    TourType,
+    TripPurpose,
+)
 from processing.utils import expr_haversine
+
+from .configs import TourConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-# Default Configuration --------------------------------------------------------
-
-DEFAULT_CONFIG = {
-    "distance_thresholds": {
-        LocationType.HOME: 100.0,
-        LocationType.WORK: 100.0,
-        LocationType.SCHOOL: 100.0,
-    },
-    "mode_hierarchy": {
-        # Maps mode codes to hierarchy levels (higher = more important)
-        ModeType.WALK: 1,
-        ModeType.BIKE: 2,
-        ModeType.AUTO: 3,
-        ModeType.TRANSIT: 4,
-        ModeType.DRIVE_TRANSIT: 5,
-    },
-    "purpose_priority_by_person_category": {
-        # Priority order for determining primary tour purpose
-        # Lower number = higher priority
-        PersonType.WORKER: {
-            TripPurpose.WORK: 1,  # Highest priority for workers
-            TripPurpose.SCHOOL: 2,
-            TripPurpose.ESCORT: 3,
-            # All other purposes get default priority of 4
-        },
-        PersonType.STUDENT: {
-            TripPurpose.SCHOOL: 1,  # Highest priority for students
-            TripPurpose.WORK: 2,
-            TripPurpose.ESCORT: 3,
-        },
-        PersonType.OTHER: {
-            TripPurpose.WORK: 1,
-            TripPurpose.SCHOOL: 2,
-            TripPurpose.ESCORT: 3,
-        },
-    },
-    "default_purpose_priority": 4,
-    "person_type_mapping": {
-        # Maps person_type codes to categories for priority lookup
-        PersonType.FULL_TIME_WORKER: PersonType.WORKER,
-        PersonType.PART_TIME_WORKER: PersonType.WORKER,
-        PersonType.RETIRED: PersonType.OTHER,
-        PersonType.NON_WORKER: PersonType.OTHER,
-        PersonType.UNIVERSITY_STUDENT: PersonType.STUDENT,
-        PersonType.HIGH_SCHOOL_STUDENT: PersonType.STUDENT,
-        PersonType.CHILD_5_15: PersonType.STUDENT,
-        PersonType.CHILD_UNDER_5: PersonType.OTHER,
-    },
-}
-
-
-# Tour Builder Class -----------------------------------------------------------
 
 
 class TourBuilder:
@@ -174,7 +127,7 @@ class TourBuilder:
         self,
         persons: pl.DataFrame,
         households: pl.DataFrame | None = None,
-        config: dict | None = None,
+        config: TourConfig | None = None,
     ) -> None:
         """Initialize TourBuilder with person data and configuration.
 
@@ -198,7 +151,7 @@ class TourBuilder:
             )
 
         self.persons = persons
-        self.config = {**DEFAULT_CONFIG, **(config or {})}
+        self.config = config or TourConfig()  # default config if none provided
         self._prepare_location_cache()
         logger.info("TourBuilder ready for %d persons", len(self.persons))
 
@@ -454,7 +407,7 @@ class TourBuilder:
                     "tour_id"
                 ),
                 # All tours at this level are home-based
-                pl.lit(TourCategory.HOME_BASED).alias("tour_category"),
+                pl.lit(TourType.HOME_BASED).alias("tour_category"),
             ]
         )
 
@@ -560,7 +513,7 @@ class TourBuilder:
                 .alias("subtour_id"),
                 # Update tour category for subtours
                 pl.when(pl.col("subtour_num_in_tour") > 0)
-                .then(pl.lit(TourCategory.WORK_BASED))
+                .then(pl.lit(TourType.WORK_BASED))
                 .otherwise(pl.col("tour_category"))
                 .alias("tour_category"),
             ]
@@ -842,12 +795,12 @@ class TourBuilder:
         # Count tours by category for each person-day
         tour_counts = tours.group_by(["person_id", "day_id"]).agg(
             [
-                pl.when(pl.col("tour_category") == TourCategory.HOME_BASED)
+                pl.when(pl.col("tour_category") == TourType.HOME_BASED)
                 .then(1)
                 .otherwise(0)
                 .sum()
                 .alias("home_based_tour_count"),
-                pl.when(pl.col("tour_category") == TourCategory.WORK_BASED)
+                pl.when(pl.col("tour_category") == TourType.WORK_BASED)
                 .then(1)
                 .otherwise(0)
                 .sum()

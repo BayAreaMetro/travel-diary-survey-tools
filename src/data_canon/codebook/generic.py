@@ -24,4 +24,3 @@ class LocationType(LabeledEnum):
     WORK = (2, "Work")
     SCHOOL = (3, "School")
     OTHER = (4, "Other")
-

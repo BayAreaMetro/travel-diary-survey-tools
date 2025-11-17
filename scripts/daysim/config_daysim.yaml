@@ -37,9 +37,8 @@ steps:
       transit_mode_codes: [12, 13, 14]
       max_dwell_time: 180  # in minutes
       dwell_buffer_distance: 100  # in meters
-  # - name: tour_building
-    # parameters:
-  #     max_dwell_time_minutes: 120
+
+  - name: extract_tours
 
   # - name: daysim_formatting
   # - name: saving
