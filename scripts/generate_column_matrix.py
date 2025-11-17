@@ -11,7 +11,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from travel_diary_survey_tools.data.models import (
+from data_canon.models import (
     HouseholdModel,
     LinkedTripModel,
     PersonDayModel,
@@ -19,7 +19,7 @@ from travel_diary_survey_tools.data.models import (
     TourModel,
     UnlinkedTripModel,
 )
-from travel_diary_survey_tools.pipeline.validators import (
+from data_canon.validators import (
     get_step_validation_summary,
 )
 

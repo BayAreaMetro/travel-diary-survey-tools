@@ -3,12 +3,12 @@
 import polars as pl
 import pytest
 
-from travel_diary_survey_tools.steps.link import (
+from processing.steps.link import (
     aggregate_linked_trips,
     link_trip_ids,
     link_trips,
 )
-from travel_diary_survey_tools.utils.helpers import add_time_columns
+from processing.utils.helpers import add_time_columns
 
 # Test Constants
 CHANGE_MODE_CODE = 11

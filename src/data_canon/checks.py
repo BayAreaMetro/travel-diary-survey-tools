@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 import polars as pl
 
-from travel_diary_survey_tools.utils.helpers import expr_haversine
+from processing.utils.helpers import expr_haversine
 
 # Registry of custom validators
 # Format: {table_name: [check_function1, check_function2, ...]}  # noqa: ERA001

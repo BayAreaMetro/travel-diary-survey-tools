@@ -6,9 +6,9 @@ from pathlib import Path
 
 import polars as pl
 
-from travel_diary_survey_tools.pipeline.decoration import step
-from travel_diary_survey_tools.pipeline.pipeline import Pipeline
-from travel_diary_survey_tools.utils.helpers import add_time_columns
+from processing.pipeline.decoration import step
+from processing.pipeline.pipeline import Pipeline
+from processing.utils.helpers import add_time_columns
 
 # ---------------------------------------------------------------------
 # Configuration

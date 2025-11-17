@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from travel_diary_survey_tools.utils.helpers import (
+from processing.utils.helpers import (
     add_time_columns,
     expr_haversine,
 )

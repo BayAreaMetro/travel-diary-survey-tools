@@ -2,9 +2,9 @@
 
 import polars as pl
 import pytest
-from travel_diary_survey_tools.tours import DEFAULT_CONFIG, TourBuilder
+from processing.tours import DEFAULT_CONFIG, TourBuilder
 
-from travel_diary_survey_tools.data.codebook import (
+from data_canon.codebook import (
     LocationType,
     ModeType,
     PersonCategory,

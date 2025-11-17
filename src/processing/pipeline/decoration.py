@@ -7,7 +7,7 @@ from typing import Any
 
 import polars as pl
 
-from travel_diary_survey_tools.pipeline import CanonicalData
+from processing.pipeline import CanonicalData
 
 logger = logging.getLogger(__name__)
 
