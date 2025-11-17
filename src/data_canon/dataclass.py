@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 import polars as pl
 from pydantic import BaseModel
 
-from travel_diary_survey_tools.data import checks
-from travel_diary_survey_tools.data.models import (
+from . import checks
+from .models import (
     HouseholdModel,
     LinkedTripModel,
     PersonDayModel,
@@ -17,7 +17,6 @@ from travel_diary_survey_tools.data.models import (
     TourModel,
     UnlinkedTripModel,
 )
-
 from .validators import (
     ValidationError,
     check_foreign_keys,

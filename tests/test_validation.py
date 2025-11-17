@@ -5,8 +5,8 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from travel_diary_survey_tools.pipeline.data_canon import CanonicalData
-from travel_diary_survey_tools.pipeline.validators import ValidationError
+from data_canon import CanonicalData
+from data_canon.validators import ValidationError
 
 
 class TestUniqueConstraints:

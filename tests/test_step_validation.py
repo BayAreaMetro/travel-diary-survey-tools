@@ -8,8 +8,8 @@ from datetime import datetime
 
 import pytest
 
-from travel_diary_survey_tools.data.models import UnlinkedTripModel
-from travel_diary_survey_tools.pipeline.validators import (
+from data_canon.models import UnlinkedTripModel
+from data_canon.validators import (
     get_required_fields_for_step,
     validate_row_for_step,
 )

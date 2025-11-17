@@ -106,12 +106,8 @@ import logging
 
 import polars as pl
 
-from travel_diary_survey_tools.data.codebook import (
-    ModeType
-)
-
-from .data.models import HouseholdModel, LinkedTripModel, PersonModel
-from .utils import expr_haversine
+from data_canon.codebook import ModeType
+from travel_diary_survey_tools.utils import expr_haversine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

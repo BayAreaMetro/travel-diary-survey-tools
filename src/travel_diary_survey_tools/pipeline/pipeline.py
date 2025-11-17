@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from travel_diary_survey_tools.pipeline.data_canon import CanonicalData
+from data_canon import CanonicalData
 from travel_diary_survey_tools.steps import link_trips, load_data
 
 logger = logging.getLogger(__name__)
