@@ -15,7 +15,7 @@ The validation framework provides 5 layers of validation:
 ## Quick Start
 
 ```python
-from travel_diary_survey_tools.data.dataclass import CanonicalData
+from data_canon.dataclass import CanonicalData
 import polars as pl
 
 # Create canonical data structure
@@ -25,9 +25,9 @@ data = CanonicalData()
 data.households = pl.read_csv("households.csv")
 data.persons = pl.read_csv("persons.csv")
 
-# Validate tables
+# Validate tables (optionally specify pipeline step)
 data.validate("households")
-data.validate("persons")
+data.validate("persons", step="link_trip")
 ```
 
 ## Validation Layers
@@ -116,12 +116,12 @@ See [examples/validation_foreign_keys.py](examples/validation_foreign_keys.py) f
 Uses Pydantic models to validate data types, enums, and business logic for each row.
 
 **Built-in models:**
-- `HouseholdModel`: Income, household size, vehicle counts
-- `PersonModel`: Age, gender, worker/student status
-- `DayModel`: Travel date, day of week, trip counts
-- `UnlinkedTripModel`: Trip purpose, mode, times
-- `LinkedTripModel`: Includes origin/destination locations
-- `TourModel`: Tour purpose, structure, complexity
+- `HouseholdModel`: Household attributes
+- `PersonModel`: Person demographics
+- `PersonDayModel`: Daily travel records
+- `UnlinkedTripModel`: Individual trip segments
+- `LinkedTripModel`: Connected trip chains
+- `TourModel`: Complete tour structures
 
 **Example:**
 ```python
@@ -156,9 +156,8 @@ User-defined validation functions for business logic that spans rows or tables.
 
 **How to add custom checks:**
 
-1. Define your check function in `checks.py`:
+1. Define your check function in `src/data_canon/checks.py`:
 ```python
-# src/travel_diary_survey_tools/data/checks.py
 def check_arrival_after_departure(unlinked_trips: pl.DataFrame) -> list[str]:
     """Ensure arrive_time is after depart_time for all trips."""
     errors = []
@@ -174,9 +173,9 @@ def check_arrival_after_departure(unlinked_trips: pl.DataFrame) -> list[str]:
     return errors
 ```
 
-2. Register it in the `CUSTOM_VALIDATORS` dictionary at the top of `checks.py`:
+2. Register it in the `CUSTOM_VALIDATORS` dictionary in `checks.py`:
 ```python
-# src/travel_diary_survey_tools/data/checks.py (at the top)
+# src/data_canon/checks.py
 CUSTOM_VALIDATORS = {
     "unlinked_trips": [check_arrival_after_departure],
     "linked_trips": [],
@@ -188,22 +187,9 @@ CUSTOM_VALIDATORS = {
 data.validate("unlinked_trips")  # Runs check_arrival_after_departure
 ```
 
-**Alternative: Runtime registration with decorator:**
-```python
-@data.register_validator("households")
-def check_income_reasonable(households: pl.DataFrame) -> list[str]:
-    """Dynamic registration at runtime."""
-    errors = []
-    # validation logic...
-    return errors
-```
-
-Note: Using `CUSTOM_VALIDATORS` in `checks.py` is preferred for maintainability
-```
-
 **Multi-table validator:**
 ```python
-@data.register_validator("persons")
+# In checks.py
 def check_household_size_consistency(
     persons: pl.DataFrame,
     households: pl.DataFrame,
@@ -224,49 +210,17 @@ def check_household_size_consistency(
     
     return errors
 
+# Register in CUSTOM_VALIDATORS
+CUSTOM_VALIDATORS = {
+    "persons": [check_household_size_consistency],
+}
+
 data.validate("persons")  # Uses both persons and households
 ```
 
-**Spatial/sequence validators:**
-```python
-@data.register_validator("tours")
-def check_no_teleportation(
-    tours: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-) -> list[str]:
-    """Check that trips in a tour don't teleport unreasonably."""
-    errors = []
-    
-    for tour_id in tours["tour_id"]:
-        tour_trips = (
-            linked_trips
-            .filter(pl.col("tour_id") == tour_id)
-            .sort("trip_num")
-        )
-        
-        for i in range(len(tour_trips) - 1):
-            dest = tour_trips[i]["d_taz"]
-            next_orig = tour_trips[i + 1]["o_taz"]
-            
-            if dest != next_orig:
-                errors.append(
-                    f"Tour {tour_id}: Trip {i+1} destination ({dest}) "
-                    f"!= Trip {i+2} origin ({next_orig})"
-                )
-    
-    return errors
-```
+Custom validators automatically receive any tables they need from the CanonicalData instance based on their function signature.
 
-**Register on multiple tables:**
-```python
-@data.register_validator("households", "persons", "days")
-def check_no_nulls_in_keys(*args, **kwargs) -> list[str]:
-    """Check that no primary/foreign keys have nulls."""
-    # Validator runs when any of the three tables are validated
-    return []
-```
-
-See [examples/validation_custom.py](examples/validation_custom.py) for full examples.
+See `src/data_canon/checks.py` for implementation examples.
 
 ### 5. Required Children (Bidirectional FK)
 
@@ -307,18 +261,15 @@ See [examples/validation_required_children.py](examples/validation_required_chil
 The validation framework integrates seamlessly with the pipeline decorator:
 
 ```python
-from travel_diary_survey_tools.pipeline import step
+from processing import step
 
 @step(
-    inputs=["households", "persons"],
-    outputs=["persons_enriched"],
-    validate_inputs=True,  # Validate before processing
-    validate_outputs=True,  # Validate after processing
+    validate_input=True,   # Validate before processing
+    validate_output=True,  # Validate after processing
 )
 def enrich_persons(
     households: pl.DataFrame,
     persons: pl.DataFrame,
-    **kwargs,
 ) -> dict[str, pl.DataFrame]:
     # Inputs automatically validated before this runs
     persons_enriched = persons.join(
@@ -326,7 +277,32 @@ def enrich_persons(
         on="hh_id",
     )
     # Outputs automatically validated after return
-    return {"persons_enriched": persons_enriched}
+    return {"persons": persons_enriched}
+```
+
+## Step-Aware Validation
+
+Fields can be required only in specific pipeline steps using the `step_field()` helper:
+
+```python
+from data_canon.step_field import step_field
+
+class PersonModel(BaseModel):
+    person_id: int = step_field(ge=1)
+    age: int | None = step_field(
+        required_in_steps=["imputation"],
+        ge=0, default=None
+    )
+    tour_id: int | None = step_field(
+        created_in_step="extract_tours",
+        default=None
+    )
+```
+
+When validating, pass the step name:
+```python
+data.validate("persons", step="imputation")  # age is required
+data.validate("persons", step="load")        # age is optional
 ```
 
 ## Configuration
@@ -338,24 +314,14 @@ Extend the default configurations in your `CanonicalData` instance:
 ```python
 data = CanonicalData()
 
-# Add uniqueness constraint on multiple columns
+# Add uniqueness constraint
 data._unique_constraints["persons"].append("email")
 
 # Add new FK relationship
 data._foreign_keys["my_custom_table"] = ["persons", "households"]
 
 # Add required children relationship
-data._required_children["days"] = [("unlinked_trips", "day_id")]
-```
-
-### Modifying FK Column Mapping
-
-If you have custom table names, update the FK column mapping:
-
-```python
-from travel_diary_survey_tools.data.validation import _TABLE_TO_FK_COLUMN
-
-_TABLE_TO_FK_COLUMN["my_custom_table"] = "custom_id"
+data._required_children["days"].append(("unlinked_trips", "day_id"))
 ```
 
 ## Error Handling
@@ -363,7 +329,7 @@ _TABLE_TO_FK_COLUMN["my_custom_table"] = "custom_id"
 All validation errors raise `ValidationError` with structured information:
 
 ```python
-from travel_diary_survey_tools.data.validation import ValidationError
+from data_canon.validators import ValidationError
 
 try:
     data.validate("households")
@@ -377,23 +343,13 @@ except ValidationError as e:
 
 ## Best Practices
 
-1. **Validate early and often** - Run validation after each transformation step
-2. **Use custom validators** for business logic specific to your domain
-3. **Register validators at module level** - Define validators once, use everywhere
+1. **Validate early and often** - Use `@step(validate_input=True)` on pipeline functions
+2. **Use step-aware validation** - Mark fields with `required_in_steps` to validate progressively
+3. **Add custom validators** in `src/data_canon/checks.py` for business logic
 4. **Return empty list for success** - Custom validators should return `[]` when passing
 5. **Provide informative messages** - Include context and sample data in error messages
-6. **Use multi-table validators** - Check cross-table consistency where needed
-
-## Examples
-
-Complete working examples are available in the `examples/` directory:
-
-- [validation_unique.py](examples/validation_unique.py) - Uniqueness constraints
-- [validation_foreign_keys.py](examples/validation_foreign_keys.py) - FK constraints
-- [validation_row.py](examples/validation_row.py) - Pydantic row validation
-- [validation_custom.py](examples/validation_custom.py) - Custom validators
-- [validation_required_children.py](examples/validation_required_children.py) - Bidirectional FK
-- [validation_complete.py](examples/validation_complete.py) - Full workflow
+6. **Use multi-table validators** - Validators automatically receive needed tables from CanonicalData
+7. **Final validation step** - Use `final_check` step at pipeline end to validate all tables
 
 ## Testing
 
@@ -402,5 +358,3 @@ Run the validation test suite:
 ```bash
 pytest tests/test_validation.py -v
 ```
-
-See [test_validation.py](../../../../tests/test_validation.py) for comprehensive test examples.
