@@ -53,18 +53,35 @@ def taz_spatial_join(config):
         maz = gpd.read_file(config["01-taz_spatial_join"]["maz_filepath"])[
             ["MAZID", "TAZ", "geometry"]
         ]
+        # Ensure CRS is set (NAD83 / California zone 3 ftUS - EPSG:2227)
+        if maz.crs is None:
+            maz = maz.set_crs("EPSG:2227")
     elif agency_model == "MTC_TM1":
         # MTC's TM1 only has TAZ but this proces expects both TAZ and MAZ (so MAZID is set to be the same value as TAZ to satisfy downstream code)
         maz = gpd.read_file(config["01-taz_spatial_join"]["maz_filepath"])[
             ["TAZ1454", "geometry"]
         ].rename(columns={"TAZ1454": "TAZ"}).assign(MAZID=lambda df: df["TAZ"])
+        # Set CRS to WGS84 as indicated by filename, then convert to projected CRS
+        if maz.crs is None:
+            maz = maz.set_crs("EPSG:4326")
+        # Convert to projected CRS (NAD83 / California zone 3 ftUS) for distance calculations
+        if maz.crs.is_geographic:
+            maz = maz.to_crs("EPSG:2227")
     else:
         raise ValueError(f"Unsupported agency_model: {agency_model}")
+
+    # Ensure CRS is set - default to WGS84, then convert to projected CRS for distance calculations
+    if maz.crs is None:
+        maz = maz.set_crs("EPSG:4326")
+    if maz.crs.is_geographic:
+        maz = maz.to_crs("EPSG:2227")  # NAD83 / California zone 3 ftUS
+    
+    # Fix any invalid geometries that could cause GEOS errors
+    maz["geometry"] = maz["geometry"].make_valid()
 
     hh = pd.read_csv(preprocess_dir / config["hh_filename"])
     person = pd.read_csv(preprocess_dir / config["person_filename"])
     trip = pd.read_csv(preprocess_dir / config["trip_filename"])
-
     hh_taz_join = sjoin_maz(hh, maz, "hh_id", "home")
     person_taz_join = sjoin_maz(
         sjoin_maz(person, maz, "person_id", "work"), maz, "person_id", "school"
@@ -94,22 +111,28 @@ def sjoin_maz(df: pd.DataFrame, maz: gpd.GeoDataFrame, id_col: str, var_prefix: 
                      {prefix}_maz and {prefix}_taz columns
     """
     survey_crs = "EPSG:4326"
-    return (
-        gpd.GeoDataFrame(
-            df,
-            geometry=gpd.points_from_xy(
-                df[f"{var_prefix}_lon"], df[f"{var_prefix}_lat"]
-            ),
-            crs=survey_crs,
-        )
-        .to_crs(maz.crs)  # since sjoin_nearest requires a projected CRS
-        # can't just use sjoin(predicate="within"), because the MAZs in the MAZ GIS file
-        # aren't contiguous; there's many gaps between MAZs.
-        # Q:\GIS\Model\MAZ\MAZ40051.* is in a ft CRS, so this sets max_distance = 1000ft,
-        # preventing locations outside the Bay Area from being associated with MAZ/TAZs.
-        # HOTFIX Further increased buffer from 1000 to 2000 ft, because a development
-        # near Fremont/Newark falls outside of current MAZs.
-        .sjoin_nearest(maz, how="left", max_distance=2000)
+    
+    # Filter out rows with missing or invalid coordinates
+    df_valid = df.dropna(subset=[f"{var_prefix}_lon", f"{var_prefix}_lat"])
+    
+    # Create GeoDataFrame only with valid coordinates
+    gdf = gpd.GeoDataFrame(
+        df_valid,
+        geometry=gpd.points_from_xy(
+            df_valid[f"{var_prefix}_lon"], df_valid[f"{var_prefix}_lat"]
+        ),
+        crs=survey_crs,
+    ).to_crs(maz.crs)  # since sjoin_nearest requires a projected CRS
+    
+    # Perform spatial join
+    # can't just use sjoin(predicate="within"), because the MAZs in the MAZ GIS file
+    # aren't contiguous; there's many gaps between MAZs.
+    # Q:\GIS\Model\MAZ\MAZ40051.* is in a ft CRS, so this sets max_distance = 1000ft,
+    # preventing locations outside the Bay Area from being associated with MAZ/TAZs.
+    # HOTFIX Further increased buffer from 1000 to 2000 ft, because a development
+    # near Fremont/Newark falls outside of current MAZs.
+    result = (
+        gdf.sjoin_nearest(maz, how="left", max_distance=2000)
         # sjoin_nearest gives all matches if they're equidistant, so we just
         # randomly select the first of these equidistant MAZ/TAZs to keep
         .drop_duplicates(subset=id_col, keep="first")
@@ -117,9 +140,10 @@ def sjoin_maz(df: pd.DataFrame, maz: gpd.GeoDataFrame, id_col: str, var_prefix: 
         .drop(columns=["geometry", "index_right"])
         .astype({"MAZID": "Int32", "TAZ": "Int32"})  # nullable ints
         .rename(columns={"MAZID": f"{var_prefix}_maz", "TAZ": f"{var_prefix}_taz"})
-        # casting to int doesn't work since there's NaNs:
-        # .astype({f"{var_prefix}_maz": int, f"{var_prefix}_taz": int})
     )
+    
+    # Merge back with original dataframe to preserve rows with invalid coordinates
+    return df.merge(result[[id_col, f"{var_prefix}_maz", f"{var_prefix}_taz"]], on=id_col, how="left")
 
 
 if __name__ == "__main__":

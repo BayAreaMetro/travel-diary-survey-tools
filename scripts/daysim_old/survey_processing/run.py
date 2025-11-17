@@ -46,10 +46,20 @@ class PipelineLog:
 
     def is_up_to_date(self, step: str) -> bool:
         # If current step is newer than last step, return False
+        print(f"Checking if step '{step}' is up to date...")
         for i, s, timestamp in self.entries:
-            if i == 0 and s == step:
-                return True
-            if i > 0 and self.entries[i-1]["timestamp"] < timestamp:
+            
+            # to datetime
+            timestamp = datetime.fromisoformat(timestamp)
+            last_timestamp = datetime.fromisoformat(self.entries[i-1][2]) if i > 0 else datetime.min
+            
+            if (
+                (s == step) and
+                (
+                    (i == 0) or
+                    (i > 0 and last_timestamp < timestamp)
+                )
+            ):
                 return True
         return False
         

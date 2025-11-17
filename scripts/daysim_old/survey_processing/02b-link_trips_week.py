@@ -31,25 +31,24 @@ Output: Linked trip data with merged multi-modal journeys
 # TODO update the pd _append logic to not do appends (deprecated)
 
 
-def link_trips_week(config):
+def _link_trip_week(trip_df, act_dur_limit=35, act_dur_limit2=15):
     """
+    Core trip linking logic extracted for testing.
+    
     Link related trips that represent single multi-modal journeys.
-
     This function processes the trip data to identify and merge trips that
     should be considered as segments of a single journey, particularly for
     complex transit access/egress and mode change scenarios.
 
     Args:
-        config (dict): Configuration dictionary containing file paths and parameters
+        trip_df (pd.DataFrame): Trip data with required columns
+        act_dur_limit (int): Activity duration threshold for main linking (minutes)
+        act_dur_limit2 (int): Secondary activity duration threshold (minutes)
 
     Returns:
-        None: Outputs linked trip data and access/egress mode data
-              to 02b-link_trips_week directory
+        tuple: (linked_trips_df, accegr_df) - Linked trips and access/egress data
     """
-    trip = pd.read_csv(Path(config["02a-reformat"]["dir"]) / config["trip_filename"])
-    link_trips_week_dir = Path(config["02b-link_trips_week"]["dir"])
-    link_trips_week_dir.mkdir(exist_ok=True)
-
+    trip = trip_df.copy()
     ORIG_COLS = trip.columns
 
     # flag the first trip of each day.
@@ -127,10 +126,9 @@ def link_trips_week(config):
         "act_dur",
     ] += 1440
 
-    # print(trip.loc[(trip['dpurp']==10) & ((trip['last_ofday']==0) | ((trip['last_ofday']==1) & (trip['first_ofday_nxt']==1))), 'act_dur'].describe())
     # trip linking parameters
-    ACT_DUR_LIMIT = 35
-    ACT_DUR_LIMIT2 = 15
+    ACT_DUR_LIMIT = act_dur_limit
+    ACT_DUR_LIMIT2 = act_dur_limit2
     WALK_MODES = [0, 1, 2]
     DRIVE_MODES = [3, 4, 5, 9]
 
@@ -169,7 +167,6 @@ def link_trips_week(config):
         Returns:
             bool: Updated tmp_flag for access/egress tracking
         """
-        #global tmp_flag
         if skip == 1 and mode in [6, 7]:
             tmp_dict["hhno"] = [trip.loc[rownum, "hhno"]]
             tmp_dict["pno"] = [trip.loc[rownum, "pno"]]
@@ -243,9 +240,6 @@ def link_trips_week(config):
         dow = trip.loc[i, "dow"]
         tripno = trip.loc[i, "tripno"]
 
-        #     if hhno==181076628:
-        #         print('hello')
-
         act_dur = trip.loc[i, "act_dur"]
         mode = trip.loc[i, "mode"]
         path = trip.loc[i, "path"]
@@ -283,10 +277,7 @@ def link_trips_week(config):
             i += 1
             continue
 
-        #     if hhno==181076628 and tripno==1:
-        #         print('hello')
-
-        # Now, we have a hit a record for which destination purpose is change_mode (dpurp = 10)
+        # Now, we have hit a record for which destination purpose is change_mode (dpurp = 10)
 
         j = 1
         # Merge access, egress, and sequential transit trips where the activity duration < ACT_DUR_LIMIT
@@ -313,7 +304,6 @@ def link_trips_week(config):
             tmp_flag = merge_trips(i, j, max(mode, mode_nxt), tmp_flag)
             j += 1
         else:
-            #       print('check this case in initial: %s, %s' %(hhno, tripno))
             trip.loc[i, "dpurp"] = 4  # just assume this is personal business
             if tmp_flag:
                 accegr_df = pd.concat([accegr_df, pd.DataFrame(tmp_dict)])
@@ -353,7 +343,6 @@ def link_trips_week(config):
                 tmp_flag = merge_trips(i, j, max(mode, mode_nxt), tmp_flag)
                 j += 1
             else:
-                #           print('check this case in loop: %s, %s' %(hhno, tripno))
                 trip.loc[i, "dpurp"] = 4  # just assume this is personal business
                 if tmp_flag:
                     accegr_df = pd.concat([accegr_df, pd.DataFrame(tmp_dict)])
@@ -379,25 +368,46 @@ def link_trips_week(config):
     trip.loc[pd.isna(trip["del_flag"]), "del_flag"] = 0
 
     print(len(trip))
-    trip.to_csv(
-        link_trips_week_dir
-        / config["02b-link_trips_week"]["trip_linked_detail_week_filename"],
-        index=False,
-    )
+    
+    trip_linked = trip.loc[trip["del_flag"] == 0, ORIG_COLS]
+    print(len(trip_linked))
 
-    trip = trip.loc[trip["del_flag"] == 0, ORIG_COLS]
-    print(len(trip))
-
-    # create a new continous tripno called lintripno
-    trip = trip.sort_values(["hhno", "pno", "tripno"])
+    # create a new continuous tripno called lintripno
+    trip_linked = trip_linked.sort_values(["hhno", "pno", "tripno"])
     df_count = (
-        trip[["hhno", "pno", "tripno"]].groupby(["hhno", "pno"]).count().reset_index()
+        trip_linked[["hhno", "pno", "tripno"]].groupby(["hhno", "pno"]).count().reset_index()
     )
-    trip["lintripno"] = np.concatenate(
+    trip_linked["lintripno"] = np.concatenate(
         df_count["tripno"].apply(lambda x: range(1, x + 1))
     )
+    
+    return trip_linked, accegr_df
 
-    trip.to_csv(link_trips_week_dir / config["trip_filename"], index=False)
+
+def link_trips_week(config):
+    """
+    Link related trips that represent single multi-modal journeys.
+
+    This function processes the trip data to identify and merge trips that
+    should be considered as segments of a single journey, particularly for
+    complex transit access/egress and mode change scenarios.
+
+    Args:
+        config (dict): Configuration dictionary containing file paths and parameters
+
+    Returns:
+        None: Outputs linked trip data and access/egress mode data
+              to 02b-link_trips_week directory
+    """
+    trip = pd.read_csv(Path(config["02a-reformat"]["dir"]) / config["trip_filename"])
+    link_trips_week_dir = Path(config["02b-link_trips_week"]["dir"])
+    link_trips_week_dir.mkdir(exist_ok=True)
+
+    # Call the core processing function
+    trip_linked, accegr_df = _link_trip_week(trip)
+    
+    # Save outputs
+    trip_linked.to_csv(link_trips_week_dir / config["trip_filename"], index=False)
     accegr_df.to_csv(
         link_trips_week_dir / config["02b-link_trips_week"]["accegr_filename"],
         index=False,
