@@ -54,6 +54,17 @@ def step_field(
     if "json_schema_extra" not in field_kwargs:
         field_kwargs["json_schema_extra"] = {}
 
+    # Make a list if not already
+    if isinstance(required_in_steps, str):
+        required_in_steps = [required_in_steps]
+    if required_in_steps is None:
+        required_in_steps = []
+
+    # Handle "all" string for required in all steps
+    if required_in_steps == ["all"]:
+        field_kwargs["json_schema_extra"]["required_in_all_steps"] = True
+        required_in_steps = []
+
     # Add final_check step unless skipped
     if not skip_final_check:
         required_in_steps.append("final_check")
@@ -61,10 +72,6 @@ def step_field(
     # Handle created_in_step metadata
     if created_in_step:
         field_kwargs["json_schema_extra"]["created_in_step"] = created_in_step
-
-    # Handle "all" string for required in all steps
-    if required_in_steps == "all":
-        field_kwargs["json_schema_extra"]["required_in_all_steps"] = True
 
     # Else pass specific steps list
     elif required_in_steps and len(required_in_steps) > 0:

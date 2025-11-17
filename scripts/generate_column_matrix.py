@@ -6,6 +6,7 @@ pipeline steps.
 """
 
 import sys
+import types
 from pathlib import Path
 
 # Add src to path
@@ -26,6 +27,65 @@ from data_canon.validators import (
 )
 
 
+def get_field_type_description(field_info: object) -> str:
+    """Extract human-readable type description from field.
+
+    Args:
+        field_info: Pydantic FieldInfo object
+
+    Returns:
+        String describing the field type
+    """
+    annotation = field_info.annotation
+
+    # Handle Optional types (Union with None)
+    if hasattr(annotation, "__origin__"):
+        origin = annotation.__origin__
+        # Check for Union type (includes | syntax)
+        if origin is types.UnionType or str(origin) == "typing.Union":
+            args = annotation.__args__
+            non_none = [arg for arg in args if arg is not type(None)]
+            if non_none and len(non_none) == 1:
+                return non_none[0].__name__
+            # Multiple non-None types
+            type_names = [arg.__name__ for arg in non_none]
+            return " or ".join(type_names)
+
+    # Simple type
+    if hasattr(annotation, "__name__"):
+        return annotation.__name__
+
+    # Convert to string and replace pipe with "or" for markdown compatibility
+    # Replace " | " with " or " to avoid breaking markdown table delimiters
+    return str(annotation).replace(" | ", " or ")
+
+
+def get_field_constraints(field_info: object) -> str:
+    """Extract validation constraints from field.
+
+    Args:
+        field_info: Pydantic FieldInfo object
+
+    Returns:
+        String describing constraints
+    """
+    constraints = []
+
+    # Get constraints from metadata
+    if hasattr(field_info, "metadata"):
+        for item in field_info.metadata:
+            if hasattr(item, "ge") and item.ge is not None:
+                constraints.append(f"≥ {item.ge}")
+            if hasattr(item, "le") and item.le is not None:
+                constraints.append(f"≤ {item.le}")
+            if hasattr(item, "gt") and item.gt is not None:
+                constraints.append(f"> {item.gt}")
+            if hasattr(item, "lt") and item.lt is not None:
+                constraints.append(f"< {item.lt}")
+
+    return ", ".join(constraints) if constraints else ""
+
+
 def get_field_creation_info(model: type[BaseModel]) -> dict[str, str]:
     """Get information about which step creates each field.
 
@@ -44,7 +104,7 @@ def get_field_creation_info(model: type[BaseModel]) -> dict[str, str]:
     return creation_info
 
 
-def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
+def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR0912, PLR0915
     """Generate markdown table showing column requirements per step.
 
     Args:
@@ -80,9 +140,13 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
         "Generated automatically from Pydantic model field metadata."
     )
     lines.append("")
+    lines.append("")
+    lines.append("- ✓ = required in step")
+    lines.append("- \\+ = created in step")
+    lines.append("")
 
     # Create table header
-    header = ["Table", "Field", *sorted_steps]
+    header = ["Table", "Field", "Type", "Constraints", *sorted_steps]
     lines.append("| " + " | ".join(header) + " |")
     lines.append("| " + " | ".join(["---"] * len(header)) + " |")
 
@@ -96,12 +160,21 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
 
         # Create rows for each field
         for i, field_name in enumerate(all_fields):
+            field_info = model.model_fields[field_name]
+            field_type = get_field_type_description(field_info)
+            constraints = get_field_constraints(field_info)
+
             # Add table name only in first row for this table
             if i == 0:
-                row = [f"**{table_name}**", f"`{field_name}`"]
+                row = [
+                    f"**{table_name}**",
+                    f"`{field_name}`",
+                    field_type,
+                    constraints,
+                ]
             else:
                 # Other rows - leave table name blank
-                row = ["", f"`{field_name}`"]
+                row = ["", f"`{field_name}`", field_type, constraints]
 
             # Check if field is required in ALL steps
             if field_name in all_steps_fields:
@@ -161,7 +234,7 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
 
     # Build CSV
     lines = []
-    header = ["Table", "Field", *sorted_steps]
+    header = ["Table", "Field", "Type", "Constraints", *sorted_steps]
     lines.append(",".join(header))
 
     for table_name, model in models.items():
@@ -173,7 +246,11 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
         all_fields = list(model.model_fields.keys())
 
         for field_name in all_fields:
-            row = [table_name, field_name]
+            field_info = model.model_fields[field_name]
+            field_type = get_field_type_description(field_info)
+            constraints = get_field_constraints(field_info)
+            
+            row = [table_name, field_name, field_type, constraints]
 
             # Check if field is required in ALL steps
             if field_name in all_steps_fields:

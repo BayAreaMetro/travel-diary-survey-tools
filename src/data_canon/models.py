@@ -134,7 +134,7 @@ class TourModel(BaseModel):
 
     # Purpose and priority
     primary_purpose: int = step_field(ge=1, created_in_step="extract_tours")
-    primary_dest_purpose: int = step_field(ge=1, created_in_step="extract_tours")
+    primary_dest_purpose: int = step_field(ge=1, created_in_step="extract_tours")  # noqa: E501
     purpose_priority: int = step_field(ge=1, created_in_step="extract_tours")
 
     # Timing
@@ -148,7 +148,7 @@ class TourModel(BaseModel):
     o_lon: float = step_field(ge=-180, le=180, created_in_step="extract_tours")
     d_lat: float = step_field(ge=-90, le=90, created_in_step="extract_tours")
     d_lon: float = step_field(ge=-180, le=180, created_in_step="extract_tours")
-    o_location_type: str = step_field(created_in_step="extract_tours")  # 'home', 'work', 'school', 'other'
+    o_location_type: str = step_field(created_in_step="extract_tours")  # 'home', 'work', 'school', 'other'  # noqa: E501
     d_location_type: str = step_field(created_in_step="extract_tours")
 
     # Mode hierarchical

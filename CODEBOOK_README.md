@@ -92,3 +92,141 @@ All codebooks are generated from `value_labels (1).csv`, which contains the cano
 - **variable** - The column/variable name
 - **value** - The numeric or string code
 - **label** - The human-readable label
+
+# Data Codebook
+
+This codebook provides detailed documentation for all fields in the canonical travel survey data tables.
+
+Generated automatically from Pydantic model definitions.
+
+## Table: `households`
+
+**Model:** `HouseholdModel`
+**Description:** Household attributes (minimal for tour building).
+
+| Field | Type | Constraints | Required In Steps | Created In Step | Default |
+| --- | --- | --- | --- | --- | --- |
+| `hh_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `home_lat` | float | ≥ -90, ≤ 90 | `final_check` |  | PydanticUndefined |
+| `home_lon` | float | ≥ -180, ≤ 180 | `final_check` |  | PydanticUndefined |
+
+## Table: `persons`
+
+**Model:** `PersonModel`
+**Description:** Person attributes for tour building.
+
+| Field | Type | Constraints | Required In Steps | Created In Step | Default |
+| --- | --- | --- | --- | --- | --- |
+| `person_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `hh_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `age` | int | None | ≥ 0 | `final_check` |  |  |
+| `work_lat` | float | None | ≥ -90, ≤ 90 | `final_check` |  |  |
+| `work_lon` | float | None | ≥ -180, ≤ 180 | `final_check` |  |  |
+| `school_lat` | float | None | ≥ -90, ≤ 90 | `final_check` |  |  |
+| `school_lon` | float | None | ≥ -180, ≤ 180 | `final_check` |  |  |
+| `person_type` | int | ≥ 1 | `final_check` |  |  |
+
+## Table: `days`
+
+**Model:** `PersonDayModel`
+**Description:** Daily activity pattern summary with clear purpose-specific counts.
+
+| Field | Type | Constraints | Required In Steps | Created In Step | Default |
+| --- | --- | --- | --- | --- | --- |
+| `person_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `day_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `hh_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `travel_dow` | int | ≥ 1, ≤ 7 | `final_check` |  | PydanticUndefined |
+
+## Table: `unlinked_trips`
+
+**Model:** `UnlinkedTripModel`
+**Description:** Trip data model for validation.
+
+| Field | Type | Constraints | Required In Steps | Created In Step | Default |
+| --- | --- | --- | --- | --- | --- |
+| `trip_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `day_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `person_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `hh_id` | int | ≥ 1 | All steps |  | PydanticUndefined |
+| `linked_trip_id` | int | None | ≥ 1 | `extract_tours`, `final_check` |  |  |
+| `tour_id` | int | None | ≥ 1 | `extract_tours`, `final_check` |  |  |
+| `depart_date` | str |  |  |  | PydanticUndefined |
+| `depart_hour` | int | ≥ 0, ≤ 23 | `final_check` |  | PydanticUndefined |
+| `depart_minute` | int | ≥ 0, ≤ 59 | `final_check` |  | PydanticUndefined |
+| `depart_seconds` | int | ≥ 0, ≤ 59 | `final_check` |  | PydanticUndefined |
+| `arrive_date` | str |  |  |  | PydanticUndefined |
+| `arrive_hour` | int | ≥ 0, ≤ 23 | `final_check` |  | PydanticUndefined |
+| `arrive_minute` | int | ≥ 0, ≤ 59 | `final_check` |  | PydanticUndefined |
+| `arrive_seconds` | int | ≥ 0, ≤ 59 | `final_check` |  | PydanticUndefined |
+| `o_purpose_category` | int |  |  |  | PydanticUndefined |
+| `d_purpose_category` | int |  |  |  | PydanticUndefined |
+| `mode_type` | int |  |  |  | PydanticUndefined |
+| `duration_minutes` | float | ≥ 0 | `final_check` |  | PydanticUndefined |
+| `distance_miles` | float | ≥ 0 | `final_check` |  | PydanticUndefined |
+| `depart_time` | datetime.datetime | None |  | `link_trip`, `final_check` |  |  |
+| `arrive_time` | datetime.datetime | None |  | `link_trip`, `final_check` |  |  |
+
+## Table: `linked_trips`
+
+**Model:** `LinkedTripModel`
+**Description:** Linked Trip data model for validation.
+
+| Field | Type | Constraints | Required In Steps | Created In Step | Default |
+| --- | --- | --- | --- | --- | --- |
+| `day_id` | int | ≥ 1 |  | `link_trip` | PydanticUndefined |
+| `person_id` | int | ≥ 1 |  | `link_trip` | PydanticUndefined |
+| `hh_id` | int | ≥ 1 |  | `link_trip` | PydanticUndefined |
+| `linked_trip_id` | int | None | ≥ 1 |  | `link_trip` |  |
+| `tour_id` | int | None | ≥ 1 |  | `extract_tours` |  |
+| `depart_date` | str |  |  |  | PydanticUndefined |
+| `depart_hour` | int | ≥ 0, ≤ 23 |  | `link_trip` | PydanticUndefined |
+| `depart_minute` | int | ≥ 0, ≤ 59 |  | `link_trip` | PydanticUndefined |
+| `depart_seconds` | int | ≥ 0, ≤ 59 |  | `link_trip` | PydanticUndefined |
+| `arrive_date` | str |  |  | `link_trip` | PydanticUndefined |
+| `arrive_hour` | int | ≥ 0, ≤ 23 |  | `link_trip` | PydanticUndefined |
+| `arrive_minute` | int | ≥ 0, ≤ 59 |  | `link_trip` | PydanticUndefined |
+| `arrive_seconds` | int | ≥ 0, ≤ 59 |  | `link_trip` | PydanticUndefined |
+| `o_purpose_category` | int |  |  | `link_trip` | PydanticUndefined |
+| `d_purpose_category` | int |  |  | `link_trip` | PydanticUndefined |
+| `mode_type` | int |  |  | `link_trip` | PydanticUndefined |
+| `duration_minutes` | float | ≥ 0 |  | `link_trip` | PydanticUndefined |
+| `distance_miles` | float | ≥ 0 |  | `link_trip` | PydanticUndefined |
+| `depart_time` | datetime.datetime | None |  |  | `link_trip` |  |
+| `arrive_time` | datetime.datetime | None |  |  | `link_trip` |  |
+| `is_primary_dest_trip` | bool | None |  |  | `extract_tours` |  |
+
+## Table: `tours`
+
+**Model:** `TourModel`
+**Description:** Tour-level records with clear, descriptive step_field names.
+
+| Field | Type | Constraints | Required In Steps | Created In Step | Default |
+| --- | --- | --- | --- | --- | --- |
+| `tour_id` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `person_id` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `day_id` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `tour_sequence_num` | int | ≥ 1 | `final_check` |  | PydanticUndefined |
+| `tour_category` | str |  |  |  | PydanticUndefined |
+| `parent_tour_id` | int | None | ≥ 1 |  | `extract_tours` |  |
+| `primary_purpose` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `primary_dest_purpose` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `purpose_priority` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `origin_depart_time` | datetime |  |  | `extract_tours` | PydanticUndefined |
+| `dest_arrive_time` | datetime |  |  | `extract_tours` | PydanticUndefined |
+| `dest_depart_time` | datetime |  |  | `extract_tours` | PydanticUndefined |
+| `origin_arrive_time` | datetime |  |  | `extract_tours` | PydanticUndefined |
+| `o_lat` | float | ≥ -90, ≤ 90 |  | `extract_tours` | PydanticUndefined |
+| `o_lon` | float | ≥ -180, ≤ 180 |  | `extract_tours` | PydanticUndefined |
+| `d_lat` | float | ≥ -90, ≤ 90 |  | `extract_tours` | PydanticUndefined |
+| `d_lon` | float | ≥ -180, ≤ 180 |  | `extract_tours` | PydanticUndefined |
+| `o_location_type` | str |  |  | `extract_tours` | PydanticUndefined |
+| `d_location_type` | str |  |  | `extract_tours` | PydanticUndefined |
+| `tour_mode` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `outbound_mode` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `inbound_mode` | int | ≥ 1 |  | `extract_tours` | PydanticUndefined |
+| `num_outbound_stops` | int | ≥ 0 |  | `extract_tours` | PydanticUndefined |
+| `num_inbound_stops` | int | ≥ 0 |  | `extract_tours` | PydanticUndefined |
+| `is_primary_tour` | bool |  |  | `extract_tours` | PydanticUndefined |
+| `tour_starts_at_origin` | bool |  |  | `extract_tours` | PydanticUndefined |
+| `tour_ends_at_origin` | bool |  |  | `extract_tours` | PydanticUndefined |
