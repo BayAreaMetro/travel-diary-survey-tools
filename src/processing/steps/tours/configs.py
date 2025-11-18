@@ -1,74 +1,126 @@
 """Configuration models for tour building parameters."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from data_canon.codebook import LocationType, ModeType, PersonType, TripPurpose
+from data_canon.codebook.generic import LocationType
+from data_canon.codebook.persons import PersonType
+from data_canon.codebook.trips import ModeType, PurposeCategory
+
+
+# Define person category groupings (simplified categories for tour logic)
+class PersonCategory:
+    """Simplified person categories for tour purpose prioritization."""
+
+    WORKER = "worker"
+    STUDENT = "student"
+    OTHER = "other"
 
 
 class TourConfig(BaseModel):
-    """Configuration model for tour building parameters."""
+    """Configuration model for tour building parameters.
 
-    class DistanceThresholds(BaseModel):
-        """Distance thresholds for location matching (in meters)."""
-        home: float = 100  # meters
-        work: float = 100  # meters
-        school: float = 100  # meters
+    This config uses Pydantic for validation and provides type-safe access
+    to tour building parameters including distance thresholds, mode
+    hierarchies, and purpose priorities.
+    """
 
-    class ModeHierarchy(BaseModel):
-        """Hierarchy levels for mode types (higher = more important)."""
-        walk: int = 1
-        bike: int = 2
-        auto: int = 3
-        transit: int = 4
-        drive_transit: int = 5
+    # Distance thresholds for location matching (in meters)
+    distance_thresholds: dict[LocationType, float] = Field(
+        default={
+            LocationType.HOME: 100.0,
+            LocationType.WORK: 100.0,
+            LocationType.SCHOOL: 100.0,
+        },
+        description=(
+            "Distance thresholds in meters for matching trip ends "
+            "to known locations"
+        ),
+    )
 
-    
+    # Mode hierarchy: position in list determines priority
+    # (later in list = higher priority for tour mode assignment)
+    mode_hierarchy: list[ModeType] = Field(
+        default=[
+            ModeType.WALK,
+            ModeType.BIKE,
+            ModeType.BIKESHARE,
+            ModeType.SCOOTERSHARE,
+            ModeType.CAR,
+            ModeType.CARSHARE,
+            ModeType.TAXI,
+            ModeType.TNC,
+            ModeType.SHUTTLE_OR_VANPOOL,
+            ModeType.SCHOOL_BUS,
+            ModeType.FERRY,
+            ModeType.TRANSIT,
+            ModeType.LONG_DISTANCE_PASSENGER,
+        ],
+        description=(
+            "Ordered list of mode types by priority - "
+            "later in list = higher priority"
+        ),
+    )
 
+    # Purpose priority by person category: lower number = higher priority
+    purpose_priority_by_person_category: dict[
+        str, dict[PurposeCategory, int]
+    ] = Field(
+        default={
+            PersonCategory.WORKER: {
+                PurposeCategory.WORK: 1,
+                PurposeCategory.WORK_RELATED: 1,
+                PurposeCategory.SCHOOL: 2,
+                PurposeCategory.SCHOOL_RELATED: 2,
+                PurposeCategory.ESCORT: 3,
+            },
+            PersonCategory.STUDENT: {
+                PurposeCategory.SCHOOL: 1,
+                PurposeCategory.SCHOOL_RELATED: 1,
+                PurposeCategory.WORK: 2,
+                PurposeCategory.WORK_RELATED: 2,
+                PurposeCategory.ESCORT: 3,
+            },
+            PersonCategory.OTHER: {
+                PurposeCategory.WORK: 1,
+                PurposeCategory.WORK_RELATED: 1,
+                PurposeCategory.SCHOOL: 2,
+                PurposeCategory.SCHOOL_RELATED: 2,
+                PurposeCategory.ESCORT: 3,
+            },
+        },
+        description=(
+            "Priority order for determining tour purpose by person "
+            "category (lower = higher priority)"
+        ),
+    )
 
-# DEFAULT_CONFIG = {
-#     "distance_thresholds": {
-#         LocationType.HOME: 100.0,
-#         LocationType.WORK: 100.0,
-#         LocationType.SCHOOL: 100.0,
-#     },
-#     "mode_hierarchy": {
-#         # Maps mode codes to hierarchy levels (higher = more important)
-#         ModeType.WALK: 1,
-#         ModeType.BIKE: 2,
-#         ModeType.AUTO: 3,
-#         ModeType.TRANSIT: 4,
-#         ModeType.DRIVE_TRANSIT: 5,
-#     },
-#     "purpose_priority_by_person_category": {
-#         # Priority order for determining primary tour purpose
-#         # Lower number = higher priority
-#         PersonType.WORKER: {
-#             TripPurpose.WORK: 1,  # Highest priority for workers
-#             TripPurpose.SCHOOL: 2,
-#             TripPurpose.ESCORT: 3,
-#             # All other purposes get default priority of 4
-#         },
-#         PersonType.STUDENT: {
-#             TripPurpose.SCHOOL: 1,  # Highest priority for students
-#             TripPurpose.WORK: 2,
-#             TripPurpose.ESCORT: 3,
-#         },
-#         PersonType.OTHER: {
-#             TripPurpose.WORK: 1,
-#             TripPurpose.SCHOOL: 2,
-#             TripPurpose.ESCORT: 3,
-#         },
-#     },
-#     "default_purpose_priority": 4,
-#     "person_type_mapping": {
-#         # Maps person_type codes to categories for priority lookup
-#         PersonType.FULL_TIME_WORKER: PersonType.WORKER,
-#         PersonType.PART_TIME_WORKER: PersonType.WORKER,
-#         PersonType.RETIRED: PersonType.OTHER,
-#         PersonType.NON_WORKER: PersonType.OTHER,
-#         PersonType.UNIVERSITY_STUDENT: PersonType.STUDENT,
-#         PersonType.HIGH_SCHOOL_STUDENT: PersonType.STUDENT,
-#         PersonType.CHILD_5_15: PersonType.STUDENT,
-#         PersonType.CHILD_UNDER_5: PersonType.OTHER,
-#     },
-# }
+    # Default priority for purposes not explicitly listed
+    default_purpose_priority: int = Field(
+        default=4,
+        description=(
+            "Default priority value for purposes not in "
+            "category-specific mappings"
+        ),
+    )
+
+    # Map detailed person types to simplified categories for priority lookup
+    person_type_mapping: dict[PersonType, str] = Field(
+        default={
+            PersonType.FULL_TIME_WORKER: PersonCategory.WORKER,
+            PersonType.PART_TIME_WORKER: PersonCategory.WORKER,
+            PersonType.RETIRED: PersonCategory.OTHER,
+            PersonType.NON_WORKER: PersonCategory.OTHER,
+            PersonType.UNIVERSITY_STUDENT: PersonCategory.STUDENT,
+            PersonType.HIGH_SCHOOL_STUDENT: PersonCategory.STUDENT,
+            PersonType.CHILD_5_15: PersonCategory.STUDENT,
+            PersonType.CHILD_UNDER_5: PersonCategory.OTHER,
+        },
+        description=(
+            "Maps detailed person types to simplified categories "
+            "for tour logic"
+        ),
+    )
+
+    class Config:
+        """Pydantic model configuration."""
+        arbitrary_types_allowed = True  # Allow enum types
