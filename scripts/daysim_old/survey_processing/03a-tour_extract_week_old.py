@@ -1,6 +1,5 @@
 import argparse
 import datetime
-from io import StringIO
 from pathlib import Path
 
 import numpy as np
@@ -90,35 +89,68 @@ def clock(mins):
     return str(mins2)
 
 
-def _tour_extract_week_core(hh, persons, trip, weighted):
+def tour_extract_week(config):
     """
-    Core tour extraction logic that processes dataframes and returns dataframes.
+    Extract tours from weekly trip data and generate Daysim model inputs.
 
-    This function contains the main tour extraction algorithm without file I/O.
-    
+    This is the main function that processes trip data through the tour
+    extraction algorithm, identifying travel patterns and generating
+    comprehensive outputs for activity-based travel demand modeling.
+
+    The algorithm:
+    1. Loads and processes household, person, and trip data
+    2. Identifies tour boundaries based on location patterns
+    3. Determines primary purpose and timing for each tour
+    4. Extracts work-based subtours from home-based work tours
+    5. Organizes trips into tour stops and calculates tour modes
+    6. Generates person-day activity patterns
+    7. Outputs weighted data for model estimation
+
     Args:
-        hh (pd.DataFrame): Household data
-        persons (pd.DataFrame): Person data
-        trip (pd.DataFrame): Trip data
-        weighted (bool): Whether to use survey weights
+        config (dict): Configuration dictionary with file paths, weighting options,
+                      and model parameters
 
     Returns:
-        tuple: (hh_out, person_out, pday_out, tour_out, trip_out) - DataFrames ready for output
+        None: Outputs multiple CSV files (tour, trip, personday, person, hh)
+              to 03a-tour_extract_week directory
     """
-    # Create in-memory file buffers for building output
-    outhhfile = StringIO()
-    outperfile = StringIO()
-    outpdayfile = StringIO()
-    outtourfile = StringIO()
-    outtripfile = StringIO()
-    
-    # Always make copies to avoid modifying input dataframes
-    hh = hh.copy()
-    persons = persons.copy()
-    trip = trip.copy()
-    
-    # Match original behavior: only process if weighted=True
+    # Initiate log file
+    logfilename = "03a-tour_extract_week.log"
+    logfile = open(logfilename, "w")
+    logfile.write(f"Tour extract survey program started: {datetime.datetime.now()}\n")
+
+    reformat_dir = Path(config["02a-reformat"]["dir"])
+    # HOTFIX pandas now support nullable int columns, but numpy doesn't, so we're
+    # filling the null taz values (i.e. outside the Bay Area) with -1 for now.
+    # TODO remove the fillna's once the logic below is replaced to not construct
+    # each column one by one with numpy
+    hh = pd.read_csv(reformat_dir / config["hh_filename"]).fillna({"hhtaz": -1})
+    persons = pd.read_csv(reformat_dir / config["person_filename"]).fillna(
+        {"pwtaz": -1, "pstaz": -1}
+    )
+    trip = pd.read_csv(
+        Path(config["02b-link_trips_week"]["dir"]) / config["trip_filename"]
+    ).fillna({"otaz": -1, "dtaz": -1})
+
+    tour_extract_week_dir = Path(config["03a-tour_extract_week"]["dir"])
+    tour_extract_week_dir.mkdir(exist_ok=True)
+    outhhfilename = tour_extract_week_dir / config["hh_filename"]
+    outperfilename = tour_extract_week_dir / config["person_filename"]
+    outpdayfilename = (
+        tour_extract_week_dir / config["03a-tour_extract_week"]["personday_filename"]
+    )
+    outtourfilename = (
+        tour_extract_week_dir / config["03a-tour_extract_week"]["tour_filename"]
+    )
+    outtripfilename = tour_extract_week_dir / config["trip_filename"]
+
+    weighted = config["weighted"]
+
     if weighted:
+        hh["hhexpfac"] = hh[config["03a-tour_extract_week"]["hh_weight_col"]]
+        persons["psexpfac"] = persons[
+            config["03a-tour_extract_week"]["person_weight_col"]
+        ]
         # NOTE TODO trexpfac: doesn't seem to be actually used;
         # seems like the `wt` var is just (over)written to this column.
         # But why calculate it ourselves if the vendor already does it for us?
@@ -130,6 +162,7 @@ def _tour_extract_week_core(hh, persons, trip, weighted):
         r2 = trip.shape[0]
         s = f"Removed {r1 - r2} bad records with missing opurp and dpurp"
         print(s)
+        logfile.write(s + "\n")
 
         # tour level variables
         tindex = np.empty((PMAX, DMAX, MAXTOUR), dtype=int)
@@ -227,6 +260,11 @@ def _tour_extract_week_core(hh, persons, trip, weighted):
         pdfheader = 0
         tfheader = 0
         sfheader = 0
+        outhhfile = open(outhhfilename, "w")
+        outperfile = open(outperfilename, "w")
+        outpdayfile = open(outpdayfilename, "w")
+        outtourfile = open(outtourfilename, "w")
+        outtripfile = open(outtripfilename, "w")
 
         # TODO rewrite logic to use dataframe operations, not loop through row by row
         for h in range(len(hh)):
@@ -1421,107 +1459,17 @@ def _tour_extract_week_core(hh, persons, trip, weighted):
                 outtourfile.flush()
                 outtripfile.flush()
 
-        # Convert StringIO buffers to DataFrames
-        outhhfile.seek(0)
-        outperfile.seek(0)
-        outpdayfile.seek(0)
-        outtourfile.seek(0)
-        outtripfile.seek(0)
-        
-        hh_out = pd.read_csv(outhhfile)
-        person_out = pd.read_csv(outperfile)
-        pday_out = pd.read_csv(outpdayfile)
-        tour_out = pd.read_csv(outtourfile)
-        trip_out = pd.read_csv(outtripfile)
-        
+        outperfile.close()
+        outhhfile.close()
+        outpdayfile.flush()
+        outtourfile.flush()
+        outtripfile.flush()
+
+        logfile.write(
+            f"\nTour extract survey week program finished: {datetime.datetime.now()}\n"
+        )
+        logfile.close()
         print(f"Tour extract survey week program finished: {datetime.datetime.now()}")
-        
-        return hh_out, person_out, pday_out, tour_out, trip_out
-    else:
-        # Match original behavior: return empty DataFrames if not weighted
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-
-def tour_extract_week(config):
-    """
-    Extract tours from weekly trip data and generate Daysim model inputs.
-
-    This is the main function that processes trip data through the tour
-    extraction algorithm, identifying travel patterns and generating
-    comprehensive outputs for activity-based travel demand modeling.
-
-    The algorithm:
-    1. Loads and processes household, person, and trip data
-    2. Identifies tour boundaries based on location patterns
-    3. Determines primary purpose and timing for each tour
-    4. Extracts work-based subtours from home-based work tours
-    5. Organizes trips into tour stops and calculates tour modes
-    6. Generates person-day activity patterns
-    7. Outputs weighted data for model estimation
-
-    Args:
-        config (dict): Configuration dictionary with file paths, weighting options,
-                      and model parameters
-
-    Returns:
-        None: Outputs multiple CSV files (tour, trip, personday, person, hh)
-              to 03a-tour_extract_week directory
-    """
-    # Initiate log file
-    logfilename = "03a-tour_extract_week.log"
-    logfile = open(logfilename, "w")
-    logfile.write(f"Tour extract survey program started: {datetime.datetime.now()}\n")
-
-    reformat_dir = Path(config["02a-reformat"]["dir"])
-    # HOTFIX pandas now support nullable int columns, but numpy doesn't, so we're
-    # filling the null taz values (i.e. outside the Bay Area) with -1 for now.
-    # TODO remove the fillna's once the logic below is replaced to not construct
-    # each column one by one with numpy
-    hh = pd.read_csv(reformat_dir / config["hh_filename"]).fillna({"hhtaz": -1})
-    persons = pd.read_csv(reformat_dir / config["person_filename"]).fillna(
-        {"pwtaz": -1, "pstaz": -1}
-    )
-    trip = pd.read_csv(
-        Path(config["02b-link_trips_week"]["dir"]) / config["trip_filename"]
-    ).fillna({"otaz": -1, "dtaz": -1})
-
-    tour_extract_week_dir = Path(config["03a-tour_extract_week"]["dir"])
-    tour_extract_week_dir.mkdir(exist_ok=True)
-    outhhfilename = tour_extract_week_dir / config["hh_filename"]
-    outperfilename = tour_extract_week_dir / config["person_filename"]
-    outpdayfilename = (
-        tour_extract_week_dir / config["03a-tour_extract_week"]["personday_filename"]
-    )
-    outtourfilename = (
-        tour_extract_week_dir / config["03a-tour_extract_week"]["tour_filename"]
-    )
-    outtripfilename = tour_extract_week_dir / config["trip_filename"]
-
-    weighted = config["weighted"]
-
-    if weighted:
-        hh["hhexpfac"] = hh[config["03a-tour_extract_week"]["hh_weight_col"]]
-        persons["psexpfac"] = persons[
-            config["03a-tour_extract_week"]["person_weight_col"]
-        ]
-
-    # Call the core function
-    hh_out, person_out, pday_out, tour_out, trip_out = _tour_extract_week_core(
-        hh, persons, trip, weighted
-    )
-
-    # Write output files
-    hh_out.to_csv(outhhfilename, index=False)
-    person_out.to_csv(outperfilename, index=False)
-    pday_out.to_csv(outpdayfilename, index=False)
-    tour_out.to_csv(outtourfilename, index=False)
-    trip_out.to_csv(outtripfilename, index=False)
-
-    logfile.write(
-        f"\nTour extract survey week program finished: {datetime.datetime.now()}\n"
-    )
-    logfile.close()
-    print(f"Tour extract survey week program finished: {datetime.datetime.now()}")
 
 
 if __name__ == "__main__":

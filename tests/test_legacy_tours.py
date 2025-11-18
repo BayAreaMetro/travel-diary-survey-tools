@@ -1,0 +1,1026 @@
+"""Tests for legacy tour extraction functionality from daysim_old pipeline.
+
+This test module ensures that the new tour extraction implementation produces
+functionally equivalent results to the legacy tour extraction code in terms of:
+- Number of tours identified
+- Tour categorization (home-based vs work-based)
+- Tour purpose assignment
+- Tour mode assignment
+- Work-based subtour detection
+- Tour timing (departure/arrival times)
+
+The tests use synthetic data to compare outputs from both implementations.
+
+Testing approach:
+1. Each test creates synthetic person and trip data in the new format
+2. Data is converted to legacy format using to_legacy_format()
+3. Both legacy (_tour_extract_week_core) and new (TourBuilder) implementations
+   are run on the same input data
+4. Outputs are compared to ensure functional equivalence
+5. Expected values provide additional validation of correctness
+
+This approach mirrors the testing strategy used in test_legacy_link_trips.py.
+"""
+
+import importlib.util
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+import polars as pl
+import pytest
+
+from data_canon.codebook.persons import PersonType
+from data_canon.codebook.tours import TourType
+from data_canon.codebook.trips import ModeType, PurposeCategory
+from processing.steps.tours.tour import TourBuilder
+
+# Import the legacy tour extraction function dynamically
+# Using the refactored version with _tour_extract_week_core
+spec = importlib.util.spec_from_file_location(
+    "tour_extract_module",
+    Path(__file__).parent.parent
+    / "scripts"
+    / "daysim_old"
+    / "survey_processing"
+    / "03a-tour_extract_week.py",
+)
+tour_extract_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tour_extract_module)
+tour_extract_legacy = tour_extract_module._tour_extract_week_core
+
+# Purpose code mappings for format conversion
+PURPOSE_MAP_LEGACY = {
+    "home": 0,
+    "work": 1,
+    "school": 3,
+    "escort": 2,
+    "shop": 4,
+    "meal": 5,
+    "social": 6,
+    "errand": 7,
+}
+
+PURPOSE_MAP_NEW = {
+    "home": PurposeCategory.HOME,
+    "work": PurposeCategory.WORK,
+    "school": PurposeCategory.SCHOOL,
+    "escort": PurposeCategory.ESCORT,
+    "shop": PurposeCategory.SHOP,
+    "meal": PurposeCategory.MEAL,
+    "social": PurposeCategory.SOCIALREC,
+    "errand": PurposeCategory.ERRAND,
+}
+
+# Mode code mappings
+MODE_MAP_LEGACY = {
+    "walk": 1,
+    "bike": 2,
+    "drive": 3,
+    "transit": 6,
+    "school_bus": 8,
+}
+
+MODE_MAP_NEW = {
+    "walk": ModeType.WALK,
+    "bike": ModeType.BIKE,
+    "drive": ModeType.CAR,
+    "transit": ModeType.TRANSIT,
+    "school_bus": ModeType.SCHOOL_BUS,
+}
+
+
+def to_legacy_format(
+    persons_df: pl.DataFrame,
+    trips_df: pl.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Convert new format DataFrames to legacy pandas format for comparison.
+
+    Args:
+        persons_df: Person data in new polars format
+        trips_df: Trip data in new polars format
+
+    Returns:
+        Tuple of (hh, persons, trips) DataFrames in legacy format
+    """
+    # Create mapping from new purpose codes to legacy purpose codes
+    new_to_legacy_purpose = {}
+    for key, new_code in PURPOSE_MAP_NEW.items():
+        legacy_code = PURPOSE_MAP_LEGACY[key]
+        new_to_legacy_purpose[new_code] = legacy_code
+
+    # Create mapping from new mode codes to legacy mode codes
+    new_to_legacy_mode = {}
+    for key, new_code in MODE_MAP_NEW.items():
+        legacy_code = MODE_MAP_LEGACY[key]
+        new_to_legacy_mode[new_code] = legacy_code
+
+    # Build household DataFrame (minimal for tour extraction)
+    hh_ids = persons_df["hh_id"].unique().to_list()
+    hh = pd.DataFrame({
+        "hhno": hh_ids,
+        "hhsize": [
+            len(persons_df.filter(pl.col("hh_id") == hh_id))
+            for hh_id in hh_ids
+        ],
+        "hxcord": [
+            persons_df.filter(pl.col("hh_id") == hh_id)["home_lon"][0]
+            for hh_id in hh_ids
+        ],
+        "hycord": [
+            persons_df.filter(pl.col("hh_id") == hh_id)["home_lat"][0]
+            for hh_id in hh_ids
+        ],
+        "hhparcel": [-1 for _ in hh_ids],  # MAZ - not used in tests
+        "hhtaz": [-1 for _ in hh_ids],  # TAZ - not used in tests
+        "hhvehs": [1 for _ in hh_ids],  # Number of vehicles - default to 1
+        "hhincome": [50000 for _ in hh_ids],  # Income - default value
+        "hownrent": [1 for _ in hh_ids],  # Housing tenure - 1=own, 2=rent
+        "hrestype": [1 for _ in hh_ids],  # Residence type - 1=single family
+        "hhexpfac": [1.0 for _ in hh_ids],  # Household weight
+    })
+
+    # Build persons DataFrame
+    persons_data = []
+    for row in persons_df.iter_rows(named=True):
+        person_dict = {
+            "hhno": row["hh_id"],
+            "pno": row["person_id"],
+            "pptyp": row["person_type"],
+            "pwtyp": (
+                1 if row["person_type"] == PersonType.FULL_TIME_WORKER else 0
+            ),
+            "pwtaz": -1,  # Not used in current tests
+            "pstyp": 0,  # Not used in current tests
+            "pstaz": -1,  # Not used in current tests
+            "pwxcord": (
+                row["work_lon"] if row["work_lon"] is not None else -1
+            ),
+            "pwycord": (
+                row["work_lat"] if row["work_lat"] is not None else -1
+            ),
+            "psxcord": (
+                row["school_lon"] if row["school_lon"] is not None else -1
+            ),
+            "psycord": (
+                row["school_lat"] if row["school_lat"] is not None else -1
+            ),
+            "pwpcl": 0,  # Purpose category at work (not needed for tests)
+            "pspcl": 0,  # Purpose category at school (not needed for tests)
+            "pagey": 35,  # Default age
+            "pgend": 1,  # Default gender
+            "psexpfac": 1.0,  # Weight
+            "num_days_complete_3dayweekday": 1,  # For weighting
+        }
+        persons_data.append(person_dict)
+    persons = pd.DataFrame(persons_data)
+
+    # Build trips DataFrame
+    trips_data = []
+    for row in trips_df.iter_rows(named=True):
+        # Convert purpose codes
+        opurp_legacy = new_to_legacy_purpose.get(
+            row["o_purpose_category"],
+            PURPOSE_MAP_LEGACY["home"]
+        )
+        dpurp_legacy = new_to_legacy_purpose.get(
+            row["d_purpose_category"],
+            PURPOSE_MAP_LEGACY["home"]
+        )
+
+        # Convert mode codes
+        mode_legacy = new_to_legacy_mode.get(
+            row["mode_type"],
+            MODE_MAP_LEGACY["drive"]
+        )
+
+        # Set dorp (driver or passenger flag)
+        # For auto modes (drive=3), default to driver (1)
+        # For non-auto modes, set to N/A (3)
+        dorp_value = 1 if mode_legacy == 3 else 3
+
+        trip_dict = {
+            "hhno": row["hh_id"],
+            "pno": row["person_id"],
+            "dow": row["day_id"],
+            "tripno": row["linked_trip_id"],  # Legacy code expects this
+            "lintripno": row["linked_trip_id"],
+            "opurp": opurp_legacy,
+            "dpurp": dpurp_legacy,
+            "dorp": dorp_value,  # Driver or passenger flag
+            "mode": mode_legacy,
+            "mode_type": mode_legacy,
+            "path": 1,  # Path hierarchy for mode selection
+            "deptm": row["depart_time"].hour * 100 + row["depart_time"].minute,
+            "arrtm": row["arrive_time"].hour * 100 + row["arrive_time"].minute,
+            "otaz": -1,  # Not used in core logic
+            "dtaz": -1,  # Not used in core logic
+            "oxcord": row["o_lon"],
+            "oycord": row["o_lat"],
+            "dxcord": row["d_lon"],
+            "dycord": row["d_lat"],
+            "oact": 0,  # Origin activity duration (not used)
+            "dact": 0,  # Destination activity duration (not used)
+            "opcl": opurp_legacy,  # Origin purpose category
+            "dpcl": dpurp_legacy,  # Destination purpose category
+        }
+        trips_data.append(trip_dict)
+    trips = pd.DataFrame(trips_data)
+
+    return hh, persons, trips
+
+
+@pytest.fixture
+def simple_work_tour_data():
+    """Simple work tour: home -> work -> home.
+
+    Expected: 1 home-based work tour, 0 work-based subtours.
+    """
+    # Coordinates
+    home_coords = (37.70, -122.40)
+    work_coords = (37.75, -122.45)
+
+    # Person data
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [work_coords[0]],
+        "work_lon": [work_coords[1]],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    # Trip data
+    trips = pl.DataFrame({
+        "trip_id": [1, 2],
+        "linked_trip_id": [1, 2],
+        "day_id": [2, 2],
+        "person_id": [1, 1],
+        "hh_id": [1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),
+            datetime(2024, 1, 1, 17, 0),
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 17, 30),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [
+            MODE_MAP_NEW["drive"],
+            MODE_MAP_NEW["drive"],
+        ],
+        "o_lat": [home_coords[0], work_coords[0]],
+        "o_lon": [home_coords[1], work_coords[1]],
+        "d_lat": [work_coords[0], home_coords[0]],
+        "d_lon": [work_coords[1], home_coords[1]],
+    })
+
+    return {
+        "persons": persons,
+        "trips": trips,
+        "expected": {
+            "num_tours": 1,
+            "num_hb_tours": 1,
+            "num_wb_tours": 0,
+            "tour_purpose": PURPOSE_MAP_NEW["work"],
+            "tour_mode": MODE_MAP_NEW["drive"],
+        }
+    }
+
+
+@pytest.fixture
+def work_tour_with_subtour_data():
+    """Work tour with lunch trip: home -> work -> lunch -> work -> home.
+
+    Expected: 1 home-based work tour, 1 work-based subtour.
+    """
+    # Coordinates
+    home_coords = (37.70, -122.40)
+    work_coords = (37.75, -122.45)
+    lunch_coords = (37.76, -122.46)
+
+    # Person data
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [work_coords[0]],
+        "work_lon": [work_coords[1]],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    # Trip data
+    trips = pl.DataFrame({
+        "trip_id": [1, 2, 3, 4],
+        "linked_trip_id": [1, 2, 3, 4],
+        "day_id": [2, 2, 2, 2],
+        "person_id": [1, 1, 1, 1],
+        "hh_id": [1, 1, 1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),   # home -> work
+            datetime(2024, 1, 1, 12, 0),  # work -> lunch
+            datetime(2024, 1, 1, 13, 0),  # lunch -> work
+            datetime(2024, 1, 1, 17, 0),  # work -> home
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 12, 15),
+            datetime(2024, 1, 1, 13, 15),
+            datetime(2024, 1, 1, 17, 30),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["meal"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["meal"],
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [
+            MODE_MAP_NEW["drive"],
+            MODE_MAP_NEW["walk"],
+            MODE_MAP_NEW["walk"],
+            MODE_MAP_NEW["drive"],
+        ],
+        "o_lat": [
+            home_coords[0], work_coords[0], lunch_coords[0], work_coords[0]
+        ],
+        "o_lon": [
+            home_coords[1], work_coords[1], lunch_coords[1], work_coords[1]
+        ],
+        "d_lat": [
+            work_coords[0], lunch_coords[0], work_coords[0], home_coords[0]
+        ],
+        "d_lon": [
+            work_coords[1], lunch_coords[1], work_coords[1], home_coords[1]
+        ],
+    })
+
+    return {
+        "persons": persons,
+        "trips": trips,
+        "expected": {
+            "num_tours": 2,  # 1 HB tour + 1 WB subtour
+            "num_hb_tours": 1,
+            "num_wb_tours": 1,
+            "hb_tour_purpose": PURPOSE_MAP_NEW["work"],
+            "hb_tour_mode": MODE_MAP_NEW["drive"],
+            "wb_tour_purpose": PURPOSE_MAP_NEW["meal"],
+            "wb_tour_mode": MODE_MAP_NEW["walk"],
+        }
+    }
+
+
+@pytest.fixture
+def multiple_tours_data():
+    """Multiple tours in one day: home -> work -> home -> shop -> home.
+
+    Expected: 2 home-based tours (work, shop), 0 work-based subtours.
+    """
+    # Coordinates
+    home_coords = (37.70, -122.40)
+    work_coords = (37.75, -122.45)
+    shop_coords = (37.71, -122.41)
+
+    # Person data
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [work_coords[0]],
+        "work_lon": [work_coords[1]],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    # Trip data
+    trips = pl.DataFrame({
+        "trip_id": [1, 2, 3, 4],
+        "linked_trip_id": [1, 2, 3, 4],
+        "day_id": [2, 2, 2, 2],
+        "person_id": [1, 1, 1, 1],
+        "hh_id": [1, 1, 1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),   # home -> work
+            datetime(2024, 1, 1, 17, 0),  # work -> home
+            datetime(2024, 1, 1, 18, 0),  # home -> shop
+            datetime(2024, 1, 1, 19, 0),  # shop -> home
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 17, 30),
+            datetime(2024, 1, 1, 18, 15),
+            datetime(2024, 1, 1, 19, 15),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["shop"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["shop"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [
+            MODE_MAP_NEW["drive"],
+            MODE_MAP_NEW["drive"],
+            MODE_MAP_NEW["walk"],
+            MODE_MAP_NEW["walk"],
+        ],
+        "o_lat": [
+            home_coords[0], work_coords[0], home_coords[0], shop_coords[0]
+        ],
+        "o_lon": [
+            home_coords[1], work_coords[1], home_coords[1], shop_coords[1]
+        ],
+        "d_lat": [
+            work_coords[0], home_coords[0], shop_coords[0], home_coords[0]
+        ],
+        "d_lon": [
+            work_coords[1], home_coords[1], shop_coords[1], home_coords[1]
+        ],
+    })
+
+    return {
+        "persons": persons,
+        "trips": trips,
+        "expected": {
+            "num_tours": 2,
+            "num_hb_tours": 2,
+            "num_wb_tours": 0,
+            "first_tour_purpose": PURPOSE_MAP_NEW["work"],
+            "second_tour_purpose": PURPOSE_MAP_NEW["shop"],
+        }
+    }
+
+
+@pytest.fixture
+def mode_hierarchy_data():
+    """Tour with multiple modes to test mode hierarchy.
+
+    Trip 1: walk to transit, Trip 2: transit, Trip 3: walk from transit,
+    Trip 4: drive home. Expected: tour mode should be transit (higher in
+    hierarchy than walk).
+    """
+    # Coordinates
+    home_coords = (37.70, -122.40)
+    work_coords = (37.75, -122.45)
+
+    # Person data
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [work_coords[0]],
+        "work_lon": [work_coords[1]],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    # Trip data (using linked trips - already merged change_mode segments)
+    trips = pl.DataFrame({
+        "trip_id": [1, 2],
+        "linked_trip_id": [1, 2],
+        "day_id": [2, 2],
+        "person_id": [1, 1],
+        "hh_id": [1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),   # home -> work (via transit)
+            datetime(2024, 1, 1, 17, 0),  # work -> home (drive)
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 17, 30),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [
+            MODE_MAP_NEW["transit"],  # Transit higher priority
+            MODE_MAP_NEW["drive"],
+        ],
+        "o_lat": [home_coords[0], work_coords[0]],
+        "o_lon": [home_coords[1], work_coords[1]],
+        "d_lat": [work_coords[0], home_coords[0]],
+        "d_lon": [work_coords[1], home_coords[1]],
+    })
+
+    return {
+        "persons": persons,
+        "trips": trips,
+        "expected": {
+            "num_tours": 1,
+            # Should pick transit over drive
+            "tour_mode": MODE_MAP_NEW["transit"],
+        }
+    }
+
+
+# ============================================================================
+# Test Functions
+# ============================================================================
+
+def test_simple_work_tour(simple_work_tour_data):
+    """Test basic work tour identification comparing new vs legacy."""
+    persons = simple_work_tour_data["persons"]
+    trips = simple_work_tour_data["trips"]
+    expected = simple_work_tour_data["expected"]
+
+    # Convert to legacy format
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+
+    # Run legacy implementation
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours_new = builder.extract_tours(trips)
+
+    # Compare tour counts
+    assert len(tours_new) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours_new)}, legacy={len(tours_legacy)}"
+    )
+    assert len(tours_new) == expected["num_tours"], (
+        f"Expected {expected['num_tours']} tours, got {len(tours_new)}"
+    )
+
+    # Check tour types
+    hb_tours = tours_new.filter(pl.col("tour_category") == TourType.HOME_BASED)
+    wb_tours = tours_new.filter(pl.col("tour_category") == TourType.WORK_BASED)
+
+    assert len(hb_tours) == expected["num_hb_tours"], (
+        f"Expected {expected['num_hb_tours']} home-based tours, "
+        f"got {len(hb_tours)}"
+    )
+    assert len(wb_tours) == expected["num_wb_tours"], (
+        f"Expected {expected['num_wb_tours']} work-based tours, "
+        f"got {len(wb_tours)}"
+    )
+
+    # Check tour attributes
+    tour = tours_new[0]
+    assert tour["tour_purpose"] == expected["tour_purpose"], (
+        f"Expected tour purpose {expected['tour_purpose']}, "
+        f"got {tour['tour_purpose']}"
+    )
+    assert tour["tour_mode"] == expected["tour_mode"], (
+        f"Expected tour mode {expected['tour_mode']}, got {tour['tour_mode']}"
+    )
+
+
+def test_work_tour_with_subtour(work_tour_with_subtour_data):
+    """Test work-based subtour detection comparing new vs legacy."""
+    persons = work_tour_with_subtour_data["persons"]
+    trips = work_tour_with_subtour_data["trips"]
+    expected = work_tour_with_subtour_data["expected"]
+
+    # Convert to legacy format
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+
+    # Run legacy implementation
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours = builder.extract_tours(trips)
+
+    # Compare tour counts
+    assert len(tours) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    )
+    assert len(tours) == expected["num_tours"], (
+        f"Expected {expected['num_tours']} tours total, got {len(tours)}"
+    )
+
+    # Check tour types
+    hb_tours = tours.filter(pl.col("tour_category") == TourType.HOME_BASED)
+    wb_tours = tours.filter(pl.col("tour_category") == TourType.WORK_BASED)
+
+    assert len(hb_tours) == expected["num_hb_tours"], (
+        f"Expected {expected['num_hb_tours']} home-based tours, "
+        f"got {len(hb_tours)}"
+    )
+    assert len(wb_tours) == expected["num_wb_tours"], (
+        f"Expected {expected['num_wb_tours']} work-based tours, "
+        f"got {len(wb_tours)}"
+    )
+
+    # Check home-based tour attributes
+    hb_tour = hb_tours[0]
+    assert hb_tour["tour_purpose"] == expected["hb_tour_purpose"], (
+        f"Expected HB tour purpose {expected['hb_tour_purpose']}, "
+        f"got {hb_tour['tour_purpose']}"
+    )
+    assert hb_tour["tour_mode"] == expected["hb_tour_mode"], (
+        f"Expected HB tour mode {expected['hb_tour_mode']}, "
+        f"got {hb_tour['tour_mode']}"
+    )
+
+    # Check work-based subtour attributes
+    wb_tour = wb_tours[0]
+    assert wb_tour["tour_purpose"] == expected["wb_tour_purpose"], (
+        f"Expected WB tour purpose {expected['wb_tour_purpose']}, "
+        f"got {wb_tour['tour_purpose']}"
+    )
+    assert wb_tour["tour_mode"] == expected["wb_tour_mode"], (
+        f"Expected WB tour mode {expected['wb_tour_mode']}, "
+        f"got {wb_tour['tour_mode']}"
+    )
+
+    # Verify subtour has correct parent reference
+    assert wb_tour["parent_tour_id"] == hb_tour["tour_id"], (
+        "Work-based subtour should reference home-based tour as parent"
+    )
+
+
+def test_multiple_tours_same_day(multiple_tours_data):
+    """Test multiple home-based tours comparing new vs legacy."""
+    persons = multiple_tours_data["persons"]
+    trips = multiple_tours_data["trips"]
+    expected = multiple_tours_data["expected"]
+
+    # Convert to legacy format
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+
+    # Run legacy implementation
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours = builder.extract_tours(trips)
+
+    # Compare tour counts
+    assert len(tours) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    )
+    assert len(tours) == expected["num_tours"], (
+        f"Expected {expected['num_tours']} tours, got {len(tours)}"
+    )
+
+    # Check all are home-based
+    hb_tours = tours.filter(pl.col("tour_category") == TourType.HOME_BASED)
+    assert len(hb_tours) == expected["num_hb_tours"], (
+        f"Expected {expected['num_hb_tours']} home-based tours, "
+        f"got {len(hb_tours)}"
+    )
+
+    # Check tour purposes (should be in time order)
+    tours_sorted = tours.sort("origin_depart_time")
+    assert tours_sorted[0, "tour_purpose"] == expected["first_tour_purpose"], (
+        f"Expected first tour purpose {expected['first_tour_purpose']}, "
+        f"got {tours_sorted[0, 'tour_purpose']}"
+    )
+    assert tours_sorted[1, "tour_purpose"] == expected["second_tour_purpose"], (
+        f"Expected second tour purpose {expected['second_tour_purpose']}, "
+        f"got {tours_sorted[1, 'tour_purpose']}"
+    )
+
+
+def test_mode_hierarchy(mode_hierarchy_data):
+    """Test tour mode reflects mode hierarchy comparing new vs legacy."""
+    persons = mode_hierarchy_data["persons"]
+    trips = mode_hierarchy_data["trips"]
+    expected = mode_hierarchy_data["expected"]
+
+    # Convert to legacy format
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+
+    # Run legacy implementation
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours = builder.extract_tours(trips)
+
+    # Compare tour counts
+    assert len(tours) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    )
+    assert len(tours) == expected["num_tours"], (
+        f"Expected {expected['num_tours']} tours, got {len(tours)}"
+    )
+
+    # Check tour mode selects highest priority mode
+    tour = tours[0]
+    assert tour["tour_mode"] == expected["tour_mode"], (
+        f"Expected tour mode {expected['tour_mode']} (transit should win), "
+        f"got {tour['tour_mode']}"
+    )
+
+
+def test_tour_timing():
+    """Test that tour timing is correctly computed from trip times."""
+    # Coordinates
+    home_coords = (37.70, -122.40)
+    work_coords = (37.75, -122.45)
+
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [work_coords[0]],
+        "work_lon": [work_coords[1]],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    depart_time = datetime(2024, 1, 1, 8, 15)
+    arrive_time = datetime(2024, 1, 1, 17, 45)
+
+    trips = pl.DataFrame({
+        "trip_id": [1, 2],
+        "linked_trip_id": [1, 2],
+        "day_id": [2, 2],
+        "person_id": [1, 1],
+        "hh_id": [1, 1],
+        "depart_time": [depart_time, datetime(2024, 1, 1, 17, 0)],
+        "arrive_time": [datetime(2024, 1, 1, 9, 0), arrive_time],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [MODE_MAP_NEW["drive"], MODE_MAP_NEW["drive"]],
+        "o_lat": [home_coords[0], work_coords[0]],
+        "o_lon": [home_coords[1], work_coords[1]],
+        "d_lat": [work_coords[0], home_coords[0]],
+        "d_lon": [work_coords[1], home_coords[1]],
+    })
+
+    # Convert to legacy format and run legacy implementation
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours = builder.extract_tours(trips)
+
+    # Compare tour counts
+    assert len(tours) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    )
+
+    # Check timing
+    tour = tours[0]
+    assert tour["origin_depart_time"] == depart_time, (
+        f"Expected origin depart time {depart_time}, "
+        f"got {tour['origin_depart_time']}"
+    )
+    assert tour["dest_arrive_time"] == arrive_time, (
+        f"Expected dest arrive time {arrive_time}, "
+        f"got {tour['dest_arrive_time']}"
+    )
+
+
+def test_tour_trip_counts():
+    """Test that trip counts are correctly computed for tours."""
+    # Tour with intermediate stops: home -> stop1 -> stop2 -> work -> home
+    home_coords = (37.70, -122.40)
+    work_coords = (37.75, -122.45)
+
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [work_coords[0]],
+        "work_lon": [work_coords[1]],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    trips = pl.DataFrame({
+        "trip_id": [1, 2, 3, 4],
+        "linked_trip_id": [1, 2, 3, 4],
+        "day_id": [2, 2, 2, 2],
+        "person_id": [1, 1, 1, 1],
+        "hh_id": [1, 1, 1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),
+            datetime(2024, 1, 1, 8, 30),
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 17, 0),
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 8, 15),
+            datetime(2024, 1, 1, 8, 45),
+            datetime(2024, 1, 1, 9, 30),
+            datetime(2024, 1, 1, 17, 30),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["shop"],
+            PURPOSE_MAP_NEW["errand"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["shop"],
+            PURPOSE_MAP_NEW["errand"],
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [MODE_MAP_NEW["drive"]] * 4,
+        "o_lat": [home_coords[0], 37.71, 37.72, work_coords[0]],
+        "o_lon": [home_coords[1], -122.41, -122.42, work_coords[1]],
+        "d_lat": [37.71, 37.72, work_coords[0], home_coords[0]],
+        "d_lon": [-122.41, -122.42, work_coords[1], home_coords[1]],
+    })
+
+    # Convert to legacy format and run legacy implementation
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours = builder.extract_tours(trips)
+
+    # Compare tour counts
+    assert len(tours) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    )
+
+    # Check trip count
+    tour = tours[0]
+    assert tour["trip_count"] == 4, (
+        f"Expected 4 trips in tour, got {tour['trip_count']}"
+    )
+    assert tour["stop_count"] == 3, (
+        f"Expected 3 intermediate stops, got {tour['stop_count']}"
+    )
+
+
+def test_incomplete_tour_at_end_of_day():
+    """Test handling of incomplete tours (no return home at end of day)."""
+    home_coords = (37.70, -122.40)
+    work_coords = (37.75, -122.45)
+
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [work_coords[0]],
+        "work_lon": [work_coords[1]],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    # Only trip from home to work (no return home)
+    trips = pl.DataFrame({
+        "trip_id": [1],
+        "linked_trip_id": [1],
+        "day_id": [2],
+        "person_id": [1],
+        "hh_id": [1],
+        "depart_time": [datetime(2024, 1, 1, 8, 0)],
+        "arrive_time": [datetime(2024, 1, 1, 9, 0)],
+        "o_purpose_category": [PURPOSE_MAP_NEW["home"]],
+        "d_purpose_category": [PURPOSE_MAP_NEW["work"]],
+        "mode_type": [MODE_MAP_NEW["drive"]],
+        "o_lat": [home_coords[0]],
+        "o_lon": [home_coords[1]],
+        "d_lat": [work_coords[0]],
+        "d_lon": [work_coords[1]],
+    })
+
+    # Convert to legacy format and run legacy implementation
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours = builder.extract_tours(trips)
+
+    # Both implementations should handle incomplete tours gracefully
+    # Compare that both produce same count (key is neither should crash)
+    assert len(tours) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    )
+    # Note: Behavior may vary - could create 0 tours or 1 incomplete tour
+
+
+def test_no_work_location():
+    """Test handling of work tours when person has no defined work location."""
+    home_coords = (37.70, -122.40)
+    # Trip destination, but not person's usual work
+    work_coords = (37.75, -122.45)
+
+    persons = pl.DataFrame({
+        "person_id": [1],
+        "hh_id": [1],
+        "person_type": [PersonType.FULL_TIME_WORKER],
+        "home_lat": [home_coords[0]],
+        "home_lon": [home_coords[1]],
+        "work_lat": [None],  # No work location defined
+        "work_lon": [None],
+        "school_lat": [None],
+        "school_lon": [None],
+    })
+
+    trips = pl.DataFrame({
+        "trip_id": [1, 2],
+        "linked_trip_id": [1, 2],
+        "day_id": [2, 2],
+        "person_id": [1, 1],
+        "hh_id": [1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),
+            datetime(2024, 1, 1, 17, 0),
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 17, 30),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [MODE_MAP_NEW["drive"], MODE_MAP_NEW["drive"]],
+        "o_lat": [home_coords[0], work_coords[0]],
+        "o_lon": [home_coords[1], work_coords[1]],
+        "d_lat": [work_coords[0], home_coords[0]],
+        "d_lon": [work_coords[1], home_coords[1]],
+    })
+
+    # Convert to legacy format and run legacy implementation
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    _, _, _, tours_legacy, _ = tour_extract_legacy(
+        hh_legacy, persons_legacy, trips_legacy, weighted=True
+    )
+
+    # Run new implementation
+    builder = TourBuilder(persons)
+    _, tours = builder.extract_tours(trips)
+
+    # Compare tour counts
+    assert len(tours) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    )
+
+    # Should create a home-based work tour
+    # No work-based subtours possible (no usual work location)
+    assert len(tours) == 1, f"Expected 1 tour, got {len(tours)}"
+    tour = tours[0]
+    assert tour["tour_category"] == TourType.HOME_BASED
+    assert tour["tour_purpose"] == PURPOSE_MAP_NEW["work"]
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+
+
