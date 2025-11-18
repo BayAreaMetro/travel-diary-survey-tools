@@ -128,6 +128,101 @@ linked_trips_with_tours = tour_result["linked_trips"]
 tours = tour_result["tours"]
 ```
 
+### Injecting Custom Steps
+
+You can add custom processing steps to the pipeline by creating a `run.py` script:
+
+```python
+# run.py
+from pathlib import Path
+import polars as pl
+from processing.pipeline import Pipeline
+from processing.decoration import step
+
+# Define your custom step
+@step(
+    validate_input=True,
+    validate_output=True,
+)
+def custom_cleaning(
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
+) -> dict[str, pl.DataFrame]:
+    """Apply custom data cleaning logic."""
+    # Fix column names
+    unlinked_trips = unlinked_trips.rename({
+        "arrive_second": "arrive_seconds"
+    })
+    
+    # Replace invalid purpose codes
+    unlinked_trips = unlinked_trips.with_columns([
+        pl.when(pl.col(col) == -1)
+        .then(996)  # Missing code
+        .otherwise(pl.col(col))
+        .alias(col)
+        for col in ["o_purpose", "d_purpose"]
+    ])
+    
+    # Filter invalid trips
+    unlinked_trips = unlinked_trips.filter(
+        pl.col("depart_time") <= pl.col("arrive_time")
+    )
+    
+    return {
+        "unlinked_trips": unlinked_trips,
+        "households": households,
+        "persons": persons,
+    }
+
+# Add your custom step to the pipeline
+custom_steps = {
+    "custom_cleaning": custom_cleaning,
+}
+
+# Run pipeline with custom steps
+if __name__ == "__main__":
+    config_path = Path("config.yaml")
+    pipeline = Pipeline(
+        config_path=config_path,
+        custom_steps=custom_steps
+    )
+    pipeline.run()
+    
+    # Access results
+    print(f"Processed {len(pipeline.data.unlinked_trips)} trips")
+```
+
+Then reference the custom step in your YAML config:
+
+```yaml
+# config.yaml
+input_paths:
+  households: "data/households.csv"
+  persons: "data/persons.csv"
+  unlinked_trips: "data/trips.csv"
+
+steps:
+  - name: load_data
+    enabled: true
+  
+  - name: custom_cleaning  # Your custom step
+    enabled: true
+  
+  - name: link_trips
+    enabled: true
+    params:
+      change_mode_code: 9
+      transit_mode_codes: [6, 7, 8]
+```
+
+**Custom step guidelines:**
+- Use the `@step()` decorator for automatic validation
+- Return a dictionary with table names as keys
+- Steps receive tables from `pipeline.data` based on function signature
+- Custom steps can override built-in steps by using the same name
+- See `scripts/daysim/run.py` for a complete working example
+
 ### Data Flow
 
 The pipeline maintains relational structure across steps:
