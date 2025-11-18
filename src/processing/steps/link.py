@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 # Trip Linker Functions --------------------------------------------------------
-@step(validate_input=True, validate_output=True)
+@step()
 def link_trips(
     unlinked_trips: pl.DataFrame,
     change_mode_code: int,
@@ -148,8 +148,7 @@ def link_trip_ids(
     unlinked_trips_with_id = unlinked_trips.with_columns(
         [
             (
-                pl.col("person_id").cast(pl.Utf8)
-                + pl.col("day_id").cast(pl.Utf8).str.pad_start(3, "0")
+                pl.col("day_id").cast(pl.Utf8) # Contains <hh_id><person_num><day_num>  # noqa: E501
                 + pl.col("linked_trip_id").cast(pl.Utf8).str.pad_start(2, "0")
             )
             .cast(pl.Int64)

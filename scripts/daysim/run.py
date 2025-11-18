@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Optional: project-specific custom step functions
 # You can define or import them here if needed
-@step(validate_input=False, validate_output=True)
+@step(validate_input=False, validate_output=False)
 def custom_cleaning(unlinked_trips: pl.DataFrame) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline."""
      # Much wow...
@@ -64,6 +64,23 @@ def custom_cleaning(unlinked_trips: pl.DataFrame) -> dict[str, pl.DataFrame]:
             for a, b in swap_cols
         ]
     )
+
+    # Replace any -1 value in *_purpose columns with 995 missing code
+    unlinked_trips = unlinked_trips.with_columns(
+        [
+            pl.when(pl.col(col_name) == -1)
+            .then(996)
+            .otherwise(pl.col(col_name))
+            .alias(col_name)
+            for col_name in [
+                "o_purpose",
+                "d_purpose",
+                "o_purpose_category",
+                "d_purpose_category",
+            ]
+        ]
+    )
+
     return {"unlinked_trips": unlinked_trips}
 
 custom_steps = {

@@ -56,7 +56,7 @@ class TourAggregator:
             .map_elements(
             lambda x: purpose_by_category.get(
                 x["person_category"],
-                purpose_by_category[PersonType.OTHER]
+                purpose_by_category[PersonType.NON_WORKER]
             ).get(x["d_purpose_category"], default_priority),
             return_dtype=pl.Int32,
             )

@@ -2,13 +2,14 @@
 
 from .configs import PersonCategory, TourConfig
 from .location_classifier import LocationClassifier
-from .tour import TourBuilder
+from .tour import ExtractTours, extract_tours
 from .tour_aggregator import TourAggregator
 
 __all__ = [
+    "ExtractTours",
     "LocationClassifier",
     "PersonCategory",
     "TourAggregator",
-    "TourBuilder",
     "TourConfig",
+    "extract_tours",
 ]

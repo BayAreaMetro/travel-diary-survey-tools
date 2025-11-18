@@ -65,6 +65,7 @@ import polars as pl
 
 from data_canon.codebook.persons import PersonType
 from data_canon.codebook.tours import TourType
+from processing.decoration import step
 
 from .configs import TourConfig
 from .location_classifier import LocationClassifier
@@ -74,37 +75,64 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class TourBuilder:
+@step()
+def extract_tours(
+    persons: pl.DataFrame,
+    households: pl.DataFrame,
+    linked_trips: pl.DataFrame,
+    config: TourConfig | None = None,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Extract tours from linked trip data using ExtractTours class.
+
+    Args:
+        persons: DataFrame with person attributes
+        households: DataFrame with household attributes
+        linked_trips: DataFrame with linked trip data
+        config: Optional configuration dictionary
+
+    Returns:
+        Tuple of (linked_trips_with_tour_ids, tours):
+        - linked_trips_with_tour_ids: Input trips with tour_id and
+          subtour_id added (join to tours for attributes)
+        - tours: Aggregated tour records with purpose, mode, timing
+    """
+    extractor = ExtractTours(
+        persons,
+        households,
+        linked_trips,
+        config,
+    )
+    return extractor.run()
+
+class ExtractTours:
     """Build tours from trip data with cached person locations."""
 
     def __init__(
         self,
         persons: pl.DataFrame,
-        households: pl.DataFrame | None = None,
+        households: pl.DataFrame,
+        linked_trips: pl.DataFrame,
         config: TourConfig | None = None,
     ) -> None:
-        """Initialize TourBuilder with person data and configuration.
+        """Initialize ExtractTours with person data and configuration.
 
         Args:
             persons: DataFrame with person attributes
-            households: Optional DataFrame with household attributes
-                       (home_lat, home_lon). If provided, will be
-                       joined to persons by hh_id
+            households: DataFrame with household attributes
+            linked_trips: DataFrame with linked trip data
             config: Optional configuration dictionary
         """
-        logger.info("Initializing TourBuilder...")
+        logger.info("Initializing ExtractTours...")
 
-        if households is not None:
-            # Join home_lat and home_lon from households if provided
-            persons = persons.join(
-                households.select(
-                    ["hh_id", "home_lat", "home_lon"]
-                ),
-                on="hh_id",
-                how="left",
-            )
-
-        self.persons = persons
+        self.linked_trips = linked_trips
+        # Join home_lat and home_lon from households
+        self.persons = persons = persons.join(
+            households.select(
+                ["hh_id", "home_lat", "home_lon"]
+            ),
+            on="hh_id",
+            how="left",
+        )
         self.config = config or TourConfig()
 
         # Initialize helper modules
@@ -114,7 +142,7 @@ class TourBuilder:
         )
         self.tour_aggregator = TourAggregator(self.config)
 
-        logger.info("TourBuilder ready for %d persons", len(self.persons))
+        logger.info("ExtractTours ready for %d persons", len(self.persons))
 
     def _prepare_location_cache(self) -> pl.DataFrame:
         """Prepare cached person location data.
@@ -133,7 +161,7 @@ class TourBuilder:
         person_type_map = self.config.person_type_mapping
         return person_locations.with_columns([
             pl.col("person_type")
-            .replace_strict(person_type_map, default=PersonType.OTHER)
+            .replace_strict(person_type_map, default=PersonType.NON_WORKER)
             .alias("person_category")
         ])
 
@@ -259,9 +287,7 @@ class TourBuilder:
         logger.info("Work-based subtour identification complete")
         return linked_trips
 
-    def run(
-        self, linked_trips: pl.DataFrame
-    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+    def run(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Build tours from linked trip data.
 
         Pipeline processes linked trip data through tour building steps:
@@ -284,7 +310,7 @@ class TourBuilder:
 
         # Step 1: Classify trip locations
         linked_trips_classified = (
-            self.location_classifier.classify_trip_locations(linked_trips)
+            self.location_classifier.classify_trip_locations(self.linked_trips)
         )
 
         # Step 2: Identify home-based tours
@@ -319,3 +345,4 @@ class TourBuilder:
             len(tours),
         )
         return linked_trips_with_tour_ids, tours
+

@@ -66,6 +66,8 @@ class PurposeCategory(LabeledEnum):
     CHANGE_MODE = (11, "Change mode")
     OVERNIGHT = (12, "Overnight")
     OTHER = (13, "Other")
+    MISSING = (995, "Missing Response")
+    PNTA = (999, "Prefer not to answer")
     NOT_IMPUTABLE = (996, "Not imputable")
 
 

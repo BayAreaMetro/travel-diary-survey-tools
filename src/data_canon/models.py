@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from .codebook.days import TravelDow
 from .codebook.persons import AgeCategory
-from .codebook.trips import ModeType, PurposeCategory
+from .codebook.trips import ModeType, Purpose, PurposeCategory
 from .step_field import step_field
 
 
@@ -69,8 +69,8 @@ class UnlinkedTripModel(BaseModel):
     arrive_hour: int = step_field(ge=0, le=23)
     arrive_minute: int = step_field(ge=0, le=59)
     arrive_seconds: int = step_field(ge=0, le=59)
-    o_purpose: PurposeCategory
-    d_purpose: PurposeCategory
+    o_purpose: Purpose
+    d_purpose: Purpose
     o_purpose_category: PurposeCategory
     d_purpose_category: PurposeCategory
     mode_type: ModeType

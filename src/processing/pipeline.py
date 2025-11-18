@@ -7,8 +7,8 @@ from typing import Any
 
 import yaml
 
-from data_canon import CanonicalData
-from processing.steps import link_trips, load_data
+from data_canon.dataclass import CanonicalData
+from processing.steps import extract_tours, link_trips, load_data
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +37,11 @@ class Pipeline:
         self.data = CanonicalData()
 
         # Update with default steps from the config
+        # NOTE: Could probably do this more elegantly with dynamic imports
         self.steps = {
             "load_data": load_data,
             "link_trips": link_trips,
+            "extract_tours": extract_tours,
         }
         self.steps.update(custom_steps or {})
 
@@ -128,6 +130,11 @@ class Pipeline:
         """Run a data processing pipeline based on a configuration file."""
         for step_cfg in self.config["steps"]:
             step_name = step_cfg["name"]
+
+            if step_name not in self.steps:
+                msg = f"Step '{step_name}' not found in pipeline steps."
+                raise ValueError(msg)
+
             step_obj = self.steps.get(step_name)
 
             logger.info("▶ Running step: %s", step_name)

@@ -2,13 +2,13 @@
 
 This module imports and exposes all step functions for easy access.
 """
+
 from .link import link_trips
 from .load import load_data
-
-# from .tour import extract_tours
+from .tours import extract_tours
 
 __all__ = [
+    "extract_tours",
     "link_trips",
     "load_data",
-    # "extract_tours"
 ]

@@ -179,18 +179,24 @@ def to_legacy_format(
     trips_data = []
     for row in trips_df.iter_rows(named=True):
         # Convert purpose codes
+        # Polars returns enum values as integers, so convert back to enum objects
+        o_purpose_enum = PurposeCategory(row["o_purpose_category"])
+        d_purpose_enum = PurposeCategory(row["d_purpose_category"])
+
         opurp_legacy = new_to_legacy_purpose.get(
-            row["o_purpose_category"],
+            o_purpose_enum,
             PURPOSE_MAP_LEGACY["home"]
         )
         dpurp_legacy = new_to_legacy_purpose.get(
-            row["d_purpose_category"],
+            d_purpose_enum,
             PURPOSE_MAP_LEGACY["home"]
         )
 
         # Convert mode codes
+        # Polars returns enum values as integers, so convert to enum objects
+        mode_enum = ModeType(row["mode_type"])
         mode_legacy = new_to_legacy_mode.get(
-            row["mode_type"],
+            mode_enum,
             MODE_MAP_LEGACY["drive"]
         )
 
