@@ -133,8 +133,23 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
             if step != "ALL":
                 all_steps.add(step)
 
-    # Sort steps for consistent ordering
-    sorted_steps = sorted(all_steps)
+    # Sort steps based on order in daysim/config_daysim.yaml if possible
+    preferred_order = [
+        "load_data",
+        "link_trips",
+        "extract_tours",
+        "imputation",
+        "weighting",
+        "final_check",
+    ]
+    sorted_steps = sorted(
+        all_steps,
+        key=lambda x: (
+            preferred_order.index(x)
+            if x in preferred_order
+            else len(preferred_order)
+        ),
+    )
 
     # Build markdown table
     lines = []

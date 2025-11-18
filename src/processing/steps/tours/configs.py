@@ -62,7 +62,7 @@ class TourConfig(BaseModel):
     )
 
     # Purpose priority by person category: lower number = higher priority
-    purpose_priority_by_person_category: dict[
+    purpose_priority_by_persontype: dict[
         str, dict[PurposeCategory, int]
     ] = Field(
         default={

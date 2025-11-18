@@ -259,7 +259,7 @@ class TourBuilder:
         logger.info("Work-based subtour identification complete")
         return linked_trips
 
-    def extract_tours(
+    def run(
         self, linked_trips: pl.DataFrame
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Build tours from linked trip data.

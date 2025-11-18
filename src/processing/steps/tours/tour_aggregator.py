@@ -8,12 +8,11 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.persons import PersonType
 from data_canon.codebook.tours import TourType
 from data_canon.codebook.trips import PurposeCategory
 
 from .configs import TourConfig
-from .mode_prioritizer import ModePrioritizer
-from .purpose_prioritizer import PurposePrioritizer
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +27,41 @@ class TourAggregator:
             config: Tour configuration with priority settings
         """
         self.config = config
-        self.purpose_prioritizer = PurposePrioritizer(config)
-        self.mode_prioritizer = ModePrioritizer(config)
+        self._mode_hierarchy = {
+            mode: idx for idx, mode in enumerate(self.config.mode_hierarchy)
+        }
+        self._purpose_priority_map = self.config.purpose_priority_by_persontype
+        self.default_purpose = self.config.default_purpose_priority
+
+
+    def _add_purpose_priority_column(
+        self, df: pl.DataFrame, alias: str = "purpose_priority"
+    ) -> pl.DataFrame:
+        """Add purpose priority column to dataframe.
+
+        This is a separate function for future extensibility.
+
+        Args:
+            df: DataFrame with d_purpose_category and person_category columns
+            alias: Column name for the priority values
+
+        Returns:
+            DataFrame with added purpose_priority column
+        """
+        purpose_by_category = self._purpose_priority_map
+        default_priority = self.default_purpose
+
+        return df.with_columns([
+            pl.struct(["d_purpose_category", "person_category"])
+            .map_elements(
+            lambda x: purpose_by_category.get(
+                x["person_category"],
+                purpose_by_category[PersonType.OTHER]
+            ).get(x["d_purpose_category"], default_priority),
+            return_dtype=pl.Int32,
+            )
+            .alias(alias)
+        ])
 
     def assign_tour_attributes(
         self, linked_trips: pl.DataFrame
@@ -53,12 +85,8 @@ class TourAggregator:
         logger.info("Assigning tour attributes...")
 
         # Add priority columns
-        linked_trips = self.purpose_prioritizer.add_priority_column(
-            linked_trips
-        )
-        linked_trips = self.mode_prioritizer.add_priority_column(
-            linked_trips
-        )
+        linked_trips = self._add_purpose_priority_column(linked_trips)
+        linked_trips = self._add_mode_priority_column(linked_trips)
 
         # Identify tour purpose (min priority = highest priority)
         # Mode hierarchy: higher value = more important, so take last
@@ -166,15 +194,11 @@ class TourAggregator:
 
         # Get or create priority columns
         if "purpose_priority" not in linked_trips.columns:
-            linked_trips_with_priority = (
-                self.purpose_prioritizer.add_priority_column(
-                    linked_trips, alias="_purpose_priority"
-                )
+            linked_trips_with_priority = self._add_purpose_priority_column(
+                linked_trips, alias="_purpose_priority"
             )
-            linked_trips_with_priority = (
-                self.mode_prioritizer.add_priority_column(
-                    linked_trips_with_priority, alias="_mode_priority"
-                )
+            linked_trips_with_priority = self._add_mode_priority_column(
+                linked_trips_with_priority, alias="_mode_priority"
             )
         else:
             linked_trips_with_priority = linked_trips.with_columns([

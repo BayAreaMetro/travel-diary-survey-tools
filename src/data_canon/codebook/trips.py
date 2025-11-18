@@ -61,7 +61,7 @@ class PurposeCategory(LabeledEnum):
     ESCORT = (6, "Escort")
     SHOP = (7, "Shop")
     MEAL = (8, "Meal")
-    SOCIAL_OR_RECREATIONAL = (9, "Social or recreational")
+    SOCIALREC = (9, "Social or recreational")
     ERRAND = (10, "Errand")
     CHANGE_MODE = (11, "Change mode")
     OVERNIGHT = (12, "Overnight")

@@ -21,7 +21,7 @@ spec = importlib.util.spec_from_file_location(
 )
 link_trips_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(link_trips_module)
-_link_trip_week = link_trips_module._link_trip_week
+link_trip_legacy = link_trips_module._link_trip_week
 
 
 # Purpose code mappings for format conversion
@@ -134,7 +134,7 @@ def to_legacy_format(new_df: pl.DataFrame) -> pd.DataFrame:
         new_df: Trip data in new polars format
 
     Returns:
-        DataFrame in legacy format for _link_trip_week function
+        DataFrame in legacy format for link_trip_legacy function
     """
     # Create mapping from new purpose codes to legacy purpose codes
     # Find the string key for each new code, then get legacy code
@@ -189,7 +189,7 @@ def test_linking_row_count():
     legacy_data = to_legacy_format(new_data)
 
     # Run both implementations
-    legacy_result, _ = _link_trip_week(
+    legacy_result, _ = link_trip_legacy(
         legacy_data, act_dur_limit=35, act_dur_limit2=15
     )
     new_result = link_trips(
@@ -251,7 +251,7 @@ def test_linked_trip_modes():
     legacy_data = to_legacy_format(new_data)
 
     # Run both implementations
-    legacy_result, _ = _link_trip_week(
+    legacy_result, _ = link_trip_legacy(
         legacy_data, act_dur_limit=35, act_dur_limit2=15
     )
     new_result = link_trips(
