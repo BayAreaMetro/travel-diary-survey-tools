@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from data_canon.dataclass import CanonicalData
+from data_canon.core.dataclass import CanonicalData
 from processing.steps import extract_tours, link_trips, load_data
 
 logger = logging.getLogger(__name__)

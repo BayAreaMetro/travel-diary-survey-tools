@@ -1,6 +1,6 @@
 """Generic codebook enums used across multiple data canon modules."""
 
-from data_canon.labeled_enum import LabeledEnum
+from data_canon.core.labeled_enum import LabeledEnum
 
 
 class Select(LabeledEnum):

@@ -7,7 +7,7 @@ from typing import Any
 
 import polars as pl
 
-from data_canon.dataclass import CanonicalData
+from data_canon.core.dataclass import CanonicalData
 
 logger = logging.getLogger(__name__)
 

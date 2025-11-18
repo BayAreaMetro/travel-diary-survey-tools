@@ -1,6 +1,6 @@
 """Codebook enumerations for person table."""
 
-from data_canon.labeled_enum import LabeledEnum
+from data_canon.core.labeled_enum import LabeledEnum
 
 
 class AgeCategory(LabeledEnum):

@@ -140,7 +140,7 @@ def link_trip_ids(
             pl.col("new_trip_flag")
             .cum_sum()
             .over("person_id")
-            .alias("linked_trip_id"),
+            .alias("linked_trip_num"),
         ]
     )
 
@@ -152,32 +152,38 @@ def link_trip_ids(
     #
     # We detect pre-concatenated by checking if day_id is much larger than
     # person_id (pre-concatenated day_id contains person_id as prefix)
+
+    # Get the string lengths of id columns
+    day_id_len = unlinked_trips.select(
+        pl.col("day_id").cast(pl.Utf8).str.len_chars().max()
+    ).item()
+    person_id_len = unlinked_trips.select(
+        pl.col("person_id").cast(pl.Utf8).str.len_chars().max()
+    ).item()
+
+    if day_id_len <= person_id_len + 2:
+        logger.info(
+            "Detected separate person_id and day_id format. "
+            "Creating linked_trip_id by concatenating "
+            "person_id, day_id, and linked_trip_id."
+        )
+        id_expr = (
+            pl.col("person_id").cast(pl.Utf8)
+            + pl.col("day_id").cast(pl.Utf8).str.pad_start(2, "0")
+            + pl.col("linked_trip_num").cast(pl.Utf8).str.pad_start(2, "0")
+        )
+    else:
+        logger.info(
+            "Detected pre-concatenated day_id format. "
+            "Creating linked_trip_id using day_id + linked_trip_num."
+        )
+        id_expr = (
+            pl.col("day_id").cast(pl.Utf8)
+            + pl.col("linked_trip_num").cast(pl.Utf8).str.pad_start(2, "0")
+        )
+
     unlinked_trips_with_id = unlinked_trips.with_columns(
-        [
-            pl.when(pl.col("day_id") > pl.col("person_id") * 10)
-            # Pre-concatenated: day_id already unique, just append
-            .then(
-                (
-                    pl.col("day_id").cast(pl.Utf8)
-                    + pl.col("linked_trip_id")
-                    .cast(pl.Utf8)
-                    .str.pad_start(2, "0")
-                )
-                .cast(pl.Int64)
-            )
-            # Separate IDs: concatenate person_id + day_id + linked_trip_id
-            .otherwise(
-                (
-                    pl.col("person_id").cast(pl.Utf8)
-                    + pl.col("day_id").cast(pl.Utf8).str.pad_start(2, "0")
-                    + pl.col("linked_trip_id")
-                    .cast(pl.Utf8)
-                    .str.pad_start(2, "0")
-                )
-                .cast(pl.Int64)
-            )
-            .alias("linked_trip_id"),
-        ]
+            id_expr.alias("linked_trip_id")
     )
 
     # Step 6: Clean up temporary columns

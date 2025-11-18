@@ -1,6 +1,6 @@
 """Tour building step for processing travel diary data."""
 
-from data_canon.labeled_enum import LabeledEnum
+from data_canon.core.labeled_enum import LabeledEnum
 
 
 class TourType(LabeledEnum):

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import polars as pl
 
+from data_canon.models import PersonDayModel
 from processing.decoration import step
 from processing.pipeline import Pipeline
 from processing.utils.helpers import add_time_columns
@@ -41,7 +42,8 @@ def custom_cleaning(
     unlinked_trips: pl.DataFrame
     ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline."""
-     # Much wow...
+    # CLEANUP UNLINKED TRIPS =================================
+    # Much wow...
     unlinked_trips = unlinked_trips.rename({"arrive_second": "arrive_seconds"})
 
     # Add time columns if missing
@@ -86,10 +88,34 @@ def custom_cleaning(
         ]
     )
 
+    # ADD DAYS FOR PERSONS WITHOUT DAYS =================================
     # Find persons without days
-    persons_with_days = days.select(pl.col("person_id").unique())
+    persons_without_days = persons.filter(
+        ~pl.col("person_id").is_in(days["person_id"].unique().implode())
+    )
 
-    return {"unlinked_trips": unlinked_trips}
+    # Get travel_dow from other household members' days
+    days_for_dow = (
+        days
+        .select(["hh_id", "travel_dow"])
+        .filter(pl.col("hh_id").is_in(persons_without_days["hh_id"].unique().implode()))
+        .unique()
+    )
+
+    # Create a default day for each person without days
+    dummy_days = (
+        persons_without_days
+        .join(days_for_dow, on="hh_id", how="left")
+        .with_columns(
+            # Construct default day_id (person_id * 100 + travel_dow)
+            (pl.col("person_id") * 100 + pl.col("travel_dow")).alias("day_id")
+        )
+        .select(PersonDayModel.model_json_schema().get("properties").keys())
+    )
+    # Add dummy days to days dataframe
+    days = pl.concat([days, dummy_days], how="diagonal")
+
+    return {"unlinked_trips": unlinked_trips, "days": days}
 
 custom_steps = {
     "custom_cleaning": custom_cleaning,
