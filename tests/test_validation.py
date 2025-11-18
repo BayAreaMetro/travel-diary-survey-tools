@@ -5,7 +5,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from data_canon import CanonicalData
+from data_canon.dataclass import CanonicalData
 from data_canon.validators import ValidationError
 
 
@@ -53,8 +53,10 @@ class TestForeignKeys:
         })
         data.persons = pl.DataFrame({
             "person_id": [101, 102], "hh_id": [1, 2],
-            "age": [35, 42], "gender": ["male", "female"],
-            "worker": [True, True], "student": [False, False],
+            "age": [6, 8],
+            "gender": ["male", "female"],
+            "worker": [True, True],
+            "student": [False, False],
         })
         data.validate("persons")
 
@@ -69,7 +71,7 @@ class TestForeignKeys:
         })
         data.persons = pl.DataFrame({
             "person_id": [101, 102], "hh_id": [1, 999],
-            "age": [35, 42], "gender": ["male", "female"],
+            "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
         with pytest.raises(ValidationError) as exc:
@@ -91,7 +93,7 @@ class TestRequiredChildren:
         })
         data.persons = pl.DataFrame({
             "person_id": [101, 102], "hh_id": [1, 2],
-            "age": [35, 42], "gender": ["male", "female"],
+            "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
         data.validate("households")
@@ -108,7 +110,7 @@ class TestRequiredChildren:
         })
         data.persons = pl.DataFrame({
             "person_id": [101, 102], "hh_id": [1, 2],
-            "age": [35, 42], "gender": ["male", "female"],
+            "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
         with pytest.raises(ValidationError) as exc:
@@ -156,9 +158,11 @@ class TestCustomValidators:
             "arrive_hour": [10, 11, 18],  # Third trip is 10 hours long
             "arrive_minute": [30, 30, 0],
             "arrive_seconds": [0, 0, 0],
-            "o_purpose_category": [1, 2, 3],
-            "d_purpose_category": [2, 3, 1],
-            "mode_type": [1, 2, 1],
+            "o_purpose": [1, 2, 1],  # HOME, WORK, HOME
+            "d_purpose": [2, 1, 1],  # WORK, HOME, HOME
+            "o_purpose_category": [1, 2, 1],  # HOME, WORK, HOME
+            "d_purpose_category": [2, 1, 1],  # WORK, HOME, HOME
+            "mode_type": [1, 2, 1],  # WALK, BIKE, WALK
             "duration_minutes": [30.0, 30.0, 600.0],  # 10 hours = 600 minutes
             "distance_miles": [5.0, 10.0, 50.0],
             "depart_time": [
@@ -200,7 +204,7 @@ class TestCustomValidators:
         })
         data.persons = pl.DataFrame({
             "person_id": [101, 102], "hh_id": [1, 2],
-            "age": [35, 42], "gender": ["male", "female"],
+            "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
         data.validate("persons")
