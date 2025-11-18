@@ -70,6 +70,7 @@ from data_canon.codebook.trips import PurposeCategory
 from processing.decoration import step
 from processing.utils import expr_haversine
 
+from .person_type import derive_person_type
 from .priority_utils import (
     add_activity_duration_column,
     add_mode_priority_column,
@@ -136,6 +137,9 @@ class TourExtractor:
         self.persons = persons
         self.households = households
         self.config = config or TourConfig()
+
+        # Derive person_type column
+        self.persons = derive_person_type(self.persons)
 
         # Prepare person location cache with categories
         self.person_locations = self._prepare_person_locations()

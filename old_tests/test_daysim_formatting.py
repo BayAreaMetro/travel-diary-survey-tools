@@ -36,7 +36,7 @@ import pytest
 
 from processing import DaysimFormatter, TourExtractor, link_trips
 from processing.utils.helpers import add_time_columns
-from processing.utils.person_type import derive_person_type
+from processing.steps.extract_tours.person_type import derive_person_type
 
 logger = logging.getLogger(__name__)
 

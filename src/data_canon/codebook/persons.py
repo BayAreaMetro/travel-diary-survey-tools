@@ -8,7 +8,7 @@ class AgeCategory(LabeledEnum):
 
     canonical_field_name = "age"
 
-    UNDER_5 = (1, "Under 5")
+    AGE_UNDER_5 = (1, "Under 5")
     AGE_5_TO_15 = (2, "5 to 15")
     AGE_16_TO_17 = (3, "16 to 17")
     AGE_18_TO_24 = (4, "18 to 24")
