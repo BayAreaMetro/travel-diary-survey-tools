@@ -21,7 +21,7 @@ outputs:
 # Pipeline configuration
 steps:
   - name: load_data
-    parameters:
+    params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
         persons: "{{ survey_dir }}/person.csv"  
@@ -32,7 +32,7 @@ steps:
   - name: custom_cleaning
 
   - name: link_trips
-    parameters:
+    params:
       change_mode_code: 11  # Purpose code for 'change_mode'
       transit_mode_codes: [12, 13, 14]
       max_dwell_time: 180  # in minutes

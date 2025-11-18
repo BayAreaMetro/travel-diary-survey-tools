@@ -15,7 +15,7 @@ The validation framework provides 5 layers of validation:
 ## Quick Start
 
 ```python
-from data_canon.dataclass import CanonicalData
+from data_canon.core.dataclass import CanonicalData
 import polars as pl
 
 # Create canonical data structure
@@ -24,10 +24,12 @@ data = CanonicalData()
 # Load your data
 data.households = pl.read_csv("households.csv")
 data.persons = pl.read_csv("persons.csv")
+data.unlinked_trips = pl.read_csv("trips.csv")
 
 # Validate tables (optionally specify pipeline step)
 data.validate("households")
-data.validate("persons", step="link_trip")
+data.validate("persons", step="link_trips")
+data.validate("unlinked_trips", step="link_trips")
 ```
 
 ## Validation Layers
@@ -43,6 +45,7 @@ Automatically checks uniqueness on primary key columns.
 - `unlinked_trips`: `trip_id` must be unique
 - `linked_trips`: `linked_trip_id` must be unique
 - `tours`: `tour_id` must be unique
+- `vehicles`: `vehicle_id` must be unique
 
 **Example:**
 ```python
@@ -64,8 +67,6 @@ data.households = pl.DataFrame({
 })
 data.validate("households")  # ✗ ValidationError: Duplicate hh_id values
 ```
-
-See [examples/validation_unique.py](examples/validation_unique.py) for full example.
 
 ### 2. Foreign Key Constraints
 
@@ -109,8 +110,6 @@ data.validate("persons")  # ✗ ValidationError: Orphaned FK
 - Skips validation if parent table is `None`
 - Skips validation if FK column doesn't exist yet (for forward references)
 
-See [examples/validation_foreign_keys.py](examples/validation_foreign_keys.py) for full example.
-
 ### 3. Row Validation
 
 Uses Pydantic models to validate data types, enums, and business logic for each row.
@@ -118,10 +117,11 @@ Uses Pydantic models to validate data types, enums, and business logic for each 
 **Built-in models:**
 - `HouseholdModel`: Household attributes
 - `PersonModel`: Person demographics
-- `PersonDayModel`: Daily travel records
+- `DayModel`: Daily travel records
 - `UnlinkedTripModel`: Individual trip segments
 - `LinkedTripModel`: Connected trip chains
 - `TourModel`: Complete tour structures
+- `VehicleModel`: Vehicle characteristics
 
 **Example:**
 ```python
@@ -147,8 +147,6 @@ data.persons = pl.DataFrame({
 })
 data.validate("persons")  # ✗ ValidationError: Type/enum violations
 ```
-
-See [examples/validation_row.py](examples/validation_row.py) for full example.
 
 ### 4. Custom Validators
 
@@ -254,14 +252,12 @@ data.persons = pl.DataFrame({
 data.validate("households")  # ✗ ValidationError: Missing required children
 ```
 
-See [examples/validation_required_children.py](examples/validation_required_children.py) for full example.
-
 ## Pipeline Integration
 
 The validation framework integrates seamlessly with the pipeline decorator:
 
 ```python
-from processing import step
+from processing.decoration import step
 
 @step(
     validate_input=True,   # Validate before processing
@@ -285,7 +281,7 @@ def enrich_persons(
 Fields can be required only in specific pipeline steps using the `step_field()` helper:
 
 ```python
-from data_canon.step_field import step_field
+from data_canon.core.step_field import step_field
 
 class PersonModel(BaseModel):
     person_id: int = step_field(ge=1)
@@ -329,7 +325,7 @@ data._required_children["days"].append(("unlinked_trips", "day_id"))
 All validation errors raise `ValidationError` with structured information:
 
 ```python
-from data_canon.validators import ValidationError
+from data_canon.core.validators import ValidationError
 
 try:
     data.validate("households")

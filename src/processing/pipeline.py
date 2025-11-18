@@ -107,7 +107,7 @@ class Pipeline:
                 step_cfg = self.config["steps"]
                 params = next(
                     (
-                        s.get("parameters", {})
+                        s.get("params", {})
                         for s in step_cfg
                         if s["name"] == step_name
                     ),
