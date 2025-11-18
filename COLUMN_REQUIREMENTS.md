@@ -38,8 +38,8 @@ Generated automatically from Pydantic model field metadata.
 |  | `arrive_hour` | int | ≥ 0, ≤ 23 |  | ✓ |  |
 |  | `arrive_minute` | int | ≥ 0, ≤ 59 |  | ✓ |  |
 |  | `arrive_seconds` | int | ≥ 0, ≤ 59 |  | ✓ |  |
-|  | `o_purpose` | PurposeCategory |  |  |  |  |
-|  | `d_purpose` | PurposeCategory |  |  |  |  |
+|  | `o_purpose` | Purpose |  |  |  |  |
+|  | `d_purpose` | Purpose |  |  |  |  |
 |  | `o_purpose_category` | PurposeCategory |  |  |  |  |
 |  | `d_purpose_category` | PurposeCategory |  |  |  |  |
 |  | `mode_type` | ModeType |  |  |  |  |
@@ -138,6 +138,8 @@ This section shows the categorical values and labels for custom enum fields.
 
 ## AttendSchool
 
+**Description:** Whether the person attends school on the survey day
+
 | Value | Label |
 | --- | --- |
 | 1 | Yes, attend school at usual location |
@@ -148,6 +150,8 @@ This section shows the categorical values and labels for custom enum fields.
 | 995 | Missing Response |
 
 ## BeginEndDay
+
+**Description:** Location at the beginning or end of the day
 
 | Value | Label |
 | --- | --- |
@@ -207,6 +211,8 @@ This section shows the categorical values and labels for custom enum fields.
 | 13 | Don't know |
 
 ## Delivery
+
+**Description:** Type of delivery received
 
 | Value | Label |
 | --- | --- |
@@ -369,6 +375,8 @@ This section shows the categorical values and labels for custom enum fields.
 
 ## MadeTravel
 
+**Description:** Whether the person made trips on the survey day
+
 | Value | Label |
 | --- | --- |
 | 1 | Yes, made trips |
@@ -473,6 +481,8 @@ This section shows the categorical values and labels for custom enum fields.
 
 ## NoSchoolReason
 
+**Description:** Reason for not attending school
+
 | Value | Label |
 | --- | --- |
 | 1 | Sick |
@@ -487,6 +497,8 @@ This section shows the categorical values and labels for custom enum fields.
 | 999 | Prefer not to answer |
 
 ## NoTravelReason
+
+**Description:** Reason for not making trips
 
 | Value | Label |
 | --- | --- |
@@ -555,6 +567,23 @@ This section shows the categorical values and labels for custom enum fields.
 | 8 | Signup via rMove, Diary via call center |
 | 9 | Signup via rMove, Diary via rMove |
 
+## PersonType
+
+**Field name:** `person_type`
+
+**Description:** Person type derived from employment, student status, and age
+
+| Value | Label |
+| --- | --- |
+| 1 | Full-time worker |
+| 2 | Part-time worker |
+| 3 | Non-working adult 65+ |
+| 4 | Non-working adult < 65 |
+| 5 | University student |
+| 6 | High school student 16+ |
+| 7 | Child 5-15 |
+| 8 | Child 0-4 |
+
 ## Purpose
 
 | Value | Label |
@@ -620,6 +649,8 @@ This section shows the categorical values and labels for custom enum fields.
 | 11 | Change mode |
 | 12 | Overnight |
 | 13 | Other |
+| 995 | Missing Response |
+| 999 | Prefer not to answer |
 | 996 | Not imputable |
 
 ## Race
@@ -755,6 +786,8 @@ This section shows the categorical values and labels for custom enum fields.
 | 995 | Missing Response |
 
 ## TravelDow
+
+**Description:** Day of the week enumeration
 
 | Value | Label |
 | --- | --- |

@@ -1,4 +1,5 @@
 """Module for deriving person type from person attributes."""
+
 import polars as pl
 
 from data_canon.codebook.persons import (
@@ -39,41 +40,49 @@ def derive_person_type(persons: pl.DataFrame) -> pl.DataFrame:
     """
     # Define age group categories
     working_age = [
-        AgeCategory.AGE_25_TO_34,
-        AgeCategory.AGE_35_TO_44,
-        AgeCategory.AGE_45_TO_54,
-        AgeCategory.AGE_55_TO_64,
+        AgeCategory.AGE_25_TO_34.value,
+        AgeCategory.AGE_35_TO_44.value,
+        AgeCategory.AGE_45_TO_54.value,
+        AgeCategory.AGE_55_TO_64.value,
     ]
 
     # Employment status indicators
-    is_full_time = pl.col("employment").is_in([
-        Employment.EMPLOYED_FULLTIME,
-        Employment.EMPLOYED_SELF,
-        Employment.EMPLOYED_UNPAID,
-    ])
-    is_part_time = pl.col("employment").is_in([
-        Employment.EMPLOYED_PARTTIME,
-        Employment.EMPLOYED_SELF,
-    ])
+    is_full_time = pl.col("employment").is_in(
+        [
+            Employment.EMPLOYED_FULLTIME.value,
+            Employment.EMPLOYED_SELF.value,
+            Employment.EMPLOYED_UNPAID.value,
+        ]
+    )
+    is_part_time = pl.col("employment").is_in(
+        [
+            Employment.EMPLOYED_PARTTIME.value,
+            Employment.EMPLOYED_SELF.value,
+        ]
+    )
 
     # Student and school status indicators
-    is_student = pl.col("student").is_in([
-        Student.FULLTIME_INPERSON,
-        Student.PARTTIME_INPERSON,
-        Student.PARTTIME_ONLINE,
-        Student.FULLTIME_ONLINE,
-    ])
-    is_high_school = pl.col("school_type").is_in([
-        SchoolType.HOME_SCHOOL,
-        SchoolType.HIGH_SCHOOL,
-    ])
+    is_student = pl.col("student").is_in(
+        [
+            Student.FULLTIME_INPERSON.value,
+            Student.PARTTIME_INPERSON.value,
+            Student.PARTTIME_ONLINE.value,
+            Student.FULLTIME_ONLINE.value,
+        ]
+    )
+    is_high_school = pl.col("school_type").is_in(
+        [
+            SchoolType.HOME_SCHOOL.value,
+            SchoolType.HIGH_SCHOOL.value,
+        ]
+    )
 
     # Age indicators
     age = pl.col("age")
-    is_under_5 = (age == AgeCategory.AGE_UNDER_5)
-    is_5_to_15 = (age == AgeCategory.AGE_5_TO_15)
-    is_16_to_17 = (age == AgeCategory.AGE_16_TO_17)
-    is_18_to_24 = (age == AgeCategory.AGE_18_TO_24)
+    is_under_5 = age == AgeCategory.AGE_UNDER_5.value
+    is_5_to_15 = age == AgeCategory.AGE_5_TO_15.value
+    is_16_to_17 = age == AgeCategory.AGE_16_TO_17.value
+    is_18_to_24 = age == AgeCategory.AGE_18_TO_24.value
     is_working_age = age.is_in(working_age)
 
     # Build classification expression

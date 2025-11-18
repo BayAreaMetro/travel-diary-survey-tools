@@ -1,4 +1,5 @@
 """Pipeline execution module for running data processing steps."""
+
 import inspect
 import logging
 from collections.abc import Callable
@@ -12,18 +13,16 @@ from processing.steps import extract_tours, link_trips, load_data
 
 logger = logging.getLogger(__name__)
 
+
 class Pipeline:
     """Class to run a data processing pipeline based on a configuration file."""
 
     data: CanonicalData
     steps: dict[str, Callable]
 
-
     def __init__(
-        self,
-        config_path: str,
-        custom_steps: dict[str, Callable] | None = None
-        ) -> None:
+        self, config_path: str, custom_steps: dict[str, Callable] | None = None
+    ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
         Args:
@@ -59,7 +58,8 @@ class Pipeline:
 
         # Extract top-level variables for substitution
         variables = {
-            key: value for key, value in config.items()
+            key: value
+            for key, value in config.items()
             if isinstance(value, str)
         }
 
@@ -68,10 +68,7 @@ class Pipeline:
             if isinstance(obj, str):
                 # Replace {{ variable_name }} with actual values
                 for var_name, var_value in variables.items():
-                    obj = obj.replace(
-                        f"{{{{ {var_name} }}}}",
-                        str(var_value)
-                    )
+                    obj = obj.replace(f"{{{{ {var_name} }}}}", str(var_value))
                 return obj
 
             if isinstance(obj, dict):
@@ -110,9 +107,11 @@ class Pipeline:
                 step_cfg = self.config["steps"]
                 params = next(
                     (
-                        s.get("parameters", {}) for s in step_cfg
+                        s.get("parameters", {})
+                        for s in step_cfg
                         if s["name"] == step_name
-                    ), {}
+                    ),
+                    {},
                 )
                 # Only add if parameter exists in config or has default
                 if arg_name in params:
@@ -125,8 +124,7 @@ class Pipeline:
 
         return {**data_kwargs, **config_kwargs}
 
-
-    def run(self) -> None:
+    def run(self) -> CanonicalData:
         """Run a data processing pipeline based on a configuration file."""
         for step_cfg in self.config["steps"]:
             step_name = step_cfg["name"]
@@ -155,3 +153,4 @@ class Pipeline:
                 step_obj(**kwargs)
 
         logger.info("Pipeline completed.")
+        return self.data

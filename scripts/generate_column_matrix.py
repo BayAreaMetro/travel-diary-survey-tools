@@ -20,7 +20,10 @@ import data_canon.codebook.households as households_module
 import data_canon.codebook.persons as persons_module
 import data_canon.codebook.trips as trips_module
 import data_canon.codebook.vehicles as vehicles_module
-from data_canon.labeled_enum import LabeledEnum
+from data_canon.core.labeled_enum import LabeledEnum
+from data_canon.core.validators import (
+    get_step_validation_summary,
+)
 from data_canon.models import (
     HouseholdModel,
     LinkedTripModel,
@@ -28,9 +31,6 @@ from data_canon.models import (
     PersonModel,
     TourModel,
     UnlinkedTripModel,
-)
-from data_canon.validators import (
-    get_step_validation_summary,
 )
 
 
@@ -158,9 +158,7 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
     lines.append(
         "This matrix shows which columns are required in which pipeline steps."
     )
-    lines.append(
-        "Generated automatically from Pydantic model field metadata."
-    )
+    lines.append("Generated automatically from Pydantic model field metadata.")
     lines.append("")
     lines.append("")
     lines.append("- ✓ = required in step")
@@ -330,7 +328,6 @@ def collect_labeled_enums() -> dict[str, type]:
             and not name.endswith("Map")  # Skip mapping classes
         )
     }
-
 
 
 def generate_enum_codebook_markdown(enums: dict[str, type]) -> str:

@@ -1,6 +1,6 @@
 """Codebook enumerations for hh table."""
 
-from data_canon.labeled_enum import LabeledEnum
+from data_canon.core.labeled_enum import LabeledEnum
 
 
 class BicycleType(LabeledEnum):
@@ -21,6 +21,7 @@ class HomeInRegion(LabeledEnum):
 
     NO = (0, "No")
     YES = (1, "Yes")
+
 
 class IncomeBroad(LabeledEnum):
     """income_broad value labels."""
@@ -45,12 +46,27 @@ class ParticipationGroup(LabeledEnum):
         "Indicates the survey mode used for signup and diary completion"
     )
 
-    SIGNUP_BMOVE_DIARY_BMOVE = (1, "Signup via browserMove, Diary via browserMove")  # noqa: E501
-    SIGNUP_BMOVE_DIARY_CALL_CENTER = (2, "Signup via browserMove, Diary via call center")  # noqa: E501
+    SIGNUP_BMOVE_DIARY_BMOVE = (
+        1,
+        "Signup via browserMove, Diary via browserMove",
+    )  # noqa: E501
+    SIGNUP_BMOVE_DIARY_CALL_CENTER = (
+        2,
+        "Signup via browserMove, Diary via call center",
+    )  # noqa: E501
     SIGNUP_BMOVE_DIARY_RMOVE = (3, "Signup via browserMove, Diary via rMove")
-    SIGNUP_CALL_DIARY_BMOVE = (4, "Signup via call center, Diary via browserMove")  # noqa: E501
-    SIGNUP_CALL_DIARY_CALL_CENTER = (5, "Signup via call center, Diary via call center")  # noqa: E501
+    SIGNUP_CALL_DIARY_BMOVE = (
+        4,
+        "Signup via call center, Diary via browserMove",
+    )  # noqa: E501
+    SIGNUP_CALL_DIARY_CALL_CENTER = (
+        5,
+        "Signup via call center, Diary via call center",
+    )  # noqa: E501
     SIGNUP_CALL_DIARY_RMOVE = (6, "Signup via call center, Diary via rMove")
     SIGNUP_RMOVE_DIARY_BMOVE = (7, "Signup via rMove, Diary via browserMove")
-    SIGNUP_RMOVE_DIARY_CALL_CENTER = (8, "Signup via rMove, Diary via call center")  # noqa: E501
+    SIGNUP_RMOVE_DIARY_CALL_CENTER = (
+        8,
+        "Signup via rMove, Diary via call center",
+    )  # noqa: E501
     SIGNUP_RMOVE_DIARY_RMOVE = (9, "Signup via rMove, Diary via rMove")
