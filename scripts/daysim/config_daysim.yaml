@@ -27,7 +27,7 @@ steps:
         persons: "{{ survey_dir }}/person.csv"  
         days: "{{ survey_dir }}/day.csv"
         unlinked_trips: "{{ survey_dir }}/trip.csv"
-        taz: "{{ taz_shapefile }}"
+        # taz: "{{ taz_shapefile }}"
 
   - name: custom_cleaning
 

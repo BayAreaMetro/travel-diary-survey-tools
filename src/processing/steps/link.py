@@ -88,9 +88,9 @@ def link_trip_ids(
     """
     logger.info("Linking trip IDs...")
 
-    # Step 1: Sort trips by day and departure time and arrive time.
+    # Step 1: Sort trips by person, day, and departure time
     unlinked_trips = unlinked_trips.sort(
-        ["day_id", "depart_time", "arrive_time"]
+        ["person_id", "day_id", "depart_time", "arrive_time"]
     )
 
     # Step 2: Get previous trip purpose category within the same person
@@ -145,13 +145,37 @@ def link_trip_ids(
     )
 
     # Step 5: Make linked_trip_id globally unique across persons and days
+    # Two scenarios:
+    # 1. Pre-concatenated IDs (e.g., day_id=230000750101 already contains
+    #    hh_id+person_num+day_num): Just append linked_trip_id with padding
+    # 2. Separate IDs (e.g., person_id=100, day_id=1): Concatenate all three
+    #
+    # We detect pre-concatenated by checking if day_id is much larger than
+    # person_id (pre-concatenated day_id contains person_id as prefix)
     unlinked_trips_with_id = unlinked_trips.with_columns(
         [
-            (
-                pl.col("day_id").cast(pl.Utf8) # Contains <hh_id><person_num><day_num>  # noqa: E501
-                + pl.col("linked_trip_id").cast(pl.Utf8).str.pad_start(2, "0")
+            pl.when(pl.col("day_id") > pl.col("person_id") * 10)
+            # Pre-concatenated: day_id already unique, just append
+            .then(
+                (
+                    pl.col("day_id").cast(pl.Utf8)
+                    + pl.col("linked_trip_id")
+                    .cast(pl.Utf8)
+                    .str.pad_start(2, "0")
+                )
+                .cast(pl.Int64)
             )
-            .cast(pl.Int64)
+            # Separate IDs: concatenate person_id + day_id + linked_trip_id
+            .otherwise(
+                (
+                    pl.col("person_id").cast(pl.Utf8)
+                    + pl.col("day_id").cast(pl.Utf8).str.pad_start(2, "0")
+                    + pl.col("linked_trip_id")
+                    .cast(pl.Utf8)
+                    .str.pad_start(2, "0")
+                )
+                .cast(pl.Int64)
+            )
             .alias("linked_trip_id"),
         ]
     )

@@ -14,7 +14,7 @@ The tests use synthetic data to compare outputs from both implementations.
 Testing approach:
 1. Each test creates synthetic person and trip data in the new format
 2. Data is converted to legacy format using to_legacy_format()
-3. Both legacy (_tour_extract_week_core) and new (TourBuilder) implementations
+3. Both legacy (_tour_extract_week_core) and new (TourExtractor) implementations
    are run on the same input data
 4. Outputs are compared to ensure functional equivalence
 5. Expected values provide additional validation of correctness
@@ -33,7 +33,7 @@ import pytest
 from data_canon.codebook.persons import PersonType
 from data_canon.codebook.tours import TourType
 from data_canon.codebook.trips import ModeType, PurposeCategory
-from processing.steps.tours.tour import TourBuilder
+from processing.steps.extract_tours import extract_tours
 
 # Import the legacy tour extraction function dynamically
 # Using the refactored version with _tour_extract_week_core
@@ -88,6 +88,25 @@ MODE_MAP_NEW = {
     "transit": ModeType.TRANSIT,
     "school_bus": ModeType.SCHOOL_BUS,
 }
+
+
+def create_households_from_persons(persons_df: pl.DataFrame) -> pl.DataFrame:
+    """Create minimal households DataFrame from persons data.
+
+    Args:
+        persons_df: Person data with hh_id, home_lat, home_lon
+
+    Returns:
+        Household DataFrame with required fields
+    """
+    return (
+        persons_df
+        .group_by("hh_id")
+        .agg([
+            pl.col("home_lat").first(),
+            pl.col("home_lon").first(),
+        ])
+    )
 
 
 def to_legacy_format(
@@ -179,7 +198,8 @@ def to_legacy_format(
     trips_data = []
     for row in trips_df.iter_rows(named=True):
         # Convert purpose codes
-        # Polars returns enum values as integers, so convert back to enum objects
+        # Polars returns enum values as integers,
+        # so convert back to enum objects
         o_purpose_enum = PurposeCategory(row["o_purpose_category"])
         d_purpose_enum = PurposeCategory(row["d_purpose_category"])
 
@@ -193,7 +213,7 @@ def to_legacy_format(
         )
 
         # Convert mode codes
-        # Polars returns enum values as integers, so convert to enum objects
+        # Polars returns enum values as integers, so convert to enum
         mode_enum = ModeType(row["mode_type"])
         mode_legacy = new_to_legacy_mode.get(
             mode_enum,
@@ -571,8 +591,8 @@ def test_simple_work_tour(simple_work_tour_data):
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours_new = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours_new = extract_tours(persons, households, trips)
 
     # Compare tour counts
     assert len(tours_new) == len(tours_legacy), (
@@ -597,12 +617,13 @@ def test_simple_work_tour(simple_work_tour_data):
 
     # Check tour attributes
     tour = tours_new[0]
-    assert tour["tour_purpose"] == expected["tour_purpose"], (
-        f"Expected tour purpose {expected['tour_purpose']}, "
-        f"got {tour['tour_purpose']}"
+    assert tour["tour_purpose"][0] == expected["tour_purpose"].value, (
+        f"Expected tour purpose {expected['tour_purpose'].value}, "
+        f"got {tour['tour_purpose'][0]}"
     )
-    assert tour["tour_mode"] == expected["tour_mode"], (
-        f"Expected tour mode {expected['tour_mode']}, got {tour['tour_mode']}"
+    assert tour["tour_mode"][0] == expected["tour_mode"].value, (
+        f"Expected tour mode {expected['tour_mode'].value}, "
+        f"got {tour['tour_mode'][0]}"
     )
 
 
@@ -621,8 +642,8 @@ def test_work_tour_with_subtour(work_tour_with_subtour_data):
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours = extract_tours(persons, households, trips)
 
     # Compare tour counts
     assert len(tours) == len(tours_legacy), (
@@ -647,28 +668,28 @@ def test_work_tour_with_subtour(work_tour_with_subtour_data):
 
     # Check home-based tour attributes
     hb_tour = hb_tours[0]
-    assert hb_tour["tour_purpose"] == expected["hb_tour_purpose"], (
-        f"Expected HB tour purpose {expected['hb_tour_purpose']}, "
-        f"got {hb_tour['tour_purpose']}"
+    assert hb_tour["tour_purpose"][0] == expected["hb_tour_purpose"].value, (
+        f"Expected HB tour purpose {expected['hb_tour_purpose'].value}, "
+        f"got {hb_tour['tour_purpose'][0]}"
     )
-    assert hb_tour["tour_mode"] == expected["hb_tour_mode"], (
-        f"Expected HB tour mode {expected['hb_tour_mode']}, "
-        f"got {hb_tour['tour_mode']}"
+    assert hb_tour["tour_mode"][0] == expected["hb_tour_mode"].value, (
+        f"Expected HB tour mode {expected['hb_tour_mode'].value}, "
+        f"got {hb_tour['tour_mode'][0]}"
     )
 
     # Check work-based subtour attributes
     wb_tour = wb_tours[0]
-    assert wb_tour["tour_purpose"] == expected["wb_tour_purpose"], (
-        f"Expected WB tour purpose {expected['wb_tour_purpose']}, "
-        f"got {wb_tour['tour_purpose']}"
+    assert wb_tour["tour_purpose"][0] == expected["wb_tour_purpose"].value, (
+        f"Expected WB tour purpose {expected['wb_tour_purpose'].value}, "
+        f"got {wb_tour['tour_purpose'][0]}"
     )
-    assert wb_tour["tour_mode"] == expected["wb_tour_mode"], (
-        f"Expected WB tour mode {expected['wb_tour_mode']}, "
-        f"got {wb_tour['tour_mode']}"
+    assert wb_tour["tour_mode"][0] == expected["wb_tour_mode"].value, (
+        f"Expected WB tour mode {expected['wb_tour_mode'].value}, "
+        f"got {wb_tour['tour_mode'][0]}"
     )
 
     # Verify subtour has correct parent reference
-    assert wb_tour["parent_tour_id"] == hb_tour["tour_id"], (
+    assert wb_tour["parent_tour_id"][0] == hb_tour["tour_id"][0], (
         "Work-based subtour should reference home-based tour as parent"
     )
 
@@ -688,8 +709,8 @@ def test_multiple_tours_same_day(multiple_tours_data):
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours = extract_tours(persons, households, trips)
 
     # Compare tour counts
     assert len(tours) == len(tours_legacy), (
@@ -708,12 +729,14 @@ def test_multiple_tours_same_day(multiple_tours_data):
 
     # Check tour purposes (should be in time order)
     tours_sorted = tours.sort("origin_depart_time")
-    assert tours_sorted[0, "tour_purpose"] == expected["first_tour_purpose"], (
-        f"Expected first tour purpose {expected['first_tour_purpose']}, "
+    expected_first = expected["first_tour_purpose"].value
+    assert tours_sorted[0, "tour_purpose"] == expected_first, (
+        f"Expected first tour purpose {expected_first}, "
         f"got {tours_sorted[0, 'tour_purpose']}"
     )
-    assert tours_sorted[1, "tour_purpose"] == expected["second_tour_purpose"], (
-        f"Expected second tour purpose {expected['second_tour_purpose']}, "
+    expected_second = expected["second_tour_purpose"].value
+    assert tours_sorted[1, "tour_purpose"] == expected_second, (
+        f"Expected second tour purpose {expected_second}, "
         f"got {tours_sorted[1, 'tour_purpose']}"
     )
 
@@ -733,8 +756,8 @@ def test_mode_hierarchy(mode_hierarchy_data):
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours = extract_tours(persons, households, trips)
 
     # Compare tour counts
     assert len(tours) == len(tours_legacy), (
@@ -746,9 +769,10 @@ def test_mode_hierarchy(mode_hierarchy_data):
 
     # Check tour mode selects highest priority mode
     tour = tours[0]
-    assert tour["tour_mode"] == expected["tour_mode"], (
-        f"Expected tour mode {expected['tour_mode']} (transit should win), "
-        f"got {tour['tour_mode']}"
+    expected_mode = expected["tour_mode"].value
+    assert tour["tour_mode"][0] == expected_mode, (
+        f"Expected tour mode {expected_mode} (transit should win), "
+        f"got {tour['tour_mode'][0]}"
     )
 
 
@@ -803,8 +827,8 @@ def test_tour_timing():
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours = extract_tours(persons, households, trips)
 
     # Compare tour counts
     assert len(tours) == len(tours_legacy), (
@@ -813,13 +837,13 @@ def test_tour_timing():
 
     # Check timing
     tour = tours[0]
-    assert tour["origin_depart_time"] == depart_time, (
+    assert tour["origin_depart_time"][0] == depart_time, (
         f"Expected origin depart time {depart_time}, "
-        f"got {tour['origin_depart_time']}"
+        f"got {tour['origin_depart_time'][0]}"
     )
-    assert tour["dest_arrive_time"] == arrive_time, (
+    assert tour["dest_arrive_time"][0] == arrive_time, (
         f"Expected dest arrive time {arrive_time}, "
-        f"got {tour['dest_arrive_time']}"
+        f"got {tour['dest_arrive_time'][0]}"
     )
 
 
@@ -885,8 +909,8 @@ def test_tour_trip_counts():
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours = extract_tours(persons, households, trips)
 
     # Compare tour counts
     assert len(tours) == len(tours_legacy), (
@@ -895,16 +919,20 @@ def test_tour_trip_counts():
 
     # Check trip count
     tour = tours[0]
-    assert tour["trip_count"] == 4, (
-        f"Expected 4 trips in tour, got {tour['trip_count']}"
+    assert tour["trip_count"][0] == 4, (
+        f"Expected 4 trips in tour, got {tour['trip_count'][0]}"
     )
-    assert tour["stop_count"] == 3, (
-        f"Expected 3 intermediate stops, got {tour['stop_count']}"
+    assert tour["stop_count"][0] == 3, (
+        f"Expected 3 intermediate stops, got {tour['stop_count'][0]}"
     )
 
 
 def test_incomplete_tour_at_end_of_day():
-    """Test handling of incomplete tours (no return home at end of day)."""
+    """Test handling of incomplete tours (no return home at end of day).
+
+    Includes both complete and incomplete tours so legacy code doesn't crash.
+    Legacy ignores incomplete tours, new code should handle them.
+    """
     home_coords = (37.70, -122.40)
     work_coords = (37.75, -122.45)
 
@@ -920,22 +948,43 @@ def test_incomplete_tour_at_end_of_day():
         "school_lon": [None],
     })
 
-    # Only trip from home to work (no return home)
+    # Day 1: Complete tour (home -> work -> home)
+    # Day 2: Incomplete tour (home -> work, no return)
     trips = pl.DataFrame({
-        "trip_id": [1],
-        "linked_trip_id": [1],
-        "day_id": [2],
-        "person_id": [1],
-        "hh_id": [1],
-        "depart_time": [datetime(2024, 1, 1, 8, 0)],
-        "arrive_time": [datetime(2024, 1, 1, 9, 0)],
-        "o_purpose_category": [PURPOSE_MAP_NEW["home"]],
-        "d_purpose_category": [PURPOSE_MAP_NEW["work"]],
-        "mode_type": [MODE_MAP_NEW["drive"]],
-        "o_lat": [home_coords[0]],
-        "o_lon": [home_coords[1]],
-        "d_lat": [work_coords[0]],
-        "d_lon": [work_coords[1]],
+        "trip_id": [1, 2, 3],
+        "linked_trip_id": [1, 2, 3],
+        "day_id": [1, 1, 2],
+        "person_id": [1, 1, 1],
+        "hh_id": [1, 1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),   # Day 1: home -> work
+            datetime(2024, 1, 1, 17, 0),  # Day 1: work -> home
+            datetime(2024, 1, 2, 8, 0),   # Day 2: home -> work (incomplete)
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 17, 30),
+            datetime(2024, 1, 2, 9, 0),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "mode_type": [
+            MODE_MAP_NEW["drive"],
+            MODE_MAP_NEW["drive"],
+            MODE_MAP_NEW["drive"],
+        ],
+        "o_lat": [home_coords[0], work_coords[0], home_coords[0]],
+        "o_lon": [home_coords[1], work_coords[1], home_coords[1]],
+        "d_lat": [work_coords[0], home_coords[0], work_coords[0]],
+        "d_lon": [work_coords[1], home_coords[1], work_coords[1]],
     })
 
     # Convert to legacy format and run legacy implementation
@@ -945,15 +994,19 @@ def test_incomplete_tour_at_end_of_day():
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours = extract_tours(persons, households, trips)
 
-    # Both implementations should handle incomplete tours gracefully
-    # Compare that both produce same count (key is neither should crash)
-    assert len(tours) == len(tours_legacy), (
-        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    # Legacy only counts complete tours (should be 1)
+    assert len(tours_legacy) == 1, (
+        f"Expected legacy to find 1 complete tour, got {len(tours_legacy)}"
     )
-    # Note: Behavior may vary - could create 0 tours or 1 incomplete tour
+
+    # New implementation should find both complete and incomplete tours
+    assert len(tours) == 2, (
+        f"Expected new code to find 2 tours (1 complete + 1 incomplete), "
+        f"got {len(tours)}"
+    )
 
 
 def test_no_work_location():
@@ -1010,8 +1063,8 @@ def test_no_work_location():
     )
 
     # Run new implementation
-    builder = TourBuilder(persons)
-    _, tours = builder.extract_tours(trips)
+    households = create_households_from_persons(persons)
+    _, tours = extract_tours(persons, households, trips)
 
     # Compare tour counts
     assert len(tours) == len(tours_legacy), (
@@ -1022,8 +1075,8 @@ def test_no_work_location():
     # No work-based subtours possible (no usual work location)
     assert len(tours) == 1, f"Expected 1 tour, got {len(tours)}"
     tour = tours[0]
-    assert tour["tour_category"] == TourType.HOME_BASED
-    assert tour["tour_purpose"] == PURPOSE_MAP_NEW["work"]
+    assert tour["tour_category"][0] == TourType.HOME_BASED.value
+    assert tour["tour_purpose"][0] == PURPOSE_MAP_NEW["work"].value
 
 
 if __name__ == "__main__":

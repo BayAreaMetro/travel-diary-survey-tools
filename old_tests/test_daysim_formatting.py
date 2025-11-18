@@ -34,7 +34,7 @@ import geopandas as gpd
 import polars as pl
 import pytest
 
-from processing import DaysimFormatter, TourBuilder, link_trips
+from processing import DaysimFormatter, TourExtractor, link_trips
 from processing.utils.helpers import add_time_columns
 from processing.utils.person_type import derive_person_type
 
@@ -744,7 +744,7 @@ class TestPipelineReproduction:
         # Filter for complete days only (matching old pipeline 02a-reformat)
         input_trip = input_trip.filter(pl.col("day_is_complete") == 1)
 
-        # Step 2: Derive person_type for TourBuilder
+        # Step 2: Derive person_type for TourExtractor
         logger.info("Deriving person types...")
         input_person = derive_person_type(input_person)
 
@@ -768,7 +768,7 @@ class TestPipelineReproduction:
 
         # Run pipeline: build tours
         logger.info("Building tours...")
-        builder = TourBuilder(input_person, households=input_household)
+        builder = TourExtractor(input_person, households=input_household)
         _, new_tours = builder.build_tours(new_linked_aggregated)
 
         logger.info(

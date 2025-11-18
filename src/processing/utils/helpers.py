@@ -79,13 +79,36 @@ def expr_haversine(
     lon2: pl.Expr,
     units: str = "meters",
 ) -> pl.Expr:
-    """Return a Polars expression for Haversine distance."""
+    """Return a Polars expression for Haversine distance.
+
+    Returns null if any coordinate is null (e.g., missing work/school
+    locations for non-workers/non-students).
+    """
     r = 6371000.0  # Earth radius (meters)
-    dlat = lat2.radians() - lat1.radians()
-    dlon = lon2.radians() - lon1.radians()
+
+    # Check if all coordinates are non-null before calculation
+    all_coords_valid = (
+        lat1.is_not_null()
+        & lon1.is_not_null()
+        & lat2.is_not_null()
+        & lon2.is_not_null()
+    )
+
+    # Fill nulls with dummy values to prevent trigonometry errors
+    # (result will be masked out by all_coords_valid check)
+    lat1_safe = lat1.fill_null(0.0)
+    lon1_safe = lon1.fill_null(0.0)
+    lat2_safe = lat2.fill_null(0.0)
+    lon2_safe = lon2.fill_null(0.0)
+
+    # Calculate distance
+    dlat = lat2_safe.radians() - lat1_safe.radians()
+    dlon = lon2_safe.radians() - lon1_safe.radians()
     a = (dlat / 2).sin().pow(
         2
-    ) + lat1.radians().cos() * lat2.radians().cos() * (dlon / 2).sin().pow(2)
+    ) + lat1_safe.radians().cos() * lat2_safe.radians().cos() * (
+        dlon / 2
+    ).sin().pow(2)
 
     distance = 2 * r * a.sqrt().arcsin()
 
@@ -94,4 +117,5 @@ def expr_haversine(
     elif units in ["miles", "mi"]:
         distance = distance / 1609.344
 
-    return distance
+    # Return null if any coordinate is null, otherwise return distance
+    return pl.when(all_coords_valid).then(distance).otherwise(None)

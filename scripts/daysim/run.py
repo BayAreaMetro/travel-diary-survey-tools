@@ -34,7 +34,12 @@ logger = logging.getLogger(__name__)
 # Optional: project-specific custom step functions
 # You can define or import them here if needed
 @step(validate_input=False, validate_output=False)
-def custom_cleaning(unlinked_trips: pl.DataFrame) -> dict[str, pl.DataFrame]:
+def custom_cleaning(
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+    days: pl.DataFrame,
+    unlinked_trips: pl.DataFrame
+    ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline."""
      # Much wow...
     unlinked_trips = unlinked_trips.rename({"arrive_second": "arrive_seconds"})
@@ -80,6 +85,9 @@ def custom_cleaning(unlinked_trips: pl.DataFrame) -> dict[str, pl.DataFrame]:
             ]
         ]
     )
+
+    # Find persons without days
+    persons_with_days = days.select(pl.col("person_id").unique())
 
     return {"unlinked_trips": unlinked_trips}
 

@@ -3,9 +3,9 @@
 This module imports and exposes all step functions for easy access.
 """
 
+from .extract_tours import extract_tours
 from .link import link_trips
 from .load import load_data
-from .tours import extract_tours
 
 __all__ = [
     "extract_tours",

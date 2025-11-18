@@ -2,7 +2,7 @@
 
 import polars as pl
 import pytest
-from processing.tours import DEFAULT_CONFIG, TourBuilder
+from processing.tours import DEFAULT_CONFIG, TourExtractor
 
 from data_canon.codebook import (
     LocationType,
@@ -68,12 +68,12 @@ def sample_linked_trips():
     )
 
 
-class TestTourBuilderInit:
-    """Tests for TourBuilder initialization."""
+class TestTourExtractorInit:
+    """Tests for TourExtractor initialization."""
 
     def test_init_with_default_config(self, sample_persons):
         """Test initialization with default configuration."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
         assert builder.persons is not None
         assert builder.config == DEFAULT_CONFIG
         assert len(builder.person_locations) == 3
@@ -83,12 +83,12 @@ class TestTourBuilderInit:
         custom_config = DEFAULT_CONFIG.copy()
         custom_config["distance_thresholds"][LocationType.HOME] = 50.0
 
-        builder = TourBuilder(sample_persons, custom_config)
+        builder = TourExtractor(sample_persons, custom_config)
         assert builder.config["distance_thresholds"][LocationType.HOME] == 50.0
 
     def test_person_category_mapping(self, sample_persons):
         """Test that person categories are correctly mapped."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         categories = builder.person_locations["person_category"].to_list()
         assert categories[0] == PersonCategory.WORKER
@@ -101,7 +101,7 @@ class TestLocationClassification:
 
     def test_classify_home_location(self, sample_persons):
         """Test classification of home locations."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -122,7 +122,7 @@ class TestLocationClassification:
 
     def test_classify_work_location(self, sample_persons):
         """Test classification of work locations."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -143,7 +143,7 @@ class TestLocationClassification:
 
     def test_location_type_priority(self, sample_persons):
         """Test that location type priority is correctly applied."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -167,7 +167,7 @@ class TestHomeTourIdentification:
 
     def test_simple_home_tour(self, sample_persons, sample_linked_trips):
         """Test identification of a simple home-based tour."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         classified = builder._classify_trip_locations(sample_linked_trips)
         tours = builder._identify_home_based_tours(classified)
@@ -178,7 +178,7 @@ class TestHomeTourIdentification:
 
     def test_multiple_tours_same_day(self, sample_persons):
         """Test identification of multiple tours in same day."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -239,7 +239,7 @@ class TestWorkSubtourIdentification:
 
     def test_work_subtour_in_work_tour(self, sample_persons):
         """Test identification of work-based subtour within work tour."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -272,7 +272,7 @@ class TestTourAttributes:
 
     def test_tour_purpose_priority(self, sample_persons, sample_linked_trips):
         """Test that tour purpose follows priority rules."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         classified = builder._classify_trip_locations(sample_linked_trips)
         with_tours = builder._identify_home_based_tours(classified)
@@ -283,7 +283,7 @@ class TestTourAttributes:
 
     def test_tour_mode_hierarchy(self, sample_persons, sample_linked_trips):
         """Test that tour mode follows hierarchy rules."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         classified = builder._classify_trip_locations(sample_linked_trips)
         with_tours = builder._identify_home_based_tours(classified)
@@ -294,7 +294,7 @@ class TestTourAttributes:
 
     def test_tour_timing(self, sample_persons, sample_linked_trips):
         """Test tour timing calculation."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         classified = builder._classify_trip_locations(sample_linked_trips)
         with_tours = builder._identify_home_based_tours(classified)
@@ -309,7 +309,7 @@ class TestTourAggregation:
 
     def test_aggregate_tours_shape(self, sample_persons, sample_linked_trips):
         """Test that tour aggregation produces correct shape."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         classified = builder._classify_trip_locations(sample_linked_trips)
         with_tours = builder._identify_home_based_tours(classified)
@@ -322,7 +322,7 @@ class TestTourAggregation:
 
     def test_tour_trip_count(self, sample_persons, sample_linked_trips):
         """Test that trip count is correctly calculated."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         classified = builder._classify_trip_locations(sample_linked_trips)
         with_tours = builder._identify_home_based_tours(classified)
@@ -337,7 +337,7 @@ class TestMultiDayData:
 
     def test_tours_across_multiple_days(self, sample_persons):
         """Test that tours are correctly identified across different days."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -430,7 +430,7 @@ class TestMultiDayData:
 
     def test_different_tour_patterns_across_days(self, sample_persons):
         """Test varying tour patterns on different days."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -507,7 +507,7 @@ class TestMissingReturnLeg:
 
     def test_tour_without_return_home(self, sample_persons):
         """Test handling of tour that ends away from home."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -542,7 +542,7 @@ class TestMissingReturnLeg:
 
     def test_incomplete_tour_attributes(self, sample_persons):
         """Test that incomplete tours get correct attributes."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -573,7 +573,7 @@ class TestMissingReturnLeg:
 
     def test_multiple_incomplete_tours(self, sample_persons):
         """Test multiple tours where none return home."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -606,7 +606,7 @@ class TestNonHomeStart:
 
     def test_first_trip_not_from_home(self, sample_persons):
         """Test handling when first trip of day doesn't start at home."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -641,7 +641,7 @@ class TestNonHomeStart:
 
     def test_mid_trip_chain_no_home(self, sample_persons):
         """Test trip chain that neither starts nor ends at home."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -676,7 +676,7 @@ class TestNonHomeStart:
 
     def test_starts_away_returns_home_later(self, sample_persons):
         """Test when person starts away but makes multiple tours."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -709,7 +709,7 @@ class TestWorkBasedSubtoursEdgeCases:
 
     def test_multiple_work_subtours_same_tour(self, sample_persons):
         """Test multiple work-based subtours within a single home tour."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -820,7 +820,7 @@ class TestWorkBasedSubtoursEdgeCases:
 
     def test_work_subtour_without_return_to_work(self, sample_persons):
         """Test work subtour that doesn't return to work (goes home instead)."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -857,7 +857,7 @@ class TestWorkBasedSubtoursEdgeCases:
 
     def test_nested_subtour_at_school(self, sample_persons):
         """Test that school-based subtours are not created (only work-based)."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
@@ -897,7 +897,7 @@ class TestWorkBasedSubtoursEdgeCases:
 
     def test_work_subtour_with_single_trip(self, sample_persons):
         """Test work subtour consisting of just one trip away from work."""
-        builder = TourBuilder(sample_persons)
+        builder = TourExtractor(sample_persons)
 
         trips = pl.DataFrame(
             {
