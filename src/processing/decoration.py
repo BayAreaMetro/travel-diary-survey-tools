@@ -17,8 +17,7 @@ CANONICAL_TABLES = set(CanonicalData.__annotations__.keys())
 
 def step(
     *,
-    validate_input: bool = True,
-    validate_output: bool = False,
+    validate: bool = True,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for pipeline steps with automatic validation.
 
@@ -35,14 +34,10 @@ def step(
     to validate all tables after all processing is complete.
 
     Args:
-        validate_input: If True, validate input DataFrames that match
-            canonical table names
-        validate_output: If True, validate output DataFrames that match
-            canonical table names (for dict returns) or the single
-            DataFrame if return type matches a canonical table name
+        validate: Whether to validate inputs.
 
     Example:
-        >>> @step(validate_input=True, validate_output=True)
+        >>> @step(validate=True)
         ... def link_trips(
         ...     unlinked_trips: pl.DataFrame,
         ...     config: dict
@@ -51,7 +46,7 @@ def step(
         ...     linked_trips = ...
         ...     return {"linked_trips": linked_trips}
 
-        >>> @step(validate_output=True)
+        >>> @step(validate=False)
         ... def load_data(input_paths: dict) -> dict[str, pl.DataFrame]:
         ...     return {
         ...         "households": households_df,
@@ -68,9 +63,10 @@ def step(
         def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             # Extract and remove canonical_data from kwargs
             canonical_data = kwargs.pop("canonical_data", None)
+            validate = kwargs.pop("validate", True)
 
-            if validate_input:
-                _validate_inputs(func, args, kwargs, canonical_data)
+            if validate:
+                _validates(func, args, kwargs, canonical_data)
 
             result = func(*args, **kwargs)
 
@@ -80,16 +76,6 @@ def step(
                     if _is_canonical_dataframe(key, value):
                         setattr(canonical_data, key, value)
 
-            # Validate outputs if requested
-            if validate_output and isinstance(result, dict):
-                _validate_dict_outputs(result, func.__name__, canonical_data)
-            elif validate_output and isinstance(result, tuple):
-                logger.warning(
-                    "Step '%s' returns tuple - cannot auto-validate. "
-                    "Consider returning dict with table names as keys.",
-                    func.__name__,
-                )
-
             return result
 
         return wrapper  # type: ignore[return-value]
@@ -97,7 +83,7 @@ def step(
     return decorator
 
 
-def _validate_inputs(
+def _validates(
     func: Callable,
     args: tuple,
     kwargs: dict,

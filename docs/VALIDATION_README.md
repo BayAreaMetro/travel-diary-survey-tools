@@ -259,10 +259,7 @@ The validation framework integrates seamlessly with the pipeline decorator:
 ```python
 from processing.decoration import step
 
-@step(
-    validate_input=True,   # Validate before processing
-    validate_output=True,  # Validate after processing
-)
+@step(validate=True)
 def enrich_persons(
     households: pl.DataFrame,
     persons: pl.DataFrame,
@@ -339,7 +336,7 @@ except ValidationError as e:
 
 ## Best Practices
 
-1. **Validate early and often** - Use `@step(validate_input=True)` on pipeline functions
+1. **Validate early and often** - Use `@step(validate=True)` on pipeline functions
 2. **Use step-aware validation** - Mark fields with `required_in_steps` to validate progressively
 3. **Add custom validators** in `src/data_canon/checks.py` for business logic
 4. **Return empty list for success** - Custom validators should return `[]` when passing

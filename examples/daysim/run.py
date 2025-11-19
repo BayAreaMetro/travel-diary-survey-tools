@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Optional: project-specific custom step functions
 # You can define or import them here if needed
-@step(validate_input=False, validate_output=False)
+@step()
 def custom_cleaning(
     # households: pl.DataFrame,
     persons: pl.DataFrame,

@@ -139,18 +139,13 @@ class Pipeline:
 
             kwargs = self.parse_step_args(step_name, step_obj)
 
-            # Add canonical_data for validation tracking
-            # Decorated steps will pop it out, undecorated steps need **kwargs
-            kwargs["canonical_data"] = self.data
-
             # Execute step
-            # Decorated steps will update self.data via canonical_data
-            if hasattr(step_obj, "run"):  # class-based
-                step_instance = step_obj(**kwargs)
-                step_instance.run()
-            else:
-                # function-based
-                step_obj(**kwargs)
+            # Pass in current canonical data for validation
+            step_obj(
+                **kwargs,
+                validate=step_cfg.get("validate", True),
+                canonical_data=self.data
+            )
 
         logger.info("Pipeline completed.")
         return self.data

@@ -16,11 +16,10 @@ outputs:
   tours: "{{ output_dir }}/tours.csv"
 
 
-
-
 # Pipeline configuration
 steps:
   - name: load_data
+    validate: false # This will override @step(validate=True/False) in the function definition
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
@@ -30,8 +29,13 @@ steps:
         # taz: "{{ taz_shapefile }}"
 
   - name: custom_cleaning
+    validate: false
+
+  # - name: imputation
+  #   validate: true
 
   - name: link_trips
+    validate: true
     params:
       change_mode_code: 11  # Purpose code for 'change_mode'
       transit_mode_codes: [12, 13, 14]
@@ -39,6 +43,10 @@ steps:
       dwell_buffer_distance: 100  # in meters
 
   - name: extract_tours
+    validate: true
+  
+  # - name: weighting
+  #   validate: true
 
   # - name: daysim_formatting
   # - name: saving

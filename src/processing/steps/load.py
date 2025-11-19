@@ -9,13 +9,9 @@ from processing.decoration import step
 
 logger = logging.getLogger(__name__)
 
-@step(
-    validate_input=False,
-    validate_output=False,
-)
+@step(validate=False)
 def load_data(
     input_paths: dict[str, str],
-    **kwargs: any,
 ) -> dict[str, pl.DataFrame | gpd.GeoDataFrame]:
     """Load all canonical tables from input paths."""
     data = {}
