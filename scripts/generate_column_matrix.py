@@ -156,10 +156,9 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
     lines.append("# Column Requirement Matrix")
     lines.append("")
     lines.append(
-        "This matrix shows which columns are required in which pipeline steps."
+        "This matrix shows which columns are required in which pipeline steps. "
     )
-    lines.append("Generated automatically from Pydantic model field metadata.")
-    lines.append("")
+    lines.append("Generated automatically from Pydantic model field metadata by `scripts/generate_column_matrix.py`. *Do not edit this markdown file directly.*")  # noqa: E501
     lines.append("")
     lines.append("- ✓ = required in step")
     lines.append("- \\+ = created in step")
@@ -405,13 +404,16 @@ def main() -> None:
     enum_markdown = generate_enum_codebook_markdown(enums)
     markdown += "\n\n" + enum_markdown
 
-    output_path = Path(__file__).parent.parent / "COLUMN_REQUIREMENTS.md"
+    output_dir = Path(__file__).parent.parent / "docs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = output_dir / "COLUMN_REQUIREMENTS.md"
     output_path.write_text(markdown, encoding="utf-8")
     print(f"Generated: {output_path}")  # noqa: T201
 
     # Generate CSV in scripts folder
     csv = generate_matrix_csv(models)
-    csv_path = Path(__file__).parent.parent / "column_requirements.csv"
+    csv_path = output_dir / "column_requirements.csv"
     csv_path.write_text(csv, encoding="utf-8")
     print(f"Generated: {csv_path}")  # noqa: T201
 

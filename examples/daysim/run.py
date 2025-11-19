@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # You can define or import them here if needed
 @step(validate_input=False, validate_output=False)
 def custom_cleaning(
-    households: pl.DataFrame,
+    # households: pl.DataFrame,
     persons: pl.DataFrame,
     days: pl.DataFrame,
     unlinked_trips: pl.DataFrame

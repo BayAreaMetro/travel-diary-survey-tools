@@ -13,15 +13,15 @@ For collaborating on Travel Diary Survey Tools
 
 ## Documentation
 
-- [Validation Framework](VALIDATION_README.md) - Comprehensive data validation system
-- [Column Requirements](COLUMN_REQUIREMENTS.md) - Field requirements per pipeline step
-- [Codebook](CODEBOOK_README.md) - Enumeration definitions and labeled values
+- [Validation Framework](docs/VALIDATION_README.md) - Comprehensive data validation system
+- [Column Requirements](docs/COLUMN_REQUIREMENTS.md) - Field requirements per pipeline step
+- [Codebook](docs/CODEBOOK_README.md) - Enumeration definitions and labeled values
 
 ## Setup Instructions for Windows Users
 
 ### Installing UV
 
-1. Open PowerShell and run:
+1. Open PowerShell and run (or follow another method from https://docs.astral.sh/uv/getting-started/installation/):
 ```powershell
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
@@ -264,8 +264,8 @@ def my_custom_step(
 ```
 travel-diary-survey-tools/
 ├── src/
-│   ├── data_canon/              # Data models and validation
-│   │   ├── codebook/            # Enumeration definitions
+│   ├── data_canon/
+│   │   ├── codebook/ <------------ # Define data categories here!
 │   │   │   ├── days.py
 │   │   │   ├── generic.py
 │   │   │   ├── households.py
@@ -273,24 +273,36 @@ travel-diary-survey-tools/
 │   │   │   ├── tours.py
 │   │   │   ├── trips.py
 │   │   │   └── vehicles.py
-│   │   └── core/                # Core validation logic
-│   │       ├── dataclass.py     # CanonicalData container
-│   │       ├── validators.py    # Validation framework
-│   │       └── step_field.py    # Step-aware field definitions
-│   └── processing/              # Pipeline processing
-│       ├── pipeline.py          # Pipeline orchestration
-│       ├── decoration.py        # Step decorator
-│       └── steps/               # Processing steps
-│           ├── load.py          # Data loading
-│           ├── link.py          # Trip linking
-│           ├── extract_tours/   # Tour extraction
+│   │   └── core/                   # Core validation logic
+│   │       ├── dataclass.py
+│   │       ├── validators.py
+│   │       └── step_field.py
+│   └── processing/
+│       ├── pipeline.py
+│       ├── decoration.py
+│       └── steps/ <--------------- # Define default processing steps here!
+│           ├── load.py
+│           ├── imputation.py       # Not yet implemented
+│           ├── joint_trips.py      # Not yet implemented
+│           ├── link.py
+│           ├── extract_tours/
 │           │   ├── extraction.py
 │           │   ├── person_type.py
 │           │   ├── priority_utils.py
 │           │   └── tour_configs.py
-│           └── format_daysim.py # DaySim output formatting
-├── tests/                       # Test suite
-├── scripts/                     # Analysis and utilities
+│           ├── final_check.py      # Checks everything!
+│           ├── weighting/
+|           |   ├── base_weights.py
+|           |   ├── prep_control_data.py
+|           |   ├── prep_survey_data.py
+|           |   ├── balancer.py
+|           |   ├── base_weights.py
+│           └── output_format/ <--- # Define bespoke output formatting here!
+│               ├── daysim.py
+│               ├── ctramp.py
+│               └── activitysim.py
+├── tests/                          # Test suite
+├── scripts/                        # Analysis and utilities
 └── docs/
     ├── README.md
     ├── VALIDATION_README.md

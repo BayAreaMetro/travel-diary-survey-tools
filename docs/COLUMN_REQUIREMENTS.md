@@ -1,8 +1,7 @@
 # Column Requirement Matrix
 
-This matrix shows which columns are required in which pipeline steps.
-Generated automatically from Pydantic model field metadata.
-
+This matrix shows which columns are required in which pipeline steps. 
+Generated automatically from Pydantic model field metadata by `scripts/generate_column_matrix.py`. *Do not edit this markdown file directly.*
 
 - ✓ = required in step
 - \+ = created in step
