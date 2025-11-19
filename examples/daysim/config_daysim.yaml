@@ -1,20 +1,12 @@
 # DaySim Processing Pipeline Configuration for BATS 2023
 # This config file demonstrates the full pipeline with DaySim formatting
 
-# Define directory shortcuts
-survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
-output_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/BATS2023_DaysimTest"
+# config.yaml
+
+# Define directory shorthands
+survey_dir: "M:/some/path/to/survey/data"
+output_dir: "M:/some/path/to/output/data"
 taz_shapefile: "X:/travel-model-one-master/utilities/geographies/bayarea_rtaz1454_rev1_WGS84.shp"
-
-
-outputs:
-  households: "{{ output_dir }}/hh.csv"
-  persons: "{{ output_dir }}/person.csv"
-  days: "{{ output_dir }}/day.csv"
-  unlinked_trips: "{{ output_dir }}/trip.csv"
-  linked_trips: "{{ output_dir }}/linked_trips.csv"
-  tours: "{{ output_dir }}/tours.csv"
-
 
 # Pipeline configuration
 steps:
@@ -26,7 +18,6 @@ steps:
         persons: "{{ survey_dir }}/person.csv"  
         days: "{{ survey_dir }}/day.csv"
         unlinked_trips: "{{ survey_dir }}/trip.csv"
-        # taz: "{{ taz_shapefile }}"
 
   - name: custom_cleaning
     validate: false
@@ -35,6 +26,7 @@ steps:
   #   validate: true
 
   - name: link_trips
+    function: link_trips
     validate: true
     params:
       change_mode_code: 11  # Purpose code for 'change_mode'
@@ -44,9 +36,37 @@ steps:
 
   - name: extract_tours
     validate: true
-  
-  # - name: weighting
-  #   validate: true
 
-  # - name: daysim_formatting
-  # - name: saving
+  - name: custom_add_taz_ids
+    validate: true
+    params:
+      taz_shapefile: "{{ taz_shapefile }}"
+  
+  - name: final_check
+    validate: true
+  
+  - name: weighting
+    validate: true
+
+  - name: format_output
+    validate: true
+    params:
+      format: "daysim"
+      outputs:
+        households_daysim: "{{ survey_dir }}/hh_daysim.csv"
+        persons_daysim: "{{ survey_dir }}/person_daysim.csv"
+        days_daysim: "{{ survey_dir }}/day_daysim.csv"
+        linked_trips_daysim: "{{ survey_dir }}/linked_trip_daysim.csv"
+        tours_daysim: "{{ survey_dir }}/tour_daysim.csv"
+  
+  - name: format_output
+    validate: false
+    params:
+      format: "standard"
+      outputs:
+        households: "{{ output_dir }}/households.csv"
+        persons: "{{ output_dir }}/persons.csv"
+        days: "{{ output_dir }}/days.csv"
+        unlinked_trips: "{{ output_dir }}/unlinked_trips.csv"
+        linked_trips: "{{ output_dir }}/linked_trips.csv"
+        tours: "{{ output_dir }}/tours.csv"
