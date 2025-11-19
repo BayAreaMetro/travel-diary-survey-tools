@@ -5,8 +5,8 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from data_canon.dataclass import CanonicalData
-from data_canon.validators import ValidationError
+from data_canon.core.dataclass import CanonicalData
+from data_canon.core.validators import ValidationError
 
 
 class TestUniqueConstraints:

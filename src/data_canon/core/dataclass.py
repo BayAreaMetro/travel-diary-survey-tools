@@ -22,6 +22,7 @@ from .validators import (
     ValidationError,
     check_foreign_keys,
     check_unique_constraints,
+    get_unique_fields,
     validate_dataframe_rows,
 )
 
@@ -49,16 +50,6 @@ class CanonicalData:
         "unlinked_trips": UnlinkedTripModel,
         "linked_trips": LinkedTripModel,
         "tours": TourModel,
-    })
-
-    # Uniqueness constraints
-    _unique_constraints: dict[str, list[str]] = field(default_factory=lambda: {
-        "households": ["hh_id"],
-        "persons": ["person_id"],
-        "days": ["day_id"],
-        "unlinked_trips": ["trip_id"],
-        "linked_trips": ["linked_trip_id"],
-        "tours": ["tour_id"],
     })
 
     # Foreign key constraints: list of parent table names
@@ -139,12 +130,14 @@ class CanonicalData:
             f"{len(df):,}"
         )
 
-        # 1. Column constraints
-        if table_name in self._unique_constraints:
+        # 1. Column constraints (uniqueness)
+        # Extract unique fields from model metadata
+        unique_fields = get_unique_fields(self._models[table_name])
+        if unique_fields:
             check_unique_constraints(
                 table_name,
                 df,
-                self._unique_constraints[table_name],
+                unique_fields,
             )
 
         # 2. Foreign key constraints
@@ -245,7 +238,17 @@ class CanonicalData:
         if table_name not in self._required_children:
             return
 
-        parent_col = self._unique_constraints[table_name][0]
+        # Get the unique field from model metadata
+        unique_fields = get_unique_fields(self._models[table_name])
+        if not unique_fields:
+            logger.warning(
+                "Skipping required children check: no unique field found "
+                "for '%s'",
+                table_name,
+            )
+            return
+
+        parent_col = unique_fields[0]
         parent_ids = set(df[parent_col].to_list())
 
         for child_table, child_fk_col in self._required_children[table_name]:
@@ -292,6 +295,7 @@ class CanonicalData:
                     message=msg,
                 )
 
+    # Left this in here for future extension, but not currently used.
     def register_validator(self, *table_names: str) -> Callable:
         """Register a custom validator on one or more tables.
 

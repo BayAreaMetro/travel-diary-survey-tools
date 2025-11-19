@@ -22,7 +22,7 @@ from .codebook.trips import ModeType, Purpose, PurposeCategory
 class HouseholdModel(BaseModel):
     """Household attributes (minimal for tour building)."""
 
-    hh_id: int = step_field(ge=1, required_in_steps="all")
+    hh_id: int = step_field(ge=1, unique=True, required_in_steps="all")
     home_lat: float = step_field(ge=-90, le=90)
     home_lon: float = step_field(ge=-180, le=180)
 
@@ -30,7 +30,7 @@ class HouseholdModel(BaseModel):
 class PersonModel(BaseModel):
     """Person attributes for tour building."""
 
-    person_id: int = step_field(ge=1, required_in_steps="all")
+    person_id: int = step_field(ge=1, unique=True, required_in_steps="all")
     hh_id: int = step_field(ge=1, required_in_steps="all")
     age: AgeCategory
     work_lat: float | None = step_field(ge=-90, le=90, default=None)
@@ -44,7 +44,7 @@ class PersonDayModel(BaseModel):
     """Daily activity pattern summary with clear purpose-specific counts."""
 
     person_id: int = step_field(ge=1, required_in_steps="all")
-    day_id: int = step_field(ge=1, required_in_steps="all")
+    day_id: int = step_field(ge=1, unique=True, required_in_steps="all")
     hh_id: int = step_field(ge=1, required_in_steps="all")
     travel_dow: TravelDow
 
@@ -52,7 +52,7 @@ class PersonDayModel(BaseModel):
 class UnlinkedTripModel(BaseModel):
     """Trip data model for validation."""
 
-    trip_id: int = step_field(ge=1, required_in_steps="all")
+    trip_id: int = step_field(ge=1, unique=True, required_in_steps="all")
     day_id: int = step_field(ge=1, required_in_steps="all")
     person_id: int = step_field(ge=1, required_in_steps="all")
     hh_id: int = step_field(ge=1, required_in_steps="all")
@@ -95,7 +95,7 @@ class LinkedTripModel(BaseModel):
     hh_id: int = step_field(ge=1, created_in_step="link_trip")
 
     linked_trip_id: int | None = step_field(
-        ge=1, created_in_step=["link_trip"], default=None
+        ge=1, unique=True, created_in_step=["link_trip"], default=None
     )
     tour_id: int | None = step_field(
         ge=1, created_in_step=["extract_tours"], default=None
@@ -129,7 +129,9 @@ class LinkedTripModel(BaseModel):
 class TourModel(BaseModel):
     """Tour-level records with clear, descriptive step_field names."""
 
-    tour_id: int = step_field(ge=1, created_in_step="extract_tours")
+    tour_id: int = step_field(
+        ge=1, unique=True, created_in_step="extract_tours"
+    )
     person_id: int = step_field(ge=1, created_in_step="extract_tours")
     day_id: int = step_field(ge=1, created_in_step="extract_tours")
     tour_sequence_num: int = step_field(ge=1)

@@ -5,10 +5,9 @@ from pydantic import Field
 
 
 def step_field(
-    required_in_steps: list[str] | str | None = None,
-    created_in_step: str | None = None,
     *,
-    skip_final_check: bool = False,
+    required_in_steps: list[str] | str | None = None,
+    unique: bool = False,
     **field_kwargs: Any,  # noqa: ANN401
 ) -> Any:  # noqa: ANN401
     """Create a Field with step metadata.
@@ -21,30 +20,23 @@ def step_field(
         required_in_steps: List of step names where this field is required,
                           or the string "all" to require in all steps.
                           If None/empty, field is NOT required in any step.
-        created_in_step: Step name where this field is created/output.
-                        Used to validate that fields exist in step outputs.
-                        If None, no creation validation is performed.
-        skip_final_check: If True, this field will be skipped during
-                          the final full validation step.
+        unique: Whether this field should be unique across records.
+                Used to validate uniqueness constraints at the table level.
         **field_kwargs: All other Field parameters (ge, le, default, etc.)
 
     Returns:
         Field instance with step metadata attached
 
     Example:
-        >>> # Required in all steps
-        >>> person_id: int = step_field(ge=1)
+        >>> # Required in all steps with uniqueness constraint
+        >>> person_id: int = step_field(
+        ...     ge=1, unique=True, required_in_steps="all"
+        ... )
 
         >>> # Required only in specific steps
         >>> age: int | None = step_field(
         ...     required_in_steps=["imputation", "tour_building"],
         ...     ge=0,
-        ...     default=None
-        ... )
-
-        >>> # Created in a specific step
-        >>> tour_id: int | None = step_field(
-        ...     created_in_step="tour_building",
         ...     default=None
         ... )
 
@@ -57,21 +49,17 @@ def step_field(
     # Make a list if not already
     if isinstance(required_in_steps, str):
         required_in_steps = [required_in_steps]
+
     if required_in_steps is None:
         required_in_steps = []
+
+    if unique:
+        field_kwargs["json_schema_extra"]["unique"] = True
 
     # Handle "all" string for required in all steps
     if required_in_steps == ["all"]:
         field_kwargs["json_schema_extra"]["required_in_all_steps"] = True
         required_in_steps = []
-
-    # Add final_check step unless skipped
-    if not skip_final_check:
-        required_in_steps.append("final_check")
-
-    # Handle created_in_step metadata
-    if created_in_step:
-        field_kwargs["json_schema_extra"]["created_in_step"] = created_in_step
 
     # Else pass specific steps list
     elif required_in_steps and len(required_in_steps) > 0:

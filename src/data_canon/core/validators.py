@@ -57,6 +57,24 @@ class ValidationError(Exception):
 
 # Column Validators --------------------------------------------------------
 
+def get_unique_fields(model: type[BaseModel]) -> list[str]:
+    """Get list of fields marked as unique in the model.
+
+    Args:
+        model: Pydantic model class
+
+    Returns:
+        List of field names marked as unique
+    """
+    unique_fields = []
+
+    for field_name, field_info in model.model_fields.items():
+        extra = field_info.json_schema_extra or {}
+        if extra.get("unique", False):
+            unique_fields.append(field_name)
+
+    return unique_fields
+
 def check_unique_constraints(
     table_name: str,
     df: pl.DataFrame,
@@ -432,6 +450,7 @@ __all__ = [
     "check_unique_constraints",
     "get_required_fields_for_step",
     "get_step_validation_summary",
+    "get_unique_fields",
     "validate_dataframe_rows",
     "validate_row_for_step",
 ]
