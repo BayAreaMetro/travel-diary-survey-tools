@@ -22,8 +22,11 @@ from .validators import (
     ValidationError,
     check_foreign_keys,
     check_unique_constraints,
+    get_foreign_key_fields,
+    get_required_children_fields,
     get_unique_fields,
     validate_dataframe_rows,
+    validate_fk_references,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,33 +55,6 @@ class CanonicalData:
         "tours": TourModel,
     })
 
-    # Foreign key constraints: list of parent table names
-    # FK column looked up from validators.foreign_key._TABLE_TO_FK_COLUMN
-    _foreign_keys: dict[str, list[str]] = field(
-        default_factory=lambda: {
-            "persons": ["households"],
-            "days": ["persons", "households"],
-            "unlinked_trips": [
-                "persons",
-                "households",
-                "days",
-                "linked_trips",
-                "tours",
-            ],
-            "linked_trips": ["persons", "households", "days", "tours"],
-            "tours": ["persons", "days"],
-        }
-    )
-
-    # Required children: child tables that MUST have records for each parent
-    # Format: parent_table -> list of (child_table, fk_column)
-    _required_children: dict[str, list[tuple[str, str]]] = field(
-        default_factory=lambda: {
-            "households": [("persons", "hh_id")],
-            "persons": [("days", "person_id")],
-        }
-    )
-
     # Custom validators: table_name -> list of validator functions
     # Populated from checks.CUSTOM_VALIDATORS
     _custom_validators: dict[str, list[Callable]] = field(
@@ -87,6 +63,10 @@ class CanonicalData:
             for table, validators in checks.CUSTOM_VALIDATORS.items()
         }
     )
+
+    def __post_init__(self) -> None:
+        """Validate FK references point to unique fields."""
+        validate_fk_references(self._models)
 
     def validate(self, table_name: str, step: str | None = None) -> None:
         """Validate a table through all validation layers.
@@ -141,11 +121,17 @@ class CanonicalData:
             )
 
         # 2. Foreign key constraints
-        if table_name in self._foreign_keys:
+        # Extract FK fields from model metadata
+        fk_fields = get_foreign_key_fields(self._models[table_name])
+        if fk_fields:
+            # Build list of unique parent tables for old check_foreign_keys API
+            parent_tables = list({
+                parent_table for parent_table, _ in fk_fields.values()
+            })
             check_foreign_keys(
                 table_name,
                 df,
-                self._foreign_keys[table_name],
+                parent_tables,
                 lambda t: getattr(self, t),
             )
 
@@ -231,13 +217,13 @@ class CanonicalData:
     ) -> None:
         """Check that all records have required children (bidirectional FK).
 
+        Iterates through all other tables to find FK fields with
+        required_child=True that reference this table.
+
         Args:
             table_name: Name of the table being validated
             df: DataFrame being validated
         """
-        if table_name not in self._required_children:
-            return
-
         # Get the unique field from model metadata
         unique_fields = get_unique_fields(self._models[table_name])
         if not unique_fields:
@@ -251,49 +237,59 @@ class CanonicalData:
         parent_col = unique_fields[0]
         parent_ids = set(df[parent_col].to_list())
 
-        for child_table, child_fk_col in self._required_children[table_name]:
-            child_df = getattr(self, child_table)
+        # Find all child tables that have required_child FK to this table
+        for child_table_name, child_model in self._models.items():
+            required_child_fields = get_required_children_fields(child_model)
 
-            if child_df is None:
-                logger.warning(
-                    "Skipping required children check: child table '%s' "
-                    "is None",
-                    child_table,
-                )
-                continue
+            for child_fk_col, (parent_table, _) in \
+                    required_child_fields.items():
+                # Check if this FK references current table
+                if parent_table != table_name:
+                    continue
 
-            if child_fk_col not in child_df.columns:
-                logger.warning(
-                    "Skipping required children check: FK column '%s' "
-                    "not in '%s'",
-                    child_fk_col,
-                    child_table,
-                )
-                continue
+                child_table = child_table_name
+                child_df = getattr(self, child_table)
 
-            child_parent_ids = set(
-                child_df[child_fk_col].drop_nulls().unique().to_list()
-            )
-            parents_without_children = parent_ids - child_parent_ids
+                if child_df is None:
+                    logger.warning(
+                        "Skipping required children check: child table '%s' "
+                        "is None",
+                        child_table,
+                    )
+                    continue
 
-            if parents_without_children:
-                missing_list = sorted(parents_without_children)
-                max_display = 10
-                sample = missing_list[:max_display]
-                sample_str = ", ".join(str(v) for v in sample)
-                has_more = len(parents_without_children) > max_display
-                ellipsis = " ..." if has_more else ""
-                msg = (
-                    f"Found {len(parents_without_children)} '{table_name}' "
-                    f"records with no '{child_table}' children. "
-                    f"Sample: {sample_str}{ellipsis}"
+                if child_fk_col not in child_df.columns:
+                    logger.warning(
+                        "Skipping required children check: FK column '%s' "
+                        "not in '%s'",
+                        child_fk_col,
+                        child_table,
+                    )
+                    continue
+
+                child_parent_ids = set(
+                    child_df[child_fk_col].drop_nulls().unique().to_list()
                 )
-                raise ValidationError(
-                    table=table_name,
-                    rule="required_children",
-                    column=parent_col,
-                    message=msg,
-                )
+                parents_without_children = parent_ids - child_parent_ids
+
+                if parents_without_children:
+                    missing_list = sorted(parents_without_children)
+                    max_display = 10
+                    sample = missing_list[:max_display]
+                    sample_str = ", ".join(str(v) for v in sample)
+                    has_more = len(parents_without_children) > max_display
+                    ellipsis = " ..." if has_more else ""
+                    msg = (
+                        f"Found {len(parents_without_children)} "
+                        f"'{table_name}' records with no '{child_table}' "
+                        f"children. Sample: {sample_str}{ellipsis}"
+                    )
+                    raise ValidationError(
+                        table=table_name,
+                        rule="required_children",
+                        column=parent_col,
+                        message=msg,
+                    )
 
     # Left this in here for future extension, but not currently used.
     def register_validator(self, *table_names: str) -> Callable:

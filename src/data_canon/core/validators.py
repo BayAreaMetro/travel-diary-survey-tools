@@ -75,6 +75,122 @@ def get_unique_fields(model: type[BaseModel]) -> list[str]:
 
     return unique_fields
 
+
+def get_foreign_key_fields(
+    model: type[BaseModel],
+) -> dict[str, tuple[str, str]]:
+    """Extract foreign key relationships from model metadata.
+
+    Args:
+        model: Pydantic model class
+
+    Returns:
+        Dict mapping child field name to (parent_table, parent_column)
+        Example: {"hh_id": ("households", "hh_id")}
+    """
+    fk_fields = {}
+
+    for field_name, field_info in model.model_fields.items():
+        extra = field_info.json_schema_extra or {}
+        fk_to = extra.get("fk_to")
+
+        if fk_to:
+            # Parse "parent_table.parent_column" format
+            if "." not in fk_to:
+                msg = (
+                    f"Invalid fk_to format: '{fk_to}'. "
+                    f"Expected 'table.column'"
+                )
+                raise ValueError(msg)
+
+            parent_table, parent_column = fk_to.split(".", 1)
+            fk_fields[field_name] = (parent_table, parent_column)
+
+    return fk_fields
+
+
+def get_required_children_fields(
+    model: type[BaseModel],
+) -> dict[str, tuple[str, str]]:
+    """Extract required_child FK relationships from model metadata.
+
+    Args:
+        model: Pydantic model class
+
+    Returns:
+        Dict mapping child field name to (parent_table, parent_column)
+        for fields that require bidirectional FK constraint
+    """
+    required_children = {}
+
+    for field_name, field_info in model.model_fields.items():
+        extra = field_info.json_schema_extra or {}
+
+        if extra.get("required_child", False):
+            fk_to = extra.get("fk_to")
+            if not fk_to:
+                msg = (
+                    f"Field '{field_name}' has required_child=True "
+                    f"but no fk_to specified"
+                )
+                raise ValueError(msg)
+
+            parent_table, parent_column = fk_to.split(".", 1)
+            required_children[field_name] = (parent_table, parent_column)
+
+    return required_children
+
+
+def validate_fk_references(
+    models: dict[str, type[BaseModel]],
+) -> None:
+    """Validate that all FK references point to unique fields.
+
+    Args:
+        models: Dict mapping table names to Pydantic model classes
+
+    Raises:
+        ValueError: If FK references non-unique field or missing table/field
+    """
+    # Build map of unique fields by table
+    unique_fields_by_table = {}
+    for table_name, model in models.items():
+        unique_fields_by_table[table_name] = set(get_unique_fields(model))
+
+    # Validate all FK references
+    for table_name, model in models.items():
+        fk_fields = get_foreign_key_fields(model)
+
+        for field_name, (parent_table, parent_column) in fk_fields.items():
+            # Check parent table exists
+            if parent_table not in models:
+                msg = (
+                    f"FK {table_name}.{field_name} references unknown table "
+                    f"'{parent_table}'"
+                )
+                raise ValueError(msg)
+
+            # Check parent column exists in parent model
+            parent_model = models[parent_table]
+            if parent_column not in parent_model.model_fields:
+                msg = (
+                    f"FK {table_name}.{field_name} references "
+                    f"'{parent_table}.{parent_column}' but column "
+                    f"'{parent_column}' does not exist in {parent_table}"
+                )
+                raise ValueError(msg)
+
+            # Check parent column is unique
+            if parent_column not in unique_fields_by_table[parent_table]:
+                msg = (
+                    f"FK {table_name}.{field_name} references "
+                    f"'{parent_table}.{parent_column}' but column "
+                    f"'{parent_column}' is not marked as unique. "
+                    f"Add unique=True to {parent_table}.{parent_column}"
+                )
+                raise ValueError(msg)
+
+
 def check_unique_constraints(
     table_name: str,
     df: pl.DataFrame,
@@ -448,9 +564,12 @@ __all__ = [
     "ValidationError",
     "check_foreign_keys",
     "check_unique_constraints",
+    "get_foreign_key_fields",
+    "get_required_children_fields",
     "get_required_fields_for_step",
     "get_step_validation_summary",
     "get_unique_fields",
     "validate_dataframe_rows",
+    "validate_fk_references",
     "validate_row_for_step",
 ]
