@@ -58,7 +58,7 @@ class TestForeignKeys:
             "worker": [True, True],
             "student": [False, False],
         })
-        data.validate("persons")
+        data.validate("persons", step="link_trips")
 
     def test_fk_fails_with_orphans(self):
         """Should fail with orphaned FKs."""
@@ -75,7 +75,7 @@ class TestForeignKeys:
             "worker": [True, True], "student": [False, False],
         })
         with pytest.raises(ValidationError) as exc:
-            data.validate("persons")
+            data.validate("persons", step="link_trips")
         assert exc.value.rule == "foreign_key"
 
 
@@ -96,7 +96,7 @@ class TestRequiredChildren:
             "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
-        data.validate("households")
+        data.validate("households", step="link_trips")
 
     def test_required_children_fails(self):
         """Should fail when parent missing children."""
@@ -114,7 +114,7 @@ class TestRequiredChildren:
             "worker": [True, True], "student": [False, False],
         })
         with pytest.raises(ValidationError) as exc:
-            data.validate("households")
+            data.validate("households", step="link_trips")
         assert exc.value.rule == "required_children"
 
 
@@ -177,7 +177,7 @@ class TestCustomValidators:
             ],
         })
         with pytest.raises(ValidationError) as exc:
-            data.validate("unlinked_trips")
+            data.validate("unlinked_trips", step="link_trips")
         assert exc.value.rule == "check_trip_duration"
 
     def test_multi_table_validator(self):
@@ -207,4 +207,4 @@ class TestCustomValidators:
             "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
-        data.validate("persons")
+        data.validate("persons", step="link_trips")

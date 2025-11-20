@@ -8,11 +8,11 @@ from datetime import datetime
 
 import pytest
 
-from data_canon.models import UnlinkedTripModel
-from data_canon.validators import (
+from data_canon.core.validators import (
     get_required_fields_for_step,
     validate_row_for_step,
 )
+from data_canon.models import UnlinkedTripModel
 
 
 class TestSelectiveFieldRequirements:

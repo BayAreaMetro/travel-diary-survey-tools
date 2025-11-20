@@ -196,6 +196,6 @@ class TourConfig(BaseModel):
         ),
     )
 
-    class Config:
+    class ConfigDict:
         """Pydantic model configuration."""
         arbitrary_types_allowed = True  # Allow enum types
