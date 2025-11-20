@@ -242,43 +242,25 @@ def check_unique_constraints(
 
 # Foreign Key Validators ---------------------------------------------------
 
-# Map parent table names to their FK column names
-_TABLE_TO_FK_COLUMN = {
-    "households": "hh_id",
-    "persons": "person_id",
-    "days": "day_id",
-    "unlinked_trips": "trip_id",
-    "linked_trips": "linked_trip_id",
-    "tours": "tour_id",
-}
-
-
 def check_foreign_keys(
     table_name: str,
     df: pl.DataFrame,
-    parent_tables: list[str],
+    fk_fields: dict[str, tuple[str, str]],
     get_table_func: callable,
 ) -> None:
-    """Check foreign key constraints.
+    """Check foreign key constraints using FK metadata from models.
 
     Args:
         table_name: Name of the table being validated
         df: DataFrame to validate (child table)
-        parent_tables: List of parent table names
+        fk_fields: Dict mapping child FK field to (parent_table, parent_col)
+                   from get_foreign_key_fields()
         get_table_func: Function to retrieve other tables by name
 
     Raises:
         ValidationError: If foreign key constraint is violated
     """
-    for parent_table in parent_tables:
-        # Get FK column names from mapping
-        if parent_table not in _TABLE_TO_FK_COLUMN:
-            msg = f"Unknown parent table: {parent_table}"
-            raise ValueError(msg)
-
-        child_col = _TABLE_TO_FK_COLUMN[parent_table]
-        parent_col = child_col  # Same column name in both tables
-
+    for child_col, (parent_table, parent_col) in fk_fields.items():
         # Skip if child column doesn't exist yet (will be added later)
         if child_col not in df.columns:
             continue

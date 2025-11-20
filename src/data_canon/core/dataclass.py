@@ -124,14 +124,10 @@ class CanonicalData:
         # Extract FK fields from model metadata
         fk_fields = get_foreign_key_fields(self._models[table_name])
         if fk_fields:
-            # Build list of unique parent tables for old check_foreign_keys API
-            parent_tables = list({
-                parent_table for parent_table, _ in fk_fields.values()
-            })
             check_foreign_keys(
                 table_name,
                 df,
-                parent_tables,
+                fk_fields,
                 lambda t: getattr(self, t),
             )
 
