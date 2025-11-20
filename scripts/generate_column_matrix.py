@@ -21,9 +21,6 @@ import data_canon.codebook.persons as persons_module
 import data_canon.codebook.trips as trips_module
 import data_canon.codebook.vehicles as vehicles_module
 from data_canon.core.labeled_enum import LabeledEnum
-from data_canon.core.validators import (
-    get_step_validation_summary,
-)
 from data_canon.models import (
     HouseholdModel,
     LinkedTripModel,
@@ -32,6 +29,7 @@ from data_canon.models import (
     TourModel,
     UnlinkedTripModel,
 )
+from data_canon.row_validation import get_step_validation_summary
 
 
 def get_field_type_description(field_info: object) -> str:

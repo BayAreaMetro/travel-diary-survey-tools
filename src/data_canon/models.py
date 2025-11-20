@@ -59,6 +59,7 @@ class PersonModel(BaseModel):
         required_child=True,
     )
     age: AgeCategory = step_field(required_in_steps=["extract_tours"])
+    # These fields can be None if person is not employed or in school
     work_lat: float | None = step_field(
         ge=-90, le=90,
         required_in_steps=["extract_tours"]
@@ -100,15 +101,9 @@ class UnlinkedTripModel(BaseModel):
     """Trip data model for validation."""
 
     trip_id: int = step_field(ge=1, unique=True)
-    day_id: int = step_field(
-        ge=1, fk_to="days.day_id"
-    )
-    person_id: int = step_field(
-        ge=1, fk_to="persons.person_id"
-    )
-    hh_id: int = step_field(
-        ge=1, fk_to="households.hh_id"
-    )
+    day_id: int = step_field(ge=1, fk_to="days.day_id")
+    person_id: int = step_field(ge=1, fk_to="persons.person_id")
+    hh_id: int = step_field(ge=1, fk_to="households.hh_id")
     linked_trip_id: int = step_field(
         ge=1,
         fk_to="linked_trips.linked_trip_id",

@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 
 from data_canon.core.dataclass import CanonicalData
-from data_canon.core.validators import ValidationError
+from data_canon.core.exceptions import ValidationError
 
 
 class TestUniqueConstraints:

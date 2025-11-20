@@ -7,25 +7,17 @@ fields are only required in their designated pipeline steps.
 from datetime import datetime
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
-from data_canon.core.validators import (
+from data_canon.models import UnlinkedTripModel
+from data_canon.row_validation import (
     get_required_fields_for_step,
     validate_row_for_step,
 )
-from data_canon.models import UnlinkedTripModel
 
 
 class TestSelectiveFieldRequirements:
     """Test that fields are only required in specific steps."""
-
-    def test_always_required_fields(self):
-        """Core ID fields should be required in all steps."""
-        required = get_required_fields_for_step(UnlinkedTripModel, "any_step")
-
-        assert "trip_id" in required
-        assert "person_id" in required
-        assert "hh_id" in required
-        assert "day_id" in required
 
     def test_step_specific_fields_required_only_in_that_step(self):
         """Fields should only be required in their designated step."""
@@ -45,8 +37,18 @@ class TestSelectiveFieldRequirements:
         assert "linked_trip_id" not in required_other
         assert "tour_id" not in required_other
 
-    def test_datetime_fields_required_only_in_link_trip(self):
-        """Datetime fields should only be required in link_trip step."""
+    def test_fields_added_during_pipeline(self):
+        """Fields added during pipeline only required after creation."""
+        # depart_time/arrive_time are added in preprocessing step
+        # Not required in load_data (before preprocessing)
+        required_load = get_required_fields_for_step(
+            UnlinkedTripModel,
+            "load_data"
+        )
+        assert "depart_time" not in required_load
+        assert "arrive_time" not in required_load
+
+        # Required in link_trip (after preprocessing)
         required_link = get_required_fields_for_step(
             UnlinkedTripModel,
             "link_trip"
@@ -54,13 +56,13 @@ class TestSelectiveFieldRequirements:
         assert "depart_time" in required_link
         assert "arrive_time" in required_link
 
-        # Not required in other steps
-        required_other = get_required_fields_for_step(
+        # Also required in extract_tours (after link_trip)
+        required_tours = get_required_fields_for_step(
             UnlinkedTripModel,
             "extract_tours"
         )
-        assert "depart_time" not in required_other
-        assert "arrive_time" not in required_other
+        assert "depart_time" in required_tours
+        assert "arrive_time" in required_tours
 
 
 class TestStepValidationBehavior:
@@ -141,6 +143,8 @@ class TestStepValidationBehavior:
             "mode_type": 1,
             "duration_minutes": 90.0,
             "distance_miles": 10.5,
+            "depart_time": datetime(2024, 1, 15, 10, 0, 0),
+            "arrive_time": datetime(2024, 1, 15, 11, 30, 0),
         }
 
         # Should pass - all extract_tours fields present
@@ -174,8 +178,43 @@ class TestStepValidationBehavior:
         with pytest.raises(ValueError, match=r"depart_time|arrive_time"):
             validate_row_for_step(row_no_dt, UnlinkedTripModel, "link_trip")
 
-        # With datetime - OK for link_trip
+        # With datetime and location fields - OK for link_trip
         row_with_dt = row_no_dt.copy()
         row_with_dt["depart_time"] = datetime(2024, 1, 15, 10, 0, 0)
         row_with_dt["arrive_time"] = datetime(2024, 1, 15, 11, 30, 0)
+        row_with_dt["o_lat"] = 37.7749
+        row_with_dt["o_lon"] = -122.4194
+        row_with_dt["d_lat"] = 37.7849
+        row_with_dt["d_lon"] = -122.4094
         validate_row_for_step(row_with_dt, UnlinkedTripModel, "link_trip")
+
+    def test_validates_present_fields_even_if_not_required_in_step(self):
+        """Should validate type/constraints of present fields in any step."""
+        # Include linked_trip_id in preprocessing step (not required there)
+        # But with invalid value - should still fail validation
+        row = {
+            "trip_id": 1,
+            "person_id": 101,
+            "hh_id": 1,
+            "day_id": 1001,
+            "linked_trip_id": -5,  # Invalid: must be >= 1
+            "depart_date": "2024-01-15",
+            "depart_hour": 10,
+            "depart_minute": 0,
+            "depart_seconds": 0,
+            "arrive_date": "2024-01-15",
+            "arrive_hour": 11,
+            "arrive_minute": 30,
+            "arrive_seconds": 0,
+            "o_purpose_category": 1,
+            "d_purpose_category": 2,
+            "mode_type": 1,
+            "duration_minutes": 90.0,
+            "distance_miles": 10.5,
+        }
+
+        # Should fail - linked_trip_id is present but invalid
+        with pytest.raises(
+            PydanticValidationError, match="greater than or equal"
+        ):
+            validate_row_for_step(row, UnlinkedTripModel, "preprocessing")

@@ -11,8 +11,8 @@ behavior for different use cases. Key design decisions:
    indicates the location. This handles both precise GPS and imprecise cases.
 
 2. TOUR COMPLETENESS:
-   By default includes incomplete tours (not returning home). Can be disabled
-   via config.require_complete_tours for legacy compatibility.
+   Incomplete tours are allowed (e.g., missing return home), but are flagged
+   and categorized accordingly in output so they can be handled downstream.
 
 3. PURPOSE PRIORITY:
    Configurable hierarchies by person type. By default, work_related has same

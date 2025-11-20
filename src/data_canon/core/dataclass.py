@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 import polars as pl
 from pydantic import BaseModel
 
-from data_canon import checks
+from data_canon import custom_validation
+from data_canon.column_validation import (
+    check_unique_constraints,
+    get_unique_fields,
+)
 from data_canon.models import (
     HouseholdModel,
     LinkedTripModel,
@@ -17,19 +21,18 @@ from data_canon.models import (
     TourModel,
     UnlinkedTripModel,
 )
-
-from .validators import (
-    ValidationError,
+from data_canon.relational_validation import (
     check_foreign_keys,
-    check_unique_constraints,
     get_foreign_key_fields,
     get_required_children_fields,
-    get_unique_fields,
-    validate_dataframe_rows,
     validate_fk_references,
 )
+from data_canon.row_validation import validate_dataframe_rows
+
+from .exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class CanonicalData:
@@ -56,11 +59,11 @@ class CanonicalData:
     })
 
     # Custom validators: table_name -> list of validator functions
-    # Populated from checks.CUSTOM_VALIDATORS
+    # Populated from custom_validation.CUSTOM_VALIDATORS
     _custom_validators: dict[str, list[Callable]] = field(
         default_factory=lambda: {
             table: list(validators)
-            for table, validators in checks.CUSTOM_VALIDATORS.items()
+            for table, validators in custom_validation.CUSTOM_VALIDATORS.items()
         }
     )
 

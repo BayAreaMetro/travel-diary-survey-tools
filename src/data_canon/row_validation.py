@@ -3,6 +3,9 @@
 This module provides step-aware row validation using Pydantic models.
 Step-aware validation allows fields to be required only in specific pipeline
 steps, enabling progressive data refinement throughout the pipeline.
+
+Note: ValidationError class is defined in data_canon.core.dataclass to avoid
+circular imports.
 """
 
 import logging
@@ -93,23 +96,20 @@ def validate_row_for_step(
         )
         raise ValueError(msg)
 
-    # Build dict with only non-None values to avoid Pydantic's
-    # required field enforcement for step-conditional fields
-    filtered_row = {k: v for k, v in row_dict.items() if v is not None}
-
-    # Validate all present fields in a single pass using model_validate
-    # This is much faster than validating each field individually
+    # Validate all fields present in row_dict (comprehensive validation)
+    # This ensures type checking and constraints are enforced on all present
+    # fields, regardless of whether they're required for this specific step
     try:
-        model.model_validate(filtered_row, strict=False)
+        # Create a model instance with only the present fields to avoid
+        # Pydantic's required field enforcement for non-required fields
+        model.model_validate(row_dict, strict=False, from_attributes=False)
     except PydanticValidationError as e:
-        # Only re-raise errors for fields that are actually present
-        # or required for this step
+        # Filter errors to only include fields that are present in the data
+        # This prevents errors about missing optional fields
+        present_fields = set(row_dict.keys())
         relevant_errors = [
             err for err in e.errors()
-            if (
-                err.get("loc", [None])[0] in filtered_row
-                or err.get("loc", [None])[0] in required_fields
-            )
+            if err.get("loc", [None])[0] in present_fields
         ]
         if relevant_errors:
             raise PydanticValidationError.from_exception_data(
