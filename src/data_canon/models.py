@@ -122,27 +122,27 @@ class UnlinkedTripModel(BaseModel):
     arrive_hour: int = step_field(ge=0, le=23)
     arrive_minute: int = step_field(ge=0, le=59)
     arrive_seconds: int = step_field(ge=0, le=59)
-    o_lon: float = step_field(ge=-180, le=180, required_in_steps=["link_trip"])
-    o_lat: float = step_field(ge=-90, le=90, required_in_steps=["link_trip"])
-    d_lon: float = step_field(ge=-180, le=180, required_in_steps=["link_trip"])
-    d_lat: float = step_field(ge=-90, le=90, required_in_steps=["link_trip"])
+    o_lon: float = step_field(ge=-180, le=180, required_in_steps=["link_trips"])
+    o_lat: float = step_field(ge=-90, le=90, required_in_steps=["link_trips"])
+    d_lon: float = step_field(ge=-180, le=180, required_in_steps=["link_trips"])
+    d_lat: float = step_field(ge=-90, le=90, required_in_steps=["link_trips"])
     o_purpose: Purpose
     d_purpose: Purpose
     o_purpose_category: PurposeCategory = step_field(
-        required_in_steps=["link_trip"]
+        required_in_steps=["link_trips"]
     )
     d_purpose_category: PurposeCategory = step_field(
-        required_in_steps=["link_trip"]
+        required_in_steps=["link_trips"]
     )
-    mode_type: ModeType = step_field(required_in_steps=["link_trip"])
+    mode_type: ModeType = step_field(required_in_steps=["link_trips"])
     duration_minutes: float = step_field(ge=0)
     distance_miles: float = step_field(ge=0)
 
     depart_time: datetime | None = step_field(
-        required_in_steps=["link_trip", "extract_tours"]
+        required_in_steps=["link_trips", "extract_tours"]
     )
     arrive_time: datetime | None = step_field(
-        required_in_steps=["link_trip", "extract_tours"]
+        required_in_steps=["link_trips", "extract_tours"]
     )
 
 

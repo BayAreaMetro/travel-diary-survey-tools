@@ -36,46 +36,95 @@ There are three main components:
   * This can be used standalone, but also is integrated into the pipeline steps for automatic validation
   * The data models define the expected schema and content for each data table (households, persons, days, trips, tours, vehicles, etc.) Each field is tagged with a set of constraints, and the step it pertains.
 
-### Diagram
+### Conceptual Diagram
 ```mermaid
+%%{init: {
+  "flowchart": {
+    "rankSpacing": 15,
+    "nodeSpacing": 20
+  }
+}}%%
+
 flowchart LR
-  subgraph Setup
-    direction TB
-    RunPy([project/run.py])
-    ConfigYAML([project/config.yaml])
+
+subgraph Setup[**Setup**]
+  direction TB
+  RunPy([project/run.py])
+  ConfigYAML([project/config.yaml])
+end
+
+RunPy([project/run.py]) ----> Pipeline
+ConfigYAML([project/config.yaml]) ----> Pipeline
+
+subgraph Pipeline[**Pipeline**]
+  direction TB
+  LoadData([Load Data]) --> CustomPre([Custom Pre-Processing])
+  CustomPre --> Imputation([Imputation])
+  Imputation --> JointTrips([Joint Trips])
+  JointTrips --> LinkTrips([Link Trips])  
+  LinkTrips --> ExtractTours([Extract Tours])  
+  ExtractTours --> Weighting([Weighting])  
+  Weighting --> Format{Format Output}
+
+  Format --> ActivitySim --> CnV1 --> ActivitySim
+  Format --> DaySim --> CnV2 --> DaySim
+  Format --> Analysis --> CnV3 --> Analysis
+  Format --> Etc["... Other Formats ..."]
+
+  subgraph Output[" "]
+    direction LR
+    ActivitySim{{ActivitySim<br>Format}}
+    DaySim{{DaySim<br>Format}}
+    Analysis{{Standard<br>Format}}
+    Etc{{Other<br>Formats}}
+    
+    CnV1("Calibration &<br>Validation")
+    CnV2("Calibration &<br>Validation")
+    CnV3("Analysis &<br>Validation")
+    Etc("etc...")
   end
+end
 
-  RunPy([project/run.py]) --> Pipeline
-  ConfigYAML([project/config.yaml]) --> Pipeline
-  
-  subgraph Pipeline
-    direction TB
-    LoadData([Load Data]) --> CustomPre([Custom Pre-Processing])
-    CustomPre --> Imputation([Imputation])
-    Imputation --> JointTrips([Joint Trips])
-    JointTrips --> LinkTrips([Link Trips])  
-    LinkTrips --> ExtractTours([Extract Tours])  
-    ExtractTours --> Weighting([Weighting])  
-    Weighting --> Format{{Format Output}}
-  end
+Pipeline <----> DataModels
 
-  Pipeline <--> DataModels[[Data Models]]
-  
-  style RunPy fill:#e1f5e1
-  style ConfigYAML fill:#fff4e1
-  style Pipeline fill:#e3f2fd
-  style DataModels fill:#f3e5f5
-  
-  style CustomPre fill:#f0f0f0
-  style Format fill:#fff4e1
+subgraph DataModels[**Data Models**]
+  direction LR
+  Households[["households"]]
+  Persons[["   persons   "]]
+  Days[["days"]]
+  UnlinkedTrips[["unlinked_trips"]]
+  LinkedTrips[["linked_trips"]]
+  Tours[["tours"]]
+end
 
+
+style Setup fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000
+style RunPy fill:#e1f5e1,color:#000
+style ConfigYAML fill:#fff4e1,color:#000
+style Pipeline fill:#e3f2fd,stroke:#333,stroke-width:1px,color:#000
+style DataModels fill:#f3e5f5,stroke:#333,stroke-width:1px,color:#000
+style Format fill:#fff4e1,color:#000
+
+style LoadData color:#fff
+style CustomPre fill:#f0f0f0,color:#000
+style Imputation color:#fff
+style JointTrips color:#fff
+style LinkTrips color:#fff
+style ExtractTours color:#fff
+style Weighting color:#fff
+style Format color:#000
+
+style Households fill:#d1c4e9,color:#000,stroke:#000
+style Persons fill:#d1c4e9,color:#000,stroke:#000
+style Days fill:#d1c4e9,color:#000,stroke:#000
+style UnlinkedTrips fill:#d1c4e9,color:#000,stroke:#000
+style LinkedTrips fill:#d1c4e9,color:#000,stroke:#000
+style Tours fill:#d1c4e9,color:#000,stroke:#000
+
+style ActivitySim fill:#ffe0b2,color:#000
+style DaySim fill:#ffe0b2,color:#000
+style Analysis fill:#ffe0b2,color:#000
 ```
-
-## Data Standards and Documentation
-
-- [Validation Framework](docs/VALIDATION_README.md) - Comprehensive data validation system
-- [Column Requirements](docs/COLUMN_REQUIREMENTS.md) - Field requirements per pipeline step
-- [Codebook](docs/CODEBOOK_README.md) - Enumeration definitions and labeled values
 
 ---
 
@@ -83,7 +132,7 @@ flowchart LR
 
 ## Quick Start
 
-### Installing UV
+### 1. Installing UV & Virtual Environment Setup
 
 1. Open PowerShell and run (or follow another method from https://docs.astral.sh/uv/getting-started/installation/):
 ```powershell
@@ -103,7 +152,7 @@ source .venv/Scripts/activate
 ```
 In VSCode you can select the interpreter manually with the GUI.
 
-### Configuration
+### 2. Configuration
 
 The pipeline is configured using YAML files that specify input data, steps, and parameters:
 
@@ -179,11 +228,11 @@ steps:
 
 ```
 
-### Pipeline Runner
+### 3. Pipeline Runner
 
 You need a runner script to execute the pipeline, typically named `run.py`. This also allows for CLI execution for automation.
 
-You can also inject custom pre-processing steps here. The goal is to keep the core pipeline code untouched for maintainability, but allow for custom logic to be added as needed.
+You can also inject custom pre-processing steps here. The goal is to **keep the core pipeline code generalized for maintainability, but allow for custom logic to be injected as needed**.
 
 ```python
 # project/run.py
@@ -195,6 +244,7 @@ from processing.pipeline import Pipeline
 
 # Optional: project-specific custom step functions
 # Could put this in a separate py file and import to keep this runner concise and consistent
+# Must tag with @step() decorator to be recognized by the pipeline
 @step()
 def custom_cleaning(
     persons: pl.DataFrame,
@@ -229,12 +279,40 @@ if __name__ == "__main__":
 
 ```
 
+To run, press the green arrow in your IDE, or run from command line:
+
+```bash
+uv run python project/run.py
+```
+
+---
+
+## Data Models and Validation
+
+There are four main components to the data models and validation framework. Three you will typically interact with directly, and one that is more internal:
+* **Data Models** - Define the expected schema for each data table, and the fields associated with each processing step
+* **Enumerations and Codebook** - Define reusable enumerations and labeled values (e.g., mode types, purpose codes, etc.)
+* **Validators** - Implement the validation logic for rows, columns, and relational integrity
+* **CanonicalData class** - Manages the collection of data tables and runs validations. This is internal infrastructure used by the pipeline, but can also be used standalone to validate data outside the pipeline if desired (e.g., you want to validate some raw survey data before doing anything else with it).
+
+The validation framework provides four layers of validation:
+
+* **Row Validation** - Pydantic validation of data types and value ranges for each record (e.g., greater than 0, no nulls, etc.)
+* **Column Constraints** - Enforce constraints across entire columns (e.g., uniqueness of IDs, etc.)
+* **Relational Integrity** - Cross-table consistency checks (e.g., does each household have persons, etc.)
+* **Custom Validators** - User-defined validation logic (e.g., trip chaining logic, )
+* **Step Aware Validation** - Different fields can be explicitly tagged as required for specific processing steps
+
+
+Validation is run automatically at the start of each processing step via the `@step()` decorator. Fields must be tagged as required for the specific step to be enforced, but if a field is present it will always be validated for type and constraints regardless of whether it's required for that step. This permissive enforces data integrity throughout the pipeline, ensuring dat does not degrade.
+
+
 ### `step` Decorator and Validation
-To add a new processing step, simply define a function and decorate it with `@step()`, which lets the pipeline know it's a processing step and handles passing the params and validation automatically.
+Data pipeline steps must be tagged with the `@step()` decorator. This lets the pipeline know it's a processing step and handles passing the params and validation automatically. It will parse the arguments based on the function signature, sending the canonical tables to the appropriate parameters, and any other config params defined in the YAML (e.g., households to households and other_arg1 to other_arg1, etc.).
 
-By default, the `@step()` decorator enables validation. You can override this in the config YAML per step with `validate: true/false`.
-
-It will also parse the arguments based on the function signature, so make sure to name them according to the expected data models or config params. 
+Notes:
+* The names of the parameters matter, they must match either canonical data model names or config param names in the YAML.
+* By default, the `@step()` decorator enables validation. You can override this in the config YAML per step with `validate: true/false`.*
 
 ```python
 from processing.decoration import step
@@ -253,74 +331,43 @@ def new_processing_step(
 ```
 
 
-### Data Models and Validation
-
-- Pydantic **data models** define expected schema and content for each data table
-- Each field is tagged with constraints and the step it pertains to
-- A library of **custom validators** are defined in `checks.py`, which handle more complex and contextual validation logic.
-- Codebook of **enumerations** and labeled values are defined in `codebook/` for reuse across data models
-
-
 
 For more details, see the [Validation Framework Documentation](docs/VALIDATION_README.md).
-
-
-TODO @nick-fournier: ADD MORE DETAILS :)
-
+[Codebook Documentation](docs/CODEBOOK_README.md)
+[Column Requirements Documentation](docs/COLUMN_REQUIREMENTS.md)
 
 
 
-## Project Structure
+---
+
+## Development
+
+### Project Structure
 
 ```
 travel-diary-survey-tools/
+├── scripts/                        # One-off helper scripts
+├── examples/                       # Example configs and runners. Maybe rename to projects/ later?
 ├── src/
 │   ├── data_canon/
-│   │   ├── codebook/ <------------ # Define data categories here!
-│   │   │   ├── days.py
-│   │   │   ├── generic.py
-│   │   │   ├── households.py
-│   │   │   ├── persons.py
-│   │   │   ├── tours.py
-│   │   │   ├── trips.py
-│   │   │   └── vehicles.py
-│   │   └── core/                   # Core validation logic
-│   │       ├── dataclass.py
-│   │       ├── validators.py
-│   │       └── step_field.py
+|   |   ├── validation <----------- # Column, row, relational, and custom validators here!
+│   │   ├── codebook/ <------------ # Categorical Enums defined here!
+│   │   └── core/
 │   └── processing/
 │       ├── pipeline.py
 │       ├── decoration.py
 │       └── steps/ <--------------- # Define default processing steps here!
 │           ├── load.py
 │           ├── imputation.py       # Not yet implemented
-│           ├── joint_trips.py      # Not yet implemented
+│           ├── joint_trips/        # Not yet implemented
 │           ├── link.py
 │           ├── extract_tours/
-│           │   ├── extraction.py
-│           │   ├── person_type.py
-│           │   ├── priority_utils.py
-│           │   └── tour_configs.py
-│           ├── final_check.py      # Checks everything!
-│           ├── weighting/
-|           |   ├── base_weights.py
-|           |   ├── prep_control_data.py
-|           |   ├── prep_survey_data.py
-|           |   ├── balancer.py
-|           |   ├── base_weights.py
-│           └── output_format/ <--- # Define bespoke output formatting here!
-│               ├── daysim.py
-│               ├── ctramp.py
-│               └── activitysim.py
+│           ├── weighting/          # Not yet implemented
+│           └── fromatting/ <------ # Define bespoke output formatting here!
 ├── tests/                          # Test suite
-├── scripts/                        # One-off helper scripts
-├── examples/                       # Example configs and runners
 └── docs/                           # Documentation
 ```
 
----
-
-## Development
 
 ### Running Tests
 Tests can be run using `pytest` via VSCode extension or command line:

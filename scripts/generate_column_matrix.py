@@ -13,6 +13,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import yaml
 from pydantic import BaseModel
 
 import data_canon.codebook.days as days_module
@@ -29,7 +30,7 @@ from data_canon.models import (
     TourModel,
     UnlinkedTripModel,
 )
-from data_canon.row_validation import get_step_validation_summary
+from data_canon.validation.row import get_step_validation_summary
 
 
 def get_field_type_description(field_info: object) -> str:
@@ -88,6 +89,18 @@ def get_field_constraints(field_info: object) -> str:
             if hasattr(item, "lt") and item.lt is not None:
                 constraints.append(f"< {item.lt}")
 
+    # Get constraints from json_schema_extra
+    extra = field_info.json_schema_extra or {}
+    
+    if extra.get("unique", False):
+        constraints.append("UNIQUE")
+    
+    if fk_to := extra.get("fk_to"):
+        constraints.append(f"FK → `{fk_to}`")
+    
+    if extra.get("required_child", False):
+        constraints.append("REQ_CHILD")
+
     return ", ".join(constraints) if constraints else ""
 
 
@@ -109,6 +122,33 @@ def get_field_creation_info(model: type[BaseModel]) -> dict[str, str]:
     return creation_info
 
 
+def check_steps_and_order(steps: set[str], config_path: Path) -> list[str]:
+    """Check steps against config and return ordered list."""
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    # Extract step order from config if available
+    cfg_steps = [s["name"] for s in config.get("steps", [])]
+
+    # Ensure we don't have a step not in the preferred order
+    missing = steps - set(cfg_steps)
+    if missing:
+        msg = (
+            f"Required model step(s) {missing} missing from config steps. "
+            "Check the models and config file."
+        )
+        raise ValueError(msg)
+
+    # Remove repeat config steps while preserving order
+    seen = set()
+    ordered_steps = []
+    for s in cfg_steps:
+        if s not in seen:
+            ordered_steps.append(s)
+        seen.add(s)
+
+    return ordered_steps
+
+
 def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR0912, PLR0915
     """Generate markdown table showing column requirements per step.
 
@@ -119,7 +159,7 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
         Markdown formatted table string
     """
     # Collect all unique steps across all models
-    all_steps = set()
+    required_steps = set()
     model_summaries = {}
     creation_info = {}
 
@@ -129,37 +169,33 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
         creation_info[table_name] = get_field_creation_info(model)
         for step in summary:
             if step != "ALL":
-                all_steps.add(step)
+                required_steps.add(step)
 
-    # Sort steps based on order in daysim/config_daysim.yaml if possible
-    preferred_order = [
-        "load_data",
-        "link_trips",
-        "extract_tours",
-        "imputation",
-        "weighting",
-        "final_check",
-    ]
-    sorted_steps = sorted(
-        all_steps,
-        key=lambda x: (
-            preferred_order.index(x)
-            if x in preferred_order
-            else len(preferred_order)
-        ),
+    # Read examples/config_daysim.yaml for preferred order if available
+    example_path = (
+        Path(__file__).parent.parent / "examples" /
+        "daysim" / "config_daysim.yaml"
     )
+
+    sorted_steps = check_steps_and_order(required_steps, example_path)
 
     # Build markdown table
     lines = []
     lines.append("# Column Requirement Matrix")
+    lines.append("Generated automatically by `scripts/generate_column_matrix.py`.")  # noqa: E501
     lines.append("")
-    lines.append(
-        "This matrix shows which columns are required in which pipeline steps. "
-    )
-    lines.append("Generated automatically from Pydantic model field metadata by `scripts/generate_column_matrix.py`. *Do not edit this markdown file directly.*")  # noqa: E501
+    lines.append("***Do not edit this markdown file directly.***")
     lines.append("")
+    lines.append("This matrix shows which columns are required in which pipeline steps. ")  # noqa: E501
     lines.append("- ✓ = required in step")
     lines.append("- \\+ = created in step")
+    lines.append("")
+    lines.append("## Constraint Legend")
+    lines.append("")
+    lines.append("- **UNIQUE**: Field must have unique values across all records")
+    lines.append("- **FK → `table.column`**: Foreign key reference to parent table")
+    lines.append("- **REQ_CHILD**: Parent record must have at least one child record")
+    lines.append("- **≥ / ≤ / > / <**: Numeric range constraints")
     lines.append("")
 
     # Create table header
@@ -234,7 +270,7 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
         CSV formatted string
     """
     # Collect all unique steps across all models
-    all_steps = set()
+    required_steps = set()
     model_summaries = {}
     creation_info = {}
 
@@ -244,10 +280,14 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
         creation_info[table_name] = get_field_creation_info(model)
         for step in summary:
             if step != "ALL":
-                all_steps.add(step)
+                required_steps.add(step)
 
     # Sort steps for consistent ordering
-    sorted_steps = sorted(all_steps)
+    example_path = (
+        Path(__file__).parent.parent / "examples" /
+        "daysim" / "config_daysim.yaml"
+    )
+    sorted_steps = check_steps_and_order(required_steps, example_path)
 
     # Build CSV
     lines = []

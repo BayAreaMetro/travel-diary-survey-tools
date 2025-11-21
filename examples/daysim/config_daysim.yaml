@@ -37,13 +37,13 @@ steps:
   - name: extract_tours
     validate: true
 
-  - name: custom_add_taz_ids
-    validate: true
-    params:
-      taz_shapefile: "{{ taz_shapefile }}"
+  # - name: custom_add_taz_ids
+  #   validate: true
+  #   params:
+  #     taz_shapefile: "{{ taz_shapefile }}"
   
-  - name: final_check
-    validate: true
+  # - name: final_check
+  #   validate: true
   
   - name: weighting
     validate: true
