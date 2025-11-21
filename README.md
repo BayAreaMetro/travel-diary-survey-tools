@@ -331,10 +331,10 @@ def new_processing_step(
 ```
 
 
-
-For more details, see the [Validation Framework Documentation](docs/VALIDATION_README.md).
-[Codebook Documentation](docs/CODEBOOK_README.md)
-[Column Requirements Documentation](docs/COLUMN_REQUIREMENTS.md)
+## Documentation
+For more details, see:
+* [Validation Framework Documentation](docs/VALIDATION_README.md) - Which goes into more detail on the validation framework architecture and usage.
+* [Column Requirements Documentation](docs/COLUMN_REQUIREMENTS.md) - Contains auto-generated tables and enums for easy reference on which fields are required for each processing step. Essentially summarizes the data models in a table.
 
 
 

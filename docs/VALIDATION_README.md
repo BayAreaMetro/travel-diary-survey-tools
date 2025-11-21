@@ -10,7 +10,6 @@ The validation framework provides 5 layers of validation:
 2. **Foreign Key Constraints** - Relational integrity between tables
 3. **Row Validation** - Pydantic model validation for types and business rules
 4. **Custom Validators** - User-defined validation logic
-5. **Required Children** - Bidirectional FK checks ensuring parents have children
 
 ## Quick Start
 
@@ -45,7 +44,6 @@ Automatically checks uniqueness on primary key columns.
 - `unlinked_trips`: `trip_id` must be unique
 - `linked_trips`: `linked_trip_id` must be unique
 - `tours`: `tour_id` must be unique
-- `vehicles`: `vehicle_id` must be unique
 
 **Example:**
 ```python
@@ -117,11 +115,10 @@ Uses Pydantic models to validate data types, enums, and business logic for each 
 **Built-in models:**
 - `HouseholdModel`: Household attributes
 - `PersonModel`: Person demographics
-- `DayModel`: Daily travel records
+- `PersonDayModel`: Daily travel records
 - `UnlinkedTripModel`: Individual trip segments
 - `LinkedTripModel`: Connected trip chains
 - `TourModel`: Complete tour structures
-- `VehicleModel`: Vehicle characteristics
 
 **Example:**
 ```python
@@ -154,7 +151,7 @@ User-defined validation functions for business logic that spans rows or tables.
 
 **How to add custom checks:**
 
-1. Define your check function in `src/data_canon/checks.py`:
+1. Define your check function in `src/data_canon/validation/custom.py`:
 ```python
 def check_arrival_after_departure(unlinked_trips: pl.DataFrame) -> list[str]:
     """Ensure arrive_time is after depart_time for all trips."""
@@ -171,9 +168,9 @@ def check_arrival_after_departure(unlinked_trips: pl.DataFrame) -> list[str]:
     return errors
 ```
 
-2. Register it in the `CUSTOM_VALIDATORS` dictionary in `checks.py`:
+2. Register it in the `CUSTOM_VALIDATORS` dictionary in `custom.py`:
 ```python
-# src/data_canon/checks.py
+# src/data_canon/validation/custom.py
 CUSTOM_VALIDATORS = {
     "unlinked_trips": [check_arrival_after_departure],
     "linked_trips": [],
@@ -187,7 +184,7 @@ data.validate("unlinked_trips")  # Runs check_arrival_after_departure
 
 **Multi-table validator:**
 ```python
-# In checks.py
+# In validation/custom.py
 def check_household_size_consistency(
     persons: pl.DataFrame,
     households: pl.DataFrame,
@@ -218,7 +215,7 @@ data.validate("persons")  # Uses both persons and households
 
 Custom validators automatically receive any tables they need from the CanonicalData instance based on their function signature.
 
-See `src/data_canon/checks.py` for implementation examples.
+See `src/data_canon/validation/custom.py` for implementation examples.
 
 ### 5. Required Children (Bidirectional FK)
 
@@ -302,19 +299,28 @@ data.validate("persons", step="load")        # age is optional
 
 ### Adding Custom Constraints
 
-Extend the default configurations in your `CanonicalData` instance:
+Constraints are defined directly in the Pydantic models using the `step_field()` helper:
 
 ```python
-data = CanonicalData()
+# In src/data_canon/models.py
+from data_canon.core.step_field import step_field
 
-# Add uniqueness constraint
-data._unique_constraints["persons"].append("email")
-
-# Add new FK relationship
-data._foreign_keys["my_custom_table"] = ["persons", "households"]
-
-# Add required children relationship
-data._required_children["days"].append(("unlinked_trips", "day_id"))
+class MyCustomModel(BaseModel):
+    # Unique constraint
+    email: str = step_field(unique=True)
+    
+    # Foreign key
+    person_id: int = step_field(
+        ge=1,
+        fk_to="persons.person_id"
+    )
+    
+    # Required child (bidirectional FK)
+    hh_id: int = step_field(
+        ge=1,
+        fk_to="households.hh_id",
+        required_child=True
+    )
 ```
 
 ## Error Handling
@@ -322,7 +328,7 @@ data._required_children["days"].append(("unlinked_trips", "day_id"))
 All validation errors raise `ValidationError` with structured information:
 
 ```python
-from data_canon.core.validators import ValidationError
+from data_canon.core.exceptions import ValidationError
 
 try:
     data.validate("households")
@@ -338,7 +344,7 @@ except ValidationError as e:
 
 1. **Validate early and often** - Use `@step(validate=True)` on pipeline functions
 2. **Use step-aware validation** - Mark fields with `required_in_steps` to validate progressively
-3. **Add custom validators** in `src/data_canon/checks.py` for business logic
+3. **Add custom validators** in `src/data_canon/validation/custom.py` for business logic
 4. **Return empty list for success** - Custom validators should return `[]` when passing
 5. **Provide informative messages** - Include context and sample data in error messages
 6. **Use multi-table validators** - Validators automatically receive needed tables from CanonicalData
