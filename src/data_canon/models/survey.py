@@ -11,21 +11,20 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from data_canon.core.step_field import step_field
-
-from .codebook.days import TravelDow
-from .codebook.persons import (
+from data_canon.codebook.days import TravelDow
+from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
     PersonType,
     SchoolType,
     Student,
 )
-from .codebook.trips import (
+from data_canon.codebook.trips import (
     ModeType,
     Purpose,
     PurposeCategory,
 )
+from data_canon.core.step_field import step_field
 
 
 # Data Models ------------------------------------------------------------------

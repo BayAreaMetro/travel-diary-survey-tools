@@ -6,7 +6,7 @@ from pathlib import Path
 
 import polars as pl
 
-from data_canon.models import PersonDayModel
+from data_canon.models.survey import PersonDayModel
 from processing.decoration import step
 from processing.pipeline import Pipeline
 from processing.utils.helpers import add_time_columns
@@ -117,8 +117,21 @@ def custom_cleaning(
 
     return {"unlinked_trips": unlinked_trips, "days": days}
 
+
+def custom_postprocessing(
+    households_daysim: pl.DataFrame,
+    persons_daysim: pl.DataFrame,
+    days_daysim: pl.DataFrame,
+    linked_trips_daysim: pl.DataFrame,
+    tours_daysim: pl.DataFrame,
+    ) -> dict[str, pl.DataFrame]:
+    """Custom post-processing steps go here, not in the main pipeline."""
+    return {}
+
+
 custom_steps = {
     "custom_cleaning": custom_cleaning,
+    "custom_postprocessing": custom_postprocessing,
 }
 
 # ---------------------------------------------------------------------

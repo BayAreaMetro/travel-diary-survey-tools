@@ -9,8 +9,8 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from data_canon.models import UnlinkedTripModel
-from data_canon.row_validation import (
+from data_canon.models.survey import UnlinkedTripModel
+from data_canon.validation.row import (
     get_required_fields_for_step,
     validate_row_for_step,
 )

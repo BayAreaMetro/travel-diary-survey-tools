@@ -1,6 +1,31 @@
 # Travel Diary Survey Tools
 Tools for processing and validating travel diary survey data into standardized formats for transportation modeling.
 
+
+## Table of Contents
+
+- [Objectives](#objectives)
+- [Overview](#overview)
+- [Architecture](#architecture)
+  - [Conceptual Diagram](#conceptual-diagram)
+- [Usage](#usage)
+  - [Quick Start](#quick-start)
+    - [1. Installing UV & Virtual Environment Setup](#1-installing-uv--virtual-environment-setup)
+    - [2. Configuration](#2-configuration)
+    - [3. Pipeline Runner](#3-pipeline-runner)
+  - [Data Models and Validation](#data-models-and-validation)
+    - [`step` Decorator and Validation](#step-decorator-and-validation)
+  - [Documentation](#documentation)
+- [Work Plan](#work-plan)
+- [Development](#development)
+  - [Project Structure](#project-structure)
+  - [Running Tests](#running-tests)
+  - [Code Quality](#code-quality)
+  - [Pre-commit Hooks](#pre-commit-hooks)
+- [Contributing](#contributing)
+
+---
+
 ## Objectives
 * **Standardized**
   * Standardized data models for travel diary surveys
@@ -331,12 +356,34 @@ def new_processing_step(
 ```
 
 
-## Documentation
+## Additional Documentation
 For more details, see:
 * [Validation Framework Documentation](docs/VALIDATION_README.md) - Which goes into more detail on the validation framework architecture and usage.
 * [Column Requirements Documentation](docs/COLUMN_REQUIREMENTS.md) - Contains auto-generated tables and enums for easy reference on which fields are required for each processing step. Essentially summarizes the data models in a table.
 
 
+
+---
+
+## Work Plan
+
+1. **Minimal Viable Product (MVP)**
+   1. `[complete]` Core data models and validation
+   2. `[in progress]` Basic pipeline with to match existing legacy pipeline functionality
+2. **Align and iterate** data models with upstream/downstream needs
+   1. `[upcoming]` Engage with downstream stakeholders to identify needs and requirements
+   2. `[in progress]` Engage with upstream data providers to set expectations and requirements
+3. **Extend Functionality**
+   1. `[upcoming]` Additional processing steps (imputation, joint trips, weighting)
+   2. `[upcoming]` More output formats (ActivitySim, CT-RAMP, etc.)
+   3. `[upcoming]` Enhanced validation rules and custom validators
+   4. `[upcoming]` Advanced tour extraction logic (e.g., joint trips/tours, multi-modal tours, etc.)
+
+**The primary goal is to establish a solid foundation with the core data models, validation, and basic pipeline functionality, then build upon that iteratively based on stakeholder feedback and evolving needs.**
+
+Note that some of these items may be iterative and require previous steps to be revisited as new requirements emerge. For example, CTRAMP and ActivitySim will require more advanced and granular tour extraction logic than the current basic implementation.
+
+The plan to handle this is to create tours with maximum granularity and flexibility in the initial extraction step, then allow for downstream formatting steps to aggregate or adjust tours as needed for specific model requirements. This way, the core tour data remains rich and adaptable.
 
 ---
 
@@ -352,6 +399,7 @@ travel-diary-survey-tools/
 │   ├── data_canon/
 |   |   ├── validation <----------- # Column, row, relational, and custom validators here!
 │   │   ├── codebook/ <------------ # Categorical Enums defined here!
+|   |   ├── models/ <--------------- # Data models defined here!
 │   │   └── core/
 │   └── processing/
 │       ├── pipeline.py

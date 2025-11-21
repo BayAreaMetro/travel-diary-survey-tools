@@ -22,7 +22,7 @@ import data_canon.codebook.persons as persons_module
 import data_canon.codebook.trips as trips_module
 import data_canon.codebook.vehicles as vehicles_module
 from data_canon.core.labeled_enum import LabeledEnum
-from data_canon.models import (
+from data_canon.models.survey import (
     HouseholdModel,
     LinkedTripModel,
     PersonDayModel,

@@ -64,6 +64,8 @@ class TourConfig(BaseModel):
 
     # Mode hierarchy: position in list determines priority
     # (later in list = higher priority for tour mode assignment)
+    # NOTE: This eventually should be replaced to support more complex
+    # multi-modal tours (e.g., drive-transit-walk, etc.)
     mode_hierarchy: list[ModeType] = Field(
         default=[
             ModeType.WALK,
