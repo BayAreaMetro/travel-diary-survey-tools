@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 
 from data_canon.core.dataclass import CanonicalData
-from data_canon.core.exceptions import ValidationError
+from data_canon.core.exceptions import DataValidationError
 
 
 class TestUniqueConstraints:
@@ -34,7 +34,7 @@ class TestUniqueConstraints:
             "income": [50000, 75000, 100000],
             "hh_size": [2, 3, 4], "num_vehicles": [1, 2, 2],
         })
-        with pytest.raises(ValidationError) as exc:
+        with pytest.raises(DataValidationError) as exc:
             data.validate("households")
         assert exc.value.rule == "unique_constraint"
 
@@ -74,7 +74,7 @@ class TestForeignKeys:
             "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
-        with pytest.raises(ValidationError) as exc:
+        with pytest.raises(DataValidationError) as exc:
             data.validate("persons", step="link_trips")
         assert exc.value.rule == "foreign_key"
 
@@ -113,7 +113,7 @@ class TestRequiredChildren:
             "age": [6, 8], "gender": ["male", "female"],
             "worker": [True, True], "student": [False, False],
         })
-        with pytest.raises(ValidationError) as exc:
+        with pytest.raises(DataValidationError) as exc:
             data.validate("households", step="link_trips")
         assert exc.value.rule == "required_children"
 
@@ -176,7 +176,7 @@ class TestCustomValidators:
                 datetime(2024, 1, 15, 18, 0, 0),  # 10 hours later - too long!
             ],
         })
-        with pytest.raises(ValidationError) as exc:
+        with pytest.raises(DataValidationError) as exc:
             data.validate("unlinked_trips", step="link_trips")
         assert exc.value.rule == "check_trip_duration"
 

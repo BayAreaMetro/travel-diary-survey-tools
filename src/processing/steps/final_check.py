@@ -30,7 +30,7 @@ def final_check(
         The validated dataset
 
     Raises:
-        ValidationError: If pydantic validation fails
+        DataValidationError: If pydantic validation fails
     """
     logger.info("Starting final validation checks")
 

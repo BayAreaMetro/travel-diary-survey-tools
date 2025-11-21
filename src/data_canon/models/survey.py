@@ -75,7 +75,7 @@ class PersonModel(BaseModel):
         ge=-180, le=180,
         required_in_steps=["extract_tours"]
     )
-    person_type: PersonType = step_field(required_in_steps=["extract_tours"])
+    person_type: PersonType = step_field(required_in_steps=[])
     employment: Employment = step_field(required_in_steps=["extract_tours"])
     student: Student = step_field(required_in_steps=["extract_tours"])
     school_type: SchoolType | None = step_field(

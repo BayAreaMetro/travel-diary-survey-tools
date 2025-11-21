@@ -6,7 +6,7 @@ This module provides validation for column constraints such as uniqueness.
 import polars as pl
 from pydantic import BaseModel
 
-from data_canon.core.exceptions import ValidationError
+from data_canon.core.exceptions import DataValidationError
 
 
 def get_unique_fields(model: type[BaseModel]) -> list[str]:
@@ -41,11 +41,11 @@ def check_unique_constraints(
         unique_columns: List of column names that must be unique
 
     Raises:
-        ValidationError: If uniqueness constraint is violated
+        DataValidationError: If uniqueness constraint is violated
     """
     for col in unique_columns:
         if col not in df.columns:
-            raise ValidationError(
+            raise DataValidationError(
                 table=table_name,
                 rule="unique_constraint",
                 column=col,
@@ -66,7 +66,7 @@ def check_unique_constraints(
 
         if len(duplicates) > 0:
             dup_values = duplicates[col].to_list()
-            raise ValidationError(
+            raise DataValidationError(
                 table=table_name,
                 rule="unique_constraint",
                 column=col,

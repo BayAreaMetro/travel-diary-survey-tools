@@ -61,14 +61,14 @@ class Employment(LabeledEnum):
 
     canonical_field_name = "employment"
 
-    EMPLOYED_FULLTIME = (1, "Employed full-time")
-    EMPLOYED_PARTTIME = (2, "Employed part-time")
+    EMPLOYED_FULLTIME = (1, "Employed full-time (paid)")
+    EMPLOYED_PARTTIME = (2, "Employed part-time (paid)")
     EMPLOYED_SELF = (3, "Self-employed")
-    EMPLOYED_NOTWORKING = (4, "Employed but not currently working (e.g., on leave, furloughed)")  # noqa: E501
-    UNEMPLOYED_LOOKING = (5, "Unemployed and looking for work")
-    UNEMPLOYED_NOT_LOOKING = (6, "Not employed and not looking for work (e.g., full-time parent, full-time student, or retired)")  # noqa: E501
+    UNEMPLOYED_NOT_LOOKING = (5, "Not employed and not looking for work (e.g., retired, stay-at-home parent, student)")  # noqa: E501
+    UNEMPLOYED_LOOKING = (6, "Unemployed and looking for work")
+    EMPLOYED_UNPAID = (7, "Unpaid volunteer or intern")
     # NOTE This should include some number of hours per week
-    EMPLOYED_UNPAID = (8, "Unpaid volunteer or intern")
+    EMPLOYED_FURLOUGHED = (8, "Employed, but not currently working (e.g., on leave, furloughed 100%)")  # noqa: E501
     MISSING = (995, "Missing Response")
     # NOTE: This should be broken out into multiple categories if possible
     # UNEMPLOYED_PARENT = (6, "Not employed and not looking, full-time parent")  # noqa: E501, ERA001

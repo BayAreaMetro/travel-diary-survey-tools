@@ -72,7 +72,7 @@ def custom_cleaning(
         ]
     )
 
-    # Replace any -1 value in *_purpose columns with 995 missing code
+    # Replace any -1 value in *_purpose columns with missing code
     unlinked_trips = unlinked_trips.with_columns(
         [
             pl.when(pl.col(col_name) == -1)
@@ -107,7 +107,8 @@ def custom_cleaning(
     unlinked_trips = unlinked_trips.with_columns(
         pl.when(pl.col("duration_minutes").is_null())
             .then(
-                (pl.col("arrive_time") - pl.col("depart_time")).dt.total_minutes()
+                (pl.col("arrive_time") - pl.col("depart_time"))
+                .dt.total_minutes()
             )
             .otherwise(pl.col("duration_minutes"))
             .alias("duration_minutes")

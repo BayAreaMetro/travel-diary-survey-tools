@@ -63,7 +63,7 @@ data.households = pl.DataFrame({
     "home_taz": [100, 200, 300],
     # ...
 })
-data.validate("households")  # ✗ ValidationError: Duplicate hh_id values
+data.validate("households")  # ✗ DataDataValidationError: Duplicate hh_id values
 ```
 
 ### 2. Foreign Key Constraints
@@ -101,7 +101,7 @@ data.persons = pl.DataFrame({
     "hh_id": [1, 2, 999],  # 999 doesn't exist!
     # ...
 })
-data.validate("persons")  # ✗ ValidationError: Orphaned FK
+data.validate("persons")  # ✗ DataValidationError: Orphaned FK
 ```
 
 **Graceful handling:**
@@ -142,7 +142,7 @@ data.persons = pl.DataFrame({
     "worker": [True, "maybe"],  # Wrong type
     "student": [False, False],
 })
-data.validate("persons")  # ✗ ValidationError: Type/enum violations
+data.validate("persons")  # ✗ DataValidationError: Type/enum violations
 ```
 
 ### 4. Custom Validators
@@ -246,7 +246,7 @@ data.persons = pl.DataFrame({
     "hh_id": [1, 2],  # hh_id=3 has no persons!
     # ...
 })
-data.validate("households")  # ✗ ValidationError: Missing required children
+data.validate("households")  # ✗ DataValidationError: Missing required children
 ```
 
 ## Pipeline Integration
@@ -325,14 +325,14 @@ class MyCustomModel(BaseModel):
 
 ## Error Handling
 
-All validation errors raise `ValidationError` with structured information:
+All validation errors raise `DataValidationError` with structured information:
 
 ```python
-from data_canon.core.exceptions import ValidationError
+from data_canon.core.exceptions import DataValidationError
 
 try:
     data.validate("households")
-except ValidationError as e:
+except DataValidationError as e:
     print(f"Table: {e.table}")        # Which table failed
     print(f"Rule: {e.rule}")          # Which validation rule
     print(f"Message: {e.message}")    # Error details

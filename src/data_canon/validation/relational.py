@@ -9,7 +9,7 @@ import logging
 import polars as pl
 from pydantic import BaseModel
 
-from data_canon.core.exceptions import ValidationError
+from data_canon.core.exceptions import DataValidationError
 from data_canon.validation.column import get_unique_fields
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ def check_foreign_keys(
         get_table_func: Function to retrieve other tables by name
 
     Raises:
-        ValidationError: If foreign key constraint is violated
+        DataValidationError: If foreign key constraint is violated
     """
     for child_col, (parent_table, parent_col) in fk_fields.items():
         # Skip if child column doesn't exist yet (will be added later)
@@ -164,7 +164,7 @@ def check_foreign_keys(
 
         # Check parent column exists
         if parent_col not in parent_df.columns:
-            raise ValidationError(
+            raise DataValidationError(
                 table=table_name,
                 rule="foreign_key",
                 column=child_col,
@@ -189,7 +189,7 @@ def check_foreign_keys(
         if orphaned:
             orphaned_list = sorted(orphaned)
             max_display = 10
-            raise ValidationError(
+            raise DataValidationError(
                 table=table_name,
                 rule="foreign_key",
                 column=child_col,

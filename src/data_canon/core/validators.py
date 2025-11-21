@@ -13,7 +13,7 @@ import polars as pl
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from data_canon.core.exceptions import ValidationError
+from data_canon.core.exceptions import DataValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def validate_dataframe_rows(  # noqa: C901
              If None, validates all fields strictly.
 
     Raises:
-        ValidationError: If any row fails validation
+        DataValidationError: If any row fails validation
     """
     if len(df) == 0:
         return
@@ -190,7 +190,7 @@ def validate_dataframe_rows(  # noqa: C901
     if errors:
         if len(errors) == 1:
             row_idx, msg = errors[0]
-            raise ValidationError(
+            raise DataValidationError(
                 table=table_name,
                 rule="row_validation",
                 row_id=row_idx,
@@ -200,7 +200,7 @@ def validate_dataframe_rows(  # noqa: C901
         error_summary = "\n".join(
             f"  Row {idx}: {msg}" for idx, msg in errors
         )
-        raise ValidationError(
+        raise DataValidationError(
             table=table_name,
             rule="row_validation",
             message=(

@@ -16,7 +16,7 @@ import polars as pl
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from data_canon.core.exceptions import ValidationError
+from data_canon.core.exceptions import DataValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +84,12 @@ def validate_row_for_step(
     required_fields = get_required_fields_for_step(model, step_name)
 
     # Check for missing required fields
+    # Note: A field is only "missing" if it's not in the dict at all
+    # Fields that are present but have None values are allowed if the
+    # field type is Optional (e.g., float | None)
     missing_fields = [
         field_name for field_name in required_fields
-        if row_dict.get(field_name) is None
+        if field_name not in row_dict
     ]
 
     if missing_fields:
@@ -134,28 +137,27 @@ def validate_dataframe_rows(  # noqa: C901
              If None, validates all fields strictly.
 
     Raises:
-        ValidationError: If any row fails validation
+        DataValidationError: If any row fails validation
     """
     if len(df) == 0:
         return
 
     total_rows = len(df)
     start_time = time.time()
-    last_update_time = start_time
-    progress_threshold = 100_000
-    update_interval = 5  # seconds
+    update_interval = 2 # seconds
 
     # Convert entire DataFrame to list of dicts once (faster than iter_rows)
     rows = df.to_dicts()
 
     # Batch validate with progress reporting
-    batch_size = 10_000
+    batch_size = 100_000
     errors = []
     max_errors_to_collect = 10
 
     for batch_start in range(0, total_rows, batch_size):
         batch_end = min(batch_start + batch_size, total_rows)
         batch = rows[batch_start:batch_end]
+        current_time = time.time()
 
         # Validate each row in batch
         for i, row in enumerate(batch):
@@ -169,18 +171,18 @@ def validate_dataframe_rows(  # noqa: C901
                     break
 
         # Progress updates for large datasets (time-based)
-        if total_rows > progress_threshold:
-            current_time = time.time()
-            if current_time - last_update_time >= update_interval:
-                percent_done = (batch_end / total_rows) * 100
-                logger.info(
-                    "Row validation progress for '%s': %.1f%% (%s/%s rows)",
-                    table_name,
-                    percent_done,
-                    batch_end,
-                    total_rows,
-                )
-                last_update_time = current_time
+        if (
+            (total_rows > batch_size) and
+            (current_time - start_time >= update_interval)
+        ):
+            percent_done = (batch_end / total_rows) * 100
+            logger.info(
+                "Row validation progress for '%s': %.1f%% (%s/%s rows)",
+                table_name,
+                percent_done,
+                batch_end,
+                total_rows,
+            )
 
         # Stop early if we've collected enough errors
         if errors and len(errors) >= max_errors_to_collect:
@@ -190,7 +192,7 @@ def validate_dataframe_rows(  # noqa: C901
     if errors:
         if len(errors) == 1:
             row_idx, msg = errors[0]
-            raise ValidationError(
+            raise DataValidationError(
                 table=table_name,
                 rule="row_validation",
                 row_id=row_idx,
@@ -200,7 +202,7 @@ def validate_dataframe_rows(  # noqa: C901
         error_summary = "\n".join(
             f"  Row {idx}: {msg}" for idx, msg in errors
         )
-        raise ValidationError(
+        raise DataValidationError(
             table=table_name,
             rule="row_validation",
             message=(

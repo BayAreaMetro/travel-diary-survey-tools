@@ -45,8 +45,8 @@ steps:
   # - name: final_check
   #   validate: true
   
-  - name: weighting
-    validate: true
+  # - name: weighting
+  #   validate: true
 
   - name: format_output
     validate: true

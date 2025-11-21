@@ -29,7 +29,7 @@ from data_canon.validation.relational import (
 )
 from data_canon.validation.row import validate_dataframe_rows
 
-from .exceptions import ValidationError
+from .exceptions import DataValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class CanonicalData:
                  If None, validates all fields strictly.
 
         Raises:
-            ValidationError: If any validation check fails
+            DataDataValidationError: If any validation check fails
         """
         if table_name not in self._models:
             valid_tables = ", ".join(self._models.keys())
@@ -203,7 +203,7 @@ class CanonicalData:
                     error_msg = "; ".join(errors)
                 else:
                     error_msg = str(errors)
-                raise ValidationError(
+                raise DataValidationError(
                     table=table_name,
                     rule=validator_func.__name__,
                     message=error_msg,
@@ -283,7 +283,7 @@ class CanonicalData:
                         f"'{table_name}' records with no '{child_table}' "
                         f"children. Sample: {sample_str}{ellipsis}"
                     )
-                    raise ValidationError(
+                    raise DataValidationError(
                         table=table_name,
                         rule="required_children",
                         column=parent_col,
