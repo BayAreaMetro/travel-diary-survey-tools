@@ -21,7 +21,6 @@ os.system(r"net use X: \\model3-a\Model3A-Share")  # noqa: S605, S607
 # Path to the YAML config file you provided
 CONFIG_PATH = Path(__file__).parent / "config_daysim.yaml"
 
-
 # ---------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------

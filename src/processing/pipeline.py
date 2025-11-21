@@ -9,7 +9,13 @@ from typing import Any
 import yaml
 
 from data_canon.core.dataclass import CanonicalData
-from processing.steps import extract_tours, link_trips, load_data
+from processing.steps import (
+    extract_tours,
+    format_daysim,
+    link_trips,
+    load_data,
+    write_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,8 @@ class Pipeline:
             "load_data": load_data,
             "link_trips": link_trips,
             "extract_tours": extract_tours,
+            "format_daysim": format_daysim,
+            "write_data": write_data,
         }
         self.steps.update(custom_steps or {})
 

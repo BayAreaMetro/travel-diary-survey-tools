@@ -88,3 +88,33 @@ class ParticipationGroup(LabeledEnum):
     SIGNUP_RMOVE_DIARY_BMOVE = (7, "Signup via rMove, Diary via browserMove")
     SIGNUP_RMOVE_DIARY_CALL_CENTER = (8, "Signup via rMove, Diary via call center")  # noqa: E501
     SIGNUP_RMOVE_DIARY_RMOVE = (9, "Signup via rMove, Diary via rMove")
+
+
+class ResidenceRentOwn(LabeledEnum):
+    """residence_rent_own value labels."""
+
+    canonical_field_name = "residence_rent_own"
+
+    OWN = (1, "Own/buying (paying a mortgage)")
+    RENT = (2, "Rent")
+    NOPAYMENT_EMPLOYER = (3, "Housing provided by job or military")
+    NOPAYMENT_OTHER = (4, "Provided by family or friend without payment or rent")  # noqa: E501
+    MISSING = (995, "Missing Response")
+    OTHER = (997, "Other")
+    PNTA = (999, "Prefer not to answer")
+
+class ResidenceType(LabeledEnum):
+    """residence_type value labels."""
+
+    canonical_field_name = "residence_type"
+
+    SFH = (1, "Single-family house (detached house)")
+    TOWNHOUSE = (2, "Single-family house attached to one or more houses (rowhouse or townhouse)")  # noqa: E501
+    MULTIFAMILY = (3, "Building with 2-4 units (duplexes, triplexes, quads)")
+    CONDO_5TO50_UNITS = (4, "Building with 5-49 apartments/condos")
+    CONDO_50PLUS_UNITS = (5, "Building with 50 or more apartments/condos")
+    SENIOR = (6, "Senior or age-restricted apartments/condos")
+    MANUFACTURED = (7, "Manufactured home/mobile home/trailer")
+    GROUP_QUARTERS = (9, "Dorm, group quarters, or institutional housing")
+    MISSING = (995, "Missing Response")
+    BOAT_RV = (997, "Other (e.g., boat, RV, van)")

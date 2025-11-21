@@ -24,22 +24,22 @@ from .mappings import (
 logger = logging.getLogger(__name__)
 
 
-def format_trips(trips: pl.DataFrame) -> pl.DataFrame:
-    """Format trip data to DaySim specification.
+def format_linked_trips(linked_trips: pl.DataFrame) -> pl.DataFrame:
+    """Format linked trip data to DaySim specification.
 
-    Computes DaySim mode, path type, and driver/passenger codes from survey
-    data.
+    Computes DaySim mode, path type, and driver/passenger codes from linked
+    trip data.
 
     Args:
-        trips: DataFrame with canonical trip fields
+        linked_trips: DataFrame with canonical linked trip fields
 
     Returns:
         DataFrame with DaySim trip fields
     """
-    logger.info("Formatting trip data")
+    logger.info("Formatting linked trip data")
 
     # Rename columns to DaySim naming convention
-    trips_daysim = trips.rename({
+    trips_daysim = linked_trips.rename({
         "hh_id": "hhno",
         "person_num": "pno",
         "trip_num": "tripno",
