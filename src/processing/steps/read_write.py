@@ -32,3 +32,30 @@ def load_data(
 
     logger.info("All data loaded successfully.")
     return data
+
+@step(validate=True)
+def write_data(
+    data: dict[str, pl.DataFrame | gpd.GeoDataFrame],
+    output_paths: dict[str, str],
+) -> None:
+    """Write all canonical tables to output paths."""
+    for table, path in output_paths.items():
+        logger.info("Writing %s to %s...", table, path)
+
+        df = data[table]
+
+        # If .csv file, use polars to write
+        if path.endswith(".csv"):
+            df.write_csv(path)
+        elif path.endswith(".parquet"):
+            df.write_parquet(path)
+        elif path.endswith((".shp", ".shp.zip")):
+            if not isinstance(df, gpd.GeoDataFrame):
+                msg = f"Expected GeoDataFrame for table {table}, got {type(df)}"
+                raise ValueError(msg)
+            df.to_file(path)
+        else:
+            msg = f"Unsupported file format for table {table}: {path}"
+            raise ValueError(msg)
+
+    logger.info("All data written successfully.")

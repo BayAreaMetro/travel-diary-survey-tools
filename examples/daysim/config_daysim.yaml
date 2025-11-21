@@ -30,7 +30,7 @@ steps:
     validate: true
     params:
       change_mode_code: 11  # Purpose code for 'change_mode'
-      transit_mode_codes: [12, 13, 14]
+      transit_mode_codes: [12, 13, 14] # NOTE: this is not elegant
       max_dwell_time: 180  # in minutes
       dwell_buffer_distance: 100  # in meters
 
@@ -48,25 +48,23 @@ steps:
   # - name: weighting
   #   validate: true
 
-  - name: format_output
+  # This prepares a new set of files formatted for DaySim
+  - name: format_daysim
     validate: true
+
+  - name: write_outputs
     params:
-      format: "daysim"
-      outputs:
-        households_daysim: "{{ survey_dir }}/hh_daysim.csv"
-        persons_daysim: "{{ survey_dir }}/person_daysim.csv"
-        days_daysim: "{{ survey_dir }}/day_daysim.csv"
-        linked_trips_daysim: "{{ survey_dir }}/linked_trip_daysim.csv"
-        tours_daysim: "{{ survey_dir }}/tour_daysim.csv"
-  
-  - name: format_output
-    validate: false
-    params:
-      format: "standard"
-      outputs:
+      outputs:      
+        # Standard Survey Formats
         households: "{{ output_dir }}/households.csv"
         persons: "{{ output_dir }}/persons.csv"
         days: "{{ output_dir }}/days.csv"
         unlinked_trips: "{{ output_dir }}/unlinked_trips.csv"
         linked_trips: "{{ output_dir }}/linked_trips.csv"
         tours: "{{ output_dir }}/tours.csv"
+        # DaySim Formats
+        households_daysim: "{{ output_dir }}/hh_daysim.csv"
+        persons_daysim: "{{ survey_dir }}/person_daysim.csv"
+        days_daysim: "{{ survey_dir }}/day_daysim.csv"
+        linked_trips_daysim: "{{ survey_dir }}/linked_trip_daysim.csv"
+        tours_daysim: "{{ survey_dir }}/tour_daysim.csv"
