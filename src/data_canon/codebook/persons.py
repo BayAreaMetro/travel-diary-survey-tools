@@ -227,7 +227,7 @@ class ResidenceRentOwn(LabeledEnum):
     OWN = (1, "Own/buying (paying a mortgage)")
     RENT = (2, "Rent")
     NOPAYMENT_EMPLOYER = (3, "Housing provided by job or military")
-    NOPAYMENT_OTHER = (4, "Provided by family or friend without payment or rent")
+    NOPAYMENT_OTHER = (4, "Provided by family or friend without payment or rent")  # noqa: E501
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other")
     PNTA = (999, "Prefer not to answer")
@@ -336,7 +336,7 @@ class PersonType(LabeledEnum):
     """Derived person type from employment status, student status, and age."""
 
     canonical_field_name = "person_type"
-    field_description = "Person type derived from employment, student status, and age"
+    field_description = "Person type derived from employment, student status, and age"  # noqa: E501
 
     FULL_TIME_WORKER = (1, "Full-time worker")
     PART_TIME_WORKER = (2, "Part-time worker")
@@ -346,3 +346,17 @@ class PersonType(LabeledEnum):
     HIGH_SCHOOL_STUDENT = (6, "High school student 16+")
     CHILD_5_15 = (7, "Child 5-15")
     CHILD_UNDER_5 = (8, "Child 0-4")
+
+
+class WorkParking(LabeledEnum):
+    """work_parking value labels."""
+
+    canonical_field_name = "work_parking"
+
+    FREE = (1, "Parking is always free at/near work, at park & ride, etc.")
+    EMPLOYER_PAYS_ALL = (2, "Employer pays ALL parking costs (for me)")
+    EMPLOYER_DISCOUNT = (3, "Employer offers discounted parking (I pay some)")
+    PERSONAL_PAY = (4, "I personally pay some or all parking costs (employer pays none)")  # noqa: E501
+    MISSING = (995, "Missing Response")
+    NOT_APPLICABLE = (996, "Not applicable (I never drive to work)")
+    DONT_KNOW = (998, "Don't know")

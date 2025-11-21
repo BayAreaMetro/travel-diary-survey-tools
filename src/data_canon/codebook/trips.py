@@ -87,11 +87,38 @@ class Driver(LabeledEnum):
 
 class Mode(LabeledEnum):
     """mode value labels."""
+    # NOTE: This is absolute hot chaos... MUST FIX!!!
+    # Plan for 2+ level hierarchy: mode groups (x) > detailed modes (xx) > regionally specific (xxx)  # noqa: E501
+    # Goal is no orphaned modes so they all map to a group
+    # e.g.,:
+    # 1. Transit
+    #   |-- 11. Local Bus
+    #   |-- 12. Express Bus
+    #   |-- 13. Light Rail
+    #   |     |-- 131. Streetcar/Cable Car
+    #   |     |-- 132. MUNI Metro
+    #   |     |-- 133. MBTA T
+    #   |-- 14. Urban Rail
+    #   |      |-- 141. BART
+    #   |      |-- 142. NYC Subway
+    #   |      |-- 143. DC Metro
+    #   |-- 15. Commuter Rail
+    #   |      |-- 151. Caltrain
+    #   |      |-- 152. MBTA Commuter Rail
+    #   |      |-- 153. Caltrain
+    #   |      |-- 154. Metro North
+    #   |-- 16. Intercity Rail
+    #   |      |-- 161. Capitol Corridor
+    #   |      |-- 162. Amtrak Northeast Regional
+    #   |-- 17. Ferry
+    #   |      |-- 171. Richmond Ferry
+    #   |      |-- 172. Staten Island Ferry
+    #   |-- 18. Other Transit
 
-    WALK_OR_JOG_OR_WHEELCHAIR = (1, "Walk/jog/wheelchair")
-    STANDARD_BICYCLE_MY_HOUSEHOLDS = (2, "Standard bicycle (household)")
-    BORROWED_BICYCLE = (3, "Borrowed bicycle")
-    OTHER_RENTED_BICYCLE = (4, "Other rented bicycle")
+    WALK = (1, "Walk/jog/wheelchair")
+    BIKE = (2, "Standard bicycle (household)")
+    BIKE_BORROWED = (3, "Borrowed bicycle")
+    BIKE_RENTED = (4, "Other rented bicycle")
     OTHER = (5, "Other")
     HOUSEHOLD_VEHICLE_1 = (6, "Household vehicle 1")
     HOUSEHOLD_VEHICLE_2 = (7, "Household vehicle 2")
@@ -103,58 +130,57 @@ class Mode(LabeledEnum):
     HOUSEHOLD_VEHICLE_8 = (13, "Household vehicle 8")
     HOUSEHOLD_VEHICLE_9 = (14, "Household vehicle 9")
     HOUSEHOLD_VEHICLE_10 = (15, "Household vehicle 10")
-    OTHER_VEHICLE_IN_HOUSEHOLD = (16, "Other vehicle (household)")
-    RENTAL_CAR = (17, "Rental car")
-    CARSHARE_SERVICE = (18, "Carshare (Zipcar, etc.)")
+    HOUSEHOLD_VEHICLE_OTHER = (16, "Other vehicle (household)")
+    CAR_RENTAL = (17, "Rental car")
+    CAR_SHARE = (18, "Carshare (Zipcar, etc.)")
     VANPOOL = (21, "Vanpool")
-    OTHER_VEHICLE_NOT_MY_HOUSEHOLDS = (22, "Other vehicle (non-household)")
-    LOCAL_PUBLIC_BUS = (23, "Local public bus")
-    SCHOOL_BUS = (24, "School bus")
-    INTERCITY_BUS = (25, "Intercity bus (Greyhound, etc.)")
-    OTHER_PRIVATE_SHUTTLE_OR_BUS = (26, "Private shuttle/bus")
-    PARATRANSIT_OR_DIAL_A_RIDE = (27, "Paratransit/Dial-A-Ride")
-    OTHER_BUS = (28, "Other bus")
-    BART = (30, "BART")
-    AIRPLANE_OR_HELICOPTER = (31, "Airplane/helicopter")
-    CAR_FROM_WORK = (33, "Work car")
-    FRIEND_OR_RELATIVE_OR_COLLEAGUES_CAR = (34, "Friend/relative/colleague car")
-    REGULAR_TAXI = (36, "Regular taxi")
-    UNIVERSITY_OR_COLLEGE_SHUTTLE_OR_BUS = (38, "University/college shuttle")
-    INTERCITY_OR_COMMUTER_RAIL = (41, "Intercity/commuter rail (ACE, Amtrak, Caltrain)")  # noqa: E501
-    OTHER_RAIL = (42, "Other rail")
-    SKATEBOARD_OR_ROLLERBLADE = (43, "Skateboard/rollerblade")
+    OTHER_VEHICLE = (22, "Other vehicle (non-household)")
+    BUS_LOCAL = (23, "Local public bus")
+    BUS_SCHOOL = (24, "School bus")
+    BUS_INTERCITY = (25, "Intercity bus (Greyhound, etc.)")
+    BUS_PRIVATE = (26, "Private shuttle/bus")
+    BUS_OTHER = (28, "Other bus")
+    PARATRANSIT = (27, "Paratransit/Dial-A-Ride")
+    BART = (30, "BART") # NOTE: Bay Area Rapid Transit ????
+    AIR = (31, "Airplane/helicopter")
+    CAR_WORK = (33, "Work car")
+    CAR_FRIEND = (34, "Friend/relative/colleague car")
+    TAXI = (36, "Regular taxi")
+    BUS_UNIVERSITY = (38, "University/college shuttle")
+    RAIL_INTERCITY = (41, "Intercity/commuter rail (ACE, Amtrak, Caltrain)")
+    RAIL_OTHER = (42, "Other rail")
+    SKATE = (43, "Skateboard/rollerblade")
     GOLF_CART = (44, "Golf cart")
     ATV = (45, "ATV")
-    OTHER_MOTORCYCLE_IN_HOUSEHOLD = (47, "Motorcycle (household)")
-    UBER_LYFT_OR_OTHER_SMARTPHONE_APP_RIDE_SERVICE = (49, "Rideshare (Uber, Lyft, etc.)")  # noqa: E501
-    MUNI_METRO = (53, "MUNI Metro")
-    OTHER_MOTORCYCLE_NOT_MY_HOUSEHOLDS = (54, "Motorcycle (non-household)")
-    EXPRESS_BUS_OR_TRANSBAY_BUS = (55, "Express/Transbay bus")
-    PEER_TO_PEER_CAR_RENTAL = (59, "Peer-to-peer rental (Turo, etc.)")
-    OTHER_HIRED_CAR_SERVICE = (60, "Hired car (black car, limo)")
-    RAPID_TRANSIT_BUS_BRT = (61, "Rapid transit bus (BRT)")
-    EMPLOYER_PROVIDED_SHUTTLE_OR_BUS = (62, "Employer shuttle/bus")
-    MEDICAL_TRANSPORTATION_SERVICE = (63, "Medical transportation")
-    LOCAL_PRIVATE_BUS = (67, "Local private bus")
-    CABLE_CAR_OR_STREETCAR = (68, "Cable car/streetcar")
-    BIKE_SHARE_STANDARD_BICYCLE = (69, "Bike-share (standard)")
-    BIKE_SHARE_ELECTRIC_BICYCLE = (70, "Bike-share (electric)")
+    MOTORCYCLE = (47, "Motorcycle (household)")
+    TNC = (49, "Rideshare (Uber, Lyft, etc.)")
+    MUNI_METRO = (53, "MUNI Metro") # NOTE: San Francisco MUNI Metro light rail ????  # noqa: E501
+    MOTORCYCLE_OTHER = (54, "Motorcycle (non-household)")
+    BUS_EXPRESS = (55, "Express/Transbay bus")
+    CAR_RENTAL_P2P = (59, "Peer-to-peer rental (Turo, etc.)")
+    TOWNCAR = (60, "Hired car (black car, limo)")
+    BUS_BRT = (61, "Rapid transit bus (BRT)")
+    BUS_WORK = (62, "Employer shuttle/bus")
+    MEDICAL = (63, "Medical transportation")
+    BUS_PRIVATE_LOCAL = (67, "Local private bus")
+    STREETCAR = (68, "Cable car/streetcar")
+    BIKE_SHARE = (69, "Bike-share (standard)")
+    BIKE_SHARE_ELECTRIC = (70, "Bike-share (electric)")
     MOPED_SHARE = (73, "Moped-share (Scoot, etc.)")
     SEGWAY = (74, "Segway")
-    OTHER_75 = (75, "Other")
-    CARPOOL_MATCH = (76, "Carpool match (Waze, etc.)")
-    PERSONAL_SCOOTER_OR_MOPED_NOT_SHARED = (77, "Personal scooter/moped")
-    PUBLIC_FERRY_OR_WATER_TAXI = (78, "Ferry/water taxi")
-    OTHER_BOAT = (80, "Other boat (kayak, etc.)")
-    ELECTRIC_BICYCLE_MY_HOUSEHOLDS = (82, "Electric bicycle (household)")
+    CARPOOL_SERVICE = (76, "Carpool match (Waze, etc.)")
+    MOPED = (77, "Personal scooter/moped")
+    FERRY = (78, "Ferry/water taxi")
+    BOAT = (80, "Other boat (kayak, etc.)")
+    BIKE_ELECTRIC = (82, "Electric bicycle (household)")
     SCOOTER_SHARE = (83, "Scooter-share (Bird, Lime, etc.)")
-    HOUSEHOLD_VEHICLE_OR_MOTORCYCLE = (100, "Household vehicle/motorcycle")
-    OTHER_VEHICLE = (101, "Other vehicle (rental, carshare, etc.)")
-    BUS_SHUTTLE_OR_VANPOOL = (102, "Bus/shuttle/vanpool")
+    HOUSEHOLD_VEHICLE = (100, "Household vehicle/motorcycle")
+    CAR_OTHER = (101, "Other vehicle (rental, carshare, etc.)")
+    SHUTTLE = (102, "Bus/shuttle/vanpool")
     BICYCLE = (103, "Bicycle")
-    OTHER_104 = (104, "Other")
+    OTHER_OTHER = (104, "Other")
     RAIL = (105, "Rail (train, BART, MUNI, etc.)")
-    UBER_OR_LYFT_TAXI_OR_CAR_SERVICE = (106, "Uber/Lyft/taxi/car service")
+    TNC_OTHER = (106, "Uber/Lyft/taxi/car service")
     MICROMOBILITY = (107, "Micromobility (scooter, moped, etc.)")
     MISSING = (995, "Missing Response")
 
@@ -185,16 +211,17 @@ class ModeTypeMap:
 
 class AccessEgressMode(LabeledEnum):
     """transit_access value labels."""
+    # NOTE: Why is this not just inherited from Mode???
 
-    WALKED_OR_JOGGED_OR_WHEELCHAIR = (1, "Walked (or jogged/wheelchair)")
+    WALK = (1, "Walked (or jogged/wheelchair)")
     BICYCLE = (2, "Bicycle")
-    TRANSFERRED_FROM_ANOTHER_BUS = (3, "Transferred from another bus")
-    MICROMOBILITY_E_G_SCOOTER_MOPED_SKATEBOARD = (4, "Micromobility (e.g., scooter, moped, skateboard)")  # noqa: E501
-    TRANSFERRED_FROM_OTHER_TRANSIT_E_G_RAIL_AIR = (5, "Transferred from other transit (e.g., rail, air)")  # noqa: E501
-    UBER_OR_LYFT_TAXI_OR_CAR_SERVICE = (6, "Uber/Lyft, taxi, or car service")
-    DROVE_AND_PARKED_MY_OWN_HOUSEHOLDS_VEHICLE_OR_MOTORCYCLE = (7, "Drove and parked my own household's vehicle (or motorcycle)")  # noqa: E501
-    DROVE_AND_PARKED_ANOTHER_VEHICLE_OR_MOTORCYCLE = (8, "Drove and parked another vehicle (or motorcycle)")  # noqa: E501
-    GOT_DROPPED_OFF_IN_MY_OWN_HOUSEHOLDS_VEHICLE_OR_MOTORCYCLE = (9, "Got dropped off in my own household's vehicle (or motorcycle)")  # noqa: E501
-    GOT_DROPPED_OFF_IN_ANOTHER_VEHICLE_OR_MOTORCYCLE = (10, "Got dropped off in another vehicle (or motorcycle)")  # noqa: E501
+    TRANSFER_BUS = (3, "Transferred from another bus")
+    MICROMOBILITY = (4, "Micromobility (e.g., scooter, moped, skateboard)")
+    TRANSFER_OTHER = (5, "Transferred from other transit (e.g., rail, air)")
+    TNC = (6, "Uber/Lyft, taxi, or car service")
+    CAR_HOUSEHOLD = (7, "Drove and parked my own household's vehicle (or motorcycle)")  # noqa: E501
+    CAR_OTHER = (8, "Drove and parked another vehicle (or motorcycle)")
+    DROPOFF_HOUSEHOLD = (9, "Got dropped off in my own household's vehicle (or motorcycle)")  # noqa: E501
+    DROPOFF_OTHER = (10, "Got dropped off in another vehicle (or motorcycle)")
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other")

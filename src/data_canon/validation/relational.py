@@ -9,8 +9,8 @@ import logging
 import polars as pl
 from pydantic import BaseModel
 
-from data_canon.column_validation import get_unique_fields
 from data_canon.core.exceptions import ValidationError
+from data_canon.validation.column import get_unique_fields
 
 logger = logging.getLogger(__name__)
 
