@@ -63,18 +63,21 @@ def step(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            # Extract and remove canonical_data from kwargs
-            canonical_data = kwargs.pop("canonical_data", None)
-            validate_input = kwargs.pop("validate_input", True)
-            validate_output = kwargs.pop("validate_output", False)
+            # Extract validation flags
+            should_validate_input = kwargs.pop("validate_input", validate_input)
+            should_validate_output = kwargs.pop("validate_output", validate_output)  # noqa: E501
 
-            if validate_input:
+            # Only pop canonical_data if function doesn't expect it
+            sig = inspect.signature(func)
+            if "canonical_data" in sig.parameters:
+                canonical_data = kwargs.get("canonical_data")
+            else:
+                canonical_data = kwargs.pop("canonical_data", None)
+
+            if should_validate_input:
                 _validates(func, args, kwargs, canonical_data)
 
             result = func(*args, **kwargs)
-
-            if validate_output and isinstance(result, dict):
-                _validate_dict_outputs(result, func.__name__, canonical_data)
 
             # Update canonical_data with results if available
             if canonical_data and isinstance(result, dict):
@@ -95,6 +98,9 @@ def step(
                         )
 
                     setattr(canonical_data, key, value)
+
+            if should_validate_output and isinstance(result, dict):
+                _validate_dict_outputs(result, func.__name__, canonical_data)
 
             return result
 

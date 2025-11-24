@@ -55,7 +55,7 @@ steps:
 
   - name: write_data
     params:
-      outputs:      
+      output_paths:
         # Standard Survey Formats
         households: "{{ output_dir }}/households.csv"
         persons: "{{ output_dir }}/persons.csv"

@@ -83,6 +83,23 @@ def format_daysim(
     tours_daysim = format_tours(persons, days, linked_trips, tours)
     logger.info("Formatted %d tours", len(tours_daysim))
 
+
+    # Drop any households that do not have a MAZ/TAZ assigned
+    households_daysim = households_daysim.filter(
+            (households_daysim["hhtaz"].is_not_null()) &
+            (households_daysim["hhtaz"] != -1)
+    )
+
+    persons_daysim = persons_daysim.filter(
+        pl.col("hhno").is_in(households_daysim["hhno"])
+    )
+    linked_trips_daysim = linked_trips_daysim.filter(
+        pl.col("hhno").is_in(households_daysim["hhno"])
+    )
+    tours_daysim = tours_daysim.filter(
+        pl.col("hhno").is_in(households_daysim["hhno"])
+    )
+
     logger.info("DaySim formatting complete")
 
     return {

@@ -35,14 +35,14 @@ def load_data(
 
 @step()
 def write_data(
-    data: dict[str, pl.DataFrame | gpd.GeoDataFrame],
     output_paths: dict[str, str],
+    canonical_data: dict[str, pl.DataFrame | gpd.GeoDataFrame],
 ) -> None:
     """Write all canonical tables to output paths."""
     for table, path in output_paths.items():
         logger.info("Writing %s to %s...", table, path)
 
-        df = data[table]
+        df = getattr(canonical_data, table)
 
         # If .csv file, use polars to write
         if path.endswith(".csv"):

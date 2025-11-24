@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class HouseholdDaysimModel(BaseModel):
     """Household File Format for DaySim."""
-    hhno: int = Field(ge=1, le=9999999, description="The household ID number")
+    hhno: int = Field(ge=1, description="The household ID number")
     hhsize: int = Field(ge=1, le=99, description="The number of persons in the household")
     hhvehs: int = Field(ge=0, le=99, description="The number of autos in the household")
     hhwkrs: int = Field(ge=0, le=99, description="The number of workers in the household")
@@ -24,27 +24,27 @@ class HouseholdDaysimModel(BaseModel):
     hhownrent: int = Field(ge=1, le=9, description="Household own versus rent status")
     hhrestype: int = Field(ge=1, le=9, description="Household residence building type")
     hhparcel: int = Field(ge=1, le=9999999, description="The ID of the parcel on which the household lives")
-    hhhtaz: int = Field(ge=1, le=9999999, description="The ID of the zone in which the household lives")
+    hhtaz: int = Field(ge=1, le=9999999, description="The ID of the zone in which the household lives")
     hhexpfac: float = Field(ge=0, description="The expansion factor for the household")
     samptype: int = Field(ge=0, le=99, description="The type of sample used")
 
 class PersonDaysimModel(BaseModel):
     """Person File Format for DaySim."""
-    hhno: int = Field(ge=1, le=9999999, description="The household ID number")
+    hhno: int = Field(ge=1, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")
     pptyp: int = Field(ge=1, le=8, description="Person type")
     pagey: int = Field(ge=0, le=99, description="Age in years")
     pgend: int = Field(ge=1, le=9, description="Gender")
     pwtyp: int = Field(ge=0, le=2, description="Worker type")
-    pwpcl: int = Field(ge=-1, le=9999999, description="Usual work location parcel ID")
-    pwtaz: int = Field(ge=-1, le=9999999, description="Usual work location zone ID")
-    pwautime: float = Field(ge=-1, le=9999999, description="The 1-way peak auto travel time between residence and work")
-    pwaudist: float = Field(ge=-1, le=9999999, description="The 1-way peak auto travel distance between residence and work")
+    pwpcl: int = Field(ge=-1, description="Usual work location parcel ID")
+    pwtaz: int = Field(ge=-1, description="Usual work location zone ID")
+    pwautime: float = Field(ge=-1, description="The 1-way peak auto travel time between residence and work")
+    pwaudist: float = Field(ge=-1, description="The 1-way peak auto travel distance between residence and work")
     pstyp: int = Field(ge=0, le=2, description="Student type")
-    pspcl: int = Field(ge=-1, le=9999999, description="Usual school location parcel ID")
-    pstaz: int = Field(ge=-1, le=9999999, description="Usual school location zone ID")
-    psautime: float = Field(ge=-1, le=9999999, description="The 1-way peak auto travel time between residence and school")
-    psaudist: float = Field(ge=-1, le=9999999, description="The 1-way peak auto travel distance between residence and school")
+    pspcl: int = Field(ge=-1, description="Usual school location parcel ID")
+    pstaz: int = Field(ge=-1, description="Usual school location zone ID")
+    psautime: float = Field(ge=-1, description="The 1-way peak auto travel time between residence and school")
+    psaudist: float = Field(ge=-1, description="The 1-way peak auto travel distance between residence and school")
     puwmode: int = Field(ge=-1, le=9, description="The usual mode used to work")
     puwarrp: int = Field(ge=-1, le=9, description="The usual arrival period at work")
     puwdepp: int = Field(ge=-1, le=9, description="The usual departure period from work")
@@ -57,7 +57,7 @@ class PersonDaysimModel(BaseModel):
 
 class HouseholdDayDaysimModel(BaseModel):
     """HouseholdDay File Format for DaySim."""
-    hhno: int = Field(ge=1, le=9999999, description="The household ID number")
+    hhno: int = Field(ge=1, description="The household ID number")
     day: int = Field(ge=1, le=99, description="The survey day sequence")
     dow: int = Field(ge=1, le=7, description="The day of the week")
     jttours: int = Field(ge=0, le=99, description="The number of fully joint tour records output for the household")
@@ -68,7 +68,7 @@ class HouseholdDayDaysimModel(BaseModel):
 
 class PersonDayDaysimModel(BaseModel):
     """PersonDay File Format for DaySim."""
-    hhno: int = Field(ge=1, le=9999999, description="The household ID number")
+    hhno: int = Field(ge=1, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")
     day: int = Field(ge=1, le=99, description="The survey day sequence")
     beghom: int = Field(ge=0, le=1, description="A flag if the survey diary day begins at home")
@@ -100,7 +100,7 @@ class PersonDayDaysimModel(BaseModel):
 
 class TourDaysimModel(BaseModel):
     """Tour File Format for DaySim."""
-    hhno: int = Field(ge=1, le=9999999, description="The household ID number")
+    hhno: int = Field(ge=1, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")
     day: int = Field(ge=1, le=99, description="The survey day sequence")
     tour: int = Field(ge=1, le=99, description="The tour sequence within the person-day")
@@ -114,15 +114,15 @@ class TourDaysimModel(BaseModel):
     tarorig: int = Field(ge=0, le=1439, description="The time arriving back at the tour origin, in minutes after midnight")
     toadtyp: int = Field(ge=1, le=5, description="Tour origin address type")
     tdadtyp: int = Field(ge=1, le=5, description="Tour destination address type")
-    topcl: int = Field(ge=-1, le=9999999, description="Tour origin parcel ID")
-    totaz: int = Field(ge=-1, le=9999999, description="Tour origin zone ID")
-    tdpcl: int = Field(ge=-1, le=9999999, description="Tour destination parcel ID")
-    tdtaz: int = Field(ge=-1, le=9999999, description="Tour destination zone ID")
+    topcl: int = Field(ge=-1, description="Tour origin parcel ID")
+    totaz: int = Field(ge=-1, description="Tour origin zone ID")
+    tdpcl: int = Field(ge=-1, description="Tour destination parcel ID")
+    tdtaz: int = Field(ge=-1, description="Tour destination zone ID")
     tmodetp: int = Field(ge=1, le=10, description="Tour main mode type")
     tpathtp: int = Field(ge=1, le=8, description="Tour main mode path type")
-    tautotime: float = Field(ge=-1, le=9999999, description="The one-way auto travel time")
-    tautocost: float = Field(ge=-1, le=9999999, description="The one-way auto toll cost")
-    tautodist: float = Field(ge=-1, le=9999999, description="The one-way auto travel distance")
+    tautotime: float = Field(ge=-1, description="The one-way auto travel time")
+    tautocost: float = Field(ge=-1, description="The one-way auto toll cost")
+    tautodist: float = Field(ge=-1, description="The one-way auto travel distance")
     tripsh1: int = Field(ge=1, le=99, description="The number of trips segments on the half tour to the destination")
     tripsh2: int = Field(ge=1, le=99, description="The number of trips segments on the half tour from the destination")
     phtindx1: int = Field(ge=0, le=99, description="Links to the sequence number of the first half tour in PartialHalfTour")
@@ -133,7 +133,7 @@ class TourDaysimModel(BaseModel):
 
 class LinkedTripDaysimModel(BaseModel):
     """Trip File Format for DaySim."""
-    hhno: int = Field(ge=1, le=9999999, description="The household ID number")
+    hhno: int = Field(ge=1, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")
     day: int = Field(ge=1, le=99, description="The survey day sequence")
     tour: int = Field(ge=1, le=99, description="The tour sequence within the person-day")
@@ -144,17 +144,17 @@ class LinkedTripDaysimModel(BaseModel):
     dpurp: int = Field(ge=0, le=10, description="The purpose at the trip destination")
     oadtyp: int = Field(ge=1, le=6, description="Trip origin address type")
     dadtyp: int = Field(ge=1, le=6, description="Trip destination address type")
-    opcl: int = Field(ge=-1, le=9999999, description="Trip origin parcel ID")
-    otaz: int = Field(ge=-1, le=9999999, description="Trip origin zone ID")
-    dpcl: int = Field(ge=-1, le=9999999, description="Trip destination parcel ID")
-    dtaz: int = Field(ge=-1, le=9999999, description="Trip destination zone ID")
+    opcl: int = Field(ge=-1, description="Trip origin parcel ID")
+    otaz: int = Field(ge=-1, description="Trip origin zone ID")
+    dpcl: int = Field(ge=-1, description="Trip destination parcel ID")
+    dtaz: int = Field(ge=-1, description="Trip destination zone ID")
     mode: int = Field(ge=1, le=10, description="Trip mode")
     pathtype: int = Field(ge=1, le=8, description="Trip path type")
     dorp: int = Field(ge=0, le=999, description="Driver/passenger for auto trips, walk time for transit trips")
     deptm: int = Field(ge=0, le=1439, description="The trip departure time, in minutes after midnight")
     arrtm: int = Field(ge=0, le=1439, description="The trip arrival time, in minutes after midnight")
     endacttm: int = Field(ge=0, le=1439, description="The end time of the destination activity, in minutes after midnight")
-    travtime: float = Field(ge=-1, le=9999999, description="The travel time by the trip mode and path type")
-    travcost: float = Field(ge=-1, le=9999999, description="The travel cost by the trip mode and path type")
-    travdist: float = Field(ge=-1, le=9999999, description="The network distance between the trip origin and destination")
+    travtime: float = Field(ge=-1, description="The travel time by the trip mode and path type")
+    travcost: float = Field(ge=-1, description="The travel cost by the trip mode and path type")
+    travdist: float = Field(ge=-1, description="The network distance between the trip origin and destination")
     trexpfac: float = Field(ge=0, description="The expansion factor for the trip")

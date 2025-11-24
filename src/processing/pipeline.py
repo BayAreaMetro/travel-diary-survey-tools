@@ -108,8 +108,16 @@ class Pipeline:
         data_kwargs = {}
         config_kwargs = {}
 
+        reserved = {
+            "canonical_data", "validate_input", "validate_output", "kwargs"
+        }
+        expected_kwargs = [x for x in step_args if x not in reserved]
+
         for arg_name, param in step_args.items():
-            if hasattr(self.data, arg_name):
+            if arg_name == "canonical_data":
+                # Pass the entire CanonicalData instance if requested
+                data_kwargs[arg_name] = self.data
+            elif hasattr(self.data, arg_name):
                 data_kwargs[arg_name] = getattr(self.data, arg_name)
             else:
                 step_cfg = self.config["steps"]
@@ -124,11 +132,22 @@ class Pipeline:
                 # Only add if parameter exists in config or has default
                 if arg_name in params:
                     config_kwargs[arg_name] = params[arg_name]
-                elif param.default is not inspect.Parameter.empty:
+                elif (
+                    param.default is not inspect.Parameter.empty or
+                    arg_name in reserved
+                    ):
                     # Has default value, don't need to provide it
                     pass
-                # If no default and not in config, omit it
-                # This will cause TypeError if it's required
+                else:
+                    # If no default and not in config, omit it
+                    # This will cause TypeError if it's required
+                    msg = (
+                        f"Missing required parameter '{arg_name}' "
+                        f"for step '{step_name}'. Function expects "
+                        f""""{'", "'.join(expected_kwargs)}"."""
+                    )
+                    raise ValueError(msg)
+
 
         return {**data_kwargs, **config_kwargs}
 
@@ -146,17 +165,12 @@ class Pipeline:
             logger.info("▶ Running step: %s", step_name)
 
             kwargs = self.parse_step_args(step_name, step_obj)
-            validate_input = step_cfg.get("validate_input", True)
-            validate_output = step_cfg.get("validate_output", False)
+            kwargs["validate_input"] = step_cfg.get("validate_input", True)
+            kwargs["validate_output"] = step_cfg.get("validate_output", False)
+            kwargs["canonical_data"] = self.data
 
             # Execute step
-            # Pass in current canonical data for validation
-            step_obj(
-                **kwargs,
-                canonical_data=self.data,
-                validate_input=validate_input,
-                validate_output=validate_output,
-            )
+            step_obj(**kwargs)
 
         logger.info("Pipeline completed.")
         return self.data
