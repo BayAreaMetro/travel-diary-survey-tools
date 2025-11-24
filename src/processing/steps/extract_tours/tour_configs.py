@@ -76,11 +76,11 @@ class TourConfig(BaseModel):
             ModeType.CARSHARE,
             ModeType.TAXI,
             ModeType.TNC,
-            ModeType.SHUTTLE_OR_VANPOOL,
+            ModeType.SHUTTLE,
             ModeType.SCHOOL_BUS,
             ModeType.FERRY,
             ModeType.TRANSIT,
-            ModeType.LONG_DISTANCE_PASSENGER,
+            ModeType.LONG_DISTANCE,
         ],
         description=(
             "Ordered list of mode types by priority - "

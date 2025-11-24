@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 def format_daysim(
     persons: pl.DataFrame,
     households: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
     days: pl.DataFrame,
@@ -48,6 +49,8 @@ def format_daysim(
     Args:
         persons: Canonical person data with demographic and location fields
         households: Canonical household data with income and dwelling fields
+        unlinked_trips: Canonical unlinked trip data with mode, purpose, and
+            timing fields
         linked_trips: Canonical linked trip data with mode, purpose, and
             timing fields
         tours: Canonical tour data with purpose, timing, and location fields
@@ -74,7 +77,7 @@ def format_daysim(
     households_daysim = format_households(households, persons_daysim)
     logger.info("Formatted %d households", len(households_daysim))
 
-    trips_daysim = format_linked_trips(linked_trips)
+    trips_daysim = format_linked_trips(persons, unlinked_trips, linked_trips)
     logger.info("Formatted %d trips", len(trips_daysim))
 
     tours_daysim = format_tours(tours)

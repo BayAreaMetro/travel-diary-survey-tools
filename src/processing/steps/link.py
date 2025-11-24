@@ -271,6 +271,8 @@ def aggregate_linked_trips(
         )
         .agg(
             [
+                # Travel dow is from first trip. Caution for overnight trips
+                pl.first("travel_dow"),
                 # Departure information (from first trip segment)
                 pl.first("depart_date"),
                 pl.first("depart_hour"),
@@ -312,6 +314,8 @@ def aggregate_linked_trips(
                 pl.len().alias("num_segments"),
                 # Linked trip weight (mean of segment weights)
                 pl.col("trip_weight").mean().alias("linked_trip_weight"),
+                # num_travelers (max of segment num_travelers)
+                pl.col("num_travelers").max().alias("num_travelers"),
             ]
         )
         # Join with mode selection based on longest duration

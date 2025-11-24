@@ -198,10 +198,10 @@ class ModeType(LabeledEnum):
     CAR = (8, "Car")
     CARSHARE = (9, "Carshare")
     SCHOOL_BUS = (10, "School bus")
-    SHUTTLE_OR_VANPOOL = (11, "Shuttle/vanpool")
+    SHUTTLE = (11, "Shuttle/vanpool")
     FERRY = (12, "Ferry")
     TRANSIT = (13, "Transit")
-    LONG_DISTANCE_PASSENGER = (14, "Long distance passenger")
+    LONG_DISTANCE = (14, "Long distance passenger")
     MISSING = (995, "Missing Response")
 
 class ModeTypeMap:

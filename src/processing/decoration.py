@@ -74,7 +74,21 @@ def step(
             if canonical_data and isinstance(result, dict):
                 for key, value in result.items():
                     if _is_canonical_dataframe(key, value):
-                        setattr(canonical_data, key, value)
+                            logger.info(
+                                "Updating canonical_data with output '%s' "
+                                "from step '%s'",
+                                key,
+                                func.__name__,
+                            )
+                    else:
+                        logger.warning(
+                            "Output '%s' from step '%s' is not a canonical "
+                            "table. This cannot be validated automatically.",
+                            key,
+                            func.__name__,
+                        )
+
+                    setattr(canonical_data, key, value)
 
             return result
 
@@ -148,4 +162,3 @@ def _validate_dict_outputs(
 def _is_canonical_dataframe(name: str, value: Any) -> bool:  # noqa: ANN401
     """Check if a value is a DataFrame for a canonical table."""
     return name in CANONICAL_TABLES and isinstance(value, pl.DataFrame)
-

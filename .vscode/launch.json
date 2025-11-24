@@ -16,7 +16,7 @@
             "name": "Python Debugger: Pipeline",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/daysim/run.py",
+            "program": "${workspaceFolder}/examples/daysim/run.py",
             "console": "integratedTerminal",
             "args": [
                 "--config",

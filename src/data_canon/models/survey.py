@@ -20,6 +20,7 @@ from data_canon.codebook.persons import (
     Student,
 )
 from data_canon.codebook.trips import (
+    Mode,
     ModeType,
     Purpose,
     PurposeCategory,
@@ -134,6 +135,10 @@ class UnlinkedTripModel(BaseModel):
         required_in_steps=["link_trips"]
     )
     mode_type: ModeType = step_field(required_in_steps=["link_trips"])
+    mode_1: Mode = step_field(required_in_steps=["link_trips"])
+    mode_2: Mode = step_field(required_in_steps=["link_trips"])
+    mode_3: Mode = step_field(required_in_steps=["link_trips"])
+    mode_4: Mode = step_field(required_in_steps=["link_trips"])
     duration_minutes: float = step_field(ge=0)
     distance_meters: float = step_field(ge=0)
 
@@ -164,7 +169,9 @@ class LinkedTripModel(BaseModel):
         ge=1,
         fk_to="tours.tour_id"
     )
-
+    travel_dow: TravelDow = step_field(
+        required_in_steps=["extract_tours"]
+    )
     depart_date: datetime = step_field()
     depart_hour: int = step_field(ge=0, le=23)
     depart_minute: int = step_field(ge=0, le=59)
@@ -176,8 +183,9 @@ class LinkedTripModel(BaseModel):
     o_purpose_category: int = step_field()
     d_purpose_category: int = step_field(required_in_steps=["extract_tours"])
     mode_type: ModeType = step_field(required_in_steps=["extract_tours"])
+    num_travelers: int = step_field(ge=1)
     duration_minutes: float = step_field(ge=0)
-    distance_miles: float = step_field(ge=0)
+    distance_meters: float = step_field(ge=0)
     depart_time: datetime = step_field()
     arrive_time: datetime = step_field()
 

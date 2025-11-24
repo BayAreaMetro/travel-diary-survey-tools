@@ -24,19 +24,40 @@ from .mappings import (
 logger = logging.getLogger(__name__)
 
 
-def format_linked_trips(linked_trips: pl.DataFrame) -> pl.DataFrame:
+def format_linked_trips(
+    persons: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
+    linked_trips: pl.DataFrame
+    ) -> pl.DataFrame:
     """Format linked trip data to DaySim specification.
 
     Computes DaySim mode, path type, and driver/passenger codes from linked
     trip data.
 
     Args:
+        persons: DataFrame with canonical person fields
+        unlinked_trips: DataFrame with canonical unlinked trip fields
         linked_trips: DataFrame with canonical linked trip fields
 
     Returns:
         DataFrame with DaySim trip fields
     """
     logger.info("Formatting linked trip data")
+
+    # Join person_num to linked trips
+    linked_trips = linked_trips.join(
+        persons.select(["person_id", "person_num"]),
+        on=["person_id"],
+        how="left"
+    )
+
+    # Calculate trip_num as numbered trips per person per day
+    linked_trips = linked_trips.with_columns(
+        trip_num=pl.col("linked_trip_id")
+        .cum_count()
+        .over(["hh_id", "person_id", "day_id"])
+        + 1
+    )
 
     # Rename columns to DaySim naming convention
     trips_daysim = linked_trips.rename({
@@ -67,6 +88,8 @@ def format_linked_trips(linked_trips: pl.DataFrame) -> pl.DataFrame:
         opurp=pl.col("opurp").replace(PURPOSE_MAP),
         dpurp=pl.col("dpurp").replace(PURPOSE_MAP),
     )
+
+
 
     # Compute DaySim mode
     trips_daysim = trips_daysim.with_columns(
@@ -103,7 +126,7 @@ def format_linked_trips(linked_trips: pl.DataFrame) -> pl.DataFrame:
         .then(pl.lit(DaysimMode.TNC.value))
         .when(pl.col("mode_type") == ModeType.SCHOOL_BUS.value)
         .then(pl.lit(DaysimMode.SCHOOL_BUS.value))
-        .when(pl.col("mode_type") == ModeType.SHUTTLE_VANPOOL.value)
+        .when(pl.col("mode_type") == ModeType.SHUTTLE.value)
         .then(pl.lit(DaysimMode.HOV3.value))  # shuttle/vanpool as HOV3+
         .when(
             pl.col("mode_type").is_in([

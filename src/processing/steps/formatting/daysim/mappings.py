@@ -124,29 +124,29 @@ RESIDENCE_TYPE_TO_DAYSIM = {
 
 # Income categories to midpoint values (detailed from survey)
 INCOME_DETAILED_TO_MIDPOINT = {
-    IncomeDetailed.INCOME_UNDER15: 7500,
-    IncomeDetailed.INCOME_15TO25: 20000,
-    IncomeDetailed.INCOME_25TO35: 30000,
-    IncomeDetailed.INCOME_35TO50: 42500,
-    IncomeDetailed.INCOME_50TO75: 62500,
-    IncomeDetailed.INCOME_75TO100: 87500,
-    IncomeDetailed.INCOME_100TO150: 125000,
-    IncomeDetailed.INCOME_150TO200: 175000,
-    IncomeDetailed.INCOME_200TO250: 225000,
-    IncomeDetailed.INCOME_250_OR_MORE: 350000,
-    IncomeDetailed.PNTA: -1,
+    IncomeDetailed.INCOME_UNDER15.value: 7500,
+    IncomeDetailed.INCOME_15TO25.value: 20000,
+    IncomeDetailed.INCOME_25TO35.value: 30000,
+    IncomeDetailed.INCOME_35TO50.value: 42500,
+    IncomeDetailed.INCOME_50TO75.value: 62500,
+    IncomeDetailed.INCOME_75TO100.value: 87500,
+    IncomeDetailed.INCOME_100TO150.value: 125000,
+    IncomeDetailed.INCOME_150TO200.value: 175000,
+    IncomeDetailed.INCOME_200TO250.value: 225000,
+    IncomeDetailed.INCOME_250_OR_MORE.value: 350000,
+    IncomeDetailed.PNTA.value: -1,
 }
 
 # Income followup categories to midpoint values
 INCOME_FOLLOWUP_TO_MIDPOINT = {
-    IncomeFollowup.INCOME_UNDER25: 12500,
-    IncomeFollowup.INCOME_25TO50: 37500,
-    IncomeFollowup.INCOME_50TO75: 62500,
-    IncomeFollowup.INCOME_75TO100: 87500,
-    IncomeFollowup.INCOME_100TO200: 150000,
-    IncomeFollowup.INCOME_200_OR_MORE: 250000,
-    IncomeFollowup.MISSING: -1,
-    IncomeFollowup.PNTA: -1,
+    IncomeFollowup.INCOME_UNDER25.value: 12500,
+    IncomeFollowup.INCOME_25TO50.value: 37500,
+    IncomeFollowup.INCOME_50TO75.value: 62500,
+    IncomeFollowup.INCOME_75TO100.value: 87500,
+    IncomeFollowup.INCOME_100TO200.value: 150000,
+    IncomeFollowup.INCOME_200_OR_MORE.value: 250000,
+    IncomeFollowup.MISSING.value: -1,
+    IncomeFollowup.PNTA.value: -1,
 }
 
 # Purpose category to DaySim purpose codes
@@ -199,5 +199,5 @@ DROVE_ACCESS_EGRESS = [
 AGE_MAP = {k.value: v for k, v in AGE_TO_MIDPOINT.items()}
 GENDER_MAP = {k.value: v.value for k, v in GENDER_TO_DAYSIM.items()}
 STUDENT_MAP = {k.value: v.value for k, v in STUDENT_TO_DAYSIM.items()}
-WORK_PARK_MAP = {k: v.value for k, v in WORK_PARK_TO_DAYSIM.items()}
+WORK_PARK_MAP = {k.value: v.value for k, v in WORK_PARK_TO_DAYSIM.items()}
 PURPOSE_MAP = {k.value: v.value for k, v in PURPOSE_TO_DAYSIM.items()}

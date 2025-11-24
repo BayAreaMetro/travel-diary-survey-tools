@@ -138,7 +138,7 @@ def format_persons(
             DaysimStudentType.NOT_STUDENT.value
         ),
         # Map work parking
-        ppaidprk=pl.col("work_park").replace(WORK_PARK_MAP),
+        ppaidprk=pl.col("work_park").replace_strict(WORK_PARK_MAP),
     )
 
     # Derive person type (pptyp) using cascading logic
@@ -152,7 +152,8 @@ def format_persons(
             pl.col("employment").is_in([
                 Employment.EMPLOYED_FULLTIME.value,
                 Employment.EMPLOYED_SELF.value,
-                Employment.EMPLOYED_NOTWORKING.value,
+                Employment.EMPLOYED_FURLOUGHED.value,
+                Employment.EMPLOYED_UNPAID.value,
             ])
         )
         .then(pl.lit(PersonType.FULL_TIME_WORKER.value))
