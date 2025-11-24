@@ -80,7 +80,7 @@ def format_daysim(
     trips_daysim = format_linked_trips(persons, unlinked_trips, linked_trips)
     logger.info("Formatted %d trips", len(trips_daysim))
 
-    tours_daysim = format_tours(tours)
+    tours_daysim = format_tours(persons, days, linked_trips, tours)
     logger.info("Formatted %d tours", len(tours_daysim))
 
     logger.info("DaySim formatting complete")

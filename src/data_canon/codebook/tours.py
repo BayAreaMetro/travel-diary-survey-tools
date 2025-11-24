@@ -23,3 +23,10 @@ class TourBoundary(LabeledEnum):
     PARTIAL_END = (2, "Start at home, end not at home")
     PARTIAL_START = (3, "Start not at home, end at home")
     PARTIAL_BOTH = (4, "Start not at home, end not at home")
+
+class HalfTour(LabeledEnum):
+    """Half-tour classification."""
+
+    OUTBOUND = (1, "Outbound half-tour")
+    INBOUND = (2, "Inbound half-tour")
+    SUBTOUR = (3, "Subtour")

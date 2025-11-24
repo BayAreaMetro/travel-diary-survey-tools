@@ -19,7 +19,9 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
+from data_canon.codebook.tours import TourBoundary
 from data_canon.codebook.trips import (
+    Driver,
     Mode,
     ModeType,
     Purpose,
@@ -183,11 +185,15 @@ class LinkedTripModel(BaseModel):
     o_purpose_category: int = step_field()
     d_purpose_category: int = step_field(required_in_steps=["extract_tours"])
     mode_type: ModeType = step_field(required_in_steps=["extract_tours"])
+    driver: Driver = step_field(
+        required_in_steps=["link_trips", "format_daysim"]
+    )
     num_travelers: int = step_field(ge=1)
     duration_minutes: float = step_field(ge=0)
     distance_meters: float = step_field(ge=0)
     depart_time: datetime = step_field()
     arrive_time: datetime = step_field()
+    is_outbound: bool = step_field(required_in_steps=["format_daysim"])
 
 
 class TourModel(BaseModel):
@@ -196,24 +202,29 @@ class TourModel(BaseModel):
     tour_id: int = step_field(ge=1, unique=True)
     person_id: int = step_field(ge=1, fk_to="persons.person_id")
     day_id: int = step_field(ge=1, fk_to="days.day_id")
-    tour_sequence_num: int = step_field(ge=1)
-    tour_category: str  # 'home_based' or 'work_based'
+    tour_num: int = step_field(ge=1)
     parent_tour_id: int | None = step_field(
         ge=1,
         fk_to="tours.tour_id",
         default=None
     )
 
-    # Purpose and priority
-    primary_purpose: int = step_field(ge=1)
-    primary_dest_purpose: int = step_field(ge=1)
-    purpose_priority: int = step_field(ge=1)
+    tour_purpose: PurposeCategory = step_field()
+    tour_category: TourBoundary = step_field()
 
     # Timing
     origin_depart_time: datetime = step_field()
+    origin_arrive_time: datetime = step_field()
     dest_arrive_time: datetime = step_field()
     dest_depart_time: datetime = step_field()
-    origin_arrive_time: datetime = step_field()
+    origin_linked_trip_id: int = step_field(
+        ge=1,
+        fk_to="linked_trips.linked_trip_id",
+    )
+    dest_linked_trip_id: int = step_field(
+        ge=1,
+        fk_to="linked_trips.linked_trip_id",
+    )
 
     # Locations
     o_lat: float = step_field(ge=-90, le=90)

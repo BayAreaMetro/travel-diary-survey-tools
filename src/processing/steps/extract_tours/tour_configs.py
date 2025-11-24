@@ -58,7 +58,8 @@ class TourConfig(BaseModel):
         },
         description=(
             "Distance thresholds in meters for matching trip ends "
-            "to known locations"
+            "to known locations (also used to identify multiple visits "
+            "to primary destination)"
         ),
     )
 

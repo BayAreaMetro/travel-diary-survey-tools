@@ -4,6 +4,7 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.trips import Driver
 from processing.decoration import step
 from processing.utils.helpers import (
     expr_haversine,
@@ -196,6 +197,7 @@ def link_trip_ids(
     ])
 
 
+# NOTE: Consider removing from this stage and leave to downstream "formatting"
 def aggregate_linked_trips(
     unlinked_trips: pl.DataFrame,
     transit_mode_codes: list[int],
@@ -310,12 +312,28 @@ def aggregate_linked_trips(
                     ).dt.total_minutes()
                     - pl.col("duration_minutes").sum()
                 ).alias("dwell_duration_minutes"),
+                # Total distance
+                pl.col("distance_meters").sum(),
                 # Number of segments in linked trip
                 pl.len().alias("num_segments"),
                 # Linked trip weight (mean of segment weights)
                 pl.col("trip_weight").mean().alias("linked_trip_weight"),
                 # num_travelers (max of segment num_travelers)
                 pl.col("num_travelers").max().alias("num_travelers"),
+                # Determine driver status across segments
+                pl.when(pl.col("driver").n_unique() == 1)
+                .then(pl.col("driver").first())
+                # If missing entirely
+                .when(
+                    pl.col("driver")
+                    .filter(pl.col("driver") != Driver.MISSING.value)
+                    .n_unique()
+                    == 0
+                )
+                .then(pl.lit(Driver.MISSING.value))  # All missing
+                # If mixed driver/passenger, set to BOTH
+                .otherwise(pl.lit(Driver.BOTH.value))
+                .alias("driver"),
             ]
         )
         # Join with mode selection based on longest duration
