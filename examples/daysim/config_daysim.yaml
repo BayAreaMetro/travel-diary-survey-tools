@@ -11,7 +11,7 @@ taz_shapefile: "X:/travel-model-one-master/utilities/geographies/bayarea_rtaz145
 # Pipeline configuration
 steps:
   - name: load_data
-    validate: false # This will override @step(validate=True/False) in the function definition
+    validate_input: false # This will override @step(validate=True/False) in the function definition
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
@@ -21,14 +21,14 @@ steps:
         taz_shapefile: "{{ taz_shapefile }}"
 
   - name: custom_cleaning
-    validate: false
+    validate_input: false
 
   # - name: imputation
-  #   validate: true
+  #   validate_input: true
 
   - name: link_trips
     function: link_trips
-    validate: false
+    validate_input: false
     params:
       change_mode_code: 11  # Purpose code for 'change_mode'
       transit_mode_codes: [12, 13, 14] # NOTE: this is not elegant
@@ -36,23 +36,24 @@ steps:
       dwell_buffer_distance: 100  # in meters
 
   - name: extract_tours
-    validate: false
+    validate_input: false
 
   # - name: weighting
-  #   validate: true
+  #   validate_input: true
 
 
   - name: custom_add_taz_ids
-    validate: false
+    validate_input: false
   
   # - name: final_check
-  #   validate: true
+  #   validate_input: true
   
   # This prepares a new set of files formatted for DaySim
   - name: format_daysim
-    validate: false
+    validate_input: false
+    validate_output: true
 
-  - name: write_outputs
+  - name: write_data
     params:
       outputs:      
         # Standard Survey Formats

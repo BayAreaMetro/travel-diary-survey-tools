@@ -17,7 +17,8 @@ CANONICAL_TABLES = set(CanonicalData.__annotations__.keys())
 
 def step(
     *,
-    validate: bool = True,
+    validate_input: bool = True,
+    validate_output: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for pipeline steps with automatic validation.
 
@@ -34,10 +35,11 @@ def step(
     to validate all tables after all processing is complete.
 
     Args:
-        validate: Whether to validate inputs.
+        validate_input: Whether to validate inputs. Defaults to True.
+        validate_output: Whether to validate outputs. Defaults to False.
 
     Example:
-        >>> @step(validate=True)
+        >>> @step(validate_input=True)
         ... def link_trips(
         ...     unlinked_trips: pl.DataFrame,
         ...     config: dict
@@ -63,12 +65,16 @@ def step(
         def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             # Extract and remove canonical_data from kwargs
             canonical_data = kwargs.pop("canonical_data", None)
-            validate = kwargs.pop("validate", True)
+            validate_input = kwargs.pop("validate_input", True)
+            validate_output = kwargs.pop("validate_output", False)
 
-            if validate:
+            if validate_input:
                 _validates(func, args, kwargs, canonical_data)
 
             result = func(*args, **kwargs)
+
+            if validate_output and isinstance(result, dict):
+                _validate_dict_outputs(result, func.__name__, canonical_data)
 
             # Update canonical_data with results if available
             if canonical_data and isinstance(result, dict):
@@ -141,6 +147,12 @@ def _validate_dict_outputs(
     """Validate outputs in dict format."""
     for key, value in result.items():
         if not _is_canonical_dataframe(key, value):
+            logger.warning(
+                "Output '%s' from step '%s' is not a canonical "
+                "table. This cannot be validated automatically.",
+                key,
+                func_name,
+            )
             continue
 
         logger.info(

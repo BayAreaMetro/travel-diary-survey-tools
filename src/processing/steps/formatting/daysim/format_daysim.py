@@ -26,7 +26,7 @@ from .format_trips import format_linked_trips
 logger = logging.getLogger(__name__)
 
 
-@step(validate=False)
+@step()
 def format_daysim(
     persons: pl.DataFrame,
     households: pl.DataFrame,
@@ -77,8 +77,8 @@ def format_daysim(
     households_daysim = format_households(households, persons_daysim)
     logger.info("Formatted %d households", len(households_daysim))
 
-    trips_daysim = format_linked_trips(persons, unlinked_trips, linked_trips)
-    logger.info("Formatted %d trips", len(trips_daysim))
+    linked_trips_daysim = format_linked_trips(persons, unlinked_trips, linked_trips)  # noqa: E501
+    logger.info("Formatted %d trips", len(linked_trips_daysim))
 
     tours_daysim = format_tours(persons, days, linked_trips, tours)
     logger.info("Formatted %d tours", len(tours_daysim))
@@ -88,6 +88,6 @@ def format_daysim(
     return {
         "households_daysim": households_daysim,
         "persons_daysim": persons_daysim,
-        "trips_daysim": trips_daysim,
+        "linked_trips_daysim": linked_trips_daysim,
         "tours_daysim": tours_daysim,
     }

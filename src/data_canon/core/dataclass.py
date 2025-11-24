@@ -8,6 +8,13 @@ from dataclasses import dataclass, field
 import polars as pl
 from pydantic import BaseModel
 
+from data_canon.models.daysim import (
+    HouseholdDaysimModel,
+    LinkedTripDaysimModel,
+    PersonDayDaysimModel,
+    PersonDaysimModel,
+    TourDaysimModel,
+)
 from data_canon.models.survey import (
     HouseholdModel,
     LinkedTripModel,
@@ -48,6 +55,13 @@ class CanonicalData:
     linked_trips: pl.DataFrame | None = None
     tours: pl.DataFrame | None = None
 
+    # Daysim-specific tables
+    households_daysim: pl.DataFrame | None = None
+    persons_daysim: pl.DataFrame | None = None
+    days_daysim: pl.DataFrame | None = None
+    linked_trips_daysim: pl.DataFrame | None = None
+    tours_daysim: pl.DataFrame | None = None
+
     # Model mapping for validation
     _models: dict[str, type[BaseModel]] = field(default_factory=lambda: {
         "households": HouseholdModel,
@@ -56,6 +70,12 @@ class CanonicalData:
         "unlinked_trips": UnlinkedTripModel,
         "linked_trips": LinkedTripModel,
         "tours": TourModel,
+        # Daysim models
+        "households_daysim": HouseholdDaysimModel,
+        "persons_daysim": PersonDaysimModel,
+        "days_daysim": PersonDayDaysimModel,
+        "linked_trips_daysim": LinkedTripDaysimModel,
+        "tours_daysim": TourDaysimModel,
     })
 
     # Custom validators: table_name -> list of validator functions

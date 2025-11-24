@@ -6,7 +6,7 @@ Based on https://github.com/RSGInc/DaySim/wiki/docs/Daysim%20Input%20Data%20File
 from pydantic import BaseModel, Field
 
 
-class HouseholdDaysim(BaseModel):
+class HouseholdDaysimModel(BaseModel):
     """Household File Format for DaySim."""
     hhno: int = Field(ge=1, le=9999999, description="The household ID number")
     hhsize: int = Field(ge=1, le=99, description="The number of persons in the household")
@@ -28,7 +28,7 @@ class HouseholdDaysim(BaseModel):
     hhexpfac: float = Field(ge=0, description="The expansion factor for the household")
     samptype: int = Field(ge=0, le=99, description="The type of sample used")
 
-class PersonDaysim(BaseModel):
+class PersonDaysimModel(BaseModel):
     """Person File Format for DaySim."""
     hhno: int = Field(ge=1, le=9999999, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")
@@ -55,7 +55,7 @@ class PersonDaysim(BaseModel):
     psexpfac: float = Field(ge=0, description="The expansion factor for the person")
 
 
-class HouseholdDayDaysim(BaseModel):
+class HouseholdDayDaysimModel(BaseModel):
     """HouseholdDay File Format for DaySim."""
     hhno: int = Field(ge=1, le=9999999, description="The household ID number")
     day: int = Field(ge=1, le=99, description="The survey day sequence")
@@ -66,7 +66,7 @@ class HouseholdDayDaysim(BaseModel):
     hdexpfac: float = Field(ge=0, description="The expansion factor for the household-day")
 
 
-class PersonDayDaysim(BaseModel):
+class PersonDayDaysimModel(BaseModel):
     """PersonDay File Format for DaySim."""
     hhno: int = Field(ge=1, le=9999999, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")
@@ -98,7 +98,7 @@ class PersonDayDaysim(BaseModel):
     pdexpfac: float = Field(ge=0, description="The expansion factor for the person-day")
 
 
-class TourDaysim(BaseModel):
+class TourDaysimModel(BaseModel):
     """Tour File Format for DaySim."""
     hhno: int = Field(ge=1, le=9999999, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")
@@ -131,7 +131,7 @@ class TourDaysim(BaseModel):
     fhtindx2: int = Field(ge=0, le=99, description="Links to the sequence number of the second half tour in FullHalfTour")
     toexpfac: float = Field(ge=0, description="The expansion factor for the tour")
 
-class TripDaysim(BaseModel):
+class LinkedTripDaysimModel(BaseModel):
     """Trip File Format for DaySim."""
     hhno: int = Field(ge=1, le=9999999, description="The household ID number")
     pno: int = Field(ge=1, le=99, description="The person sequence number within the household")

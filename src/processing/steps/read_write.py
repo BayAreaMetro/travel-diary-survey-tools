@@ -9,7 +9,7 @@ from processing.decoration import step
 
 logger = logging.getLogger(__name__)
 
-@step(validate=False)
+@step()
 def load_data(
     input_paths: dict[str, str],
 ) -> dict[str, pl.DataFrame | gpd.GeoDataFrame]:
@@ -33,7 +33,7 @@ def load_data(
     logger.info("All data loaded successfully.")
     return data
 
-@step(validate=True)
+@step()
 def write_data(
     data: dict[str, pl.DataFrame | gpd.GeoDataFrame],
     output_paths: dict[str, str],

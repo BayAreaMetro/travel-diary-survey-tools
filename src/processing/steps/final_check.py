@@ -7,7 +7,7 @@ from processing import step
 
 logger = logging.getLogger(__name__)
 
-@step(validate=True)
+@step(validate_input=True, validate_output=True)
 def final_check(
     households: pl.DataFrame,
     persons: pl.DataFrame,

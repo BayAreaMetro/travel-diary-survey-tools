@@ -146,13 +146,16 @@ class Pipeline:
             logger.info("▶ Running step: %s", step_name)
 
             kwargs = self.parse_step_args(step_name, step_obj)
+            validate_input = step_cfg.get("validate_input", True)
+            validate_output = step_cfg.get("validate_output", False)
 
             # Execute step
             # Pass in current canonical data for validation
             step_obj(
                 **kwargs,
-                validate=step_cfg.get("validate", True),
-                canonical_data=self.data
+                canonical_data=self.data,
+                validate_input=validate_input,
+                validate_output=validate_output,
             )
 
         logger.info("Pipeline completed.")
