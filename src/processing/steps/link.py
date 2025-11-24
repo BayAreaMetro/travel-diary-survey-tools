@@ -53,7 +53,7 @@ def link_trips(
 
     logger.info("Trip linking completed.")
     return {
-        "trips_with_ids": unlinked_trips_with_ids,
+        "unlinked_trips": unlinked_trips_with_ids,
         "linked_trips": linked_trips,
     }
 
