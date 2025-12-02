@@ -8,9 +8,9 @@ import geopandas as gpd
 import polars as pl
 
 from data_canon.models.survey import PersonDayModel
-from processing.decoration import step
-from processing.pipeline import Pipeline
-from processing.utils.helpers import add_time_columns, expr_haversine
+from pipeline.decoration import step
+from pipeline.pipeline import Pipeline
+from pipeline.utils.helpers import add_time_columns, expr_haversine
 
 # ---------------------------------------------------------------------
 # Configuration

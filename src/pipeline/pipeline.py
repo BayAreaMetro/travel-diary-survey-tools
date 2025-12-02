@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from data_canon.core.dataclass import CanonicalData
-from pipeline.steps import (
+from processing import (
     extract_tours,
     format_daysim,
     link_trips,

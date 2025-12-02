@@ -34,7 +34,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pipeline", "src/data_canon"]
+packages = ["src/pipeline", "src/data_canon", "src/processing"]
 
 [tool.ruff]
 line-length = 80
@@ -71,4 +71,4 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--cov=src/pipeline --cov=src/data_canon --cov-report=term-missing"
+addopts = "--cov=src/pipeline --cov=src/data_canon --cov=src/processing --cov-report=term-missing"
