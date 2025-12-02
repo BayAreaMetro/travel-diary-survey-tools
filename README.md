@@ -130,13 +130,13 @@ style Pipeline fill:#e3f2fd,stroke:#333,stroke-width:1px,color:#000
 style DataModels fill:#f3e5f5,stroke:#333,stroke-width:1px,color:#000
 style Format fill:#fff4e1,color:#000
 
-style LoadData color:#fff
+style LoadData color:#000
 style CustomPre fill:#f0f0f0,color:#000
-style Imputation color:#fff
-style JointTrips color:#fff
-style LinkTrips color:#fff
-style ExtractTours color:#fff
-style Weighting color:#fff
+style Imputation color:#000
+style JointTrips color:#000
+style LinkTrips color:#000
+style ExtractTours color:#000
+style Weighting color:#000
 style Format color:#000
 
 style Households fill:#d1c4e9,color:#000,stroke:#000
