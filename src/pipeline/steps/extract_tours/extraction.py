@@ -73,8 +73,8 @@ from data_canon.codebook.tours import (
     TourType,
 )
 from data_canon.codebook.trips import PurposeCategory
-from processing.decoration import step
-from processing.utils import expr_haversine
+from pipeline.decoration import step
+from pipeline.utils import expr_haversine
 
 from .person_type import derive_person_type
 from .priority_utils import (

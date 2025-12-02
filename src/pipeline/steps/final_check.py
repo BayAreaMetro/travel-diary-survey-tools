@@ -3,7 +3,7 @@ import logging
 
 import polars as pl
 
-from processing import step
+from pipeline import step
 
 logger = logging.getLogger(__name__)
 

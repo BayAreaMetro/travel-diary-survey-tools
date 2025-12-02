@@ -8,7 +8,7 @@ import numpy as np  # noqa: F401
 import pandas as pd
 import polars as pl
 
-from processing.steps.link import link_trips
+from pipeline.steps.link import link_trips
 
 # Import the legacy function dynamically due to non-standard module name
 spec = importlib.util.spec_from_file_location(

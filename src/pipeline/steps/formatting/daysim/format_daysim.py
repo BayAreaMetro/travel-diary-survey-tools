@@ -16,7 +16,7 @@ import logging
 
 import polars as pl
 
-from processing.decoration import step
+from pipeline.decoration import step
 
 from .format_households import format_households
 from .format_persons import compute_day_completeness, format_persons

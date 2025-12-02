@@ -254,7 +254,7 @@ data.validate("households")  # ✗ DataValidationError: Missing required childre
 The validation framework integrates seamlessly with the pipeline decorator:
 
 ```python
-from processing.decoration import step
+from pipeline.decoration import step
 
 @step(validate=True)
 def enrich_persons(

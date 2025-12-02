@@ -6,8 +6,8 @@ import polars as pl
 
 from data_canon.codebook.persons import PersonType
 from data_canon.codebook.trips import ModeType, PurposeCategory
-from processing.steps.extract_tours.extraction import TourExtractor
-from processing.steps.extract_tours.tour_configs import TourConfig
+from pipeline.steps.extract_tours.extraction import TourExtractor
+from pipeline.steps.extract_tours.tour_configs import TourConfig
 
 
 def create_test_data(

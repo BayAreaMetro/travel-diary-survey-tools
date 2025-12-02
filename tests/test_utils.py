@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from processing.utils.helpers import (
+from pipeline.utils.helpers import (
     add_time_columns,
     expr_haversine,
 )

@@ -5,8 +5,8 @@ import logging
 import polars as pl
 
 from data_canon.codebook.trips import Driver
-from processing.decoration import step
-from processing.utils.helpers import (
+from pipeline.decoration import step
+from pipeline.utils.helpers import (
     expr_haversine,
 )
 

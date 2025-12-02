@@ -264,8 +264,8 @@ You can also inject custom pre-processing steps here. The goal is to **keep the 
 from pathlib import Path
 import polars as pl
 
-from processing.decoration import step
-from processing.pipeline import Pipeline
+from pipeline.decoration import step
+from pipeline.pipeline import Pipeline
 
 # Optional: project-specific custom step functions
 # Could put this in a separate py file and import to keep this runner concise and consistent
@@ -340,7 +340,7 @@ Notes:
 * By default, the `@step()` decorator enables validation. You can override this in the config YAML per step with `validate: true/false`.*
 
 ```python
-from processing.decoration import step
+from pipeline.decoration import step
 
 @step(validate=True)
 def new_processing_step(

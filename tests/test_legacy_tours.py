@@ -33,7 +33,7 @@ import pytest
 from data_canon.codebook.persons import PersonType
 from data_canon.codebook.tours import TourType
 from data_canon.codebook.trips import ModeType, PurposeCategory
-from processing.steps.extract_tours import extract_tours
+from pipeline.steps.extract_tours import extract_tours
 
 # Import the legacy tour extraction function dynamically
 # Using the refactored version with _tour_extract_week_core
