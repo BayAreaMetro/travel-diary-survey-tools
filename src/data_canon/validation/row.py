@@ -121,7 +121,7 @@ def validate_row_for_step(
             ) from e
 
 
-def validate_dataframe_rows(  # noqa: C901
+def validate_dataframe_rows(
     table_name: str,
     df: pl.DataFrame,
     model: type[BaseModel],

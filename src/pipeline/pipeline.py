@@ -9,13 +9,6 @@ from typing import Any
 import yaml
 
 from data_canon.core.dataclass import CanonicalData
-from processing import (
-    extract_tours,
-    format_daysim,
-    link_trips,
-    load_data,
-    write_data,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +20,7 @@ class Pipeline:
     steps: dict[str, Callable]
 
     def __init__(
-        self, config_path: str, custom_steps: dict[str, Callable] | None = None
+        self, config_path: str, processing_steps: list[Callable] | None = None
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
@@ -40,17 +33,7 @@ class Pipeline:
         self.config_path = config_path
         self.config = self._load_config()
         self.data = CanonicalData()
-
-        # Update with default steps from the config
-        # NOTE: Could probably do this more elegantly with dynamic imports
-        self.steps = {
-            "load_data": load_data,
-            "link_trips": link_trips,
-            "extract_tours": extract_tours,
-            "format_daysim": format_daysim,
-            "write_data": write_data,
-        }
-        self.steps.update(custom_steps or {})
+        self.steps = {func.__name__: func for func in processing_steps or []}
 
     def _load_config(self) -> dict[str, Any]:
         """Load the pipeline configuration from a YAML file.

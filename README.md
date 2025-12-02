@@ -399,19 +399,19 @@ travel-diary-survey-tools/
 │   ├── data_canon/
 |   |   ├── validation <----------- # Column, row, relational, and custom validators here!
 │   │   ├── codebook/ <------------ # Categorical Enums defined here!
-|   |   ├── models/ <--------------- # Data models defined here!
+|   |   ├── models/ <-------------- # Data models defined here!
 │   │   └── core/
-│   └── processing/
-│       ├── pipeline.py
-│       ├── decoration.py
-│       └── steps/ <--------------- # Define default processing steps here!
-│           ├── load.py
-│           ├── imputation.py       # Not yet implemented
-│           ├── joint_trips/        # Not yet implemented
-│           ├── link.py
-│           ├── extract_tours/
-│           ├── weighting/          # Not yet implemented
-│           └── fromatting/ <------ # Define bespoke output formatting here!
+│   └── pipeline/ <---------------- # Pipeline orchestration code.
+│   |   ├── pipeline.py
+│   |   ├── decoration.py
+│   └── processing/ <-------------- # Processing code go here!
+│       ├── load.py
+│       ├── imputation.py           # Not yet implemented
+│       ├── joint_trips/            # Not yet implemented
+│       ├── link.py
+│       ├── extract_tours/
+│       ├── weighting/              # Not yet implemented
+│       └── formatting/ <---------- # Define bespoke output formatting here!
 ├── tests/                          # Test suite
 └── docs/                           # Documentation
 ```

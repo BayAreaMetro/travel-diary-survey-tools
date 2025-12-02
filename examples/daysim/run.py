@@ -11,6 +11,12 @@ from data_canon.models.survey import PersonDayModel
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
 from pipeline.utils.helpers import add_time_columns, expr_haversine
+from processing import (
+    extract_tours,
+    format_daysim,
+    link_trips,
+    load_data,
+)
 
 # ---------------------------------------------------------------------
 # Configuration
@@ -250,7 +256,7 @@ def custom_add_taz_ids(
     }
 
 
-
+@step()
 def custom_postprocessing(
     households_daysim: pl.DataFrame,
     persons_daysim: pl.DataFrame,
@@ -269,18 +275,25 @@ def custom_postprocessing(
 
 
 # Set up custom steps dictionary ----------------------------------
-custom_steps = {
-    "custom_cleaning": custom_cleaning,
-    "custom_add_taz_ids": custom_add_taz_ids,
-    "custom_postprocessing": custom_postprocessing,
-}
+processing_steps = [
+    load_data,
+    custom_cleaning,
+    custom_add_taz_ids,
+    link_trips,
+    extract_tours,
+    format_daysim,
+    custom_postprocessing,
+]
 
 
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     logger.info("Starting BATS 2023 DaySim Processing Pipeline")
 
-    pipeline = Pipeline(config_path=CONFIG_PATH, custom_steps=custom_steps)
+    pipeline = Pipeline(
+        config_path=CONFIG_PATH,
+        processing_steps=processing_steps
+        )
     result = pipeline.run()
 
     logger.info("Pipeline finished successfully.")
