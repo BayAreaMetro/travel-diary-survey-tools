@@ -1,7 +1,6 @@
 """Runner script for the BATS 2023 DaySim processing pipeline."""
 
 import logging
-import os
 from pathlib import Path
 
 import geopandas as gpd
@@ -22,8 +21,8 @@ from processing import (
 # Configuration
 # ---------------------------------------------------------------------
 
-os.system(r"net use M: \\models.ad.mtc.ca.gov\data\models")  # noqa: S605, S607
-os.system(r"net use X: \\model3-a\Model3A-Share")  # noqa: S605, S607
+# os.system(r"net use M: \\models.ad.mtc.ca.gov\data\models")  # noqa: ERA001
+# os.system(r"net use X: \\model3-a\Model3A-Share")  # noqa: ERA001
 
 # Path to the YAML config file you provided
 CONFIG_PATH = Path(__file__).parent / "config_daysim.yaml"

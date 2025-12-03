@@ -58,7 +58,7 @@ def format_tours(
         parent=pl.when(pl.col("parent_tour_id").is_null())
             .then(pl.lit(0))
             .otherwise(pl.col("parent_tour_id")),
-        pdpurp=pl.col("tour_purpose").replace(PURPOSE_MAP),
+        pdpurp=pl.col("tour_purpose").replace_strict(PURPOSE_MAP),
         toadtyp=pl.col("o_location_type"),
         tdadtyp=pl.col("d_location_type"),
     )
@@ -66,19 +66,19 @@ def format_tours(
     # Convert times to DaySim format (minutes after midnight)
     tours_daysim = tours_daysim.with_columns(
         tlvorig=(
-            pl.col("origin_depart_time").dt.hour() * 60
-            + pl.col("origin_depart_time").dt.minute()
+            pl.col("origin_depart_time").dt.hour().cast(pl.Int16) * 60
+            + pl.col("origin_depart_time").dt.minute().cast(pl.Int16)
         ),
         tardest=(
-            pl.col("dest_arrive_time").dt.hour() * 60
-            + pl.col("dest_arrive_time").dt.minute()
+            pl.col("dest_arrive_time").dt.hour().cast(pl.Int16) * 60
+            + pl.col("dest_arrive_time").dt.minute().cast(pl.Int16)
         ),
         tlvdest=(
-            pl.col("dest_depart_time").dt.hour() * 60
-            + pl.col("dest_depart_time").dt.minute()
+            pl.col("dest_depart_time").dt.hour().cast(pl.Int16) * 60
+            + pl.col("dest_depart_time").dt.minute().cast(pl.Int16)
         ),
         tarorig=(
-            pl.col("origin_arrive_time").dt.hour() * 60
+            pl.col("origin_arrive_time").dt.hour().cast(pl.Int16) * 60
             + pl.col("origin_arrive_time").dt.minute()
         ),
     )

@@ -128,7 +128,7 @@ def format_persons(
     # Apply basic field mappings and transformations
     persons_daysim = persons_daysim.with_columns(
         # Fill null coordinates with -1
-        pl.col(["pwxcord", "pwycord", "psxcord", "psycord"]).fill_null(-1),
+        pl.col(["pwtaz", "pwpcl", "pstaz", "pspcl"]).fill_null(-1),
         # Map age categories to midpoint ages
         pagey=pl.col("age").replace(AGE_MAP),
         # Map gender codes

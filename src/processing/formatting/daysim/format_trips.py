@@ -429,9 +429,11 @@ def _prepare_basic_fields(
         pl.col("oycord").fill_null(value=-1),
         pl.col("dxcord").fill_null(value=-1),
         pl.col("dycord").fill_null(value=-1),
-        # Convert times to DaySim format (HHMM)
-        (pl.col("depart_hour") * 100 + pl.col("depart_minute")).alias("deptm"),
-        (pl.col("arrive_hour") * 100 + pl.col("arrive_minute")).alias("arrtm"),
+        # Convert datetime to minutes after midnight (0-1439)
+        (pl.col("depart_time").dt.hour().cast(pl.Int16) * 60 +
+            pl.col("depart_time").dt.minute()).alias("deptm"),
+        (pl.col("arrive_time").dt.hour().cast(pl.Int16) * 60 +
+            pl.col("arrive_time").dt.minute()).alias("arrtm"),
         # Map purposes
         pl.col("opurp").replace(PURPOSE_MAP).alias("opurp"),
         pl.col("dpurp").replace(PURPOSE_MAP).alias("dpurp"),

@@ -37,10 +37,10 @@ steps:
 
   - name: extract_tours
     validate_input: false
+    validate_output: true
 
   # - name: weighting
   #   validate_input: true
-
 
   - name: custom_add_taz_ids
     validate_input: false
