@@ -197,7 +197,7 @@ class TestCustomValidators:
                 "trip_id": [1, 2, 3],
                 "person_id": [101, 101, 101],
                 "hh_id": [1, 1, 1],
-                "day_id": [1001, 1001, 1001],
+                "day_id": [10101, 10101, 10101],
                 "depart_date": ["2024-01-15", "2024-01-15", "2024-01-15"],
                 "depart_hour": [10, 11, 8],
                 "depart_minute": [0, 0, 0],

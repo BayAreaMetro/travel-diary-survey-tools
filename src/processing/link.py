@@ -10,6 +10,8 @@ from pipeline.utils.helpers import (
     expr_haversine,
 )
 
+from .create_ids import create_linked_trip_id
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -150,46 +152,8 @@ def link_trip_ids(
         ]
     )
 
-    # Step 5: Make linked_trip_id globally unique across persons and days
-    # Two scenarios:
-    # 1. Pre-concatenated IDs (e.g., day_id=230000750101 already contains
-    #    hh_id+person_num+day_num): Just append linked_trip_id with padding
-    # 2. Separate IDs (e.g., person_id=100, day_id=1): Concatenate all three
-    #
-    # We detect pre-concatenated by checking if day_id is much larger than
-    # person_id (pre-concatenated day_id contains person_id as prefix)
-
-    # Get the string lengths of id columns
-    day_id_len = unlinked_trips.select(
-        pl.col("day_id").cast(pl.Utf8).str.len_chars().max()
-    ).item()
-    person_id_len = unlinked_trips.select(
-        pl.col("person_id").cast(pl.Utf8).str.len_chars().max()
-    ).item()
-
-    if day_id_len <= person_id_len + 2:
-        logger.info(
-            "Detected separate person_id and day_id format. "
-            "Creating linked_trip_id by concatenating "
-            "person_id, day_id, and linked_trip_id."
-        )
-        id_expr = (
-            pl.col("person_id").cast(pl.Utf8)
-            + pl.col("day_id").cast(pl.Utf8).str.pad_start(2, "0")
-            + pl.col("linked_trip_num").cast(pl.Utf8).str.pad_start(2, "0")
-        )
-    else:
-        logger.info(
-            "Detected pre-concatenated day_id format. "
-            "Creating linked_trip_id using day_id + linked_trip_num."
-        )
-        id_expr = pl.col("day_id").cast(pl.Utf8) + pl.col(
-            "linked_trip_num"
-        ).cast(pl.Utf8).str.pad_start(2, "0")
-
-    unlinked_trips_with_id = unlinked_trips.with_columns(
-        id_expr.alias("linked_trip_id")
-    )
+    # Step 5: Create globally unique linked_trip_id
+    unlinked_trips_with_id = create_linked_trip_id(unlinked_trips)
 
     # Step 6: Clean up temporary columns
     return unlinked_trips_with_id.drop(

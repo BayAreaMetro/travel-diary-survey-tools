@@ -167,23 +167,27 @@ def extract_tours(
         linked_trips_with_subtours, tours
     )
 
+    list(set(linked_trips_with_half_tour.columns) - set(linked_trips.columns))
+
     # Return clean linked_trips (drop temporary columns)
-    temp_patterns = [
-        "_is_home",
-        "_is_work",
-        "_is_school",
-        "location_type",
-        "leaving_",
-        "returning_",
-        "subtour_num_",
-        "tour_num_",
+    drop_cols = [
+        "leaving_home",
+        "o_is_work",
+        "o_is_school",
+        "d_is_work",
+        "half_tour_type",
+        "_trip_num_in_tour",
+        "o_is_home",
+        "returning_home",
+        "anchor_period_end_trip_num",
+        "d_is_school",
+        "d_is_home",
+        "o_location_type",
+        "d_location_type",
+        "anchor_location_type",
+        "anchor_period_start_trip_num",
     ]
-    output_cols = [
-        c
-        for c in linked_trips_with_half_tour.columns
-        if not any(p in c for p in temp_patterns)
-    ]
-    linked_trips_with_tour_ids = linked_trips_with_half_tour.select(output_cols)
+    linked_trips_with_tour_ids = linked_trips_with_half_tour.drop(drop_cols)
 
     logger.info(
         "Tour building complete: %d linked trips, %d tours",

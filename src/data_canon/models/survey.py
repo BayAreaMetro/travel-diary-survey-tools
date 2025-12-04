@@ -185,6 +185,7 @@ class TourModel(BaseModel):
     person_id: int = step_field(ge=1, fk_to="persons.person_id")
     day_id: int = step_field(ge=1, fk_to="days.day_id")
     tour_num: int = step_field(ge=1)
+    subtour_num: int = step_field(ge=0)
     parent_tour_id: int | None = step_field(
         ge=1, fk_to="tours.tour_id", default=None
     )

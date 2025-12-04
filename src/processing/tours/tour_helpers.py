@@ -81,30 +81,27 @@ def identify_home_based_tours(
     tour_ends = (is_returning_home | is_last_trip).cast(pl.Int32)
 
     # Assign tour numbers by cumulative sum of tour starts
-    linked_trips = (
-        linked_trips.with_columns(
-            [
-                is_leaving_home.alias("leaving_home"),
-                is_returning_home.alias("returning_home"),
-                tour_starts.alias("_tour_starts"),
-                tour_ends.alias("_tour_ends"),
-            ]
-        )
-        .with_columns(
-            [
-                pl.col("_tour_starts")
-                .cum_sum()
-                .over(["person_id", "day_id"])
-                .alias("tour_num_in_day"),
-            ]
-        )
-        .with_columns(
-            [
-                ((pl.col("day_id") * 100) + pl.col("tour_num_in_day")).alias(
-                    "tour_id"
-                ),
-            ]
-        )
+    linked_trips = linked_trips.with_columns(
+        [
+            is_leaving_home.alias("leaving_home"),
+            is_returning_home.alias("returning_home"),
+            tour_starts.alias("_tour_starts"),
+            tour_ends.alias("_tour_ends"),
+        ]
+    ).with_columns(
+        [
+            pl.col("_tour_starts")
+            .cum_sum()
+            .over(["person_id", "day_id"])
+            .alias("tour_num"),
+        ]
+    )
+
+    # Initialize subtour_num to 0 for all parent tours
+    linked_trips = linked_trips.with_columns(
+        [
+            pl.lit(0).alias("subtour_num"),
+        ]
     )
 
     # Clean up temporary columns
@@ -169,7 +166,7 @@ def expand_anchor_periods(
         [
             pl.col("linked_trip_id")
             .rank("ordinal")
-            .over("tour_id")
+            .over(["person_id", "day_id", "tour_num"])
             .alias("_trip_num_in_tour"),
         ]
     )
@@ -258,13 +255,13 @@ def expand_anchor_periods(
             .then(pl.col("_trip_num_in_tour"))
             .otherwise(None)
             .min()
-            .over("tour_id")
+            .over(["person_id", "day_id", "tour_num"])
             .alias("_work_period_start"),
             pl.when(pl.col("_at_usual_work"))
             .then(pl.col("_trip_num_in_tour"))
             .otherwise(None)
             .max()
-            .over("tour_id")
+            .over(["person_id", "day_id", "tour_num"])
             .alias("_work_period_end"),
         ]
     )
@@ -276,13 +273,13 @@ def expand_anchor_periods(
             .then(pl.col("_trip_num_in_tour"))
             .otherwise(None)
             .min()
-            .over("tour_id")
+            .over(["person_id", "day_id", "tour_num"])
             .alias("_school_period_start"),
             pl.when(pl.col("_at_usual_school"))
             .then(pl.col("_trip_num_in_tour"))
             .otherwise(None)
             .max()
-            .over("tour_id")
+            .over(["person_id", "day_id", "tour_num"])
             .alias("_school_period_end"),
         ]
     )
@@ -367,27 +364,20 @@ def detect_anchor_based_subtours(  # noqa: C901
     """
     logger.info("Detecting anchor-based subtours...")
 
-    # Initialize subtour_id column
-    linked_trips = linked_trips.with_columns(
-        [
-            pl.lit(None, dtype=pl.Int64).alias("subtour_id"),
-        ]
-    )
-
     # Convert to list of dicts for loop-based processing
     trips_list = linked_trips.to_dicts()
 
-    # Group trips by tour_id
+    # Group trips by tour (using person_id, day_id, tour_num as composite key)
     tours_dict = {}
     for trip in trips_list:
-        tour_id = trip["tour_id"]
-        if tour_id not in tours_dict:
-            tours_dict[tour_id] = []
-        tours_dict[tour_id].append(trip)
+        tour_key = (trip["person_id"], trip["day_id"], trip["tour_num"])
+        if tour_key not in tours_dict:
+            tours_dict[tour_key] = []
+        tours_dict[tour_key].append(trip)
 
     # Process each tour
     subtour_counter = 0
-    for tour_id, tour_trips in tours_dict.items():
+    for tour_trips in tours_dict.values():
         # Skip if no anchor period
         if not tour_trips[0].get("anchor_period_start_trip_num"):
             continue
@@ -407,7 +397,12 @@ def detect_anchor_based_subtours(  # noqa: C901
         subtour_num = 0
         in_subtour = False
 
-        for _i, trip in enumerate(tour_trips):
+        # Build parent tour_id for tracking
+        parent_tour_id_value = (
+            tour_trips[0]["day_id"] * 10000 + tour_trips[0]["tour_num"] * 100
+        )
+
+        for trip in tour_trips:
             trip_num = trip["_trip_num_in_tour"]
 
             # Only check trips within anchor period (exclusive of
@@ -440,21 +435,36 @@ def detect_anchor_based_subtours(  # noqa: C901
             if is_leaving_anchor and not is_returning_anchor and not in_subtour:
                 in_subtour = True
                 subtour_num += 1
-                # Assign subtour_id to this trip
-                trip["subtour_id"] = (tour_id * 10) + subtour_num
+                # Update tour_num, subtour_num, and parent_tour_id
+                trip["tour_num"] = tour_trips[0]["tour_num"]
+                trip["subtour_num"] = subtour_num
+                trip["parent_tour_id"] = parent_tour_id_value
 
             # Subtour continues
             elif in_subtour and not is_returning_anchor:
-                trip["subtour_id"] = (tour_id * 10) + subtour_num
+                trip["tour_num"] = tour_trips[0]["tour_num"]
+                trip["subtour_num"] = subtour_num
+                trip["parent_tour_id"] = parent_tour_id_value
 
             # Subtour ends when returning to anchor
             elif in_subtour and is_returning_anchor:
-                trip["subtour_id"] = (tour_id * 10) + subtour_num
+                trip["tour_num"] = tour_trips[0]["tour_num"]
+                trip["subtour_num"] = subtour_num
+                trip["parent_tour_id"] = parent_tour_id_value
                 in_subtour = False
                 subtour_counter += 1
 
     # Convert back to polars DataFrame
     linked_trips = pl.DataFrame(trips_list)
+
+    # Ensure parent_tour_id column exists (will be null for non-subtour trips)
+    if "parent_tour_id" not in linked_trips.columns:
+        linked_trips = linked_trips.with_columns(
+            [pl.lit(None, dtype=pl.Int64).alias("parent_tour_id")]
+        )
+
+    # tour_num, subtour_num, and parent_tour_id are now set for subtour trips
+    # They will be used for ID creation and parent tracking during aggregation
 
     logger.info("Detected %s anchor-based subtours", subtour_counter)
     return linked_trips

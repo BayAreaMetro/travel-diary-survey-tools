@@ -214,7 +214,7 @@ def test_activity_duration_last_trip():
     """Last trip of day should get default 240 minute duration."""
     persons, households, linked_trips = create_test_data(
         person_data={
-            "person_id": 100,
+            "person_id": 101,
             "hh_id": 10,
             "person_type": PersonType.FULL_TIME_WORKER.value,
             "age": AgeCategory.AGE_25_TO_34.value,
@@ -224,9 +224,9 @@ def test_activity_duration_last_trip():
         },
         linked_trips_data=[
             {
-                "linked_trip_id": 1,
-                "person_id": 100,
-                "day_id": 1,
+                "linked_trip_id": 1010101,
+                "day_id": 10101,
+                "person_id": 101,
                 "hh_id": 10,
                 "depart_time": datetime(2024, 1, 1, 8, 0),  # Leave home
                 "arrive_time": datetime(2024, 1, 1, 9, 0),  # Arrive at work
@@ -237,6 +237,22 @@ def test_activity_duration_last_trip():
                 "d_lon": -122.4094,  # Work
                 "o_purpose_category": PurposeCategory.HOME.value,
                 "d_purpose_category": PurposeCategory.WORK.value,
+                "mode_type": ModeType.CAR.value,
+            },
+            {
+                "linked_trip_id": 1010102,
+                "day_id": 10101,
+                "person_id": 101,
+                "hh_id": 10,
+                "depart_time": datetime(2024, 1, 1, 17, 0),  # Leave work
+                "arrive_time": datetime(2024, 1, 1, 18, 0),  # Arrive home
+                "travel_dow": TravelDow.MONDAY.value,
+                "o_lat": 37.7849,
+                "o_lon": -122.4094,  # Work
+                "d_lat": 37.7749,
+                "d_lon": -122.4194,  # Home
+                "o_purpose_category": PurposeCategory.WORK.value,
+                "d_purpose_category": PurposeCategory.HOME.value,
                 "mode_type": ModeType.CAR.value,
             },
         ],
