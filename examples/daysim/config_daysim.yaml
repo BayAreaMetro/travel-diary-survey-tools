@@ -27,7 +27,6 @@ steps:
   #   validate_input: true
 
   - name: link_trips
-    function: link_trips
     validate_input: false
     params:
       change_mode_code: 11  # Purpose code for 'change_mode'
