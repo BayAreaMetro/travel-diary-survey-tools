@@ -143,8 +143,8 @@ def extract_tours(
 
     # Step 2: Identify home-based tours
     linked_trips_with_hb_tours = identify_home_based_tours(
-        linked_trips_classified,
-        config.check_multiday_gaps,
+        linked_trips=linked_trips_classified,
+        check_multiday_gaps=config.check_multiday_gaps,
     )
 
     # Step 3: Expand anchor location periods (work, school, etc.)

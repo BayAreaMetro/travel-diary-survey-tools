@@ -294,6 +294,7 @@ class SchoolType(LabeledEnum):
     COLLEGE_4YEAR = (12, "4-year college")
     GRADUATE_SCHOOL = (13, "Graduate or professional school")
     MISSING = (995, "Missing Response")
+    PNTA = (999, "Prefer not to answer")
     OTHER = (997, "Other")
 
 
