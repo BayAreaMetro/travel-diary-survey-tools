@@ -16,7 +16,7 @@ from data_canon.codebook.tours import (
     TourBoundary,
     TourType,
 )
-from pipeline.utils import expr_haversine
+from utils.helpers import expr_haversine
 
 from .priority_utils import (
     add_activity_duration_column,

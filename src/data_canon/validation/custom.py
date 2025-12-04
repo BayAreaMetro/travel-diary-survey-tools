@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 import polars as pl
 
-from pipeline.utils.helpers import expr_haversine
+from utils.helpers import expr_haversine
 
 # Registry of custom validators
 # Format: {table_name: [check_function1, check_function2, ...]}  # noqa: ERA001

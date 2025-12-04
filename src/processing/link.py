@@ -6,11 +6,10 @@ import polars as pl
 
 from data_canon.codebook.trips import Driver
 from pipeline.decoration import step
-from pipeline.utils.helpers import (
+from utils.create_ids import create_linked_trip_id
+from utils.helpers import (
     expr_haversine,
 )
-
-from .create_ids import create_linked_trip_id
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

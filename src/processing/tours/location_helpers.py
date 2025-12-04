@@ -13,7 +13,7 @@ import polars as pl
 
 from data_canon.codebook.generic import LocationType
 from data_canon.codebook.trips import PurposeCategory
-from pipeline.utils import expr_haversine
+from utils.helpers import expr_haversine
 
 logger = logging.getLogger(__name__)
 
