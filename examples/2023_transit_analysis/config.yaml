@@ -1,0 +1,54 @@
+# DaySim Processing Pipeline Configuration for BATS 2023
+# This config file demonstrates the full pipeline with DaySim formatting
+
+# config.yaml
+
+# Define directory shorthands
+survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
+output_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/BATS2019_2023/Transit_Analysis"
+weights_dir: "X:/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output"
+
+# Pipeline configuration
+steps:
+  - name: load_data
+    validate_input: false # This will override @step(validate=True/False) in the function definition
+    params:
+      input_paths:
+        households: "{{ survey_dir }}/hh.csv"
+        persons: "{{ survey_dir }}/person.csv"
+        days: "{{ survey_dir }}/day.csv"
+        unlinked_trips: "{{ survey_dir }}/trip.csv"
+        hh_weights: "{{ weights_dir }}/hh_weights.csv"
+        person_weights: "{{ weights_dir }}/person_weights.csv"
+        day_weights: "{{ weights_dir }}/day_weights.csv"
+        trip_weights: "{{ weights_dir }}/trip_weights.csv"
+
+  - name: clean_2023_bats
+    validate_input: false
+
+  # - name: imputation
+  #   validate_input: true
+
+  - name: link_trips
+    validate_input: false
+    params:
+      change_mode_code: 11  # Purpose code for 'change_mode'
+      transit_mode_codes: [12, 13, 14] # NOTE: this is not elegant
+      max_dwell_time: 180  # in minutes
+      dwell_buffer_distance: 100  # in meters
+
+  - name: summarize_transit_trips
+    validate_input: false
+    params:
+      transit_mode_codes: [12, 13] # transit, ferry
+
+  # - name: write_data
+  #   params:
+  #     output_paths:
+  #       # Standard Survey Formats
+  #       households: "{{ output_dir }}/households.csv"
+  #       persons: "{{ output_dir }}/persons.csv"
+  #       days: "{{ output_dir }}/days.csv"
+  #       unlinked_trips: "{{ output_dir }}/unlinked_trips.csv"
+  #       linked_trips: "{{ output_dir }}/linked_trips.csv"
+  #       tours: "{{ output_dir }}/tours.csv"
