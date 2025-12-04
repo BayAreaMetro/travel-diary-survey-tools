@@ -203,8 +203,8 @@ def check_foreign_keys(
 
 
 __all__ = [
+    "check_foreign_keys",
     "get_foreign_key_fields",
     "get_required_children_fields",
     "validate_fk_references",
-    "check_foreign_keys",
 ]

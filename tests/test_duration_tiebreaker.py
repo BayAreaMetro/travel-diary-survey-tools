@@ -3,11 +3,11 @@
 from datetime import datetime
 
 import polars as pl
+from pipeline.steps.extract_tours.extraction import TourExtractor
+from pipeline.steps.extract_tours.tour_configs import TourConfig
 
 from data_canon.codebook.persons import PersonType
 from data_canon.codebook.trips import ModeType, PurposeCategory
-from pipeline.steps.extract_tours.extraction import TourExtractor
-from pipeline.steps.extract_tours.tour_configs import TourConfig
 
 
 def create_test_data(

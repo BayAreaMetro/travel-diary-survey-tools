@@ -153,7 +153,7 @@ def aggregate_tours(
     # Get destination arrival and departure times
     # dest_arrive_time: Latest arrival at primary destination
     # dest_depart_time: Latest departure FROM primary destination
-    
+
     # First calculate threshold for each trip's primary destination type
     trips_with_thresholds = trips_with_primary_coords.with_columns([
         pl.when(pl.col("_primary_d_type") == LocationType.HOME)
@@ -165,13 +165,13 @@ def aggregate_tours(
         .otherwise(pl.lit(config.distance_thresholds[LocationType.HOME]))
         .alias("_threshold"),
     ])
-    
+
     # Then mark arrivals and departures at primary destination
     trips_with_flags = trips_with_thresholds.with_columns([
         (pl.col("_dist_d_to_primary") <= pl.col("_threshold")).alias("_arrives_at_primary"),
         (pl.col("_dist_o_to_primary") <= pl.col("_threshold")).alias("_departs_from_primary"),
     ])
-    
+
     # For arrivals: exclude last trip (last trip's destination is not the tour destination)
     # For departures: include ALL trips (last trip may depart FROM the primary destination)
     arrival_times = (
@@ -183,7 +183,7 @@ def aggregate_tours(
             pl.col("linked_trip_id").max().alias("dest_linked_trip_id"),
         ])
     )
-    
+
     departure_times = (
         trips_with_flags
         .filter(pl.col("_departs_from_primary"))  # Include all trips, even last trip
@@ -192,7 +192,7 @@ def aggregate_tours(
             pl.col("depart_time").max().alias("dest_depart_time"),
         ])
     )
-    
+
     destination_times = arrival_times.join(departure_times, on="_agg_key", how="full", coalesce=True)
 
     tours = (
@@ -229,11 +229,11 @@ def aggregate_tours(
                 )
                 .then(pl.lit(TourBoundary.COMPLETE))
                 .when(
-                    pl.col("o_is_home").first() & ~pl.col("d_is_home").last()  # noqa: E501
+                    pl.col("o_is_home").first() & ~pl.col("d_is_home").last()
                 )
                 .then(pl.lit(TourBoundary.PARTIAL_END))
                 .when(
-                    ~pl.col("o_is_home").first() & pl.col("d_is_home").last()  # noqa: E501
+                    ~pl.col("o_is_home").first() & pl.col("d_is_home").last()
                 )
                 .then(pl.lit(TourBoundary.PARTIAL_START))
                 .otherwise(pl.lit(TourBoundary.PARTIAL_BOTH))

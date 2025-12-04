@@ -141,7 +141,7 @@ def _add_distance_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _add_location_flags(
-    df: pl.DataFrame, 
+    df: pl.DataFrame,
     distance_thresholds: dict
 ) -> pl.DataFrame:
     """Create boolean flags for location matches.

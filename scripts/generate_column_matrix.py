@@ -91,13 +91,13 @@ def get_field_constraints(field_info: object) -> str:
 
     # Get constraints from json_schema_extra
     extra = field_info.json_schema_extra or {}
-    
+
     if extra.get("unique", False):
         constraints.append("UNIQUE")
-    
+
     if fk_to := extra.get("fk_to"):
         constraints.append(f"FK → `{fk_to}`")
-    
+
     if extra.get("required_child", False):
         constraints.append("REQ_CHILD")
 

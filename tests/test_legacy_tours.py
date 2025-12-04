@@ -124,7 +124,7 @@ def to_legacy_format(
     """
     # PURPOSE_MAP is already {PurposeCategory.value: DaysimPurpose.value}
     # No remapping needed - use it directly
-    
+
     # Create mapping from new mode codes to legacy mode codes
     new_to_legacy_mode = {}
     for key, new_code in MODE_MAP_NEW.items():
@@ -646,13 +646,13 @@ def test_tour_timing():
     trip3_arrive = datetime(2024, 1, 1, 13, 15)   # Arrive back at work
     trip4_depart = datetime(2024, 1, 1, 17, 0)    # Leave work
     trip4_arrive = datetime(2024, 1, 1, 17, 45)   # Arrive home
-    
+
     # EXPECTED home-based tour timing (what the algorithm SHOULD produce)
     expected_hb_origin_depart = trip1_depart      # 8:15 - Leave home
     expected_hb_origin_arrive = trip4_arrive      # 17:45 - Return home
     expected_hb_dest_arrive = trip1_arrive        # 9:00 - First arrival at work
     expected_hb_dest_depart = trip4_depart        # 17:00 - LAST departure from work (currently broken)
-    
+
     # EXPECTED work-based subtour timing (what the algorithm SHOULD produce)
     expected_wb_origin_depart = trip2_depart      # 12:00 - Leave work for lunch
     expected_wb_origin_arrive = trip3_arrive      # 13:15 - Return to work
@@ -712,10 +712,10 @@ def test_tour_timing():
     # Separate home-based and work-based tours
     hb_tours = tours.filter(pl.col("tour_category") == TourType.HOME_BASED)
     wb_tours = tours.filter(pl.col("tour_category") == TourType.WORK_BASED)
-    
+
     assert len(hb_tours) == 1, f"Expected 1 home-based tour, got {len(hb_tours)}"
     assert len(wb_tours) == 1, f"Expected 1 work-based tour, got {len(wb_tours)}"
-    
+
     # Check home-based tour timing
     hb_tour = hb_tours[0]
     assert hb_tour["origin_depart_time"][0] == expected_hb_origin_depart, (
@@ -734,7 +734,7 @@ def test_tour_timing():
         f"HB tour: expected dest departure at {expected_hb_dest_depart}, "
         f"got {hb_tour['dest_depart_time'][0]}"
     )
-    
+
     # Check work-based subtour timing
     wb_tour = wb_tours[0]
     assert wb_tour["origin_depart_time"][0] == expected_wb_origin_depart, (

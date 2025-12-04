@@ -3,7 +3,6 @@
 from datetime import datetime
 
 import polars as pl
-
 from pipeline.steps.link import (
     aggregate_linked_trips,
     link_trip_ids,

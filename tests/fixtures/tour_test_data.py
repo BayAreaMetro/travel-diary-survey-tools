@@ -5,12 +5,10 @@ preventing silent failures due to missing columns.
 """
 
 from datetime import datetime
-from typing import Optional
 
 import polars as pl
 
 from data_canon.codebook.days import TravelDow
-from data_canon.codebook.generic import LocationType
 from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
@@ -67,8 +65,8 @@ class TestDataBuilder:
         person_type: PersonType = PersonType.FULL_TIME_WORKER,
         home_lat: float = 37.70,
         home_lon: float = -122.40,
-        work_lat: Optional[float] = 37.75,
-        work_lon: Optional[float] = -122.45,
+        work_lat: float | None = 37.75,
+        work_lon: float | None = -122.45,
         **overrides,
     ) -> dict:
         """Create a minimal but complete person record.

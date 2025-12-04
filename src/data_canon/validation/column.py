@@ -78,6 +78,6 @@ def check_unique_constraints(
 
 
 __all__ = [
-    "get_unique_fields",
     "check_unique_constraints",
+    "get_unique_fields",
 ]

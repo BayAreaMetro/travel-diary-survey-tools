@@ -150,7 +150,7 @@ def expand_anchor_periods(
     # Join person anchor locations (work and school)
     linked_trips = linked_trips.join(
         person_locations.select([
-            "person_id", "work_lat", "work_lon", 
+            "person_id", "work_lat", "work_lon",
             "school_lat", "school_lon"
         ]),
         on="person_id",
@@ -335,7 +335,7 @@ def detect_anchor_based_subtours(
     # Group trips by tour_id
     tours_dict = {}
     for trip in trips_list:
-        tour_id = trip['tour_id']
+        tour_id = trip["tour_id"]
         if tour_id not in tours_dict:
             tours_dict[tour_id] = []
         tours_dict[tour_id].append(trip)
@@ -344,12 +344,12 @@ def detect_anchor_based_subtours(
     subtour_counter = 0
     for tour_id, tour_trips in tours_dict.items():
         # Skip if no anchor period
-        if not tour_trips[0].get('anchor_period_start_trip_num'):
+        if not tour_trips[0].get("anchor_period_start_trip_num"):
             continue
 
-        anchor_start = tour_trips[0]['anchor_period_start_trip_num']
-        anchor_end = tour_trips[0]['anchor_period_end_trip_num']
-        anchor_type = tour_trips[0]['anchor_location_type']
+        anchor_start = tour_trips[0]["anchor_period_start_trip_num"]
+        anchor_end = tour_trips[0]["anchor_period_end_trip_num"]
+        anchor_type = tour_trips[0]["anchor_location_type"]
 
         # Check if there are trips within the anchor period beyond just arrival/departure
         # (anchor_end > anchor_start + 1 means there are intermediate trips)
@@ -373,15 +373,15 @@ def detect_anchor_based_subtours(
             # Check if leaving anchor
             # Note: anchor_type is integer value from to_dicts()
             is_leaving_anchor = (
-                trip['o_is_work'] if anchor_type == LocationType.WORK.value 
-                else trip['o_is_school'] if anchor_type == LocationType.SCHOOL.value
+                trip["o_is_work"] if anchor_type == LocationType.WORK.value
+                else trip["o_is_school"] if anchor_type == LocationType.SCHOOL.value
                 else False
             )
 
             # Check if returning to anchor
             is_returning_anchor = (
-                trip['d_is_work'] if anchor_type == LocationType.WORK.value
-                else trip['d_is_school'] if anchor_type == LocationType.SCHOOL.value
+                trip["d_is_work"] if anchor_type == LocationType.WORK.value
+                else trip["d_is_school"] if anchor_type == LocationType.SCHOOL.value
                 else False
             )
 
