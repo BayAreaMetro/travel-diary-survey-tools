@@ -43,26 +43,32 @@ def prepare_person_locations(
     )
 
     # Select needed columns
-    person_locations = persons_with_home.select([
-        "person_id", "person_type",
-        "home_lat", "home_lon",
-        "work_lat", "work_lon",
-        "school_lat", "school_lon",
-    ])
+    person_locations = persons_with_home.select(
+        [
+            "person_id",
+            "person_type",
+            "home_lat",
+            "home_lon",
+            "work_lat",
+            "work_lon",
+            "school_lat",
+            "school_lon",
+        ]
+    )
 
     # Add person category mapping
     # Convert enum keys to integer values for Polars compatibility
-    person_type_map = {
-        k.value: v for k, v in person_type_mapping.items()
-    }
-    return person_locations.with_columns([
-        pl.col("person_type")
-        .replace_strict(
-            person_type_map,
-            default=person_type_map[list(person_type_map.keys())[0]],
-        )
-        .alias("person_category")
-    ])
+    person_type_map = {k.value: v for k, v in person_type_mapping.items()}
+    return person_locations.with_columns(
+        [
+            pl.col("person_type")
+            .replace_strict(
+                person_type_map,
+                default=person_type_map[next(iter(person_type_map.keys()))],
+            )
+            .alias("person_category")
+        ]
+    )
 
 
 def classify_trip_locations(
@@ -106,12 +112,16 @@ def classify_trip_locations(
     # Clean up temporary columns
     # Keep location flags (o_is_home, d_is_work, etc.) for subtour detection
     temp_cols = [
-        "home_lat", "home_lon", "work_lat", "work_lon",
-        "school_lat", "school_lon", "person_type",
+        "home_lat",
+        "home_lon",
+        "work_lat",
+        "work_lon",
+        "school_lat",
+        "school_lon",
+        "person_type",
     ]
     drop_cols = [
-        c for c in linked_trips.columns
-        if "dist_to" in c or c in temp_cols
+        c for c in linked_trips.columns if "dist_to" in c or c in temp_cols
     ]
 
     logger.info("Location classification complete")
@@ -120,10 +130,10 @@ def classify_trip_locations(
 
 def _add_distance_columns(df: pl.DataFrame) -> pl.DataFrame:
     """Calculate haversine distances to known locations.
-    
+
     Args:
         df: DataFrame with trip coordinates and person location coords
-        
+
     Returns:
         DataFrame with distance columns added
     """
@@ -141,18 +151,17 @@ def _add_distance_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _add_location_flags(
-    df: pl.DataFrame,
-    distance_thresholds: dict
+    df: pl.DataFrame, distance_thresholds: dict
 ) -> pl.DataFrame:
     """Create boolean flags for location matches.
 
     Uses hybrid strategy: matches if EITHER purpose code OR distance
     indicates the location type.
-    
+
     Args:
         df: DataFrame with distance columns
         distance_thresholds: Dict mapping LocationType to distance in meters
-        
+
     Returns:
         DataFrame with location flag columns (o_is_home, d_is_work, etc.)
     """
@@ -177,9 +186,7 @@ def _add_location_flags(
         ),
     }
 
-    for loc, (loc_type, null_check, purpose_cats) in (
-        location_configs.items()
-    ):
+    for loc, (loc_type, null_check, purpose_cats) in location_configs.items():
         for end in ["o", "d"]:
             # Distance-based check
             distance_check = (
@@ -210,12 +217,12 @@ def _add_location_flags(
 
 def _add_location_types(df: pl.DataFrame) -> pl.DataFrame:
     """Determine primary location type based on priority.
-    
+
     Priority order: HOME > WORK > SCHOOL > OTHER
-    
+
     Args:
         df: DataFrame with location flag columns
-        
+
     Returns:
         DataFrame with o_location_type and d_location_type columns
     """
@@ -230,12 +237,14 @@ def _add_location_types(df: pl.DataFrame) -> pl.DataFrame:
             LocationType.HOME,
         ]:
             col_name = f"{prefix}_is_{loc_type.name.lower()}"
-            expr = pl.when(pl.col(col_name)).then(
-                pl.lit(loc_type)
-            ).otherwise(expr)
+            expr = (
+                pl.when(pl.col(col_name)).then(pl.lit(loc_type)).otherwise(expr)
+            )
         return expr
 
-    return df.with_columns([
-        build_location_expr("o").alias("o_location_type"),
-        build_location_expr("d").alias("d_location_type"),
-    ])
+    return df.with_columns(
+        [
+            build_location_expr("o").alias("o_location_type"),
+            build_location_expr("d").alias("d_location_type"),
+        ]
+    )

@@ -80,7 +80,7 @@ jobs:
             exit 1
           fi
           echo "✅ All checks passed successfully!"
-    
+
   column_matrix:
     name: Generate Column Matrix
     runs-on: ubuntu-latest

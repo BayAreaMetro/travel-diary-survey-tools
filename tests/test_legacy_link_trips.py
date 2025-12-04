@@ -53,69 +53,71 @@ MODE_MAP = {
 
 # Test data: trips in new format (polars DataFrame)
 # This is the canonical format - legacy format is derived from this
-SIMPLE_TRANSIT_JOURNEY = pl.DataFrame({
-    "trip_id": [1, 2, 3, 4],
-    "day_id": [1, 1, 1, 1],
-    "person_id": [1, 1, 1, 1],
-    "hh_id": [1, 1, 1, 1],
-    "depart_time": [
-        datetime(2024, 1, 1, 8, 0),   # Walk to transit
-        datetime(2024, 1, 1, 8, 15),  # Transit
-        datetime(2024, 1, 1, 8, 20),  # Walk to work
-        datetime(2024, 1, 1, 17, 0),  # Drive home
-    ],
-    "arrive_time": [
-        datetime(2024, 1, 1, 8, 10),
-        datetime(2024, 1, 1, 8, 18),
-        datetime(2024, 1, 1, 9, 0),
-        datetime(2024, 1, 1, 17, 30),
-    ],
-    "o_purpose_category": [
-        PURPOSE_MAP_NEW["home"],
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["work"],
-    ],
-    "d_purpose_category": [
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["work"],
-        PURPOSE_MAP_NEW["home"],
-    ],
-    "o_purpose": [
-        PURPOSE_MAP_NEW["home"],
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["work"],
-    ],
-    "d_purpose": [
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["change_mode"],
-        PURPOSE_MAP_NEW["work"],
-        PURPOSE_MAP_NEW["home"],
-    ],
-    "mode_type": [
-        MODE_MAP["walk"],
-        MODE_MAP["transit"],
-        MODE_MAP["walk"],
-        MODE_MAP["drive"],
-    ],
-    "o_lat": [37.70, 37.71, 37.72, 37.75],
-    "o_lon": [-122.40, -122.41, -122.42, -122.45],
-    "d_lat": [37.71, 37.72, 37.75, 37.70],
-    "d_lon": [-122.41, -122.42, -122.45, -122.40],
-    "depart_date": [datetime(2024, 1, 1).date()] * 4,
-    "arrive_date": [datetime(2024, 1, 1).date()] * 4,
-    "depart_hour": [8, 8, 8, 17],
-    "depart_minute": [0, 15, 20, 0],
-    "depart_seconds": [0, 0, 0, 0],
-    "arrive_hour": [8, 8, 9, 17],
-    "arrive_minute": [10, 18, 0, 30],
-    "arrive_seconds": [0, 0, 0, 0],
-    "distance_miles": [0.5, 0.5, 5.0, 5.0],
-    "duration_minutes": [10.0, 3.0, 40.0, 30.0],
-    "trip_weight": [1.0, 1.0, 1.0, 1.0],
-})
+SIMPLE_TRANSIT_JOURNEY = pl.DataFrame(
+    {
+        "trip_id": [1, 2, 3, 4],
+        "day_id": [1, 1, 1, 1],
+        "person_id": [1, 1, 1, 1],
+        "hh_id": [1, 1, 1, 1],
+        "depart_time": [
+            datetime(2024, 1, 1, 8, 0),  # Walk to transit
+            datetime(2024, 1, 1, 8, 15),  # Transit
+            datetime(2024, 1, 1, 8, 20),  # Walk to work
+            datetime(2024, 1, 1, 17, 0),  # Drive home
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 8, 10),
+            datetime(2024, 1, 1, 8, 18),
+            datetime(2024, 1, 1, 9, 0),
+            datetime(2024, 1, 1, 17, 30),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "o_purpose": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "d_purpose": [
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["work"],
+            PURPOSE_MAP_NEW["home"],
+        ],
+        "mode_type": [
+            MODE_MAP["walk"],
+            MODE_MAP["transit"],
+            MODE_MAP["walk"],
+            MODE_MAP["drive"],
+        ],
+        "o_lat": [37.70, 37.71, 37.72, 37.75],
+        "o_lon": [-122.40, -122.41, -122.42, -122.45],
+        "d_lat": [37.71, 37.72, 37.75, 37.70],
+        "d_lon": [-122.41, -122.42, -122.45, -122.40],
+        "depart_date": [datetime(2024, 1, 1).date()] * 4,
+        "arrive_date": [datetime(2024, 1, 1).date()] * 4,
+        "depart_hour": [8, 8, 8, 17],
+        "depart_minute": [0, 15, 20, 0],
+        "depart_seconds": [0, 0, 0, 0],
+        "arrive_hour": [8, 8, 9, 17],
+        "arrive_minute": [10, 18, 0, 30],
+        "arrive_seconds": [0, 0, 0, 0],
+        "distance_miles": [0.5, 0.5, 5.0, 5.0],
+        "duration_minutes": [10.0, 3.0, 40.0, 30.0],
+        "trip_weight": [1.0, 1.0, 1.0, 1.0],
+    }
+)
 
 # Expected outcome: 2 linked trips
 # Trip 1: home -> work (segments 1-3 linked via change_mode)
@@ -147,37 +149,35 @@ def to_legacy_format(new_df: pl.DataFrame) -> pd.DataFrame:
     depart_times = new_df.select("depart_time").to_series()
     arrive_times = new_df.select("arrive_time").to_series()
 
-    return pd.DataFrame({
-        "hhno": new_df["hh_id"].to_list(),
-        "pno": new_df["person_id"].to_list(),
-        "dow": new_df["day_id"].to_list(),
-        "tripno": new_df["trip_id"].to_list(),
-        "opurp": [
-            new_to_legacy_purpose[p]
-            for p in new_df["o_purpose_category"].to_list()
-        ],
-        "dpurp": [
-            new_to_legacy_purpose[p]
-            for p in new_df["d_purpose_category"].to_list()
-        ],
-        "mode": new_df["mode_type"].to_list(),
-        "mode_type": new_df["mode_type"].to_list(),
-        "path": [1, 2, 1, 1],  # path hierarchy for mode selection
-        "deptm": [
-            dt.hour * 100 + dt.minute for dt in depart_times
-        ],
-        "arrtm": [
-            dt.hour * 100 + dt.minute for dt in arrive_times
-        ],
-        "otaz": list(range(100, 100 + len(new_df))),
-        "dtaz": list(range(101, 101 + len(new_df))),
-        "dpcl": [
-            new_to_legacy_purpose[p]
-            for p in new_df["d_purpose_category"].to_list()
-        ],
-        "dxcord": new_df["d_lon"].to_list(),
-        "dycord": new_df["d_lat"].to_list(),
-    })
+    return pd.DataFrame(
+        {
+            "hhno": new_df["hh_id"].to_list(),
+            "pno": new_df["person_id"].to_list(),
+            "dow": new_df["day_id"].to_list(),
+            "tripno": new_df["trip_id"].to_list(),
+            "opurp": [
+                new_to_legacy_purpose[p]
+                for p in new_df["o_purpose_category"].to_list()
+            ],
+            "dpurp": [
+                new_to_legacy_purpose[p]
+                for p in new_df["d_purpose_category"].to_list()
+            ],
+            "mode": new_df["mode_type"].to_list(),
+            "mode_type": new_df["mode_type"].to_list(),
+            "path": [1, 2, 1, 1],  # path hierarchy for mode selection
+            "deptm": [dt.hour * 100 + dt.minute for dt in depart_times],
+            "arrtm": [dt.hour * 100 + dt.minute for dt in arrive_times],
+            "otaz": list(range(100, 100 + len(new_df))),
+            "dtaz": list(range(101, 101 + len(new_df))),
+            "dpcl": [
+                new_to_legacy_purpose[p]
+                for p in new_df["d_purpose_category"].to_list()
+            ],
+            "dxcord": new_df["d_lon"].to_list(),
+            "dycord": new_df["d_lat"].to_list(),
+        }
+    )
 
 
 def test_linking_row_count():
@@ -215,6 +215,7 @@ def test_linking_row_count():
         f"Row count mismatch: legacy={legacy_count}, new={new_count}"
     )
 
+
 def test_linked_trip_purposes():
     """Test that linked trip purposes are correctly preserved."""
     new_data = SIMPLE_TRANSIT_JOURNEY
@@ -241,6 +242,7 @@ def test_linked_trip_purposes():
     # Second linked trip: work -> home (trip 4 standalone)
     assert linked_df[1, "o_purpose_category"] == PURPOSE_MAP_NEW["work"]
     assert linked_df[1, "d_purpose_category"] == PURPOSE_MAP_NEW["home"]
+
 
 def test_linked_trip_modes():
     """Test that linked trip modes follow hierarchy rules."""
@@ -273,9 +275,9 @@ def test_linked_trip_modes():
     assert linked_df[1, "mode_type"] == expected["trip2_mode"]
 
     # Compare with legacy - modes should match
-    assert (
-        linked_df[0, "mode_type"] == legacy_sorted.iloc[0]["mode"]
-    ), "First trip mode mismatch with legacy"
-    assert (
-        linked_df[1, "mode_type"] == legacy_sorted.iloc[1]["mode"]
-    ), "Second trip mode mismatch with legacy"
+    assert linked_df[0, "mode_type"] == legacy_sorted.iloc[0]["mode"], (
+        "First trip mode mismatch with legacy"
+    )
+    assert linked_df[1, "mode_type"] == legacy_sorted.iloc[1]["mode"], (
+        "Second trip mode mismatch with legacy"
+    )

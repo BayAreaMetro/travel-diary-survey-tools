@@ -91,67 +91,67 @@ class TourConfig(BaseModel):
 
     # Purpose priority by person category: lower number = higher priority
     # All non-HOME purposes must be explicitly mapped
-    purpose_priority_by_persontype: dict[
-        str, dict[PurposeCategory, int]
-    ] = Field(
-        default={
-            PersonCategory.WORKER: {
-                PurposeCategory.WORK: 1,
-                PurposeCategory.WORK_RELATED: 1,
-                PurposeCategory.SCHOOL: 2,
-                PurposeCategory.SCHOOL_RELATED: 2,
-                PurposeCategory.ESCORT: 3,
-                PurposeCategory.SHOP: 4,
-                PurposeCategory.MEAL: 4,
-                PurposeCategory.SOCIALREC: 4,
-                PurposeCategory.ERRAND: 4,
-                PurposeCategory.CHANGE_MODE: 5,
-                PurposeCategory.OVERNIGHT: 5,
-                PurposeCategory.OTHER: 5,
-                PurposeCategory.MISSING: 5,
-                PurposeCategory.PNTA: 5,
-                PurposeCategory.NOT_IMPUTABLE: 5,
+    purpose_priority_by_persontype: dict[str, dict[PurposeCategory, int]] = (
+        Field(
+            default={
+                PersonCategory.WORKER: {
+                    PurposeCategory.WORK: 1,
+                    PurposeCategory.WORK_RELATED: 1,
+                    PurposeCategory.SCHOOL: 2,
+                    PurposeCategory.SCHOOL_RELATED: 2,
+                    PurposeCategory.ESCORT: 3,
+                    PurposeCategory.SHOP: 4,
+                    PurposeCategory.MEAL: 4,
+                    PurposeCategory.SOCIALREC: 4,
+                    PurposeCategory.ERRAND: 4,
+                    PurposeCategory.CHANGE_MODE: 5,
+                    PurposeCategory.OVERNIGHT: 5,
+                    PurposeCategory.OTHER: 5,
+                    PurposeCategory.MISSING: 5,
+                    PurposeCategory.PNTA: 5,
+                    PurposeCategory.NOT_IMPUTABLE: 5,
+                },
+                PersonCategory.STUDENT: {
+                    PurposeCategory.SCHOOL: 1,
+                    PurposeCategory.SCHOOL_RELATED: 1,
+                    PurposeCategory.WORK: 2,
+                    PurposeCategory.WORK_RELATED: 2,
+                    PurposeCategory.ESCORT: 3,
+                    PurposeCategory.SHOP: 4,
+                    PurposeCategory.MEAL: 4,
+                    PurposeCategory.SOCIALREC: 4,
+                    PurposeCategory.ERRAND: 4,
+                    PurposeCategory.CHANGE_MODE: 5,
+                    PurposeCategory.OVERNIGHT: 5,
+                    PurposeCategory.OTHER: 5,
+                    PurposeCategory.MISSING: 5,
+                    PurposeCategory.PNTA: 5,
+                    PurposeCategory.NOT_IMPUTABLE: 5,
+                },
+                PersonCategory.OTHER: {
+                    PurposeCategory.WORK: 1,
+                    PurposeCategory.WORK_RELATED: 1,
+                    PurposeCategory.SCHOOL: 2,
+                    PurposeCategory.SCHOOL_RELATED: 2,
+                    PurposeCategory.ESCORT: 3,
+                    PurposeCategory.SHOP: 4,
+                    PurposeCategory.MEAL: 4,
+                    PurposeCategory.SOCIALREC: 4,
+                    PurposeCategory.ERRAND: 4,
+                    PurposeCategory.CHANGE_MODE: 5,
+                    PurposeCategory.OVERNIGHT: 5,
+                    PurposeCategory.OTHER: 5,
+                    PurposeCategory.MISSING: 5,
+                    PurposeCategory.PNTA: 5,
+                    PurposeCategory.NOT_IMPUTABLE: 5,
+                },
             },
-            PersonCategory.STUDENT: {
-                PurposeCategory.SCHOOL: 1,
-                PurposeCategory.SCHOOL_RELATED: 1,
-                PurposeCategory.WORK: 2,
-                PurposeCategory.WORK_RELATED: 2,
-                PurposeCategory.ESCORT: 3,
-                PurposeCategory.SHOP: 4,
-                PurposeCategory.MEAL: 4,
-                PurposeCategory.SOCIALREC: 4,
-                PurposeCategory.ERRAND: 4,
-                PurposeCategory.CHANGE_MODE: 5,
-                PurposeCategory.OVERNIGHT: 5,
-                PurposeCategory.OTHER: 5,
-                PurposeCategory.MISSING: 5,
-                PurposeCategory.PNTA: 5,
-                PurposeCategory.NOT_IMPUTABLE: 5,
-            },
-            PersonCategory.OTHER: {
-                PurposeCategory.WORK: 1,
-                PurposeCategory.WORK_RELATED: 1,
-                PurposeCategory.SCHOOL: 2,
-                PurposeCategory.SCHOOL_RELATED: 2,
-                PurposeCategory.ESCORT: 3,
-                PurposeCategory.SHOP: 4,
-                PurposeCategory.MEAL: 4,
-                PurposeCategory.SOCIALREC: 4,
-                PurposeCategory.ERRAND: 4,
-                PurposeCategory.CHANGE_MODE: 5,
-                PurposeCategory.OVERNIGHT: 5,
-                PurposeCategory.OTHER: 5,
-                PurposeCategory.MISSING: 5,
-                PurposeCategory.PNTA: 5,
-                PurposeCategory.NOT_IMPUTABLE: 5,
-            },
-        },
-        description=(
-            "Priority order for determining tour purpose by person "
-            "category (lower = higher priority). All non-HOME purposes "
-            "must be explicitly defined."
-        ),
+            description=(
+                "Priority order for determining tour purpose by person "
+                "category (lower = higher priority). All non-HOME purposes "
+                "must be explicitly defined."
+            ),
+        )
     )
 
     # Map detailed person types to simplified categories for priority lookup
@@ -167,8 +167,7 @@ class TourConfig(BaseModel):
             PersonType.CHILD_UNDER_5: PersonCategory.OTHER,
         },
         description=(
-            "Maps detailed person types to simplified categories "
-            "for tour logic"
+            "Maps detailed person types to simplified categories for tour logic"
         ),
     )
 
@@ -201,4 +200,5 @@ class TourConfig(BaseModel):
 
     class ConfigDict:
         """Pydantic model configuration."""
+
         arbitrary_types_allowed = True  # Allow enum types

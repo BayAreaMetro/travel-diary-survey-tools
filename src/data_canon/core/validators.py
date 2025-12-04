@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Step-Aware Row Validators -----------------------------------------------
 
+
 def get_required_fields_for_step(
     model: type[BaseModel],
     step_name: str,
@@ -82,7 +83,8 @@ def validate_row_for_step(
 
     # Check for missing required fields
     missing_fields = [
-        field_name for field_name in required_fields
+        field_name
+        for field_name in required_fields
         if row_dict.get(field_name) is None
     ]
 
@@ -105,7 +107,8 @@ def validate_row_for_step(
         # Only re-raise errors for fields that are actually present
         # or required for this step
         relevant_errors = [
-            err for err in e.errors()
+            err
+            for err in e.errors()
             if (
                 err.get("loc", [None])[0] in filtered_row
                 or err.get("loc", [None])[0] in required_fields
@@ -197,15 +200,12 @@ def validate_dataframe_rows(  # noqa: C901
                 message=msg,
             )
         # Multiple errors - provide summary
-        error_summary = "\n".join(
-            f"  Row {idx}: {msg}" for idx, msg in errors
-        )
+        error_summary = "\n".join(f"  Row {idx}: {msg}" for idx, msg in errors)
         raise DataValidationError(
             table=table_name,
             rule="row_validation",
             message=(
-                f"Found {len(errors)} validation errors:\n"
-                f"{error_summary}"
+                f"Found {len(errors)} validation errors:\n{error_summary}"
             ),
         )
 

@@ -81,6 +81,7 @@ def add_purpose_priority_column(
     Returns:
         DataFrame with added purpose_priority column
     """
+
     def _get_priority(s: dict) -> int:
         """Inner function for map_elements - receives struct as dict."""
         # person_category is already a PersonCategory string (e.g., 'worker')
@@ -109,11 +110,13 @@ def add_purpose_priority_column(
             raise ValueError(msg)
         return purpose_priorities[purpose_cat]
 
-    return df.with_columns([
-        pl.struct(["person_category", "d_purpose_category"])
-        .map_elements(_get_priority, return_dtype=pl.Int32)
-        .alias(alias)
-    ])
+    return df.with_columns(
+        [
+            pl.struct(["person_category", "d_purpose_category"])
+            .map_elements(_get_priority, return_dtype=pl.Int32)
+            .alias(alias)
+        ]
+    )
 
 
 def add_mode_priority_column(
@@ -168,12 +171,14 @@ def add_activity_duration_column(
     Returns:
         DataFrame with added activity_duration column (in minutes)
     """
-    return df.with_columns([
-        (
-            pl.col("depart_time").shift(-1).over(["person_id", "day_id"])
-            - pl.col("arrive_time")
-        )
-        .dt.total_minutes()
-        .fill_null(default_minutes)
-        .alias(alias)
-    ])
+    return df.with_columns(
+        [
+            (
+                pl.col("depart_time").shift(-1).over(["person_id", "day_id"])
+                - pl.col("arrive_time")
+            )
+            .dt.total_minutes()
+            .fill_null(default_minutes)
+            .alias(alias)
+        ]
+    )

@@ -127,7 +127,9 @@ class TestDataBuilder:
             age = (
                 AgeCategory.AGE_65_TO_74.value
                 if person_type == PersonType.RETIREE
-                else AgeCategory.AGE_25_TO_34.value if person_type == PersonType.NON_WORKING_ADULT else AgeCategory.AGE_UNDER_5.value
+                else AgeCategory.AGE_25_TO_34.value
+                if person_type == PersonType.NON_WORKING_ADULT
+                else AgeCategory.AGE_UNDER_5.value
             )
             school_type = None
 
@@ -228,7 +230,9 @@ class ScenarioBuilder:
     """Builder for creating complete test scenarios."""
 
     @classmethod
-    def simple_work_tour(cls) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    def simple_work_tour(
+        cls,
+    ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
         """Create simple work tour: Home -> Work -> Home (no subtours).
 
         Returns:
@@ -238,7 +242,11 @@ class ScenarioBuilder:
         work = (37.75, -122.45)
 
         hh = pl.DataFrame(
-            [TestDataBuilder.create_minimal_household(home_lat=home[0], home_lon=home[1])]
+            [
+                TestDataBuilder.create_minimal_household(
+                    home_lat=home[0], home_lon=home[1]
+                )
+            ]
         )
 
         persons = pl.DataFrame(
@@ -286,8 +294,12 @@ class ScenarioBuilder:
         return hh, persons, trips
 
     @classmethod
-    def work_tour_with_subtour(cls) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-        """Create work tour with lunch subtour: Home -> Work -> Lunch -> Work -> Home.
+    def work_tour_with_subtour(
+        cls,
+    ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+        """Create work tour with lunch subtour.
+
+        Pattern: Home -> Work -> Lunch -> Work -> Home.
 
         Returns:
             Tuple of (households, persons, trips) DataFrames
@@ -297,7 +309,11 @@ class ScenarioBuilder:
         lunch = (37.76, -122.46)
 
         hh = pl.DataFrame(
-            [TestDataBuilder.create_minimal_household(home_lat=home[0], home_lon=home[1])]
+            [
+                TestDataBuilder.create_minimal_household(
+                    home_lat=home[0], home_lon=home[1]
+                )
+            ]
         )
 
         persons = pl.DataFrame(
@@ -371,7 +387,9 @@ class ScenarioBuilder:
         return hh, persons, trips
 
     @classmethod
-    def multiple_tours_same_day(cls) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    def multiple_tours_same_day(
+        cls,
+    ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
         """Create multiple tours: Home -> Work -> Home -> Shop -> Home.
 
         Returns:
@@ -382,7 +400,11 @@ class ScenarioBuilder:
         shop = (37.71, -122.41)
 
         hh = pl.DataFrame(
-            [TestDataBuilder.create_minimal_household(home_lat=home[0], home_lon=home[1])]
+            [
+                TestDataBuilder.create_minimal_household(
+                    home_lat=home[0], home_lon=home[1]
+                )
+            ]
         )
 
         persons = pl.DataFrame(
@@ -456,7 +478,9 @@ class ScenarioBuilder:
         return hh, persons, trips
 
     @classmethod
-    def no_work_location(cls) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    def no_work_location(
+        cls,
+    ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
         """Create work tour without defined work location.
 
         Returns:
@@ -466,7 +490,11 @@ class ScenarioBuilder:
         work_dest = (37.75, -122.45)
 
         hh = pl.DataFrame(
-            [TestDataBuilder.create_minimal_household(home_lat=home[0], home_lon=home[1])]
+            [
+                TestDataBuilder.create_minimal_household(
+                    home_lat=home[0], home_lon=home[1]
+                )
+            ]
         )
 
         persons = pl.DataFrame(

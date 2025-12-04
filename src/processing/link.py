@@ -59,7 +59,6 @@ def link_trips(
     }
 
 
-
 def link_trip_ids(
     unlinked_trips: pl.DataFrame,
     change_mode_code: int,
@@ -178,23 +177,24 @@ def link_trip_ids(
             "Detected pre-concatenated day_id format. "
             "Creating linked_trip_id using day_id + linked_trip_num."
         )
-        id_expr = (
-            pl.col("day_id").cast(pl.Utf8)
-            + pl.col("linked_trip_num").cast(pl.Utf8).str.pad_start(2, "0")
-        )
+        id_expr = pl.col("day_id").cast(pl.Utf8) + pl.col(
+            "linked_trip_num"
+        ).cast(pl.Utf8).str.pad_start(2, "0")
 
     unlinked_trips_with_id = unlinked_trips.with_columns(
-            id_expr.alias("linked_trip_id")
+        id_expr.alias("linked_trip_id")
     )
 
     # Step 6: Clean up temporary columns
-    return unlinked_trips_with_id.drop([
-        "prev_d_purpose_category",
-        "prev_d_lon",
-        "prev_d_lat",
-        "prev_arrive_time",
-        "new_trip_flag",
-    ])
+    return unlinked_trips_with_id.drop(
+        [
+            "prev_d_purpose_category",
+            "prev_d_lon",
+            "prev_d_lat",
+            "prev_arrive_time",
+            "new_trip_flag",
+        ]
+    )
 
 
 # NOTE: Consider removing from this stage and leave to downstream "formatting"

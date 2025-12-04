@@ -16,8 +16,8 @@ def format_tours(
     persons: pl.DataFrame,
     days: pl.DataFrame,
     linked_trips: pl.DataFrame,
-    tours: pl.DataFrame
-    ) -> pl.DataFrame:
+    tours: pl.DataFrame,
+) -> pl.DataFrame:
     """Format tour data to DaySim specification.
 
     Transforms canonical tour data into DaySim tour format with proper
@@ -50,14 +50,14 @@ def format_tours(
         hhno=pl.col("hh_id"),
         pno=pl.col("person_num"),
         day=pl.col("day_num"),
-        tour=pl.col("tour_num")
+        tour=pl.col("tour_num"),
     )
 
     # Map tour identifiers and purpose
     tours_daysim = tours_daysim.with_columns(
         parent=pl.when(pl.col("parent_tour_id").is_null())
-            .then(pl.lit(0))
-            .otherwise(pl.col("parent_tour_id")),
+        .then(pl.lit(0))
+        .otherwise(pl.col("parent_tour_id")),
         pdpurp=pl.col("tour_purpose").replace_strict(PURPOSE_MAP),
         toadtyp=pl.col("o_location_type"),
         tdadtyp=pl.col("d_location_type"),
@@ -94,29 +94,29 @@ def format_tours(
 
     # Aggregate auto time and distance from linked_trips
     auto_agg = (
-        linked_trips
-        .filter(pl.col("mode_type").is_in(
-            [
-                ModeType.CAR.value,
-                ModeType.CARSHARE.value,
-                ModeType.TNC.value,
-                ModeType.TAXI.value
-            ]
-        ))
+        linked_trips.filter(
+            pl.col("mode_type").is_in(
+                [
+                    ModeType.CAR.value,
+                    ModeType.CARSHARE.value,
+                    ModeType.TNC.value,
+                    ModeType.TAXI.value,
+                ]
+            )
+        )
         .group_by("tour_id")
-        .agg([
-            pl.sum("duration_minutes").alias("tautotime"),
-            pl.sum("distance_meters").alias("tautodist"),
-        ])
+        .agg(
+            [
+                pl.sum("duration_minutes").alias("tautotime"),
+                pl.sum("distance_meters").alias("tautodist"),
+            ]
+        )
     ).rename({"tour_id": "tour"})
-    tours_daysim = tours_daysim.join(
-        auto_agg, on="tour", how="left"
-    )
+    tours_daysim = tours_daysim.join(auto_agg, on="tour", how="left")
 
     # Count number of subtours per tour (count parent_tour_id occurrences)
     subtour_counts = (
-        tours_daysim
-        .filter(pl.col("parent_tour_id").is_not_null())
+        tours_daysim.filter(pl.col("parent_tour_id").is_not_null())
         .group_by("parent_tour_id")
         .agg(pl.len().alias("subtours"))
     )
@@ -125,20 +125,28 @@ def format_tours(
     )
 
     # Get taz and parcel fields from linked trips
-    tours_daysim = tours_daysim.join(
-        linked_trips.select(["linked_trip_id", "o_taz", "o_maz"]),
-        left_on="origin_linked_trip_id", right_on="linked_trip_id",
-        how="left"
-    ).join(
-        linked_trips.select(["linked_trip_id", "d_taz", "d_maz"]),
-        left_on="dest_linked_trip_id", right_on="linked_trip_id",
-        how="left"
-    ).rename({
-        "o_taz": "totaz",
-        "o_maz": "topcl",
-        "d_taz": "tdtaz",
-        "d_maz": "tdpcl",
-        })
+    tours_daysim = (
+        tours_daysim.join(
+            linked_trips.select(["linked_trip_id", "o_taz", "o_maz"]),
+            left_on="origin_linked_trip_id",
+            right_on="linked_trip_id",
+            how="left",
+        )
+        .join(
+            linked_trips.select(["linked_trip_id", "d_taz", "d_maz"]),
+            left_on="dest_linked_trip_id",
+            right_on="linked_trip_id",
+            how="left",
+        )
+        .rename(
+            {
+                "o_taz": "totaz",
+                "o_maz": "topcl",
+                "d_taz": "tdtaz",
+                "d_maz": "tdpcl",
+            }
+        )
+    )
 
     # Count number of outbound and inbound stops from linked trips
     outbound_stops = (
@@ -154,25 +162,18 @@ def format_tours(
     )
 
     # Join stop counts to tours
-    tours_daysim = (
-        tours_daysim.join(outbound_stops, on="tour_id", how="left")
-        .join(inbound_stops, on="tour_id", how="left")
-    )
+    tours_daysim = tours_daysim.join(
+        outbound_stops, on="tour_id", how="left"
+    ).join(inbound_stops, on="tour_id", how="left")
 
     # Calculate tour weight from linked_trips
     if "linked_trip_weight" in linked_trips.columns:
-        tour_weights = (
-            linked_trips
-            .group_by("tour_id")
-            .agg(pl.mean("linked_trip_weight").alias("toexpfac"))
+        tour_weights = linked_trips.group_by("tour_id").agg(
+            pl.mean("linked_trip_weight").alias("toexpfac")
         )
-        tours_daysim = tours_daysim.join(
-            tour_weights, on="tour_id", how="left"
-        )
+        tours_daysim = tours_daysim.join(tour_weights, on="tour_id", how="left")
     else:
-        tours_daysim = tours_daysim.with_columns(
-            toexpfac=pl.lit(1.0)
-        )
+        tours_daysim = tours_daysim.with_columns(toexpfac=pl.lit(1.0))
 
     # Add DaySim-specific fields (placeholders and defaults)
     tours_daysim = tours_daysim.with_columns(
@@ -234,10 +235,8 @@ def format_tours(
         "toexpfac",
     ]
 
-    tours_daysim = (
-        tours_daysim
-        .select(tour_cols)
-        .sort(by=["hhno", "pno", "day", "tour"])
+    tours_daysim = tours_daysim.select(tour_cols).sort(
+        by=["hhno", "pno", "day", "tour"]
     )
 
     return tours_daysim

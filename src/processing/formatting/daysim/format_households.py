@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def format_households(
-    households: pl.DataFrame,
-    persons: pl.DataFrame
+    households: pl.DataFrame, persons: pl.DataFrame
 ) -> pl.DataFrame:
     """Format household data to DaySim specification.
 
@@ -55,15 +54,17 @@ def format_households(
     )
 
     # Rename columns to DaySim naming convention
-    households_daysim = households.rename({
-        "hh_id": "hhno",
-        "home_maz": "hhparcel",
-        "home_taz": "hhtaz",
-        "home_lon": "hxcord",
-        "home_lat": "hycord",
-        "num_people": "hhsize",
-        "num_vehicles": "hhvehs",
-    })
+    households_daysim = households.rename(
+        {
+            "hh_id": "hhno",
+            "home_maz": "hhparcel",
+            "home_taz": "hhtaz",
+            "home_lon": "hxcord",
+            "home_lat": "hycord",
+            "num_people": "hhsize",
+            "num_vehicles": "hhvehs",
+        }
+    )
 
     # Map income categories to midpoint values
     households_daysim = households_daysim.with_columns(
@@ -79,13 +80,11 @@ def format_households(
     )
 
     # Join household composition and add default fields
-    households_daysim = (
-        households_daysim
-        .join(hh_composition, on="hhno", how="left")
-        .with_columns(
-            hhexpfac=pl.lit(1.0),
-            samptype=pl.lit(0),
-        )
+    households_daysim = households_daysim.join(
+        hh_composition, on="hhno", how="left"
+    ).with_columns(
+        hhexpfac=pl.lit(1.0),
+        samptype=pl.lit(0),
     )
 
     # Select DaySim household fields

@@ -27,15 +27,32 @@ class CommuteSubsidy(LabeledEnum):
     canonical_field_name = "commute_subsidy"
 
     FREE_PARK = (1, "Free parking provided by employer")
-    DISCOUNT_PARKING = (2, "Discounted (partially subsidized) parking provided by employer")  # noqa: E501
+    DISCOUNT_PARKING = (
+        2,
+        "Discounted (partially subsidized) parking provided by employer",
+    )
     TRANSIT = (3, "Free/discounted transit fare provided by employer")
     VANPOOL = (4, "Free/discounted vanpool service provided by employer")
     CASH_IN_LIEU = (5, "Cash in lieu for carpooling, biking, or walking")
-    TNC = (6, "Free/discounted rideshare / TNC (e.g., Uber, Lyft) provided by employer")  # noqa: E501
-    CARSHARE = (7, "Free/discounted carshare membership provided by employer (e.g., Zipcar, Car2Go)")  # noqa: E501
-    SHUTTLE = (8, "Free/discounted shuttle service to/from work provided by employer")  # noqa: E501
+    TNC = (
+        6,
+        "Free/discounted rideshare / TNC (e.g., Uber, Lyft) "
+        "provided by employer",
+    )
+    CARSHARE = (
+        7,
+        "Free/discounted carshare membership provided by employer "
+        "(e.g., Zipcar, Car2Go)",
+    )
+    SHUTTLE = (
+        8,
+        "Free/discounted shuttle service to/from work provided by employer",
+    )
     BIKESHARE = (9, "Free/discounted bikeshare membership provided by employer")
-    BIKE_MAINTENANCE = (10, "Free/discounted bike maintenance or bike parking provided by employer")  # noqa: E501
+    BIKE_MAINTENANCE = (
+        10,
+        "Free/discounted bike maintenance or bike parking provided by employer",
+    )
     OTHER = (11, "Other commute subsidy provided by employer")
     NONE = (12, "No commute subsidies provided by employer")
     DONT_KNOW = (13, "Don't know")
@@ -56,6 +73,7 @@ class Education(LabeledEnum):
     MISSING = (995, "Missing Response")
     PNTA = (999, "Prefer not to answer")
 
+
 class Employment(LabeledEnum):
     """employment value labels."""
 
@@ -64,16 +82,24 @@ class Employment(LabeledEnum):
     EMPLOYED_FULLTIME = (1, "Employed full-time (paid)")
     EMPLOYED_PARTTIME = (2, "Employed part-time (paid)")
     EMPLOYED_SELF = (3, "Self-employed")
-    UNEMPLOYED_NOT_LOOKING = (5, "Not employed and not looking for work (e.g., retired, stay-at-home parent, student)")  # noqa: E501
+    UNEMPLOYED_NOT_LOOKING = (
+        5,
+        "Not employed and not looking for work "
+        "(e.g., retired, stay-at-home parent, student)",
+    )
     UNEMPLOYED_LOOKING = (6, "Unemployed and looking for work")
     EMPLOYED_UNPAID = (7, "Unpaid volunteer or intern")
     # NOTE This should include some number of hours per week
-    EMPLOYED_FURLOUGHED = (8, "Employed, but not currently working (e.g., on leave, furloughed 100%)")  # noqa: E501
+    EMPLOYED_FURLOUGHED = (
+        8,
+        "Employed, but not currently working (e.g., on leave, furloughed 100%)",
+    )
     MISSING = (995, "Missing Response")
     # NOTE: This should be broken out into multiple categories if possible
     # UNEMPLOYED_PARENT = (6, "Not employed and not looking, full-time parent")  # noqa: E501, ERA001
     # UNEMPLOYED_STUDENT = (7, "Not employed and not looking, enrolled as full-time student")  # noqa: E501, ERA001
     # UNEMPLOYED_RETIRED = (8, "Not employed and not working, retired")  # noqa: E501, ERA001
+
 
 class Ethnicity(LabeledEnum):
     """ethnicity value labels."""
@@ -88,6 +114,7 @@ class Ethnicity(LabeledEnum):
     MISSING = (995, "Missing Response")
     PNTA = (999, "Prefer not to answer")
 
+
 class Gender(LabeledEnum):
     """gender value labels."""
 
@@ -99,6 +126,7 @@ class Gender(LabeledEnum):
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other/prefer to self-describe")
     PNTA = (999, "Prefer not to answer")
+
 
 class Industry(LabeledEnum):
     """industry value labels."""
@@ -118,7 +146,11 @@ class Industry(LabeledEnum):
     REALESTATE = (11, "Real Estate and Rental and Leasing")
     PROFESSIONAL = (12, "Professional, Scientific, and Technical Services")
     MANAGEMENT = (13, "Management of Companies and Enteprises")
-    ADMINISTRATIVE = (14, "Administrative and Support and Waste Management and Remediation Services")  # noqa: E501
+    ADMINISTRATIVE = (
+        14,
+        "Administrative and Support and Waste Management "
+        "and Remediation Services",
+    )
     EDUCATIONAL = (15, "Educational Services")
     HEALTH_AND_SOCIAL = (16, "Health Care and Social Assistance")
     ARTS_AND_RECREATION = (17, "Arts, Entertainment, and Recreation")
@@ -127,6 +159,7 @@ class Industry(LabeledEnum):
     PUBLIC_ADMINISTRATION = (20, "Public Administration")
     MISSING = (995, "Missing Response")
     OTHER_SPECIFY = (997, "Other, please specify")
+
 
 class JobCommuteType(LabeledEnum):
     """job_commute_type value labels."""
@@ -137,8 +170,12 @@ class JobCommuteType(LabeledEnum):
     VARIES = (2, "Work location regularly varies (different offices/jobsites)")
     WFH = (3, "Work ONLY from home or remotely (telework, self-employed)")
     DELIVERY = (4, "Drive/bike/travel for work (driver, sales, deliveries)")
-    HYBRID = (5, "Work remotely some days and travel to a work location some days")  # noqa: E501
+    HYBRID = (
+        5,
+        "Work remotely some days and travel to a work location some days",
+    )
     MISSING = (995, "Missing Response")
+
 
 class Occupation(LabeledEnum):
     """occupation value labels."""
@@ -171,6 +208,7 @@ class Occupation(LabeledEnum):
     MISSING = (995, "Missing Response")
     OTHER_PLEASE_SPECIFY = (997, "Other, please specify")
 
+
 class Race(LabeledEnum):
     """race value labels."""
 
@@ -187,11 +225,14 @@ class Race(LabeledEnum):
     MISSING = (995, "Missing Response")
     PNTA = (999, "Prefer not to answer")
 
+
 class Relationship(LabeledEnum):
     """relationship value labels."""
 
     canonical_field_name = "relationship"
-    field_description = "Indicates the relationship of the person to the primary respondent"  # noqa: E501
+    field_description = (
+        "Indicates the relationship of the person to the primary respondent"
+    )
 
     SELF = (0, "Self")
     SPOUSE_PARTNER = (1, "Spouse, partner")
@@ -261,8 +302,14 @@ class Student(LabeledEnum):
 
     canonical_field_name = "student"
 
-    FULLTIME_INPERSON = (0, "Full-time student, currently attending some or all classes in-person")  # noqa: E501
-    PARTTIME_INPERSON = (1, "Part-time student, currently attending some or all classes in-person")  # noqa: E501
+    FULLTIME_INPERSON = (
+        0,
+        "Full-time student, currently attending some or all classes in-person",
+    )
+    PARTTIME_INPERSON = (
+        1,
+        "Part-time student, currently attending some or all classes in-person",
+    )
     NONSTUDENT = (2, "Not a student")
     PARTTIME_ONLINE = (3, "Part-time student, ONLY online classes")
     FULLTIME_ONLINE = (4, "Full-time student, ONLY online classes")
@@ -307,7 +354,9 @@ class PersonType(LabeledEnum):
     """Derived person type from employment status, student status, and age."""
 
     canonical_field_name = "person_type"
-    field_description = "Person type derived from employment, student status, and age"  # noqa: E501
+    field_description = (
+        "Person type derived from employment, student status, and age"
+    )
 
     FULL_TIME_WORKER = (1, "Full-time worker")
     PART_TIME_WORKER = (2, "Part-time worker")
@@ -327,7 +376,10 @@ class WorkParking(LabeledEnum):
     FREE = (1, "Parking is always free at/near work, at park & ride, etc.")
     EMPLOYER_PAYS_ALL = (2, "Employer pays ALL parking costs (for me)")
     EMPLOYER_DISCOUNT = (3, "Employer offers discounted parking (I pay some)")
-    PERSONAL_PAY = (4, "I personally pay some or all parking costs (employer pays none)")  # noqa: E501
+    PERSONAL_PAY = (
+        4,
+        "I personally pay some or all parking costs (employer pays none)",
+    )
     MISSING = (995, "Missing Response")
     NOT_APPLICABLE = (996, "Not applicable (I never drive to work)")
     DONT_KNOW = (998, "Don't know")

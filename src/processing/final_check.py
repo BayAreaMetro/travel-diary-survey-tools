@@ -1,4 +1,5 @@
 """Final validation step for the entire dataset."""
+
 import logging
 
 import polars as pl
@@ -6,6 +7,7 @@ import polars as pl
 from pipeline import step
 
 logger = logging.getLogger(__name__)
+
 
 @step(validate_input=True, validate_output=True)
 def final_check(

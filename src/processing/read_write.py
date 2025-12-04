@@ -9,6 +9,7 @@ from pipeline.decoration import step
 
 logger = logging.getLogger(__name__)
 
+
 @step()
 def load_data(
     input_paths: dict[str, str],
@@ -32,6 +33,7 @@ def load_data(
 
     logger.info("All data loaded successfully.")
     return data
+
 
 @step()
 def write_data(

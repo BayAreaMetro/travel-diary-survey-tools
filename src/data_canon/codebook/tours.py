@@ -9,12 +9,14 @@ class TourType(LabeledEnum):
     HOME_BASED = (1, "Home-based tour")
     WORK_BASED = (2, "Work-based tour")
 
+
 class PersonCategory:
     """Simplified person categories for tour purpose prioritization."""
 
     WORKER = "worker"
     STUDENT = "student"
     OTHER = "other"
+
 
 class TourBoundary(LabeledEnum):
     """Tour boundary types."""
@@ -23,6 +25,7 @@ class TourBoundary(LabeledEnum):
     PARTIAL_END = (2, "Start at home, end not at home")
     PARTIAL_START = (3, "Start not at home, end at home")
     PARTIAL_BOTH = (4, "Start not at home, end not at home")
+
 
 class HalfTour(LabeledEnum):
     """Half-tour classification."""

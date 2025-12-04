@@ -99,19 +99,16 @@ def create_households_from_persons(persons_df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Household DataFrame with required fields
     """
-    return (
-        persons_df
-        .group_by("hh_id")
-        .agg([
+    return persons_df.group_by("hh_id").agg(
+        [
             pl.col("home_lat").first(),
             pl.col("home_lon").first(),
-        ])
+        ]
     )
 
 
 def to_legacy_format(
-    persons_df: pl.DataFrame,
-    trips_df: pl.DataFrame
+    persons_df: pl.DataFrame, trips_df: pl.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Convert new format DataFrames to legacy pandas format for comparison.
 
@@ -133,28 +130,30 @@ def to_legacy_format(
 
     # Build household DataFrame (minimal for tour extraction)
     hh_ids = persons_df["hh_id"].unique().to_list()
-    hh = pd.DataFrame({
-        "hhno": hh_ids,
-        "hhsize": [
-            len(persons_df.filter(pl.col("hh_id") == hh_id))
-            for hh_id in hh_ids
-        ],
-        "hxcord": [
-            persons_df.filter(pl.col("hh_id") == hh_id)["home_lon"][0]
-            for hh_id in hh_ids
-        ],
-        "hycord": [
-            persons_df.filter(pl.col("hh_id") == hh_id)["home_lat"][0]
-            for hh_id in hh_ids
-        ],
-        "hhparcel": [-1 for _ in hh_ids],  # MAZ - not used in tests
-        "hhtaz": [-1 for _ in hh_ids],  # TAZ - not used in tests
-        "hhvehs": [1 for _ in hh_ids],  # Number of vehicles - default to 1
-        "hhincome": [50000 for _ in hh_ids],  # Income - default value
-        "hownrent": [1 for _ in hh_ids],  # Housing tenure - 1=own, 2=rent
-        "hrestype": [1 for _ in hh_ids],  # Residence type - 1=single family
-        "hhexpfac": [1.0 for _ in hh_ids],  # Household weight
-    })
+    hh = pd.DataFrame(
+        {
+            "hhno": hh_ids,
+            "hhsize": [
+                len(persons_df.filter(pl.col("hh_id") == hh_id))
+                for hh_id in hh_ids
+            ],
+            "hxcord": [
+                persons_df.filter(pl.col("hh_id") == hh_id)["home_lon"][0]
+                for hh_id in hh_ids
+            ],
+            "hycord": [
+                persons_df.filter(pl.col("hh_id") == hh_id)["home_lat"][0]
+                for hh_id in hh_ids
+            ],
+            "hhparcel": [-1 for _ in hh_ids],  # MAZ - not used in tests
+            "hhtaz": [-1 for _ in hh_ids],  # TAZ - not used in tests
+            "hhvehs": [1 for _ in hh_ids],  # Number of vehicles - default to 1
+            "hhincome": [50000 for _ in hh_ids],  # Income - default value
+            "hownrent": [1 for _ in hh_ids],  # Housing tenure - 1=own, 2=rent
+            "hrestype": [1 for _ in hh_ids],  # Residence type - 1=single family
+            "hhexpfac": [1.0 for _ in hh_ids],  # Household weight
+        }
+    )
 
     # Build persons DataFrame
     persons_data = []
@@ -169,12 +168,8 @@ def to_legacy_format(
             "pwtaz": -1,  # Not used in current tests
             "pstyp": 0,  # Not used in current tests
             "pstaz": -1,  # Not used in current tests
-            "pwxcord": (
-                row["work_lon"] if row["work_lon"] is not None else -1
-            ),
-            "pwycord": (
-                row["work_lat"] if row["work_lat"] is not None else -1
-            ),
+            "pwxcord": (row["work_lon"] if row["work_lon"] is not None else -1),
+            "pwycord": (row["work_lat"] if row["work_lat"] is not None else -1),
             "psxcord": (
                 row["school_lon"] if row["school_lon"] is not None else -1
             ),
@@ -197,20 +192,17 @@ def to_legacy_format(
         # Convert purpose codes using PURPOSE_MAP
         # Polars returns enum values as integers
         opurp_legacy = PURPOSE_MAP.get(
-            row["o_purpose_category"],
-            DaysimPurpose.HOME.value
+            row["o_purpose_category"], DaysimPurpose.HOME.value
         )
         dpurp_legacy = PURPOSE_MAP.get(
-            row["d_purpose_category"],
-            DaysimPurpose.HOME.value
+            row["d_purpose_category"], DaysimPurpose.HOME.value
         )
 
         # Convert mode codes
         # Polars returns enum values as integers, so convert to enum
         mode_enum = ModeType(row["mode_type"])
         mode_legacy = new_to_legacy_mode.get(
-            mode_enum,
-            MODE_MAP_LEGACY["drive"]
+            mode_enum, MODE_MAP_LEGACY["drive"]
         )
 
         # Set dorp (driver or passenger flag)
@@ -267,7 +259,7 @@ def simple_work_tour_data():
             "num_wb_tours": 0,
             "tour_purpose": PurposeCategory.WORK,
             "tour_mode": ModeType.CAR,
-        }
+        },
     }
 
 
@@ -291,7 +283,7 @@ def work_tour_with_subtour_data():
             "hb_tour_mode": ModeType.CAR,
             "wb_tour_purpose": PurposeCategory.MEAL,
             "wb_tour_mode": ModeType.WALK,
-        }
+        },
     }
 
 
@@ -313,7 +305,7 @@ def multiple_tours_data():
             "num_wb_tours": 0,
             "first_tour_purpose": PurposeCategory.WORK,
             "second_tour_purpose": PurposeCategory.SHOP,
-        }
+        },
     }
 
 
@@ -330,55 +322,59 @@ def mode_hierarchy_data():
     work_coords = (37.75, -122.45)
 
     # Person data
-    persons = pl.DataFrame({
-        "person_id": [1],
-        "hh_id": [1],
-        "person_type": [PersonType.FULL_TIME_WORKER],
-        "employment": [Employment.EMPLOYED_FULLTIME.value],
-        "age": [AgeCategory.AGE_35_TO_44.value],
-        "school_type": [SchoolType.MISSING.value],
-        "student": [Student.NONSTUDENT.value],
-        "home_lat": [home_coords[0]],
-        "home_lon": [home_coords[1]],
-        "work_lat": [work_coords[0]],
-        "work_lon": [work_coords[1]],
-        "school_lat": [None],
-        "school_lon": [None],
-    })
+    persons = pl.DataFrame(
+        {
+            "person_id": [1],
+            "hh_id": [1],
+            "person_type": [PersonType.FULL_TIME_WORKER],
+            "employment": [Employment.EMPLOYED_FULLTIME.value],
+            "age": [AgeCategory.AGE_35_TO_44.value],
+            "school_type": [SchoolType.MISSING.value],
+            "student": [Student.NONSTUDENT.value],
+            "home_lat": [home_coords[0]],
+            "home_lon": [home_coords[1]],
+            "work_lat": [work_coords[0]],
+            "work_lon": [work_coords[1]],
+            "school_lat": [None],
+            "school_lon": [None],
+        }
+    )
 
     # Trip data (using linked trips - already merged change_mode segments)
-    trips = pl.DataFrame({
-        "trip_id": [1, 2],
-        "linked_trip_id": [1, 2],
-        "day_id": [2, 2],
-        "travel_dow": [TravelDow.MONDAY.value, TravelDow.MONDAY.value],
-        "person_id": [1, 1],
-        "hh_id": [1, 1],
-        "depart_time": [
-            datetime(2024, 1, 1, 8, 0),   # home -> work (via transit)
-            datetime(2024, 1, 1, 17, 0),  # work -> home (drive)
-        ],
-        "arrive_time": [
-            datetime(2024, 1, 1, 9, 0),
-            datetime(2024, 1, 1, 17, 30),
-        ],
-        "o_purpose_category": [
-            PURPOSE_MAP_NEW["home"],
-            PURPOSE_MAP_NEW["work"],
-        ],
-        "d_purpose_category": [
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["home"],
-        ],
-        "mode_type": [
-            MODE_MAP_NEW["transit"],  # Transit higher priority
-            MODE_MAP_NEW["drive"],
-        ],
-        "o_lat": [home_coords[0], work_coords[0]],
-        "o_lon": [home_coords[1], work_coords[1]],
-        "d_lat": [work_coords[0], home_coords[0]],
-        "d_lon": [work_coords[1], home_coords[1]],
-    })
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "linked_trip_id": [1, 2],
+            "day_id": [2, 2],
+            "travel_dow": [TravelDow.MONDAY.value, TravelDow.MONDAY.value],
+            "person_id": [1, 1],
+            "hh_id": [1, 1],
+            "depart_time": [
+                datetime(2024, 1, 1, 8, 0),  # home -> work (via transit)
+                datetime(2024, 1, 1, 17, 0),  # work -> home (drive)
+            ],
+            "arrive_time": [
+                datetime(2024, 1, 1, 9, 0),
+                datetime(2024, 1, 1, 17, 30),
+            ],
+            "o_purpose_category": [
+                PURPOSE_MAP_NEW["home"],
+                PURPOSE_MAP_NEW["work"],
+            ],
+            "d_purpose_category": [
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["home"],
+            ],
+            "mode_type": [
+                MODE_MAP_NEW["transit"],  # Transit higher priority
+                MODE_MAP_NEW["drive"],
+            ],
+            "o_lat": [home_coords[0], work_coords[0]],
+            "o_lon": [home_coords[1], work_coords[1]],
+            "d_lat": [work_coords[0], home_coords[0]],
+            "d_lon": [work_coords[1], home_coords[1]],
+        }
+    )
 
     return {
         "persons": persons,
@@ -387,13 +383,14 @@ def mode_hierarchy_data():
             "num_tours": 1,
             # Should pick transit over drive
             "tour_mode": MODE_MAP_NEW["transit"],
-        }
+        },
     }
 
 
 # ============================================================================
 # Test Functions
 # ============================================================================
+
 
 def test_simple_work_tour(simple_work_tour_data):
     """Test basic work tour identification comparing new vs legacy."""
@@ -601,15 +598,18 @@ def test_mode_hierarchy(mode_hierarchy_data):
 
 def test_tour_timing():
     """Test that tour timing is correctly computed from trip times.
-    
+
     Tour pattern: home -> work -> lunch -> work -> home
-    
+
     Home-based work tour timing:
     - origin_depart_time: when leaving origin (home) on first trip = 8:15
-    - origin_arrive_time: when arriving back at origin (home) on last trip = 17:45
-    - dest_arrive_time: when arriving at destination (work) on first trip = 9:00
-    - dest_depart_time: LAST departure FROM work before returning home = 17:00
-    
+    - origin_arrive_time: when arriving back at origin (home) on last
+      trip = 17:45
+    - dest_arrive_time: when arriving at destination (work) on first
+      trip = 9:00
+    - dest_depart_time: LAST departure FROM work before returning
+      home = 17:00
+
     Work-based subtour timing:
     - origin_depart_time: when leaving work for subtour = 12:00
     - origin_arrive_time: when returning to work = 13:15
@@ -621,76 +621,114 @@ def test_tour_timing():
     work_coords = (37.75, -122.45)
     lunch_coords = (37.76, -122.46)
 
-    persons = pl.DataFrame({
-        "person_id": [1],
-        "hh_id": [1],
-        "person_type": [PersonType.FULL_TIME_WORKER],
-        "employment": [Employment.EMPLOYED_FULLTIME.value],
-        "age": [AgeCategory.AGE_35_TO_44.value],
-        "school_type": [SchoolType.MISSING.value],
-        "student": [Student.NONSTUDENT.value],
-        "home_lat": [home_coords[0]],
-        "home_lon": [home_coords[1]],
-        "work_lat": [work_coords[0]],
-        "work_lon": [work_coords[1]],
-        "school_lat": [None],
-        "school_lon": [None],
-    })
+    persons = pl.DataFrame(
+        {
+            "person_id": [1],
+            "hh_id": [1],
+            "person_type": [PersonType.FULL_TIME_WORKER],
+            "employment": [Employment.EMPLOYED_FULLTIME.value],
+            "age": [AgeCategory.AGE_35_TO_44.value],
+            "school_type": [SchoolType.MISSING.value],
+            "student": [Student.NONSTUDENT.value],
+            "home_lat": [home_coords[0]],
+            "home_lon": [home_coords[1]],
+            "work_lat": [work_coords[0]],
+            "work_lon": [work_coords[1]],
+            "school_lat": [None],
+            "school_lon": [None],
+        }
+    )
 
     # Trip times for the tour pattern
-    trip1_depart = datetime(2024, 1, 1, 8, 15)   # Leave home
-    trip1_arrive = datetime(2024, 1, 1, 9, 0)     # Arrive at work
-    trip2_depart = datetime(2024, 1, 1, 12, 0)    # Leave work for lunch
-    trip2_arrive = datetime(2024, 1, 1, 12, 15)   # Arrive at lunch
-    trip3_depart = datetime(2024, 1, 1, 13, 0)    # Leave lunch
-    trip3_arrive = datetime(2024, 1, 1, 13, 15)   # Arrive back at work
-    trip4_depart = datetime(2024, 1, 1, 17, 0)    # Leave work
-    trip4_arrive = datetime(2024, 1, 1, 17, 45)   # Arrive home
+    trip1_depart = datetime(2024, 1, 1, 8, 15)  # Leave home
+    trip1_arrive = datetime(2024, 1, 1, 9, 0)  # Arrive at work
+    trip2_depart = datetime(2024, 1, 1, 12, 0)  # Leave work for lunch
+    trip2_arrive = datetime(2024, 1, 1, 12, 15)  # Arrive at lunch
+    trip3_depart = datetime(2024, 1, 1, 13, 0)  # Leave lunch
+    trip3_arrive = datetime(2024, 1, 1, 13, 15)  # Arrive back at work
+    trip4_depart = datetime(2024, 1, 1, 17, 0)  # Leave work
+    trip4_arrive = datetime(2024, 1, 1, 17, 45)  # Arrive home
 
     # EXPECTED home-based tour timing (what the algorithm SHOULD produce)
-    expected_hb_origin_depart = trip1_depart      # 8:15 - Leave home
-    expected_hb_origin_arrive = trip4_arrive      # 17:45 - Return home
-    expected_hb_dest_arrive = trip1_arrive        # 9:00 - First arrival at work
-    expected_hb_dest_depart = trip4_depart        # 17:00 - LAST departure from work (currently broken)
+    expected_hb_origin_depart = trip1_depart  # 8:15 - Leave home
+    expected_hb_origin_arrive = trip4_arrive  # 17:45 - Return home
+    expected_hb_dest_arrive = trip1_arrive  # 9:00 - First arrival at work
+    expected_hb_dest_depart = (
+        trip4_depart  # 17:00 - LAST departure from work (currently broken)
+    )
 
     # EXPECTED work-based subtour timing (what the algorithm SHOULD produce)
-    expected_wb_origin_depart = trip2_depart      # 12:00 - Leave work for lunch
-    expected_wb_origin_arrive = trip3_arrive      # 13:15 - Return to work
-    expected_wb_dest_arrive = trip2_arrive        # 12:15 - Arrive at lunch
-    expected_wb_dest_depart = trip3_depart        # 13:00 - Departure from lunch (currently broken)
+    expected_wb_origin_depart = trip2_depart  # 12:00 - Leave work for lunch
+    expected_wb_origin_arrive = trip3_arrive  # 13:15 - Return to work
+    expected_wb_dest_arrive = trip2_arrive  # 12:15 - Arrive at lunch
+    expected_wb_dest_depart = (
+        trip3_depart  # 13:00 - Departure from lunch (currently broken)
+    )
 
-    trips = pl.DataFrame({
-        "trip_id": [1, 2, 3, 4],
-        "linked_trip_id": [1, 2, 3, 4],
-        "day_id": [2, 2, 2, 2],
-        "travel_dow": [TravelDow.MONDAY.value] * 4,
-        "person_id": [1, 1, 1, 1],
-        "hh_id": [1, 1, 1, 1],
-        "depart_time": [trip1_depart, trip2_depart, trip3_depart, trip4_depart],
-        "arrive_time": [trip1_arrive, trip2_arrive, trip3_arrive, trip4_arrive],
-        "o_purpose_category": [
-            PURPOSE_MAP_NEW["home"],
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["meal"],
-            PURPOSE_MAP_NEW["work"],
-        ],
-        "d_purpose_category": [
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["meal"],
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["home"],
-        ],
-        "mode_type": [
-            MODE_MAP_NEW["drive"],
-            MODE_MAP_NEW["walk"],
-            MODE_MAP_NEW["walk"],
-            MODE_MAP_NEW["drive"],
-        ],
-        "o_lat": [home_coords[0], work_coords[0], lunch_coords[0], work_coords[0]],
-        "o_lon": [home_coords[1], work_coords[1], lunch_coords[1], work_coords[1]],
-        "d_lat": [work_coords[0], lunch_coords[0], work_coords[0], home_coords[0]],
-        "d_lon": [work_coords[1], lunch_coords[1], work_coords[1], home_coords[1]],
-    })
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2, 3, 4],
+            "linked_trip_id": [1, 2, 3, 4],
+            "day_id": [2, 2, 2, 2],
+            "travel_dow": [TravelDow.MONDAY.value] * 4,
+            "person_id": [1, 1, 1, 1],
+            "hh_id": [1, 1, 1, 1],
+            "depart_time": [
+                trip1_depart,
+                trip2_depart,
+                trip3_depart,
+                trip4_depart,
+            ],
+            "arrive_time": [
+                trip1_arrive,
+                trip2_arrive,
+                trip3_arrive,
+                trip4_arrive,
+            ],
+            "o_purpose_category": [
+                PURPOSE_MAP_NEW["home"],
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["meal"],
+                PURPOSE_MAP_NEW["work"],
+            ],
+            "d_purpose_category": [
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["meal"],
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["home"],
+            ],
+            "mode_type": [
+                MODE_MAP_NEW["drive"],
+                MODE_MAP_NEW["walk"],
+                MODE_MAP_NEW["walk"],
+                MODE_MAP_NEW["drive"],
+            ],
+            "o_lat": [
+                home_coords[0],
+                work_coords[0],
+                lunch_coords[0],
+                work_coords[0],
+            ],
+            "o_lon": [
+                home_coords[1],
+                work_coords[1],
+                lunch_coords[1],
+                work_coords[1],
+            ],
+            "d_lat": [
+                work_coords[0],
+                lunch_coords[0],
+                work_coords[0],
+                home_coords[0],
+            ],
+            "d_lon": [
+                work_coords[1],
+                lunch_coords[1],
+                work_coords[1],
+                home_coords[1],
+            ],
+        }
+    )
 
     # Convert to legacy format and run legacy implementation
     hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
@@ -713,8 +751,12 @@ def test_tour_timing():
     hb_tours = tours.filter(pl.col("tour_category") == TourType.HOME_BASED)
     wb_tours = tours.filter(pl.col("tour_category") == TourType.WORK_BASED)
 
-    assert len(hb_tours) == 1, f"Expected 1 home-based tour, got {len(hb_tours)}"
-    assert len(wb_tours) == 1, f"Expected 1 work-based tour, got {len(wb_tours)}"
+    assert len(hb_tours) == 1, (
+        f"Expected 1 home-based tour, got {len(hb_tours)}"
+    )
+    assert len(wb_tours) == 1, (
+        f"Expected 1 work-based tour, got {len(wb_tours)}"
+    )
 
     # Check home-based tour timing
     hb_tour = hb_tours[0]
@@ -761,59 +803,63 @@ def test_tour_trip_counts():
     home_coords = (37.70, -122.40)
     work_coords = (37.75, -122.45)
 
-    persons = pl.DataFrame({
-        "person_id": [1],
-        "hh_id": [1],
-        "person_type": [PersonType.FULL_TIME_WORKER],
-        "employment": [Employment.EMPLOYED_FULLTIME.value],
-        "age": [AgeCategory.AGE_35_TO_44.value],
-        "school_type": [SchoolType.MISSING.value],
-        "student": [Student.NONSTUDENT.value],
-        "home_lat": [home_coords[0]],
-        "home_lon": [home_coords[1]],
-        "work_lat": [work_coords[0]],
-        "work_lon": [work_coords[1]],
-        "school_lat": [None],
-        "school_lon": [None],
-    })
+    persons = pl.DataFrame(
+        {
+            "person_id": [1],
+            "hh_id": [1],
+            "person_type": [PersonType.FULL_TIME_WORKER],
+            "employment": [Employment.EMPLOYED_FULLTIME.value],
+            "age": [AgeCategory.AGE_35_TO_44.value],
+            "school_type": [SchoolType.MISSING.value],
+            "student": [Student.NONSTUDENT.value],
+            "home_lat": [home_coords[0]],
+            "home_lon": [home_coords[1]],
+            "work_lat": [work_coords[0]],
+            "work_lon": [work_coords[1]],
+            "school_lat": [None],
+            "school_lon": [None],
+        }
+    )
 
-    trips = pl.DataFrame({
-        "trip_id": [1, 2, 3, 4],
-        "linked_trip_id": [1, 2, 3, 4],
-        "day_id": [2, 2, 2, 2],
-        "travel_dow": [TravelDow.MONDAY.value] * 4,
-        "person_id": [1, 1, 1, 1],
-        "hh_id": [1, 1, 1, 1],
-        "depart_time": [
-            datetime(2024, 1, 1, 8, 0),
-            datetime(2024, 1, 1, 8, 30),
-            datetime(2024, 1, 1, 9, 0),
-            datetime(2024, 1, 1, 17, 0),
-        ],
-        "arrive_time": [
-            datetime(2024, 1, 1, 8, 15),
-            datetime(2024, 1, 1, 8, 45),
-            datetime(2024, 1, 1, 9, 30),
-            datetime(2024, 1, 1, 17, 30),
-        ],
-        "o_purpose_category": [
-            PURPOSE_MAP_NEW["home"],
-            PURPOSE_MAP_NEW["shop"],
-            PURPOSE_MAP_NEW["errand"],
-            PURPOSE_MAP_NEW["work"],
-        ],
-        "d_purpose_category": [
-            PURPOSE_MAP_NEW["shop"],
-            PURPOSE_MAP_NEW["errand"],
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["home"],
-        ],
-        "mode_type": [MODE_MAP_NEW["drive"]] * 4,
-        "o_lat": [home_coords[0], 37.71, 37.72, work_coords[0]],
-        "o_lon": [home_coords[1], -122.41, -122.42, work_coords[1]],
-        "d_lat": [37.71, 37.72, work_coords[0], home_coords[0]],
-        "d_lon": [-122.41, -122.42, work_coords[1], home_coords[1]],
-    })
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2, 3, 4],
+            "linked_trip_id": [1, 2, 3, 4],
+            "day_id": [2, 2, 2, 2],
+            "travel_dow": [TravelDow.MONDAY.value] * 4,
+            "person_id": [1, 1, 1, 1],
+            "hh_id": [1, 1, 1, 1],
+            "depart_time": [
+                datetime(2024, 1, 1, 8, 0),
+                datetime(2024, 1, 1, 8, 30),
+                datetime(2024, 1, 1, 9, 0),
+                datetime(2024, 1, 1, 17, 0),
+            ],
+            "arrive_time": [
+                datetime(2024, 1, 1, 8, 15),
+                datetime(2024, 1, 1, 8, 45),
+                datetime(2024, 1, 1, 9, 30),
+                datetime(2024, 1, 1, 17, 30),
+            ],
+            "o_purpose_category": [
+                PURPOSE_MAP_NEW["home"],
+                PURPOSE_MAP_NEW["shop"],
+                PURPOSE_MAP_NEW["errand"],
+                PURPOSE_MAP_NEW["work"],
+            ],
+            "d_purpose_category": [
+                PURPOSE_MAP_NEW["shop"],
+                PURPOSE_MAP_NEW["errand"],
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["home"],
+            ],
+            "mode_type": [MODE_MAP_NEW["drive"]] * 4,
+            "o_lat": [home_coords[0], 37.71, 37.72, work_coords[0]],
+            "o_lon": [home_coords[1], -122.41, -122.42, work_coords[1]],
+            "d_lat": [37.71, 37.72, work_coords[0], home_coords[0]],
+            "d_lon": [-122.41, -122.42, work_coords[1], home_coords[1]],
+        }
+    )
 
     # Convert to legacy format and run legacy implementation
     hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
@@ -850,61 +896,65 @@ def test_incomplete_tour_at_end_of_day():
     home_coords = (37.70, -122.40)
     work_coords = (37.75, -122.45)
 
-    persons = pl.DataFrame({
-        "person_id": [1],
-        "hh_id": [1],
-        "person_type": [PersonType.FULL_TIME_WORKER],
-        "employment": [Employment.EMPLOYED_FULLTIME.value],
-        "age": [AgeCategory.AGE_35_TO_44.value],
-        "school_type": [SchoolType.MISSING.value],
-        "student": [Student.NONSTUDENT.value],
-        "home_lat": [home_coords[0]],
-        "home_lon": [home_coords[1]],
-        "work_lat": [work_coords[0]],
-        "work_lon": [work_coords[1]],
-        "school_lat": [None],
-        "school_lon": [None],
-    })
+    persons = pl.DataFrame(
+        {
+            "person_id": [1],
+            "hh_id": [1],
+            "person_type": [PersonType.FULL_TIME_WORKER],
+            "employment": [Employment.EMPLOYED_FULLTIME.value],
+            "age": [AgeCategory.AGE_35_TO_44.value],
+            "school_type": [SchoolType.MISSING.value],
+            "student": [Student.NONSTUDENT.value],
+            "home_lat": [home_coords[0]],
+            "home_lon": [home_coords[1]],
+            "work_lat": [work_coords[0]],
+            "work_lon": [work_coords[1]],
+            "school_lat": [None],
+            "school_lon": [None],
+        }
+    )
 
     # Day 1: Complete tour (home -> work -> home)
     # Day 2: Incomplete tour (home -> work, no return)
-    trips = pl.DataFrame({
-        "trip_id": [1, 2, 3],
-        "linked_trip_id": [1, 2, 3],
-        "day_id": [1, 1, 2],
-        "travel_dow": [TravelDow.MONDAY.value] * 3,
-        "person_id": [1, 1, 1],
-        "hh_id": [1, 1, 1],
-        "depart_time": [
-            datetime(2024, 1, 1, 8, 0),   # Day 1: home -> work
-            datetime(2024, 1, 1, 17, 0),  # Day 1: work -> home
-            datetime(2024, 1, 2, 8, 0),   # Day 2: home -> work (incomplete)
-        ],
-        "arrive_time": [
-            datetime(2024, 1, 1, 9, 0),
-            datetime(2024, 1, 1, 17, 30),
-            datetime(2024, 1, 2, 9, 0),
-        ],
-        "o_purpose_category": [
-            PURPOSE_MAP_NEW["home"],
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["home"],
-        ],
-        "d_purpose_category": [
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["home"],
-            PURPOSE_MAP_NEW["work"],
-        ],
-        "mode_type": [
-            MODE_MAP_NEW["drive"],
-            MODE_MAP_NEW["drive"],
-            MODE_MAP_NEW["drive"],
-        ],
-        "o_lat": [home_coords[0], work_coords[0], home_coords[0]],
-        "o_lon": [home_coords[1], work_coords[1], home_coords[1]],
-        "d_lat": [work_coords[0], home_coords[0], work_coords[0]],
-        "d_lon": [work_coords[1], home_coords[1], work_coords[1]],
-    })
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2, 3],
+            "linked_trip_id": [1, 2, 3],
+            "day_id": [1, 1, 2],
+            "travel_dow": [TravelDow.MONDAY.value] * 3,
+            "person_id": [1, 1, 1],
+            "hh_id": [1, 1, 1],
+            "depart_time": [
+                datetime(2024, 1, 1, 8, 0),  # Day 1: home -> work
+                datetime(2024, 1, 1, 17, 0),  # Day 1: work -> home
+                datetime(2024, 1, 2, 8, 0),  # Day 2: home -> work (incomplete)
+            ],
+            "arrive_time": [
+                datetime(2024, 1, 1, 9, 0),
+                datetime(2024, 1, 1, 17, 30),
+                datetime(2024, 1, 2, 9, 0),
+            ],
+            "o_purpose_category": [
+                PURPOSE_MAP_NEW["home"],
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["home"],
+            ],
+            "d_purpose_category": [
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["home"],
+                PURPOSE_MAP_NEW["work"],
+            ],
+            "mode_type": [
+                MODE_MAP_NEW["drive"],
+                MODE_MAP_NEW["drive"],
+                MODE_MAP_NEW["drive"],
+            ],
+            "o_lat": [home_coords[0], work_coords[0], home_coords[0]],
+            "o_lon": [home_coords[1], work_coords[1], home_coords[1]],
+            "d_lat": [work_coords[0], home_coords[0], work_coords[0]],
+            "d_lon": [work_coords[1], home_coords[1], work_coords[1]],
+        }
+    )
 
     # Convert to legacy format and run legacy implementation
     hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
@@ -935,51 +985,55 @@ def test_no_work_location():
     # Trip destination, but not person's usual work
     work_coords = (37.75, -122.45)
 
-    persons = pl.DataFrame({
-        "person_id": [1],
-        "hh_id": [1],
-        "person_type": [PersonType.FULL_TIME_WORKER],
-        "employment": [Employment.EMPLOYED_FULLTIME.value],
-        "age": [AgeCategory.AGE_35_TO_44.value],
-        "school_type": [SchoolType.MISSING.value],
-        "student": [Student.NONSTUDENT.value],
-        "home_lat": [home_coords[0]],
-        "home_lon": [home_coords[1]],
-        "work_lat": [None],  # No work location defined
-        "work_lon": [None],
-        "school_lat": [None],
-        "school_lon": [None],
-    })
+    persons = pl.DataFrame(
+        {
+            "person_id": [1],
+            "hh_id": [1],
+            "person_type": [PersonType.FULL_TIME_WORKER],
+            "employment": [Employment.EMPLOYED_FULLTIME.value],
+            "age": [AgeCategory.AGE_35_TO_44.value],
+            "school_type": [SchoolType.MISSING.value],
+            "student": [Student.NONSTUDENT.value],
+            "home_lat": [home_coords[0]],
+            "home_lon": [home_coords[1]],
+            "work_lat": [None],  # No work location defined
+            "work_lon": [None],
+            "school_lat": [None],
+            "school_lon": [None],
+        }
+    )
 
-    trips = pl.DataFrame({
-        "trip_id": [1, 2],
-        "linked_trip_id": [1, 2],
-        "day_id": [2, 2],
-        "travel_dow": [TravelDow.MONDAY.value, TravelDow.MONDAY.value],
-        "person_id": [1, 1],
-        "hh_id": [1, 1],
-        "depart_time": [
-            datetime(2024, 1, 1, 8, 0),
-            datetime(2024, 1, 1, 17, 0),
-        ],
-        "arrive_time": [
-            datetime(2024, 1, 1, 9, 0),
-            datetime(2024, 1, 1, 17, 30),
-        ],
-        "o_purpose_category": [
-            PURPOSE_MAP_NEW["home"],
-            PURPOSE_MAP_NEW["work"],
-        ],
-        "d_purpose_category": [
-            PURPOSE_MAP_NEW["work"],
-            PURPOSE_MAP_NEW["home"],
-        ],
-        "mode_type": [MODE_MAP_NEW["drive"], MODE_MAP_NEW["drive"]],
-        "o_lat": [home_coords[0], work_coords[0]],
-        "o_lon": [home_coords[1], work_coords[1]],
-        "d_lat": [work_coords[0], home_coords[0]],
-        "d_lon": [work_coords[1], home_coords[1]],
-    })
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "linked_trip_id": [1, 2],
+            "day_id": [2, 2],
+            "travel_dow": [TravelDow.MONDAY.value, TravelDow.MONDAY.value],
+            "person_id": [1, 1],
+            "hh_id": [1, 1],
+            "depart_time": [
+                datetime(2024, 1, 1, 8, 0),
+                datetime(2024, 1, 1, 17, 0),
+            ],
+            "arrive_time": [
+                datetime(2024, 1, 1, 9, 0),
+                datetime(2024, 1, 1, 17, 30),
+            ],
+            "o_purpose_category": [
+                PURPOSE_MAP_NEW["home"],
+                PURPOSE_MAP_NEW["work"],
+            ],
+            "d_purpose_category": [
+                PURPOSE_MAP_NEW["work"],
+                PURPOSE_MAP_NEW["home"],
+            ],
+            "mode_type": [MODE_MAP_NEW["drive"], MODE_MAP_NEW["drive"]],
+            "o_lat": [home_coords[0], work_coords[0]],
+            "o_lon": [home_coords[1], work_coords[1]],
+            "d_lat": [work_coords[0], home_coords[0]],
+            "d_lon": [work_coords[1], home_coords[1]],
+        }
+    )
 
     # Convert to legacy format and run legacy implementation
     hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
@@ -1007,5 +1061,3 @@ def test_no_work_location():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-

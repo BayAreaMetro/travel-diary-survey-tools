@@ -26,6 +26,7 @@ class Pipeline:
 
         Args:
             config_path: Path to the YAML configuration.
+            processing_steps: Optional list of processing step functions.
                 steps.
             custom_steps: Mapping of step names to custom functions
                 (overrides default steps), optional.
@@ -92,7 +93,10 @@ class Pipeline:
         config_kwargs = {}
 
         reserved = {
-            "canonical_data", "validate_input", "validate_output", "kwargs"
+            "canonical_data",
+            "validate_input",
+            "validate_output",
+            "kwargs",
         }
         expected_kwargs = [x for x in step_args if x not in reserved]
 
@@ -116,9 +120,9 @@ class Pipeline:
                 if arg_name in params:
                     config_kwargs[arg_name] = params[arg_name]
                 elif (
-                    param.default is not inspect.Parameter.empty or
-                    arg_name in reserved
-                    ):
+                    param.default is not inspect.Parameter.empty
+                    or arg_name in reserved
+                ):
                     # Has default value, don't need to provide it
                     pass
                 else:
@@ -130,7 +134,6 @@ class Pipeline:
                         f""""{'", "'.join(expected_kwargs)}"."""
                     )
                     raise ValueError(msg)
-
 
         return {**data_kwargs, **config_kwargs}
 

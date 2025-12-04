@@ -1,4 +1,5 @@
 """Decorators for pipeline steps with automatic validation."""
+
 import functools
 import inspect
 import logging
@@ -65,7 +66,9 @@ def step(
         def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             # Extract validation flags
             should_validate_input = kwargs.pop("validate_input", validate_input)
-            should_validate_output = kwargs.pop("validate_output", validate_output)  # noqa: E501
+            should_validate_output = kwargs.pop(
+                "validate_output", validate_output
+            )
 
             # Only pop canonical_data if function doesn't expect it
             sig = inspect.signature(func)
@@ -83,12 +86,12 @@ def step(
             if canonical_data and isinstance(result, dict):
                 for key, value in result.items():
                     if _is_canonical_dataframe(key, value):
-                            logger.info(
-                                "Updating canonical_data with output '%s' "
-                                "from step '%s'",
-                                key,
-                                func.__name__,
-                            )
+                        logger.info(
+                            "Updating canonical_data with output '%s' "
+                            "from step '%s'",
+                            key,
+                            func.__name__,
+                        )
                     else:
                         logger.warning(
                             "Output '%s' from step '%s' is not a canonical "

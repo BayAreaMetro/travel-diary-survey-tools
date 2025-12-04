@@ -90,7 +90,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-
 @step()
 def extract_tours(
     persons: pl.DataFrame,
@@ -170,16 +169,21 @@ def extract_tours(
 
     # Return clean linked_trips (drop temporary columns)
     temp_patterns = [
-        "_is_home", "_is_work", "_is_school", "location_type",
-        "leaving_", "returning_", "subtour_num_", "tour_num_",
+        "_is_home",
+        "_is_work",
+        "_is_school",
+        "location_type",
+        "leaving_",
+        "returning_",
+        "subtour_num_",
+        "tour_num_",
     ]
     output_cols = [
-        c for c in linked_trips_with_half_tour.columns
+        c
+        for c in linked_trips_with_half_tour.columns
         if not any(p in c for p in temp_patterns)
     ]
-    linked_trips_with_tour_ids = linked_trips_with_half_tour.select(
-        output_cols
-    )
+    linked_trips_with_tour_ids = linked_trips_with_half_tour.select(output_cols)
 
     logger.info(
         "Tour building complete: %d linked trips, %d tours",

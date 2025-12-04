@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _determine_linked_trip_mode_type(
-    unlinked_trips: pl.DataFrame
+    unlinked_trips: pl.DataFrame,
 ) -> pl.DataFrame:
     """Determine mode_type and transit access/egress for each linked trip.
 
@@ -55,44 +55,57 @@ def _determine_linked_trip_mode_type(
 
     # Group by linked_trip_id and determine mode + transit access/egress
     mode_agg = (
-        unlinked_with_duration
-        .sort(["linked_trip_id", "trip_duration"], descending=[False, True])
+        unlinked_with_duration.sort(
+            ["linked_trip_id", "trip_duration"], descending=[False, True]
+        )
         .group_by("linked_trip_id")
-        .agg([
-            # Transit mode if any segment is transit
-            pl.col("mode_type")
-            .filter(
-                pl.col("mode_type").is_in([
-                    ModeType.FERRY.value,
-                    ModeType.TRANSIT.value,
-                    ModeType.LONG_DISTANCE.value,
-                ])
-            )
-            .first()
-            .alias("mode_transit"),
-            # Longest non-transit segment (already sorted by duration)
-            pl.col("mode_type")
-            .filter(
-                ~pl.col("mode_type").is_in([
-                    ModeType.FERRY.value,
-                    ModeType.TRANSIT.value,
-                    ModeType.LONG_DISTANCE.value,
-                ])
-            )
-            .first()
-            .alias("mode_non_transit"),
-            # Transit access/egress (first non-null value)
-            pl.col("transit_access").drop_nulls().first().alias("transit_access"),
-            pl.col("transit_egress").drop_nulls().first().alias("transit_egress"),
-        ])
+        .agg(
+            [
+                # Transit mode if any segment is transit
+                pl.col("mode_type")
+                .filter(
+                    pl.col("mode_type").is_in(
+                        [
+                            ModeType.FERRY.value,
+                            ModeType.TRANSIT.value,
+                            ModeType.LONG_DISTANCE.value,
+                        ]
+                    )
+                )
+                .first()
+                .alias("mode_transit"),
+                # Longest non-transit segment (already sorted by duration)
+                pl.col("mode_type")
+                .filter(
+                    ~pl.col("mode_type").is_in(
+                        [
+                            ModeType.FERRY.value,
+                            ModeType.TRANSIT.value,
+                            ModeType.LONG_DISTANCE.value,
+                        ]
+                    )
+                )
+                .first()
+                .alias("mode_non_transit"),
+                # Transit access/egress (first non-null value)
+                pl.col("transit_access")
+                .drop_nulls()
+                .first()
+                .alias("transit_access"),
+                pl.col("transit_egress")
+                .drop_nulls()
+                .first()
+                .alias("transit_egress"),
+            ]
+        )
         .with_columns(
             mode_type=pl.when(pl.col("mode_transit").is_not_null())
             .then(pl.col("mode_transit"))
             .otherwise(pl.col("mode_non_transit"))
         )
-        .select([
-            "linked_trip_id", "mode_type", "transit_access", "transit_egress"
-        ])
+        .select(
+            ["linked_trip_id", "mode_type", "transit_access", "transit_egress"]
+        )
     )
 
     # Validate no nulls in mode_type
@@ -107,9 +120,7 @@ def _determine_linked_trip_mode_type(
     return mode_agg
 
 
-def _aggregate_transit_path_flags(
-    unlinked_trips: pl.DataFrame
-) -> pl.DataFrame:
+def _aggregate_transit_path_flags(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
     """Aggregate transit mode flags from unlinked segments for linked trip.
 
     Scans ALL mode_1, mode_2, mode_3, mode_4 values across ALL unlinked
@@ -136,58 +147,68 @@ def _aggregate_transit_path_flags(
     """
     # Regex starts with mode_ and ends with digit
     mode_cols = [
-        col for col in unlinked_trips.columns
+        col
+        for col in unlinked_trips.columns
         if col.startswith("mode_") and col[-1].isdigit()
     ]
 
-
     # Collect all mode values by unpivoting mode_1-4 columns
     all_modes = (
-        unlinked_trips
-        .select(["linked_trip_id", *mode_cols])
+        unlinked_trips.select(["linked_trip_id", *mode_cols])
         .unpivot(
             index="linked_trip_id",
             on=mode_cols,
             variable_name="mode_slot",
-            value_name="mode"
+            value_name="mode",
         )
         .filter(pl.col("mode") != Mode.MISSING.value)
     )
 
     # Check for each specific transit mode across all linked trip segments
-    transit_flags = (
-        all_modes
-        .group_by("linked_trip_id")
-        .agg([
+    transit_flags = all_modes.group_by("linked_trip_id").agg(
+        [
             pl.col("mode").is_in([Mode.FERRY.value]).any().alias("has_ferry"),
             pl.col("mode").is_in([Mode.BART.value]).any().alias("has_bart"),
-            pl.col("mode").is_in([
-                Mode.RAIL_INTERCITY.value,
-                Mode.RAIL_OTHER.value,
-                Mode.BUS_EXPRESS.value,
-            ]).any().alias("has_premium"),
-            pl.col("mode").is_in([
-                Mode.MUNI_METRO.value,
-                Mode.RAIL.value,
-                Mode.STREETCAR.value,
-            ]).any().alias("has_lrt"),
-            pl.col("mode").is_in([Mode.RAIL_INTERCITY.value]).any().alias("has_intercity_rail"),
-        ])
+            pl.col("mode")
+            .is_in(
+                [
+                    Mode.RAIL_INTERCITY.value,
+                    Mode.RAIL_OTHER.value,
+                    Mode.BUS_EXPRESS.value,
+                ]
+            )
+            .any()
+            .alias("has_premium"),
+            pl.col("mode")
+            .is_in(
+                [
+                    Mode.MUNI_METRO.value,
+                    Mode.RAIL.value,
+                    Mode.STREETCAR.value,
+                ]
+            )
+            .any()
+            .alias("has_lrt"),
+            pl.col("mode")
+            .is_in([Mode.RAIL_INTERCITY.value])
+            .any()
+            .alias("has_intercity_rail"),
+        ]
     )
 
     # Ensure all linked_trip_ids have entries (fill missing with False)
     all_linked_trips = unlinked_trips.select("linked_trip_id").unique()
 
-    result = (
-        all_linked_trips
-        .join(transit_flags, on="linked_trip_id", how="left")
-        .with_columns([
-            pl.col("has_ferry").fill_null(False),
-            pl.col("has_bart").fill_null(False),
-            pl.col("has_premium").fill_null(False),
-            pl.col("has_lrt").fill_null(False),
-            pl.col("has_intercity_rail").fill_null(False),
-        ])
+    result = all_linked_trips.join(
+        transit_flags, on="linked_trip_id", how="left"
+    ).with_columns(
+        [
+            pl.col("has_ferry").fill_null(value=False),
+            pl.col("has_bart").fill_null(value=False),
+            pl.col("has_premium").fill_null(value=False),
+            pl.col("has_lrt").fill_null(value=False),
+            pl.col("has_intercity_rail").fill_null(value=False),
+        ]
     )
 
     return result
@@ -208,11 +229,13 @@ def _compute_daysim_mode_expr() -> pl.Expr:
     )
 
     bike_expr = walk_expr.when(
-        pl.col("mode_type").is_in([
-            ModeType.BIKE.value,
-            ModeType.BIKESHARE.value,
-            ModeType.SCOOTERSHARE.value,
-        ])
+        pl.col("mode_type").is_in(
+            [
+                ModeType.BIKE.value,
+                ModeType.BIKESHARE.value,
+                ModeType.SCOOTERSHARE.value,
+            ]
+        )
     ).then(pl.lit(DaysimMode.BIKE.value))
 
     # Step 2: Handle private vehicle modes with occupancy
@@ -226,18 +249,22 @@ def _compute_daysim_mode_expr() -> pl.Expr:
     )
 
     car_expr = bike_expr.when(
-        pl.col("mode_type").is_in([
-            ModeType.CAR.value,
-            ModeType.CARSHARE.value,
-        ])
+        pl.col("mode_type").is_in(
+            [
+                ModeType.CAR.value,
+                ModeType.CARSHARE.value,
+            ]
+        )
     ).then(vehicle_occupancy_expr)
 
     # Step 3: Handle ride-hailing services
     tnc_expr = car_expr.when(
-        pl.col("mode_type").is_in([
-            ModeType.TAXI.value,
-            ModeType.TNC.value,
-        ])
+        pl.col("mode_type").is_in(
+            [
+                ModeType.TAXI.value,
+                ModeType.TNC.value,
+            ]
+        )
     ).then(pl.lit(DaysimMode.TNC.value))
 
     # Step 4: Handle special vehicle modes
@@ -250,15 +277,14 @@ def _compute_daysim_mode_expr() -> pl.Expr:
     ).then(pl.lit(DaysimMode.HOV3.value))  # shuttle/vanpool as HOV3+
 
     # Step 5: Handle transit modes with access/egress
-    transit_condition = (
-        pl.col("mode_type").is_in([
+    transit_condition = pl.col("mode_type").is_in(
+        [
             ModeType.FERRY.value,
             ModeType.TRANSIT.value,
-        ])
-        | (
-            (pl.col("mode_type") == ModeType.LONG_DISTANCE.value)
-            & pl.col("has_intercity_rail")
-        )
+        ]
+    ) | (
+        (pl.col("mode_type") == ModeType.LONG_DISTANCE.value)
+        & pl.col("has_intercity_rail")
     )
 
     transit_access_expr = (
@@ -312,10 +338,12 @@ def _compute_daysim_path_type_expr() -> pl.Expr:
     # Combine logic: check if transit mode, then apply appropriate path type
     path_type_expr = (
         pl.when(
-            pl.col("mode").is_in([
-                DaysimMode.WALK_TRANSIT.value,
-                DaysimMode.DRIVE_TRANSIT.value,
-            ])
+            pl.col("mode").is_in(
+                [
+                    DaysimMode.WALK_TRANSIT.value,
+                    DaysimMode.DRIVE_TRANSIT.value,
+                ]
+            )
         )
         .then(transit_path_expr)
         .otherwise(non_transit_expr)
@@ -335,10 +363,12 @@ def _compute_driver_passenger_expr() -> pl.Expr:
     # Handle private vehicle modes (SOV, HOV2, HOV3)
     private_vehicle_expr = (
         pl.when(
-            pl.col("driver").is_in([
-                Driver.DRIVER.value,
-                Driver.BOTH.value,
-            ])
+            pl.col("driver").is_in(
+                [
+                    Driver.DRIVER.value,
+                    Driver.BOTH.value,
+                ]
+            )
         )
         .then(pl.lit(DaysimDriverPassenger.DRIVER.value))
         .when(pl.col("driver") == Driver.PASSENGER.value)
@@ -359,11 +389,13 @@ def _compute_driver_passenger_expr() -> pl.Expr:
     # Combine logic for all mode types
     driver_passenger_exp = (
         pl.when(
-            pl.col("mode").is_in([
-                DaysimMode.SOV.value,
-                DaysimMode.HOV2.value,
-                DaysimMode.HOV3.value,
-            ])
+            pl.col("mode").is_in(
+                [
+                    DaysimMode.SOV.value,
+                    DaysimMode.HOV2.value,
+                    DaysimMode.HOV3.value,
+                ]
+            )
         )
         .then(private_vehicle_expr)
         .when(pl.col("mode") == DaysimMode.TNC.value)
@@ -374,8 +406,7 @@ def _compute_driver_passenger_expr() -> pl.Expr:
 
 
 def _prepare_basic_fields(
-    linked_trips: pl.DataFrame,
-    persons: pl.DataFrame
+    linked_trips: pl.DataFrame, persons: pl.DataFrame
 ) -> pl.DataFrame:
     """Prepare basic DaySim fields from linked trips.
 
@@ -393,7 +424,7 @@ def _prepare_basic_fields(
     trips = linked_trips.join(
         persons.select(["person_id", "person_num"]),
         on=["person_id"],
-        how="left"
+        how="left",
     )
 
     # Calculate trip_num as numbered trips per person per day
@@ -405,39 +436,47 @@ def _prepare_basic_fields(
     )
 
     # Rename columns to DaySim naming convention
-    trips = trips.rename({
-        "hh_id": "hhno",
-        "person_num": "pno",
-        "trip_num": "tripno",
-        "travel_dow": "day",
-        "o_taz": "otaz",
-        "o_maz": "opcl",
-        "d_taz": "dtaz",
-        "d_maz": "dpcl",
-        "o_lon": "oxcord",
-        "o_lat": "oycord",
-        "d_lon": "dxcord",
-        "d_lat": "dycord",
-        "o_purpose_category": "opurp",
-        "d_purpose_category": "dpurp",
-    })
+    trips = trips.rename(
+        {
+            "hh_id": "hhno",
+            "person_num": "pno",
+            "trip_num": "tripno",
+            "travel_dow": "day",
+            "o_taz": "otaz",
+            "o_maz": "opcl",
+            "d_taz": "dtaz",
+            "d_maz": "dpcl",
+            "o_lon": "oxcord",
+            "o_lat": "oycord",
+            "d_lon": "dxcord",
+            "d_lat": "dycord",
+            "o_purpose_category": "opurp",
+            "d_purpose_category": "dpurp",
+        }
+    )
 
     # Apply basic transformations
-    trips = trips.with_columns([
-        # Fill null coordinates with -1
-        pl.col("oxcord").fill_null(value=-1),
-        pl.col("oycord").fill_null(value=-1),
-        pl.col("dxcord").fill_null(value=-1),
-        pl.col("dycord").fill_null(value=-1),
-        # Convert datetime to minutes after midnight (0-1439)
-        (pl.col("depart_time").dt.hour().cast(pl.Int16) * 60 +
-            pl.col("depart_time").dt.minute()).alias("deptm"),
-        (pl.col("arrive_time").dt.hour().cast(pl.Int16) * 60 +
-            pl.col("arrive_time").dt.minute()).alias("arrtm"),
-        # Map purposes
-        pl.col("opurp").replace(PURPOSE_MAP).alias("opurp"),
-        pl.col("dpurp").replace(PURPOSE_MAP).alias("dpurp"),
-    ])
+    trips = trips.with_columns(
+        [
+            # Fill null coordinates with -1
+            pl.col("oxcord").fill_null(value=-1),
+            pl.col("oycord").fill_null(value=-1),
+            pl.col("dxcord").fill_null(value=-1),
+            pl.col("dycord").fill_null(value=-1),
+            # Convert datetime to minutes after midnight (0-1439)
+            (
+                pl.col("depart_time").dt.hour().cast(pl.Int16) * 60
+                + pl.col("depart_time").dt.minute()
+            ).alias("deptm"),
+            (
+                pl.col("arrive_time").dt.hour().cast(pl.Int16) * 60
+                + pl.col("arrive_time").dt.minute()
+            ).alias("arrtm"),
+            # Map purposes
+            pl.col("opurp").replace(PURPOSE_MAP).alias("opurp"),
+            pl.col("dpurp").replace(PURPOSE_MAP).alias("dpurp"),
+        ]
+    )
 
     return trips
 
@@ -445,7 +484,7 @@ def _prepare_basic_fields(
 def format_linked_trips(
     persons: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame
+    linked_trips: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format linked trip data to DaySim specification.
 
@@ -488,7 +527,7 @@ def format_linked_trips(
     # Step 4: Compute DaySim-specific fields using expression functions
     logger.info("Computing DaySim mode, path type, and driver/passenger codes")
     trips_daysim = trips_daysim.with_columns(
-        mode=_compute_daysim_mode_expr(), # Evaluate this expression first
+        mode=_compute_daysim_mode_expr(),  # Evaluate this expression first
     ).with_columns(
         path=_compute_daysim_path_type_expr(),
         dorp=_compute_driver_passenger_expr(),
@@ -497,22 +536,20 @@ def format_linked_trips(
     # Step 5: Add trip weight from linked trips, assign 1.0 if missing
     if "trip_weight" in linked_trips.columns:
         trips_daysim = trips_daysim.join(
-            linked_trips.select(["linked_trip_id", "trip_weight"]).rename({
-                "trip_weight": "trexpfac"}
+            linked_trips.select(["linked_trip_id", "trip_weight"]).rename(
+                {"trip_weight": "trexpfac"}
             ),
             on="linked_trip_id",
-            how="left"
+            how="left",
         )
     else:
-        trips_daysim = trips_daysim.with_columns(
-            pl.lit(1.0).alias("trexpfac")
-        )
+        trips_daysim = trips_daysim.with_columns(pl.lit(1.0).alias("trexpfac"))
 
     # Step 6: Log diagnostic counts for validation
     # mode_counts = trips_daysim.group_by("mode").len().sort("mode")  # noqa: E501, ERA001
     # path_counts = trips_daysim.group_by("path").len().sort("path")  # noqa: E501, ERA001
-    # logger.info("Mode distribution: %s", mode_counts.to_dict())  # noqa: ERA001
-    # logger.info("Path type distribution: %s", path_counts.to_dict())  # noqa: ERA001
+    # logger.info("Mode distribution: %s", mode_counts.to_dict())  # noqa: E501, ERA001
+    # logger.info("Path type distribution: %s", path_counts.to_dict())  # noqa: E501, ERA001
 
     # Step 7: Select final DaySim fields and sort
     trip_cols = [
@@ -538,10 +575,8 @@ def format_linked_trips(
         "trexpfac",
     ]
 
-    trips_daysim = (
-        trips_daysim
-        .select(trip_cols)
-        .sort(by=["hhno", "pno", "day", "tripno"])
+    trips_daysim = trips_daysim.select(trip_cols).sort(
+        by=["hhno", "pno", "day", "tripno"]
     )
 
     return trips_daysim

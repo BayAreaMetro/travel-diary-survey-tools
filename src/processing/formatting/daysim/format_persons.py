@@ -44,8 +44,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
 
     # Pivot days by person and day of week
     return (
-        days
-        .select(["person_id", "is_complete", "travel_dow"])
+        days.select(["person_id", "is_complete", "travel_dow"])
         .pivot(index="person_id", on="travel_dow", values="is_complete")
         .fill_null(0)
         .with_columns(
@@ -53,9 +52,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
             hhno=(pl.col("person_id") // 100),
             pno=(pl.col("person_id") % 100),
             # Compute weekday aggregates
-            num_days_complete_3dayweekday=pl.sum_horizontal(
-                ["2", "3", "4"]
-            ),
+            num_days_complete_3dayweekday=pl.sum_horizontal(["2", "3", "4"]),
             num_days_complete_4dayweekday=pl.sum_horizontal(
                 ["1", "2", "3", "4"]
             ),
@@ -63,28 +60,38 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
                 ["1", "2", "3", "4", "5"]
             ),
         )
-        .select([
-            "hhno", "pno",
-            "1", "2", "3", "4", "5", "6", "7",
-            "num_days_complete_3dayweekday",
-            "num_days_complete_4dayweekday",
-            "num_days_complete_5dayweekday",
-        ])
-        .rename({
-            "1": "mon_complete",
-            "2": "tue_complete",
-            "3": "wed_complete",
-            "4": "thu_complete",
-            "5": "fri_complete",
-            "6": "sat_complete",
-            "7": "sun_complete",
-        })
+        .select(
+            [
+                "hhno",
+                "pno",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "num_days_complete_3dayweekday",
+                "num_days_complete_4dayweekday",
+                "num_days_complete_5dayweekday",
+            ]
+        )
+        .rename(
+            {
+                "1": "mon_complete",
+                "2": "tue_complete",
+                "3": "wed_complete",
+                "4": "thu_complete",
+                "5": "fri_complete",
+                "6": "sat_complete",
+                "7": "sun_complete",
+            }
+        )
     )
 
 
 def format_persons(
-    persons: pl.DataFrame,
-    day_completeness: pl.DataFrame | None
+    persons: pl.DataFrame, day_completeness: pl.DataFrame | None
 ) -> pl.DataFrame:
     """Format person data to DaySim specification.
 
@@ -112,18 +119,20 @@ def format_persons(
     logger.info("Formatting person data")
 
     # Rename columns to DaySim naming convention
-    persons_daysim = persons.rename({
-        "hh_id": "hhno",
-        "person_num": "pno",
-        "work_lon": "pwxcord",
-        "work_lat": "pwycord",
-        "school_lon": "psxcord",
-        "school_lat": "psycord",
-        "work_taz": "pwtaz",
-        "work_maz": "pwpcl",
-        "school_taz": "pstaz",
-        "school_maz": "pspcl",
-    })
+    persons_daysim = persons.rename(
+        {
+            "hh_id": "hhno",
+            "person_num": "pno",
+            "work_lon": "pwxcord",
+            "work_lat": "pwycord",
+            "school_lon": "psxcord",
+            "school_lat": "psycord",
+            "work_taz": "pwtaz",
+            "work_maz": "pwpcl",
+            "school_taz": "pstaz",
+            "school_maz": "pspcl",
+        }
+    )
 
     # Apply basic field mappings and transformations
     persons_daysim = persons_daysim.with_columns(
@@ -134,9 +143,9 @@ def format_persons(
         # Map gender codes
         pgend=pl.col("gender").replace(GENDER_MAP),
         # Map student status
-        pstyp=pl.col("student").replace(STUDENT_MAP).fill_null(
-            DaysimStudentType.NOT_STUDENT.value
-        ),
+        pstyp=pl.col("student")
+        .replace(STUDENT_MAP)
+        .fill_null(DaysimStudentType.NOT_STUDENT.value),
         # Map work parking
         ppaidprk=pl.col("work_park").replace_strict(WORK_PARK_MAP),
     )
@@ -149,55 +158,73 @@ def format_persons(
         .then(pl.lit(PersonType.CHILD_5_15.value))
         # Age >= 16:
         .when(
-            pl.col("employment").is_in([
-                Employment.EMPLOYED_FULLTIME.value,
-                Employment.EMPLOYED_SELF.value,
-                Employment.EMPLOYED_FURLOUGHED.value,
-                Employment.EMPLOYED_UNPAID.value,
-            ])
+            pl.col("employment").is_in(
+                [
+                    Employment.EMPLOYED_FULLTIME.value,
+                    Employment.EMPLOYED_SELF.value,
+                    Employment.EMPLOYED_FURLOUGHED.value,
+                    Employment.EMPLOYED_UNPAID.value,
+                ]
+            )
         )
         .then(pl.lit(PersonType.FULL_TIME_WORKER.value))
         # Age >= 16 and not full-time employed:
         .when(
             (pl.col("pagey") < AgeThreshold.YOUNG_ADULT)  # 16-17
-            & (pl.col("student").is_in([
-                Student.FULLTIME_INPERSON.value,
-                Student.PARTTIME_INPERSON.value,
-                Student.PARTTIME_ONLINE.value,
-                Student.FULLTIME_ONLINE.value,
-            ]))
+            & (
+                pl.col("student").is_in(
+                    [
+                        Student.FULLTIME_INPERSON.value,
+                        Student.PARTTIME_INPERSON.value,
+                        Student.PARTTIME_ONLINE.value,
+                        Student.FULLTIME_ONLINE.value,
+                    ]
+                )
+            )
         )
         .then(pl.lit(PersonType.HIGH_SCHOOL_STUDENT.value))
         .when(
             (pl.col("pagey") < AgeThreshold.ADULT)  # 18-24
-            & (pl.col("school_type").is_in([
-                SchoolType.HOME_SCHOOL.value,
-                SchoolType.HIGH_SCHOOL.value,
-            ]))
-            & (pl.col("student").is_in([
-                Student.FULLTIME_INPERSON.value,
-                Student.PARTTIME_INPERSON.value,
-                Student.PARTTIME_ONLINE.value,
-                Student.FULLTIME_ONLINE.value,
-            ]))
+            & (
+                pl.col("school_type").is_in(
+                    [
+                        SchoolType.HOME_SCHOOL.value,
+                        SchoolType.HIGH_SCHOOL.value,
+                    ]
+                )
+            )
+            & (
+                pl.col("student").is_in(
+                    [
+                        Student.FULLTIME_INPERSON.value,
+                        Student.PARTTIME_INPERSON.value,
+                        Student.PARTTIME_ONLINE.value,
+                        Student.FULLTIME_ONLINE.value,
+                    ]
+                )
+            )
         )
         .then(pl.lit(PersonType.HIGH_SCHOOL_STUDENT.value))
         # Age >= 18:
         .when(
-            pl.col("student").is_in([
-                Student.FULLTIME_INPERSON.value,
-                Student.PARTTIME_INPERSON.value,
-                Student.PARTTIME_ONLINE.value,
-                Student.FULLTIME_ONLINE.value,
-            ])
+            pl.col("student").is_in(
+                [
+                    Student.FULLTIME_INPERSON.value,
+                    Student.PARTTIME_INPERSON.value,
+                    Student.PARTTIME_ONLINE.value,
+                    Student.FULLTIME_ONLINE.value,
+                ]
+            )
         )
         .then(pl.lit(PersonType.UNIVERSITY_STUDENT.value))
         .when(
-            pl.col("employment").is_in([
-                Employment.EMPLOYED_PARTTIME.value,
-                Employment.EMPLOYED_SELF.value,
-                Employment.EMPLOYED_UNPAID.value,
-            ])
+            pl.col("employment").is_in(
+                [
+                    Employment.EMPLOYED_PARTTIME.value,
+                    Employment.EMPLOYED_SELF.value,
+                    Employment.EMPLOYED_UNPAID.value,
+                ]
+            )
         )
         .then(pl.lit(PersonType.PART_TIME_WORKER.value))
         .when(pl.col("pagey") < AgeThreshold.SENIOR)
@@ -208,22 +235,28 @@ def format_persons(
     # Derive worker type (pwtyp) from person type and employment
     persons_daysim = persons_daysim.with_columns(
         pwtyp=pl.when(
-            pl.col("pptyp").is_in([
-                PersonType.FULL_TIME_WORKER.value,
-                PersonType.PART_TIME_WORKER.value,
-            ])
+            pl.col("pptyp").is_in(
+                [
+                    PersonType.FULL_TIME_WORKER.value,
+                    PersonType.PART_TIME_WORKER.value,
+                ]
+            )
         )
         .then(pl.col("pptyp"))  # direct mapping for workers
         .when(
-            pl.col("pptyp").is_in([
-                PersonType.UNIVERSITY_STUDENT.value,
-                PersonType.HIGH_SCHOOL_STUDENT.value,
-            ])
-            & pl.col("employment").is_in([
-                Employment.EMPLOYED_FULLTIME.value,
-                Employment.EMPLOYED_PARTTIME.value,
-                Employment.EMPLOYED_SELF.value,
-            ])
+            pl.col("pptyp").is_in(
+                [
+                    PersonType.UNIVERSITY_STUDENT.value,
+                    PersonType.HIGH_SCHOOL_STUDENT.value,
+                ]
+            )
+            & pl.col("employment").is_in(
+                [
+                    Employment.EMPLOYED_FULLTIME.value,
+                    Employment.EMPLOYED_PARTTIME.value,
+                    Employment.EMPLOYED_SELF.value,
+                ]
+            )
         )
         .then(pl.lit(PersonType.PART_TIME_WORKER.value))
         .otherwise(pl.lit(0))  # non-worker
@@ -232,29 +265,29 @@ def format_persons(
     # Set work/school locations to -1 if person is not worker/student
     persons_daysim = persons_daysim.with_columns(
         pwtaz=pl.when(pl.col("pwtyp") != 0)
-            .then(pl.col("pwtaz"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("pwtaz"))
+        .otherwise(pl.lit(-1)),
         pwpcl=pl.when(pl.col("pwtyp") != 0)
-            .then(pl.col("pwpcl"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("pwpcl"))
+        .otherwise(pl.lit(-1)),
         pwxcord=pl.when(pl.col("pwtyp") != 0)
-            .then(pl.col("pwxcord"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("pwxcord"))
+        .otherwise(pl.lit(-1)),
         pwycord=pl.when(pl.col("pwtyp") != 0)
-            .then(pl.col("pwycord"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("pwycord"))
+        .otherwise(pl.lit(-1)),
         pstaz=pl.when(pl.col("pstyp") != 0)
-            .then(pl.col("pstaz"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("pstaz"))
+        .otherwise(pl.lit(-1)),
         pspcl=pl.when(pl.col("pstyp") != 0)
-            .then(pl.col("pspcl"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("pspcl"))
+        .otherwise(pl.lit(-1)),
         psxcord=pl.when(pl.col("pstyp") != 0)
-            .then(pl.col("psxcord"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("psxcord"))
+        .otherwise(pl.lit(-1)),
         psycord=pl.when(pl.col("pstyp") != 0)
-            .then(pl.col("psycord"))
-            .otherwise(pl.lit(-1)),
+        .then(pl.col("psycord"))
+        .otherwise(pl.lit(-1)),
     )
 
     # Add default expansion factor
@@ -266,9 +299,7 @@ def format_persons(
     # Join day completeness if available
     if day_completeness is not None:
         persons_daysim = persons_daysim.join(
-            day_completeness,
-            on=["hhno", "pno"],
-            how="left"
+            day_completeness, on=["hhno", "pno"], how="left"
         )
 
     # Select DaySim person fields
@@ -295,18 +326,19 @@ def format_persons(
 
     # Add day completeness columns if available
     if day_completeness is not None:
-        person_cols.extend([
-            "mon_complete",
-            "tue_complete",
-            "wed_complete",
-            "thu_complete",
-            "fri_complete",
-            "sat_complete",
-            "sun_complete",
-            "num_days_complete_3dayweekday",
-            "num_days_complete_4dayweekday",
-            "num_days_complete_5dayweekday",
-        ])
+        person_cols.extend(
+            [
+                "mon_complete",
+                "tue_complete",
+                "wed_complete",
+                "thu_complete",
+                "fri_complete",
+                "sat_complete",
+                "sun_complete",
+                "num_days_complete_3dayweekday",
+                "num_days_complete_4dayweekday",
+                "num_days_complete_5dayweekday",
+            ]
+        )
 
     return persons_daysim.select(person_cols).sort(by=["hhno", "pno"])
-

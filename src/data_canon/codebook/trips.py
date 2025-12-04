@@ -13,13 +13,19 @@ class Purpose(LabeledEnum):
     ESCORT = (5, "Dropped off, picked up, or accompanied another person")
     SOCIAL_LEISURE = (7, "Social, leisure, religious, entertainment activity")
     PRIMARY_WORKPLACE = (10, "Went to primary workplace")
-    WORK_ACTIVITY = (11, "Went to work-related activity (e.g., meeting, delivery, worksite)")  # noqa: E501
+    WORK_ACTIVITY = (
+        11,
+        "Went to work-related activity (e.g., meeting, delivery, worksite)",
+    )
     VOLUNTEERING = (13, "Volunteering")
     OTHER_WORK = (14, "Other work-related")
     K12_SCHOOL = (21, "Attend K-12 school")
     COLLEGE = (22, "Attend college/university")
     OTHER_CLASS = (23, "Attend other type of class (e.g., cooking class)")
-    OTHER_EDUCATION = (24, "Attend other education-related activity (e.g., field trip)")  # noqa: E501
+    OTHER_EDUCATION = (
+        24,
+        "Attend other education-related activity (e.g., field trip)",
+    )
     VOCATIONAL = (25, "Attend vocational education class")
     DAYCARE = (26, "Attend daycare or preschool")
     GROCERY = (30, "Grocery shopping")
@@ -29,7 +35,10 @@ class Purpose(LabeledEnum):
     MEDICAL = (34, "Medical visit (e.g., doctor, dentist)")
     MAJOR_SHOPPING = (36, "Shopping for major item (e.g., furniture, car)")
     ERRAND_WITH_APPT = (37, "Errand with appointment (e.g., haircut)")
-    OTHER_ACTIVITY = (44, "Other activity only (e.g., attend meeting, pick-up or drop-off item)")  # noqa: E501
+    OTHER_ACTIVITY = (
+        44,
+        "Other activity only (e.g., attend meeting, pick-up or drop-off item)",
+    )
     PICK_UP = (45, "Pick someone up")
     DROP_OFF = (46, "Drop someone off")
     ACCOMPANY = (47, "Accompany someone only (e.g., go along for the ride)")
@@ -37,18 +46,31 @@ class Purpose(LabeledEnum):
     DINING = (50, "Dined out, got coffee, or take-out")
     EXERCISE = (51, "Exercise or recreation (e.g., gym, jog, bike, walk dog)")
     SOCIAL = (52, "Social activity (e.g., visit friends/relatives)")
-    ENTERTAINMENT = (53, "Leisure/entertainment/cultural (e.g., cinema, museum, park)")  # noqa: E501
+    ENTERTAINMENT = (
+        53,
+        "Leisure/entertainment/cultural (e.g., cinema, museum, park)",
+    )
     RELIGIOUS_CIVIC = (54, "Religious/civic/volunteer activity")
     FAMILY_ACTIVITY = (56, "Family activity (e.g., watch child's game)")
-    MODE_CHANGE = (60, "Changed or transferred mode (e.g., waited for bus or exited bus)")  # noqa: E501
+    MODE_CHANGE = (
+        60,
+        "Changed or transferred mode (e.g., waited for bus or exited bus)",
+    )
     OTHER_ERRAND = (61, "Other errand")
     OTHER_SOCIAL = (62, "Other social")
     OTHER = (99, "Other reason")
-    OTHER_RESIDENCE = (150, "Went to another residence (e.g., someone else's home, second home)")  # noqa: E501
-    TEMP_LODGING = (152, "Went to temporary lodging (e.g., hotel, vacation rental)")  # noqa: E501
+    OTHER_RESIDENCE = (
+        150,
+        "Went to another residence (e.g., someone else's home, second home)",
+    )
+    TEMP_LODGING = (
+        152,
+        "Went to temporary lodging (e.g., hotel, vacation rental)",
+    )
     MISSING = (995, "Missing Response")
     PNTA = (999, "Prefer not to answer")
     NOT_IMPUTABLE = (996, "Not imputable")
+
 
 class PurposeCategory(LabeledEnum):
     """d_purpose_category value labels."""
@@ -73,6 +95,7 @@ class PurposeCategory(LabeledEnum):
 
 class PurposeToCategoryMap:
     """Mapping from detailed purpose codes to purpose categories."""
+
     # Need to populate this...
 
 
@@ -87,6 +110,7 @@ class Driver(LabeledEnum):
 
 class Mode(LabeledEnum):
     """mode value labels."""
+
     # NOTE: This is absolute hot chaos... MUST FIX!!!
     # Plan for 2+ level hierarchy: mode groups (x) > detailed modes (xx) > regionally specific (xxx)  # noqa: E501
     # Goal is no orphaned modes so they all map to a group
@@ -141,7 +165,7 @@ class Mode(LabeledEnum):
     BUS_PRIVATE = (26, "Private shuttle/bus")
     BUS_OTHER = (28, "Other bus")
     PARATRANSIT = (27, "Paratransit/Dial-A-Ride")
-    BART = (30, "BART") # NOTE: Bay Area Rapid Transit ????
+    BART = (30, "BART")  # NOTE: Bay Area Rapid Transit ????
     AIR = (31, "Airplane/helicopter")
     CAR_WORK = (33, "Work car")
     CAR_FRIEND = (34, "Friend/relative/colleague car")
@@ -154,7 +178,10 @@ class Mode(LabeledEnum):
     ATV = (45, "ATV")
     MOTORCYCLE = (47, "Motorcycle (household)")
     TNC = (49, "Rideshare (Uber, Lyft, etc.)")
-    MUNI_METRO = (53, "MUNI Metro") # NOTE: San Francisco MUNI Metro light rail ????  # noqa: E501
+    MUNI_METRO = (
+        53,
+        "MUNI Metro",
+    )  # NOTE: San Francisco MUNI Metro light rail ????
     MOTORCYCLE_OTHER = (54, "Motorcycle (non-household)")
     BUS_EXPRESS = (55, "Express/Transbay bus")
     CAR_RENTAL_P2P = (59, "Peer-to-peer rental (Turo, etc.)")
@@ -204,13 +231,16 @@ class ModeType(LabeledEnum):
     LONG_DISTANCE = (14, "Long distance passenger")
     MISSING = (995, "Missing Response")
 
+
 class ModeTypeMap:
     """Mapping from detailed mode codes to mode types."""
+
     # Need to populate this...
 
 
 class AccessEgressMode(LabeledEnum):
     """transit_access value labels."""
+
     # NOTE: Why is this not just inherited from Mode???
 
     WALK = (1, "Walked (or jogged/wheelchair)")
@@ -219,9 +249,15 @@ class AccessEgressMode(LabeledEnum):
     MICROMOBILITY = (4, "Micromobility (e.g., scooter, moped, skateboard)")
     TRANSFER_OTHER = (5, "Transferred from other transit (e.g., rail, air)")
     TNC = (6, "Uber/Lyft, taxi, or car service")
-    CAR_HOUSEHOLD = (7, "Drove and parked my own household's vehicle (or motorcycle)")  # noqa: E501
+    CAR_HOUSEHOLD = (
+        7,
+        "Drove and parked my own household's vehicle (or motorcycle)",
+    )
     CAR_OTHER = (8, "Drove and parked another vehicle (or motorcycle)")
-    DROPOFF_HOUSEHOLD = (9, "Got dropped off in my own household's vehicle (or motorcycle)")  # noqa: E501
+    DROPOFF_HOUSEHOLD = (
+        9,
+        "Got dropped off in my own household's vehicle (or motorcycle)",
+    )
     DROPOFF_OTHER = (10, "Got dropped off in another vehicle (or motorcycle)")
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other")

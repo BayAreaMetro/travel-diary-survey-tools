@@ -173,8 +173,10 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
 
     # Read examples/config_daysim.yaml for preferred order if available
     example_path = (
-        Path(__file__).parent.parent / "examples" /
-        "daysim" / "config_daysim.yaml"
+        Path(__file__).parent.parent
+        / "examples"
+        / "daysim"
+        / "config_daysim.yaml"
     )
 
     sorted_steps = check_steps_and_order(required_steps, example_path)
@@ -182,19 +184,29 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
     # Build markdown table
     lines = []
     lines.append("# Column Requirement Matrix")
-    lines.append("Generated automatically by `scripts/generate_column_matrix.py`.")  # noqa: E501
+    lines.append(
+        "Generated automatically by `scripts/generate_column_matrix.py`."
+    )
     lines.append("")
     lines.append("***Do not edit this markdown file directly.***")
     lines.append("")
-    lines.append("This matrix shows which columns are required in which pipeline steps. ")  # noqa: E501
+    lines.append(
+        "This matrix shows which columns are required in which pipeline steps. "
+    )
     lines.append("- ✓ = required in step")
     lines.append("- \\+ = created in step")
     lines.append("")
     lines.append("## Constraint Legend")
     lines.append("")
-    lines.append("- **UNIQUE**: Field must have unique values across all records")
-    lines.append("- **FK → `table.column`**: Foreign key reference to parent table")
-    lines.append("- **REQ_CHILD**: Parent record must have at least one child record")
+    lines.append(
+        "- **UNIQUE**: Field must have unique values across all records"
+    )
+    lines.append(
+        "- **FK → `table.column`**: Foreign key reference to parent table"
+    )
+    lines.append(
+        "- **REQ_CHILD**: Parent record must have at least one child record"
+    )
     lines.append("- **≥ / ≤ / > / <**: Numeric range constraints")
     lines.append("")
 
@@ -284,8 +296,10 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
 
     # Sort steps for consistent ordering
     example_path = (
-        Path(__file__).parent.parent / "examples" /
-        "daysim" / "config_daysim.yaml"
+        Path(__file__).parent.parent
+        / "examples"
+        / "daysim"
+        / "config_daysim.yaml"
     )
     sorted_steps = check_steps_and_order(required_steps, example_path)
 

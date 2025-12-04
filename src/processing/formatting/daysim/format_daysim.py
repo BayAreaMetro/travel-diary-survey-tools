@@ -77,17 +77,18 @@ def format_daysim(
     households_daysim = format_households(households, persons_daysim)
     logger.info("Formatted %d households", len(households_daysim))
 
-    linked_trips_daysim = format_linked_trips(persons, unlinked_trips, linked_trips)  # noqa: E501
+    linked_trips_daysim = format_linked_trips(
+        persons, unlinked_trips, linked_trips
+    )
     logger.info("Formatted %d trips", len(linked_trips_daysim))
 
     tours_daysim = format_tours(persons, days, linked_trips, tours)
     logger.info("Formatted %d tours", len(tours_daysim))
 
-
     # Drop any households that do not have a MAZ/TAZ assigned
     households_daysim = households_daysim.filter(
-            (households_daysim["hhtaz"].is_not_null()) &
-            (households_daysim["hhtaz"] != -1)
+        (households_daysim["hhtaz"].is_not_null())
+        & (households_daysim["hhtaz"] != -1)
     )
 
     persons_daysim = persons_daysim.filter(

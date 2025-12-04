@@ -37,14 +37,15 @@ logger = logging.getLogger(__name__)
 # Age Thresholds for Person Type Classification
 # =============================================================================
 
+
 class AgeThreshold(IntEnum):
     """Age thresholds for person type classification."""
 
     CHILD_PRESCHOOL = 5  # Age < 5: child 0-4
-    CHILD_SCHOOL = 16    # Age < 16: child 5-15
-    YOUNG_ADULT = 18     # Age < 18: high school age
-    ADULT = 25           # Age < 25: university age
-    SENIOR = 65          # Age < 65: working age adult
+    CHILD_SCHOOL = 16  # Age < 16: child 5-15
+    YOUNG_ADULT = 18  # Age < 18: high school age
+    ADULT = 25  # Age < 25: university age
+    SENIOR = 65  # Age < 65: working age adult
 
 
 # =============================================================================

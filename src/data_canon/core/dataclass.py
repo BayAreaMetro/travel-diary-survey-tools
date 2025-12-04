@@ -1,4 +1,5 @@
 """Data validation functions for travel survey data using Pydantic models."""
+
 import inspect
 import logging
 import time
@@ -63,20 +64,22 @@ class CanonicalData:
     tours_daysim: pl.DataFrame | None = None
 
     # Model mapping for validation
-    _models: dict[str, type[BaseModel]] = field(default_factory=lambda: {
-        "households": HouseholdModel,
-        "persons": PersonModel,
-        "days": PersonDayModel,
-        "unlinked_trips": UnlinkedTripModel,
-        "linked_trips": LinkedTripModel,
-        "tours": TourModel,
-        # Daysim models
-        "households_daysim": HouseholdDaysimModel,
-        "persons_daysim": PersonDaysimModel,
-        "days_daysim": PersonDayDaysimModel,
-        "linked_trips_daysim": LinkedTripDaysimModel,
-        "tours_daysim": TourDaysimModel,
-    })
+    _models: dict[str, type[BaseModel]] = field(
+        default_factory=lambda: {
+            "households": HouseholdModel,
+            "persons": PersonModel,
+            "days": PersonDayModel,
+            "unlinked_trips": UnlinkedTripModel,
+            "linked_trips": LinkedTripModel,
+            "tours": TourModel,
+            # Daysim models
+            "households_daysim": HouseholdDaysimModel,
+            "persons_daysim": PersonDaysimModel,
+            "days_daysim": PersonDayDaysimModel,
+            "linked_trips_daysim": LinkedTripDaysimModel,
+            "tours_daysim": TourDaysimModel,
+        }
+    )
 
     # Custom validators: table_name -> list of validator functions
     # Populated from custom_validation.CUSTOM_VALIDATORS
@@ -119,8 +122,7 @@ class CanonicalData:
         df = getattr(self, table_name)
         if df is None:
             logger.warning(
-                "Table '%s' is None - skipping validation",
-                table_name
+                "Table '%s' is None - skipping validation", table_name
             )
             return
 
@@ -130,7 +132,7 @@ class CanonicalData:
             "Validating table '%s'%s (%s rows)",
             table_name,
             step_info,
-            f"{len(df):,}"
+            f"{len(df):,}",
         )
 
         # 1. Column constraints (uniqueness)
@@ -173,7 +175,7 @@ class CanonicalData:
             "✓ Table '%s'%s validated successfully in %.2fs",
             table_name,
             step_info,
-            elapsed
+            elapsed,
         )
 
     def _run_custom_validators(
@@ -260,8 +262,10 @@ class CanonicalData:
         for child_table_name, child_model in self._models.items():
             required_child_fields = get_required_children_fields(child_model)
 
-            for child_fk_col, (parent_table, _) in \
-                    required_child_fields.items():
+            for child_fk_col, (
+                parent_table,
+                _,
+            ) in required_child_fields.items():
                 # Check if this FK references current table
                 if parent_table != table_name:
                     continue

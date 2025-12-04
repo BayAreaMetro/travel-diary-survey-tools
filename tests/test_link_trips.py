@@ -15,23 +15,25 @@ class TestLinkTripIds:
 
     def test_simple_two_trip_link(self):
         """Should link two trips with change_mode destination."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1],
-            "person_id": [100, 100],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 45),
-            ],
-            "d_purpose_category": [10, 1],  # change_mode, then work
-            "o_lat": [37.7, 37.71],
-            "o_lon": [-122.4, -122.41],
-            "d_lat": [37.71, 37.75],
-            "d_lon": [-122.41, -122.45],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1],
+                "person_id": [100, 100],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 45),
+                ],
+                "d_purpose_category": [10, 1],  # change_mode, then work
+                "o_lat": [37.7, 37.71],
+                "o_lon": [-122.4, -122.41],
+                "d_lat": [37.71, 37.75],
+                "d_lon": [-122.41, -122.45],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -46,23 +48,25 @@ class TestLinkTripIds:
 
     def test_no_linking_without_change_mode(self):
         """Should not link trips without change_mode destination."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1],
-            "person_id": [100, 100],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 9, 0),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 30),
-                datetime(2024, 1, 1, 9, 30),
-            ],
-            "d_purpose_category": [1, 2],  # work, then shop
-            "o_lat": [37.7, 37.75],
-            "o_lon": [-122.4, -122.45],
-            "d_lat": [37.75, 37.8],
-            "d_lon": [-122.45, -122.5],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1],
+                "person_id": [100, 100],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 9, 0),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 30),
+                    datetime(2024, 1, 1, 9, 30),
+                ],
+                "d_purpose_category": [1, 2],  # work, then shop
+                "o_lat": [37.7, 37.75],
+                "o_lon": [-122.4, -122.45],
+                "d_lat": [37.75, 37.8],
+                "d_lon": [-122.45, -122.5],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -76,23 +80,25 @@ class TestLinkTripIds:
 
     def test_multiple_person_isolation(self):
         """Should keep different persons' trips separate."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1],
-            "person_id": [100, 200],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 5),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 30),
-                datetime(2024, 1, 1, 8, 35),
-            ],
-            "d_purpose_category": [10, 10],
-            "o_lat": [37.7, 37.7],
-            "o_lon": [-122.4, -122.4],
-            "d_lat": [37.71, 37.71],
-            "d_lon": [-122.41, -122.41],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1],
+                "person_id": [100, 200],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 5),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 30),
+                    datetime(2024, 1, 1, 8, 35),
+                ],
+                "d_purpose_category": [10, 10],
+                "o_lat": [37.7, 37.7],
+                "o_lon": [-122.4, -122.4],
+                "d_lat": [37.71, 37.71],
+                "d_lon": [-122.41, -122.41],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -106,23 +112,25 @@ class TestLinkTripIds:
 
     def test_max_dwell_time_threshold(self):
         """Should not link trips exceeding max dwell time."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1],
-            "person_id": [100, 100],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 10, 30),  # 150 min gap
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 11, 0),
-            ],
-            "d_purpose_category": [10, 1],
-            "o_lat": [37.7, 37.71],
-            "o_lon": [-122.4, -122.41],
-            "d_lat": [37.71, 37.75],
-            "d_lon": [-122.41, -122.45],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1],
+                "person_id": [100, 100],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 10, 30),  # 150 min gap
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 11, 0),
+                ],
+                "d_purpose_category": [10, 1],
+                "o_lat": [37.7, 37.71],
+                "o_lon": [-122.4, -122.41],
+                "d_lat": [37.71, 37.75],
+                "d_lon": [-122.41, -122.45],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -136,23 +144,25 @@ class TestLinkTripIds:
 
     def test_dwell_buffer_distance_threshold(self):
         """Should not link trips exceeding buffer distance."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1],
-            "person_id": [100, 100],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 45),
-            ],
-            "d_purpose_category": [10, 1],
-            "o_lat": [37.7, 38.5],  # Far apart (~55 miles)
-            "o_lon": [-122.4, -122.4],
-            "d_lat": [37.71, 38.51],
-            "d_lon": [-122.41, -122.41],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1],
+                "person_id": [100, 100],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 45),
+                ],
+                "d_purpose_category": [10, 1],
+                "o_lat": [37.7, 38.5],  # Far apart (~55 miles)
+                "o_lon": [-122.4, -122.4],
+                "d_lat": [37.71, 38.51],
+                "d_lon": [-122.41, -122.41],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -166,25 +176,31 @@ class TestLinkTripIds:
 
     def test_chain_of_three_trips(self):
         """Should link chain of three trips with change_mode."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1, 1],
-            "person_id": [100, 100, 100],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-                datetime(2024, 1, 1, 8, 30),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 25),
-                datetime(2024, 1, 1, 9, 0),
-            ],
-            "d_purpose_category": [10, 10, 1],  # change_mode, change_mode, work
-            "o_lat": [37.7, 37.71, 37.72],
-            "o_lon": [-122.4, -122.41, -122.42],
-            "d_lat": [37.71, 37.72, 37.75],
-            "d_lon": [-122.41, -122.42, -122.45],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1, 1],
+                "person_id": [100, 100, 100],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                    datetime(2024, 1, 1, 8, 30),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 25),
+                    datetime(2024, 1, 1, 9, 0),
+                ],
+                "d_purpose_category": [
+                    10,
+                    10,
+                    1,
+                ],  # change_mode, change_mode, work
+                "o_lat": [37.7, 37.71, 37.72],
+                "o_lon": [-122.4, -122.41, -122.42],
+                "d_lat": [37.71, 37.72, 37.75],
+                "d_lon": [-122.41, -122.42, -122.45],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -199,27 +215,29 @@ class TestLinkTripIds:
 
     def test_global_unique_linked_trip_ids(self):
         """Should create globally unique linked_trip_ids across days."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1, 2, 2],
-            "person_id": [100, 100, 100, 100],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 9, 0),
-                datetime(2024, 1, 2, 8, 0),
-                datetime(2024, 1, 2, 9, 0),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 30),
-                datetime(2024, 1, 1, 9, 30),
-                datetime(2024, 1, 2, 8, 30),
-                datetime(2024, 1, 2, 9, 30),
-            ],
-            "d_purpose_category": [1, 2, 1, 2],
-            "o_lat": [37.7, 37.75, 37.7, 37.75],
-            "o_lon": [-122.4, -122.45, -122.4, -122.45],
-            "d_lat": [37.75, 37.8, 37.75, 37.8],
-            "d_lon": [-122.45, -122.5, -122.45, -122.5],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1, 2, 2],
+                "person_id": [100, 100, 100, 100],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 9, 0),
+                    datetime(2024, 1, 2, 8, 0),
+                    datetime(2024, 1, 2, 9, 0),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 30),
+                    datetime(2024, 1, 1, 9, 30),
+                    datetime(2024, 1, 2, 8, 30),
+                    datetime(2024, 1, 2, 9, 30),
+                ],
+                "d_purpose_category": [1, 2, 1, 2],
+                "o_lat": [37.7, 37.75, 37.7, 37.75],
+                "o_lon": [-122.4, -122.45, -122.4, -122.45],
+                "d_lat": [37.75, 37.8, 37.75, 37.8],
+                "d_lon": [-122.45, -122.5, -122.45, -122.5],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -233,23 +251,25 @@ class TestLinkTripIds:
 
     def test_identical_timestamps(self):
         """Should handle trips with identical timestamps."""
-        trips = pl.DataFrame({
-            "day_id": [1, 1],
-            "person_id": [100, 100],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 0),  # Same time
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 30),
-                datetime(2024, 1, 1, 8, 30),  # Same time
-            ],
-            "d_purpose_category": [10, 1],
-            "o_lat": [37.7, 37.71],
-            "o_lon": [-122.4, -122.41],
-            "d_lat": [37.71, 37.75],
-            "d_lon": [-122.41, -122.45],
-        })
+        trips = pl.DataFrame(
+            {
+                "day_id": [1, 1],
+                "person_id": [100, 100],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 0),  # Same time
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 30),
+                    datetime(2024, 1, 1, 8, 30),  # Same time
+                ],
+                "d_purpose_category": [10, 1],
+                "o_lat": [37.7, 37.71],
+                "o_lon": [-122.4, -122.41],
+                "d_lat": [37.71, 37.75],
+                "d_lon": [-122.41, -122.45],
+            }
+        )
 
         result = link_trip_ids(
             trips,
@@ -295,38 +315,40 @@ class TestAggregateLinkedTrips:
 
     def test_basic_aggregation(self):
         """Should aggregate two linked trips correctly."""
-        trips = pl.DataFrame({
-            "linked_trip_id": [1, 1],
-            "person_id": [100, 100],
-            "hh_id": [10, 10],
-            "day_id": [1, 1],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 45),
-            ],
-            "depart_date": [datetime(2024, 1, 1), datetime(2024, 1, 1)],
-            "arrive_date": [datetime(2024, 1, 1), datetime(2024, 1, 1)],
-            "depart_hour": [8, 8],
-            "depart_minute": [0, 15],
-            "depart_seconds": [0, 0],
-            "arrive_hour": [8, 9],
-            "arrive_minute": [10, 30],
-            "arrive_seconds": [0, 0],
-            "o_purpose_category": [1, 11],
-            "d_purpose_category": [11, 2],
-            "o_lat": [37.7, 37.71],
-            "o_lon": [-122.4, -122.41],
-            "d_lat": [37.71, 37.75],
-            "d_lon": [-122.41, -122.45],
-            "mode_type": [1, 6],  # walk, transit
-            "distance_miles": [0.5, 5.0],
-            "duration_minutes": [10.0, 30.0],
-            "trip_weight": [1.0, 1.0],
-        })
+        trips = pl.DataFrame(
+            {
+                "linked_trip_id": [1, 1],
+                "person_id": [100, 100],
+                "hh_id": [10, 10],
+                "day_id": [1, 1],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 45),
+                ],
+                "depart_date": [datetime(2024, 1, 1), datetime(2024, 1, 1)],
+                "arrive_date": [datetime(2024, 1, 1), datetime(2024, 1, 1)],
+                "depart_hour": [8, 8],
+                "depart_minute": [0, 15],
+                "depart_seconds": [0, 0],
+                "arrive_hour": [8, 9],
+                "arrive_minute": [10, 30],
+                "arrive_seconds": [0, 0],
+                "o_purpose_category": [1, 11],
+                "d_purpose_category": [11, 2],
+                "o_lat": [37.7, 37.71],
+                "o_lon": [-122.4, -122.41],
+                "d_lat": [37.71, 37.75],
+                "d_lon": [-122.41, -122.45],
+                "mode_type": [1, 6],  # walk, transit
+                "distance_miles": [0.5, 5.0],
+                "duration_minutes": [10.0, 30.0],
+                "trip_weight": [1.0, 1.0],
+            }
+        )
 
         result = aggregate_linked_trips(trips, transit_mode_codes=[6, 7])
 
@@ -353,40 +375,42 @@ class TestAggregateLinkedTrips:
 
     def test_transit_mode_precedence(self):
         """Should select transit mode when present in any segment."""
-        trips = pl.DataFrame({
-            "linked_trip_id": [1, 1, 1],
-            "person_id": [100, 100, 100],
-            "hh_id": [10, 10, 10],
-            "day_id": [1, 1, 1],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-                datetime(2024, 1, 1, 8, 45),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 40),
-                datetime(2024, 1, 1, 9, 0),
-            ],
-            "depart_date": [datetime(2024, 1, 1)] * 3,
-            "arrive_date": [datetime(2024, 1, 1)] * 3,
-            "depart_hour": [8, 8, 8],
-            "depart_minute": [0, 15, 45],
-            "depart_seconds": [0, 0, 0],
-            "arrive_hour": [8, 8, 9],
-            "arrive_minute": [10, 40, 0],
-            "arrive_seconds": [0, 0, 0],
-            "o_purpose_category": [0, 10, 10],
-            "d_purpose_category": [10, 10, 1],
-            "o_lat": [37.7, 37.71, 37.75],
-            "o_lon": [-122.4, -122.41, -122.45],
-            "d_lat": [37.71, 37.75, 37.8],
-            "d_lon": [-122.41, -122.45, -122.5],
-            "mode_type": [1, 6, 1],  # walk, transit, walk
-            "distance_miles": [0.5, 10.0, 0.3],
-            "duration_minutes": [10.0, 25.0, 15.0],
-            "trip_weight": [1.0, 1.0, 1.0],
-        })
+        trips = pl.DataFrame(
+            {
+                "linked_trip_id": [1, 1, 1],
+                "person_id": [100, 100, 100],
+                "hh_id": [10, 10, 10],
+                "day_id": [1, 1, 1],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                    datetime(2024, 1, 1, 8, 45),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 40),
+                    datetime(2024, 1, 1, 9, 0),
+                ],
+                "depart_date": [datetime(2024, 1, 1)] * 3,
+                "arrive_date": [datetime(2024, 1, 1)] * 3,
+                "depart_hour": [8, 8, 8],
+                "depart_minute": [0, 15, 45],
+                "depart_seconds": [0, 0, 0],
+                "arrive_hour": [8, 8, 9],
+                "arrive_minute": [10, 40, 0],
+                "arrive_seconds": [0, 0, 0],
+                "o_purpose_category": [0, 10, 10],
+                "d_purpose_category": [10, 10, 1],
+                "o_lat": [37.7, 37.71, 37.75],
+                "o_lon": [-122.4, -122.41, -122.45],
+                "d_lat": [37.71, 37.75, 37.8],
+                "d_lon": [-122.41, -122.45, -122.5],
+                "mode_type": [1, 6, 1],  # walk, transit, walk
+                "distance_miles": [0.5, 10.0, 0.3],
+                "duration_minutes": [10.0, 25.0, 15.0],
+                "trip_weight": [1.0, 1.0, 1.0],
+            }
+        )
 
         result = aggregate_linked_trips(trips, transit_mode_codes=[6, 7])
 
@@ -395,38 +419,40 @@ class TestAggregateLinkedTrips:
 
     def test_longest_duration_mode_without_transit(self):
         """Should select longest duration mode when no transit."""
-        trips = pl.DataFrame({
-            "linked_trip_id": [1, 1],
-            "person_id": [100, 100],
-            "hh_id": [10, 10],
-            "day_id": [1, 1],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 45),
-            ],
-            "depart_date": [datetime(2024, 1, 1)] * 2,
-            "arrive_date": [datetime(2024, 1, 1)] * 2,
-            "depart_hour": [8, 8],
-            "depart_minute": [0, 15],
-            "depart_seconds": [0, 0],
-            "arrive_hour": [8, 8],
-            "arrive_minute": [10, 45],
-            "arrive_seconds": [0, 0],
-            "o_purpose_category": [0, 10],
-            "d_purpose_category": [10, 1],
-            "o_lat": [37.7, 37.71],
-            "o_lon": [-122.4, -122.41],
-            "d_lat": [37.71, 37.75],
-            "d_lon": [-122.41, -122.45],
-            "mode_type": [1, 3],  # walk 10 min, drive 30 min
-            "distance_miles": [0.5, 5.0],
-            "duration_minutes": [10.0, 30.0],
-            "trip_weight": [1.0, 1.0],
-        })
+        trips = pl.DataFrame(
+            {
+                "linked_trip_id": [1, 1],
+                "person_id": [100, 100],
+                "hh_id": [10, 10],
+                "day_id": [1, 1],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 45),
+                ],
+                "depart_date": [datetime(2024, 1, 1)] * 2,
+                "arrive_date": [datetime(2024, 1, 1)] * 2,
+                "depart_hour": [8, 8],
+                "depart_minute": [0, 15],
+                "depart_seconds": [0, 0],
+                "arrive_hour": [8, 8],
+                "arrive_minute": [10, 45],
+                "arrive_seconds": [0, 0],
+                "o_purpose_category": [0, 10],
+                "d_purpose_category": [10, 1],
+                "o_lat": [37.7, 37.71],
+                "o_lon": [-122.4, -122.41],
+                "d_lat": [37.71, 37.75],
+                "d_lon": [-122.41, -122.45],
+                "mode_type": [1, 3],  # walk 10 min, drive 30 min
+                "distance_miles": [0.5, 5.0],
+                "duration_minutes": [10.0, 30.0],
+                "trip_weight": [1.0, 1.0],
+            }
+        )
 
         result = aggregate_linked_trips(trips, transit_mode_codes=[6, 7])
 
@@ -435,38 +461,40 @@ class TestAggregateLinkedTrips:
 
     def test_dwell_duration_calculation(self):
         """Should calculate dwell time correctly."""
-        trips = pl.DataFrame({
-            "linked_trip_id": [1, 1],
-            "person_id": [100, 100],
-            "hh_id": [10, 10],
-            "day_id": [1, 1],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 20),  # 10 min gap
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 45),
-            ],
-            "depart_date": [datetime(2024, 1, 1)] * 2,
-            "arrive_date": [datetime(2024, 1, 1)] * 2,
-            "depart_hour": [8, 8],
-            "depart_minute": [0, 20],
-            "depart_seconds": [0, 0],
-            "arrive_hour": [8, 8],
-            "arrive_minute": [10, 45],
-            "arrive_seconds": [0, 0],
-            "o_purpose_category": [0, 10],
-            "d_purpose_category": [10, 1],
-            "o_lat": [37.7, 37.71],
-            "o_lon": [-122.4, -122.41],
-            "d_lat": [37.71, 37.75],
-            "d_lon": [-122.41, -122.45],
-            "mode_type": [1, 1],
-            "distance_miles": [0.5, 5.0],
-            "duration_minutes": [10.0, 25.0],  # Travel time
-            "trip_weight": [1.0, 1.0],
-        })
+        trips = pl.DataFrame(
+            {
+                "linked_trip_id": [1, 1],
+                "person_id": [100, 100],
+                "hh_id": [10, 10],
+                "day_id": [1, 1],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 20),  # 10 min gap
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 45),
+                ],
+                "depart_date": [datetime(2024, 1, 1)] * 2,
+                "arrive_date": [datetime(2024, 1, 1)] * 2,
+                "depart_hour": [8, 8],
+                "depart_minute": [0, 20],
+                "depart_seconds": [0, 0],
+                "arrive_hour": [8, 8],
+                "arrive_minute": [10, 45],
+                "arrive_seconds": [0, 0],
+                "o_purpose_category": [0, 10],
+                "d_purpose_category": [10, 1],
+                "o_lat": [37.7, 37.71],
+                "o_lon": [-122.4, -122.41],
+                "d_lat": [37.71, 37.75],
+                "d_lon": [-122.41, -122.45],
+                "mode_type": [1, 1],
+                "distance_miles": [0.5, 5.0],
+                "duration_minutes": [10.0, 25.0],  # Travel time
+                "trip_weight": [1.0, 1.0],
+            }
+        )
 
         result = aggregate_linked_trips(trips, transit_mode_codes=[6, 7])
 
@@ -480,42 +508,44 @@ class TestAggregateLinkedTrips:
 
     def test_multiple_linked_trips(self):
         """Should aggregate multiple separate linked trips."""
-        trips = pl.DataFrame({
-            "linked_trip_id": [1, 1, 2, 2],
-            "person_id": [100, 100, 100, 100],
-            "hh_id": [10, 10, 10, 10],
-            "day_id": [1, 1, 1, 1],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-                datetime(2024, 1, 1, 17, 0),
-                datetime(2024, 1, 1, 17, 15),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 45),
-                datetime(2024, 1, 1, 17, 10),
-                datetime(2024, 1, 1, 17, 45),
-            ],
-            "depart_date": [datetime(2024, 1, 1)] * 4,
-            "arrive_date": [datetime(2024, 1, 1)] * 4,
-            "depart_hour": [8, 8, 17, 17],
-            "depart_minute": [0, 15, 0, 15],
-            "depart_seconds": [0, 0, 0, 0],
-            "arrive_hour": [8, 8, 17, 17],
-            "arrive_minute": [10, 45, 10, 45],
-            "arrive_seconds": [0, 0, 0, 0],
-            "o_purpose_category": [0, 10, 1, 10],
-            "d_purpose_category": [10, 1, 10, 0],
-            "o_lat": [37.7, 37.71, 37.75, 37.71],
-            "o_lon": [-122.4, -122.41, -122.45, -122.41],
-            "d_lat": [37.71, 37.75, 37.71, 37.7],
-            "d_lon": [-122.41, -122.45, -122.41, -122.4],
-            "mode_type": [1, 6, 6, 1],
-            "distance_miles": [0.5, 5.0, 5.0, 0.5],
-            "duration_minutes": [10.0, 30.0, 10.0, 30.0],
-            "trip_weight": [1.0, 1.0, 1.0, 1.0],
-        })
+        trips = pl.DataFrame(
+            {
+                "linked_trip_id": [1, 1, 2, 2],
+                "person_id": [100, 100, 100, 100],
+                "hh_id": [10, 10, 10, 10],
+                "day_id": [1, 1, 1, 1],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                    datetime(2024, 1, 1, 17, 0),
+                    datetime(2024, 1, 1, 17, 15),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 45),
+                    datetime(2024, 1, 1, 17, 10),
+                    datetime(2024, 1, 1, 17, 45),
+                ],
+                "depart_date": [datetime(2024, 1, 1)] * 4,
+                "arrive_date": [datetime(2024, 1, 1)] * 4,
+                "depart_hour": [8, 8, 17, 17],
+                "depart_minute": [0, 15, 0, 15],
+                "depart_seconds": [0, 0, 0, 0],
+                "arrive_hour": [8, 8, 17, 17],
+                "arrive_minute": [10, 45, 10, 45],
+                "arrive_seconds": [0, 0, 0, 0],
+                "o_purpose_category": [0, 10, 1, 10],
+                "d_purpose_category": [10, 1, 10, 0],
+                "o_lat": [37.7, 37.71, 37.75, 37.71],
+                "o_lon": [-122.4, -122.41, -122.45, -122.41],
+                "d_lat": [37.71, 37.75, 37.71, 37.7],
+                "d_lon": [-122.41, -122.45, -122.41, -122.4],
+                "mode_type": [1, 6, 6, 1],
+                "distance_miles": [0.5, 5.0, 5.0, 0.5],
+                "duration_minutes": [10.0, 30.0, 10.0, 30.0],
+                "trip_weight": [1.0, 1.0, 1.0, 1.0],
+            }
+        )
 
         result = aggregate_linked_trips(trips, transit_mode_codes=[6, 7])
 
@@ -530,40 +560,42 @@ class TestLinkTripsIntegration:
 
     def test_end_to_end_linking(self):
         """Should link and aggregate trips end-to-end."""
-        trips = pl.DataFrame({
-            "trip_id": [1, 2, 3],
-            "day_id": [1, 1, 1],
-            "person_id": [100, 100, 100],
-            "hh_id": [10, 10, 10],
-            "depart_time": [
-                datetime(2024, 1, 1, 8, 0),
-                datetime(2024, 1, 1, 8, 15),
-                datetime(2024, 1, 1, 17, 0),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 1, 8, 10),
-                datetime(2024, 1, 1, 8, 45),
-                datetime(2024, 1, 1, 17, 30),
-            ],
-            "depart_date": [datetime(2024, 1, 1)] * 3,
-            "arrive_date": [datetime(2024, 1, 1)] * 3,
-            "depart_hour": [8, 8, 17],
-            "depart_minute": [0, 15, 0],
-            "depart_seconds": [0, 0, 0],
-            "arrive_hour": [8, 8, 17],
-            "arrive_minute": [10, 45, 30],
-            "arrive_seconds": [0, 0, 0],
-            "o_purpose_category": [1, 11, 2],
-            "d_purpose_category": [11, 2, 1],
-            "o_lat": [37.7, 37.71, 37.75],
-            "o_lon": [-122.4, -122.41, -122.45],
-            "d_lat": [37.71, 37.75, 37.7],
-            "d_lon": [-122.41, -122.45, -122.4],
-            "mode_type": [1, 6, 6],
-            "distance_miles": [0.5, 5.0, 5.0],
-            "duration_minutes": [10.0, 30.0, 30.0],
-            "trip_weight": [1.0, 1.0, 1.0],
-        })
+        trips = pl.DataFrame(
+            {
+                "trip_id": [1, 2, 3],
+                "day_id": [1, 1, 1],
+                "person_id": [100, 100, 100],
+                "hh_id": [10, 10, 10],
+                "depart_time": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 8, 15),
+                    datetime(2024, 1, 1, 17, 0),
+                ],
+                "arrive_time": [
+                    datetime(2024, 1, 1, 8, 10),
+                    datetime(2024, 1, 1, 8, 45),
+                    datetime(2024, 1, 1, 17, 30),
+                ],
+                "depart_date": [datetime(2024, 1, 1)] * 3,
+                "arrive_date": [datetime(2024, 1, 1)] * 3,
+                "depart_hour": [8, 8, 17],
+                "depart_minute": [0, 15, 0],
+                "depart_seconds": [0, 0, 0],
+                "arrive_hour": [8, 8, 17],
+                "arrive_minute": [10, 45, 30],
+                "arrive_seconds": [0, 0, 0],
+                "o_purpose_category": [1, 11, 2],
+                "d_purpose_category": [11, 2, 1],
+                "o_lat": [37.7, 37.71, 37.75],
+                "o_lon": [-122.4, -122.41, -122.45],
+                "d_lat": [37.71, 37.75, 37.7],
+                "d_lon": [-122.41, -122.45, -122.4],
+                "mode_type": [1, 6, 6],
+                "distance_miles": [0.5, 5.0, 5.0],
+                "duration_minutes": [10.0, 30.0, 30.0],
+                "trip_weight": [1.0, 1.0, 1.0],
+            }
+        )
 
         result = link_trips(
             trips,
@@ -588,32 +620,34 @@ class TestLinkTripsIntegration:
 
     def test_preserves_all_required_columns(self):
         """Should preserve all required columns in output."""
-        trips = pl.DataFrame({
-            "trip_id": [1],
-            "day_id": [1],
-            "person_id": [100],
-            "hh_id": [10],
-            "depart_time": [datetime(2024, 1, 1, 8, 0)],
-            "arrive_time": [datetime(2024, 1, 1, 8, 30)],
-            "depart_date": [datetime(2024, 1, 1)],
-            "arrive_date": [datetime(2024, 1, 1)],
-            "depart_hour": [8],
-            "depart_minute": [0],
-            "depart_seconds": [0],
-            "arrive_hour": [8],
-            "arrive_minute": [30],
-            "arrive_seconds": [0],
-            "o_purpose_category": [1],
-            "d_purpose_category": [2],
-            "o_lat": [37.7],
-            "o_lon": [-122.4],
-            "d_lat": [37.75],
-            "d_lon": [-122.45],
-            "mode_type": [1],
-            "distance_miles": [3.0],
-            "duration_minutes": [30.0],
-            "trip_weight": [1.0],
-        })
+        trips = pl.DataFrame(
+            {
+                "trip_id": [1],
+                "day_id": [1],
+                "person_id": [100],
+                "hh_id": [10],
+                "depart_time": [datetime(2024, 1, 1, 8, 0)],
+                "arrive_time": [datetime(2024, 1, 1, 8, 30)],
+                "depart_date": [datetime(2024, 1, 1)],
+                "arrive_date": [datetime(2024, 1, 1)],
+                "depart_hour": [8],
+                "depart_minute": [0],
+                "depart_seconds": [0],
+                "arrive_hour": [8],
+                "arrive_minute": [30],
+                "arrive_seconds": [0],
+                "o_purpose_category": [1],
+                "d_purpose_category": [2],
+                "o_lat": [37.7],
+                "o_lon": [-122.4],
+                "d_lat": [37.75],
+                "d_lon": [-122.45],
+                "mode_type": [1],
+                "distance_miles": [3.0],
+                "duration_minutes": [30.0],
+                "trip_weight": [1.0],
+            }
+        )
 
         result = link_trips(
             trips,

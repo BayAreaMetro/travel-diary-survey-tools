@@ -86,9 +86,9 @@ subgraph Pipeline[**Pipeline**]
   LoadData([Load Data]) --> CustomPre([Custom Pre-Processing])
   CustomPre --> Imputation([Imputation])
   Imputation --> JointTrips([Joint Trips])
-  JointTrips --> LinkTrips([Link Trips])  
-  LinkTrips --> ExtractTours([Extract Tours])  
-  ExtractTours --> Weighting([Weighting])  
+  JointTrips --> LinkTrips([Link Trips])
+  LinkTrips --> ExtractTours([Extract Tours])
+  ExtractTours --> Weighting([Weighting])
   Weighting --> Format{Format Output}
 
   Format --> ActivitySim --> CnV1 --> ActivitySim
@@ -102,7 +102,7 @@ subgraph Pipeline[**Pipeline**]
     DaySim{{DaySim<br>Format}}
     Analysis{{Standard<br>Format}}
     Etc{{Other<br>Formats}}
-    
+
     CnV1("Calibration &<br>Validation")
     CnV2("Calibration &<br>Validation")
     CnV3("Analysis &<br>Validation")
@@ -196,7 +196,7 @@ steps:
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
-        persons: "{{ survey_dir }}/person.csv"  
+        persons: "{{ survey_dir }}/person.csv"
         days: "{{ survey_dir }}/day.csv"
         unlinked_trips: "{{ survey_dir }}/trip.csv"
 
@@ -221,10 +221,10 @@ steps:
     validate: true
     params:
       taz_shapefile: "{{ taz_shapefile }}"
-  
+
   - name: weighting
     validate: true
-  
+
   - name: final_check
     validate: true
 
@@ -238,7 +238,7 @@ steps:
         days_daysim: "{{ survey_dir }}/day_daysim.csv"
         linked_trips_daysim: "{{ survey_dir }}/linked_trip_daysim.csv"
         tours_daysim: "{{ survey_dir }}/tour_daysim.csv"
-  
+
   - name: format_output
     validate: false
     params:

@@ -21,11 +21,12 @@ from pipeline.utils.helpers import expr_haversine
 # Each check function should return list[str] of error messages
 CUSTOM_VALIDATORS: dict[str, list[Callable]] = {
     "unlinked_trips": [],  # Registered checks defined below
-    "linked_trips": [],    # Registered checks defined below
+    "linked_trips": [],  # Registered checks defined below
 }
 
 
 # Example check functions below:
+
 
 def check_arrival_after_departure(unlinked_trips: pl.DataFrame) -> list[str]:
     """Ensure arrive_time is after depart_time for all trips.
@@ -56,27 +57,34 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
 
     # Compare o_lat/o_lon of the next trip to d_lat/d_lon of current trip
     # Compute distance, and compare to threshold over person_id and day_id
-    teleports = unlinked_trips.with_columns(
-        pl.col("d_lat").alias("current_d_lat"),
-        pl.col("d_lon").alias("current_d_lon"),
-        pl.col("o_lat").shift(-1).over(["person_id", "day_id"])
+    teleports = (
+        unlinked_trips.with_columns(
+            pl.col("d_lat").alias("current_d_lat"),
+            pl.col("d_lon").alias("current_d_lon"),
+            pl.col("o_lat")
+            .shift(-1)
+            .over(["person_id", "day_id"])
             .alias("next_o_lat"),
-        pl.col("o_lon").shift(-1).over(["person_id", "day_id"])
-            .alias("next_o_lon")
-    ).with_columns(
-        expr_haversine(
-            pl.col("current_d_lat"),
-            pl.col("current_d_lon"),
-            pl.col("next_o_lat"),
-            pl.col("next_o_lon")
-        ).alias("distance_meters")
-    ).filter(
-        pl.col("distance_meters") > max_distance
-    ).select(
-        pl.col("trip_id"),
-        pl.col("person_id"),
-        pl.col("day_id"),
-        pl.col("distance_meters")
+            pl.col("o_lon")
+            .shift(-1)
+            .over(["person_id", "day_id"])
+            .alias("next_o_lon"),
+        )
+        .with_columns(
+            expr_haversine(
+                pl.col("current_d_lat"),
+                pl.col("current_d_lon"),
+                pl.col("next_o_lat"),
+                pl.col("next_o_lon"),
+            ).alias("distance_meters")
+        )
+        .filter(pl.col("distance_meters") > max_distance)
+        .select(
+            pl.col("trip_id"),
+            pl.col("person_id"),
+            pl.col("day_id"),
+            pl.col("distance_meters"),
+        )
     )
 
     if len(teleports) > 0:
@@ -87,5 +95,3 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
             f"Sample trip IDs: {trip_ids}"
         )
     return errors
-
-

@@ -15,7 +15,7 @@ steps:
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
-        persons: "{{ survey_dir }}/person.csv"  
+        persons: "{{ survey_dir }}/person.csv"
         days: "{{ survey_dir }}/day.csv"
         unlinked_trips: "{{ survey_dir }}/trip.csv"
         taz_shapefile: "{{ taz_shapefile }}"
@@ -44,10 +44,10 @@ steps:
 
   - name: custom_add_taz_ids
     validate_input: false
-  
+
   # - name: final_check
   #   validate_input: true
-  
+
   # This prepares a new set of files formatted for DaySim
   - name: format_daysim
     validate_input: false

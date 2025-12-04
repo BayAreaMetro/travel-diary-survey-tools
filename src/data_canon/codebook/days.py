@@ -29,6 +29,7 @@ class AttendSchool(LabeledEnum):
     PNTA = (999, "Prefer not to answer")
     MISSING = (995, "Missing Response")
 
+
 class NoSchoolReason(LabeledEnum):
     """no_school_reason value labels."""
 
@@ -44,6 +45,7 @@ class NoSchoolReason(LabeledEnum):
     MISSING = (995, "Missing Response")
     DONT_KNOW = (998, "Don't know")
     PNTA = (999, "Prefer not to answer")
+
 
 class BeginEndDay(LabeledEnum):
     """begin_day and end_day value labels."""
@@ -69,7 +71,10 @@ class Delivery(LabeledEnum):
     SERVICES = (2, "Someone came to provide a service (e.g., cleaning, repair)")
     GROCERIES = (3, "Groceries / other goods delivery")
     PACKAGE_HOME = (4, "Postal package delivery (e.g., USPS, FedEx, UPS)")
-    PACKAGE_OTHER = (5, "Postal package delivery other location (e.g., Amazon locker)")  # noqa: E501
+    PACKAGE_OTHER = (
+        5,
+        "Postal package delivery other location (e.g., Amazon locker)",
+    )
     PACKAGE_WORK = (6, "Postal package delivery work location")
     OTHER_PACKAGE = (7, "Other item delivery (e.g., furniture, appliance)")
     OTHER_PACKAGE_WORK = (8, "Other item delivery work location")
@@ -86,6 +91,7 @@ class MadeTravel(LabeledEnum):
     MISSING = (995, "Missing Response")
     DONT_KNOW = (998, "Don't know")
     PNTA = (999, "Prefer not to answer")
+
 
 class NoTravelReason(LabeledEnum):
     """no_travel_reason value labels."""

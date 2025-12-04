@@ -35,16 +35,13 @@ class HouseholdModel(BaseModel):
     """Household attributes (minimal for tour building)."""
 
     hh_id: int = step_field(
-        ge=1, unique=True,
-        required_in_steps=["extract_tours"]
-        )
+        ge=1, unique=True, required_in_steps=["extract_tours"]
+    )
     home_lat: float = step_field(
-        ge=-90, le=90,
-        required_in_steps=["extract_tours"]
+        ge=-90, le=90, required_in_steps=["extract_tours"]
     )
     home_lon: float = step_field(
-        ge=-180, le=180,
-        required_in_steps=["extract_tours"]
+        ge=-180, le=180, required_in_steps=["extract_tours"]
     )
 
 
@@ -52,8 +49,7 @@ class PersonModel(BaseModel):
     """Person attributes for tour building."""
 
     person_id: int = step_field(
-        ge=1, unique=True,
-        required_in_steps=["extract_tours"]
+        ge=1, unique=True, required_in_steps=["extract_tours"]
     )
     hh_id: int = step_field(
         ge=1,
@@ -63,20 +59,16 @@ class PersonModel(BaseModel):
     age: AgeCategory = step_field(required_in_steps=["extract_tours"])
     # These fields can be None if person is not employed or in school
     work_lat: float | None = step_field(
-        ge=-90, le=90,
-        required_in_steps=["extract_tours"]
+        ge=-90, le=90, required_in_steps=["extract_tours"]
     )
     work_lon: float | None = step_field(
-        ge=-180, le=180,
-        required_in_steps=["extract_tours"]
+        ge=-180, le=180, required_in_steps=["extract_tours"]
     )
     school_lat: float | None = step_field(
-        ge=-90, le=90,
-        required_in_steps=["extract_tours"]
+        ge=-90, le=90, required_in_steps=["extract_tours"]
     )
     school_lon: float | None = step_field(
-        ge=-180, le=180,
-        required_in_steps=["extract_tours"]
+        ge=-180, le=180, required_in_steps=["extract_tours"]
     )
     person_type: PersonType = step_field(required_in_steps=[])
     employment: Employment = step_field(required_in_steps=["extract_tours"])
@@ -156,24 +148,14 @@ class LinkedTripModel(BaseModel):
     """Linked Trip data model for validation."""
 
     day_id: int = step_field(
-        ge=1, fk_to="days.day_id",
-        required_in_steps=["extract_tours"]
+        ge=1, fk_to="days.day_id", required_in_steps=["extract_tours"]
     )
-    person_id: int = step_field(
-        ge=1, fk_to="persons.person_id"
-    )
-    hh_id: int = step_field(
-        ge=1, fk_to="households.hh_id"
-    )
+    person_id: int = step_field(ge=1, fk_to="persons.person_id")
+    hh_id: int = step_field(ge=1, fk_to="households.hh_id")
 
     linked_trip_id: int = step_field(ge=1, unique=True)
-    tour_id: int = step_field(
-        ge=1,
-        fk_to="tours.tour_id"
-    )
-    travel_dow: TravelDow = step_field(
-        required_in_steps=["extract_tours"]
-    )
+    tour_id: int = step_field(ge=1, fk_to="tours.tour_id")
+    travel_dow: TravelDow = step_field(required_in_steps=["extract_tours"])
     depart_date: datetime = step_field()
     depart_hour: int = step_field(ge=0, le=23)
     depart_minute: int = step_field(ge=0, le=59)
@@ -204,9 +186,7 @@ class TourModel(BaseModel):
     day_id: int = step_field(ge=1, fk_to="days.day_id")
     tour_num: int = step_field(ge=1)
     parent_tour_id: int | None = step_field(
-        ge=1,
-        fk_to="tours.tour_id",
-        default=None
+        ge=1, fk_to="tours.tour_id", default=None
     )
 
     tour_purpose: PurposeCategory = step_field()

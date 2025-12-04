@@ -76,17 +76,32 @@ class ParticipationGroup(LabeledEnum):
 
     canonical_field_name = "participation_group"
     field_description = (
-"Indicates the survey mode used for signup and diary completion"
+        "Indicates the survey mode used for signup and diary completion"
     )
 
-    SIGNUP_BMOVE_DIARY_BMOVE = (1, "Signup via browserMove, Diary via browserMove")  # noqa: E501
-    SIGNUP_BMOVE_DIARY_CALL_CENTER = (2, "Signup via browserMove, Diary via call center")  # noqa: E501
+    SIGNUP_BMOVE_DIARY_BMOVE = (
+        1,
+        "Signup via browserMove, Diary via browserMove",
+    )
+    SIGNUP_BMOVE_DIARY_CALL_CENTER = (
+        2,
+        "Signup via browserMove, Diary via call center",
+    )
     SIGNUP_BMOVE_DIARY_RMOVE = (3, "Signup via browserMove, Diary via rMove")
-    SIGNUP_CALL_DIARY_BMOVE = (4, "Signup via call center, Diary via browserMove")  # noqa: E501
-    SIGNUP_CALL_DIARY_CALL_CENTER = (5, "Signup via call center, Diary via call center")  # noqa: E501
+    SIGNUP_CALL_DIARY_BMOVE = (
+        4,
+        "Signup via call center, Diary via browserMove",
+    )
+    SIGNUP_CALL_DIARY_CALL_CENTER = (
+        5,
+        "Signup via call center, Diary via call center",
+    )
     SIGNUP_CALL_DIARY_RMOVE = (6, "Signup via call center, Diary via rMove")
     SIGNUP_RMOVE_DIARY_BMOVE = (7, "Signup via rMove, Diary via browserMove")
-    SIGNUP_RMOVE_DIARY_CALL_CENTER = (8, "Signup via rMove, Diary via call center")  # noqa: E501
+    SIGNUP_RMOVE_DIARY_CALL_CENTER = (
+        8,
+        "Signup via rMove, Diary via call center",
+    )
     SIGNUP_RMOVE_DIARY_RMOVE = (9, "Signup via rMove, Diary via rMove")
 
 
@@ -98,10 +113,14 @@ class ResidenceRentOwn(LabeledEnum):
     OWN = (1, "Own/buying (paying a mortgage)")
     RENT = (2, "Rent")
     NOPAYMENT_EMPLOYER = (3, "Housing provided by job or military")
-    NOPAYMENT_OTHER = (4, "Provided by family or friend without payment or rent")  # noqa: E501
+    NOPAYMENT_OTHER = (
+        4,
+        "Provided by family or friend without payment or rent",
+    )
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other")
     PNTA = (999, "Prefer not to answer")
+
 
 class ResidenceType(LabeledEnum):
     """residence_type value labels."""
@@ -109,7 +128,11 @@ class ResidenceType(LabeledEnum):
     canonical_field_name = "residence_type"
 
     SFH = (1, "Single-family house (detached house)")
-    TOWNHOUSE = (2, "Single-family house attached to one or more houses (rowhouse or townhouse)")  # noqa: E501
+    TOWNHOUSE = (
+        2,
+        "Single-family house attached to one or more houses "
+        "(rowhouse or townhouse)",
+    )
     MULTIFAMILY = (3, "Building with 2-4 units (duplexes, triplexes, quads)")
     CONDO_5TO50_UNITS = (4, "Building with 5-49 apartments/condos")
     CONDO_50PLUS_UNITS = (5, "Building with 50 or more apartments/condos")

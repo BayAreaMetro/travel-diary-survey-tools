@@ -191,18 +191,18 @@ def check_household_size_consistency(
 ) -> list[str]:
     """Check that hh_size matches actual person count."""
     errors = []
-    
+
     actual_sizes = persons.group_by("hh_id").agg(pl.len().alias("actual"))
     merged = households.join(actual_sizes, on="hh_id", how="left")
     mismatches = merged.filter(pl.col("hh_size") != pl.col("actual"))
-    
+
     if len(mismatches) > 0:
         ids = mismatches["hh_id"].to_list()
         errors.append(
             f"Household size mismatch for hh_ids: {ids[:5]}"
             f"{' ...' if len(ids) > 5 else ''}"
         )
-    
+
     return errors
 
 # Register in CUSTOM_VALIDATORS
@@ -308,13 +308,13 @@ from data_canon.core.step_field import step_field
 class MyCustomModel(BaseModel):
     # Unique constraint
     email: str = step_field(unique=True)
-    
+
     # Foreign key
     person_id: int = step_field(
         ge=1,
         fk_to="persons.person_id"
     )
-    
+
     # Required child (bidirectional FK)
     hh_id: int = step_field(
         ge=1,

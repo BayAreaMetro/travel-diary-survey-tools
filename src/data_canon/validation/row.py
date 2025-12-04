@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Step-Aware Row Validators -----------------------------------------------
 
+
 def get_required_fields_for_step(
     model: type[BaseModel],
     step_name: str,
@@ -88,7 +89,8 @@ def validate_row_for_step(
     # Fields that are present but have None values are allowed if the
     # field type is Optional (e.g., float | None)
     missing_fields = [
-        field_name for field_name in required_fields
+        field_name
+        for field_name in required_fields
         if field_name not in row_dict
     ]
 
@@ -111,7 +113,8 @@ def validate_row_for_step(
         # This prevents errors about missing optional fields
         present_fields = set(row_dict.keys())
         relevant_errors = [
-            err for err in e.errors()
+            err
+            for err in e.errors()
             if err.get("loc", [None])[0] in present_fields
         ]
         if relevant_errors:
@@ -144,7 +147,7 @@ def validate_dataframe_rows(
 
     total_rows = len(df)
     start_time = time.time()
-    update_interval = 2 # seconds
+    update_interval = 2  # seconds
 
     # Convert entire DataFrame to list of dicts once (faster than iter_rows)
     rows = df.to_dicts()
@@ -171,9 +174,8 @@ def validate_dataframe_rows(
                     break
 
         # Progress updates for large datasets (time-based)
-        if (
-            (total_rows > batch_size) and
-            (current_time - start_time >= update_interval)
+        if (total_rows > batch_size) and (
+            current_time - start_time >= update_interval
         ):
             percent_done = (batch_end / total_rows) * 100
             logger.info(
@@ -199,15 +201,12 @@ def validate_dataframe_rows(
                 message=msg,
             )
         # Multiple errors - provide summary
-        error_summary = "\n".join(
-            f"  Row {idx}: {msg}" for idx, msg in errors
-        )
+        error_summary = "\n".join(f"  Row {idx}: {msg}" for idx, msg in errors)
         raise DataValidationError(
             table=table_name,
             rule="row_validation",
             message=(
-                f"Found {len(errors)} validation errors:\n"
-                f"{error_summary}"
+                f"Found {len(errors)} validation errors:\n{error_summary}"
             ),
         )
 

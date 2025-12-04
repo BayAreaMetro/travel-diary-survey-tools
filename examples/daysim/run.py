@@ -37,6 +37,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
 # Optional: project-specific custom step functions
 # You can define or import them here if needed
 @step()
@@ -44,8 +45,8 @@ def custom_cleaning(
     # households: pl.DataFrame,
     persons: pl.DataFrame,
     days: pl.DataFrame,
-    unlinked_trips: pl.DataFrame
-    ) -> dict[str, pl.DataFrame]:
+    unlinked_trips: pl.DataFrame,
+) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline."""
     # CLEANUP UNLINKED TRIPS =================================
     # Much wow...
@@ -68,11 +69,17 @@ def custom_cleaning(
 
     unlinked_trips = unlinked_trips.with_columns(
         [
-            pl.when(swap_condition).then(pl.col(b)).otherwise(pl.col(a)).alias(a)
+            pl.when(swap_condition)
+            .then(pl.col(b))
+            .otherwise(pl.col(a))
+            .alias(a)
             for a, b in swap_cols
-        ] +
-        [
-            pl.when(swap_condition).then(pl.col(a)).otherwise(pl.col(b)).alias(b)
+        ]
+        + [
+            pl.when(swap_condition)
+            .then(pl.col(a))
+            .otherwise(pl.col(b))
+            .alias(b)
             for a, b in swap_cols
         ]
     )
@@ -96,27 +103,26 @@ def custom_cleaning(
     # If distance is null, recalculate it from lat/lon
     unlinked_trips = unlinked_trips.with_columns(
         pl.when(pl.col("distance_meters").is_null())
-            .then(
-                expr_haversine(
-                    pl.col("o_lon"),
-                    pl.col("o_lat"),
-                    pl.col("d_lon"),
-                    pl.col("d_lat"),
-                )
+        .then(
+            expr_haversine(
+                pl.col("o_lon"),
+                pl.col("o_lat"),
+                pl.col("d_lon"),
+                pl.col("d_lat"),
             )
-            .otherwise(pl.col("distance_meters"))
-            .alias("distance_meters")
+        )
+        .otherwise(pl.col("distance_meters"))
+        .alias("distance_meters")
     )
 
     # If duration_minutes is null, recalculate it from depart/arrive times
     unlinked_trips = unlinked_trips.with_columns(
         pl.when(pl.col("duration_minutes").is_null())
-            .then(
-                (pl.col("arrive_time") - pl.col("depart_time"))
-                .dt.total_minutes()
-            )
-            .otherwise(pl.col("duration_minutes"))
-            .alias("duration_minutes")
+        .then(
+            (pl.col("arrive_time") - pl.col("depart_time")).dt.total_minutes()
+        )
+        .otherwise(pl.col("duration_minutes"))
+        .alias("duration_minutes")
     )
 
     # ADD DAYS FOR PERSONS WITHOUT DAYS =================================
@@ -127,16 +133,18 @@ def custom_cleaning(
 
     # Get travel_dow from other household members' days
     days_for_dow = (
-        days
-        .select(["hh_id", "travel_dow"])
-        .filter(pl.col("hh_id").is_in(persons_without_days["hh_id"].unique().implode()))
+        days.select(["hh_id", "travel_dow"])
+        .filter(
+            pl.col("hh_id").is_in(
+                persons_without_days["hh_id"].unique().implode()
+            )
+        )
         .unique()
     )
 
     # Create a default day for each person without days
     dummy_days = (
-        persons_without_days
-        .join(days_for_dow, on="hh_id", how="left")
+        persons_without_days.join(days_for_dow, on="hh_id", how="left")
         .with_columns(
             # Construct default day_id (person_id * 100 + travel_dow)
             (pl.col("person_id") * 100 + pl.col("travel_dow")).alias("day_id")
@@ -148,6 +156,7 @@ def custom_cleaning(
 
     return {"unlinked_trips": unlinked_trips, "days": days}
 
+
 @step()
 def custom_add_taz_ids(
     households: pl.DataFrame,
@@ -155,7 +164,7 @@ def custom_add_taz_ids(
     linked_trips: pl.DataFrame,
     taz_shapefile: gpd.GeoDataFrame,
 ) -> dict:
-    """Custom step to add TAZ IDs based on locations."""\
+    """Custom step to add TAZ IDs based on locations."""
     # Rename TAZ1454 to TAZ_ID for clarity
     taz_shapefile = taz_shapefile.rename(columns={"TAZ1454": "TAZ_ID"})
 
@@ -171,22 +180,16 @@ def custom_add_taz_ids(
         gdf = gpd.GeoDataFrame(
             df.to_pandas(),
             geometry=gpd.points_from_xy(
-                df[lon_col].to_list(),
-                df[lat_col].to_list()
+                df[lon_col].to_list(), df[lat_col].to_list()
             ),
-            crs="EPSG:4326"
+            crs="EPSG:4326",
         )
 
         # Set index TAZ_ID and geometry only for spatial join
         shp = shp.loc[:, ["TAZ_ID", "geometry"]].set_index("TAZ_ID")
 
         # Spatial join to find TAZ containing each point
-        gdf_joined = gpd.sjoin(
-            gdf,
-            shp,
-            how="left",
-            predicate="within"
-        )
+        gdf_joined = gpd.sjoin(gdf, shp, how="left", predicate="within")
         gdf_joined = gdf_joined.rename(columns={"TAZ_ID": taz_col_name})
         gdf_joined = gdf_joined.drop(columns="geometry")
 
@@ -236,9 +239,7 @@ def custom_add_taz_ids(
     )
 
     # SF MTC Has only TAZ, so we spoof MAZ from TAZ
-    households = households.with_columns(
-        pl.col("home_taz").alias("home_maz")
-    )
+    households = households.with_columns(pl.col("home_taz").alias("home_maz"))
     persons = persons.with_columns(
         pl.col("work_taz").alias("work_maz"),
         pl.col("school_taz").alias("school_maz"),
@@ -251,7 +252,7 @@ def custom_add_taz_ids(
     return {
         "households": households,
         "persons": persons,
-        "linked_trips": linked_trips
+        "linked_trips": linked_trips,
     }
 
 
@@ -262,7 +263,7 @@ def custom_postprocessing(
     days_daysim: pl.DataFrame,
     linked_trips_daysim: pl.DataFrame,
     tours_daysim: pl.DataFrame,
-    ) -> dict[str, pl.DataFrame]:
+) -> dict[str, pl.DataFrame]:
     """Custom post-processing steps go here, not in the main pipeline."""
     return {
         "households_daysim": households_daysim,
@@ -290,9 +291,8 @@ if __name__ == "__main__":
     logger.info("Starting BATS 2023 DaySim Processing Pipeline")
 
     pipeline = Pipeline(
-        config_path=CONFIG_PATH,
-        processing_steps=processing_steps
-        )
+        config_path=CONFIG_PATH, processing_steps=processing_steps
+    )
     result = pipeline.run()
 
     logger.info("Pipeline finished successfully.")

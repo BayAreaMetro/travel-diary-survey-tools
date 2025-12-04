@@ -48,14 +48,16 @@ def add_time_columns(
         if col_name not in trips.columns:
             logger.info("Constructing %s...", col_name)
             trips = trips.with_columns(
-                datetime_from_parts(*[pl.col(c) for c in comp_cols])
-                .alias(col_name)
+                datetime_from_parts(*[pl.col(c) for c in comp_cols]).alias(
+                    col_name
+                )
             )
         elif trips[col_name].dtype == pl.Utf8:
             logger.info("Parsing %s from string...", col_name)
             trips = trips.with_columns(
-                pl.col(col_name).str
-                .to_datetime(format=datetime_format, strict=False)
+                pl.col(col_name).str.to_datetime(
+                    format=datetime_format, strict=False
+                )
             )
 
             if trips[col_name].null_count() > 0:

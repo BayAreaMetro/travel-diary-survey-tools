@@ -23,16 +23,14 @@ class TestSelectiveFieldRequirements:
         """Fields should only be required in their designated step."""
         # linked_trip_id required in extract_tours
         required_tours = get_required_fields_for_step(
-            UnlinkedTripModel,
-            "extract_tours"
+            UnlinkedTripModel, "extract_tours"
         )
         assert "linked_trip_id" in required_tours
         assert "tour_id" in required_tours
 
         # But not required in other steps
         required_other = get_required_fields_for_step(
-            UnlinkedTripModel,
-            "preprocessing"
+            UnlinkedTripModel, "preprocessing"
         )
         assert "linked_trip_id" not in required_other
         assert "tour_id" not in required_other
@@ -42,24 +40,21 @@ class TestSelectiveFieldRequirements:
         # depart_time/arrive_time are added in preprocessing step
         # Not required in load_data (before preprocessing)
         required_load = get_required_fields_for_step(
-            UnlinkedTripModel,
-            "load_data"
+            UnlinkedTripModel, "load_data"
         )
         assert "depart_time" not in required_load
         assert "arrive_time" not in required_load
 
         # Required in link_trip (after preprocessing)
         required_link = get_required_fields_for_step(
-            UnlinkedTripModel,
-            "link_trip"
+            UnlinkedTripModel, "link_trip"
         )
         assert "depart_time" in required_link
         assert "arrive_time" in required_link
 
         # Also required in extract_tours (after link_trip)
         required_tours = get_required_fields_for_step(
-            UnlinkedTripModel,
-            "extract_tours"
+            UnlinkedTripModel, "extract_tours"
         )
         assert "depart_time" in required_tours
         assert "arrive_time" in required_tours

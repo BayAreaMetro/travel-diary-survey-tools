@@ -37,8 +37,7 @@ def get_foreign_key_fields(
             # Parse "parent_table.parent_column" format
             if "." not in fk_to:
                 msg = (
-                    f"Invalid fk_to format: '{fk_to}'. "
-                    f"Expected 'table.column'"
+                    f"Invalid fk_to format: '{fk_to}'. Expected 'table.column'"
                 )
                 raise ValueError(msg)
 

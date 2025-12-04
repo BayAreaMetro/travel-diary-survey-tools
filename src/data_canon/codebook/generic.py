@@ -10,12 +10,14 @@ class Select(LabeledEnum):
     NOT_SELECTED = (0, "Not selected")
     MISSING = (995, "Missing Response")
 
+
 class YesNoMissing(LabeledEnum):
     """Generic yes/no/missing value labels."""
 
     YES = (1, "Yes")
     NO = (2, "No")
     MISSING = (995, "Missing Response")
+
 
 class LocationType(LabeledEnum):
     """Generic location type labels."""
