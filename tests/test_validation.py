@@ -168,9 +168,9 @@ class TestCustomValidators:
 
     def test_single_table_validator(self):
         """Should run custom validator on single table."""
-        data = CanonicalData()
+        data_obj = CanonicalData()
 
-        @data.register_validator("unlinked_trips")
+        @data_obj.register_validator("unlinked_trips")
         def check_trip_duration(unlinked_trips: pl.DataFrame) -> list[str]:
             """Check that trips are not unreasonably long (>4 hours)."""
             errors = []
@@ -192,7 +192,7 @@ class TestCustomValidators:
             return errors
 
         # Include all required fields for UnlinkedTripModel
-        data.unlinked_trips = pl.DataFrame(
+        data_obj.unlinked_trips = pl.DataFrame(
             {
                 "trip_id": [1, 2, 3],
                 "person_id": [101, 101, 101],
@@ -206,6 +206,10 @@ class TestCustomValidators:
                 "arrive_hour": [10, 11, 18],  # Third trip is 10 hours long
                 "arrive_minute": [30, 30, 0],
                 "arrive_seconds": [0, 0, 0],
+                "o_lon": [-122.4194, -122.4194, -122.4194],
+                "o_lat": [37.7749, 37.7749, 37.7749],
+                "d_lon": [-122.4094, -122.4094, -122.4094],
+                "d_lat": [37.7849, 37.7849, 37.7849],
                 "o_purpose": [1, 2, 1],  # HOME, WORK, HOME
                 "d_purpose": [2, 1, 1],  # WORK, HOME, HOME
                 "o_purpose_category": [1, 2, 1],  # HOME, WORK, HOME
@@ -232,7 +236,7 @@ class TestCustomValidators:
             }
         )
         with pytest.raises(DataValidationError) as exc:
-            data.validate("unlinked_trips", step="link_trips")
+            data_obj.validate("unlinked_trips", step="link_trips")
         assert exc.value.rule == "check_trip_duration"
 
     def test_multi_table_validator(self):

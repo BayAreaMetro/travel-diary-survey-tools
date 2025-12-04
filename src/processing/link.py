@@ -30,7 +30,7 @@ def link_trips(
         change_mode_code: Purpose code indicating a mode change
         transit_mode_codes: List of mode codes that count as transit
         max_dwell_time: Maximum time gap between trips to link them (minutes)
-        dwell_buffer_distance: Maximum distance between trips to link (miles)
+        dwell_buffer_distance: Maximum distance between trips to link (meters)
 
     Returns:
         Tuple of (trips with linked_trip_id, aggregated linked trips)
@@ -80,13 +80,19 @@ def link_trip_ids(
         unlinked_trips: DataFrame containing trip data
         change_mode_code: Purpose code indicating a mode change
         max_dwell_time: Maximum time gap between trips to link them (minutes)
-        dwell_buffer_distance: Maximum distance between trips to link (miles)
+        dwell_buffer_distance: Maximum distance between trips to link (meters)
 
     Returns:
         DataFrame with linked_trip_id column added
 
     """
     logger.info("Linking trip IDs...")
+    # If empty dataframe just extend the schema and return
+    if unlinked_trips.is_empty():
+        logger.info("No trips to link; returning empty DataFrame.")
+        return unlinked_trips.with_columns(
+            pl.lit(None).cast(pl.Utf8).alias("linked_trip_id")
+        )
 
     # Step 1: Sort trips by person, day, and departure time
     unlinked_trips = unlinked_trips.sort(
@@ -294,7 +300,7 @@ def aggregate_linked_trips(
                 pl.last("d_lat"),
                 pl.last("d_lon"),
                 # Trip distance (sum of segment distances)
-                pl.col("distance_miles").sum(),
+                pl.col("distance_meters").sum(),
                 # Travel duration (sum of segment durations)
                 pl.col("duration_minutes")
                 .sum()
@@ -312,8 +318,6 @@ def aggregate_linked_trips(
                     ).dt.total_minutes()
                     - pl.col("duration_minutes").sum()
                 ).alias("dwell_duration_minutes"),
-                # Total distance
-                pl.col("distance_meters").sum(),
                 # Number of segments in linked trip
                 pl.len().alias("num_segments"),
                 # Linked trip weight (mean of segment weights)

@@ -330,6 +330,7 @@ class TestAggregateLinkedTrips:
                     datetime(2024, 1, 1, 8, 10),
                     datetime(2024, 1, 1, 8, 45),
                 ],
+                "travel_dow": [1, 1],
                 "depart_date": [datetime(2024, 1, 1), datetime(2024, 1, 1)],
                 "arrive_date": [datetime(2024, 1, 1), datetime(2024, 1, 1)],
                 "depart_hour": [8, 8],
@@ -345,7 +346,9 @@ class TestAggregateLinkedTrips:
                 "d_lat": [37.71, 37.75],
                 "d_lon": [-122.41, -122.45],
                 "mode_type": [1, 6],  # walk, transit
-                "distance_miles": [0.5, 5.0],
+                "num_travelers": [1, 1],
+                "driver": [0, 0],
+                "distance_meters": [804.67, 8046.7],
                 "duration_minutes": [10.0, 30.0],
                 "trip_weight": [1.0, 1.0],
             }
@@ -370,7 +373,7 @@ class TestAggregateLinkedTrips:
         assert row["d_purpose_category"] == 2
 
         # Check aggregated fields
-        assert row["distance_miles"] == 5.5
+        assert row["distance_meters"] == 804.67 + 8046.7
         assert row["num_segments"] == 2
         assert row["mode_type"] == 6  # Transit takes precedence
 
@@ -392,6 +395,7 @@ class TestAggregateLinkedTrips:
                     datetime(2024, 1, 1, 8, 40),
                     datetime(2024, 1, 1, 9, 0),
                 ],
+                "travel_dow": [1, 1, 1],
                 "depart_date": [datetime(2024, 1, 1)] * 3,
                 "arrive_date": [datetime(2024, 1, 1)] * 3,
                 "depart_hour": [8, 8, 8],
@@ -407,7 +411,9 @@ class TestAggregateLinkedTrips:
                 "d_lat": [37.71, 37.75, 37.8],
                 "d_lon": [-122.41, -122.45, -122.5],
                 "mode_type": [1, 6, 1],  # walk, transit, walk
-                "distance_miles": [0.5, 10.0, 0.3],
+                "distance_meters": [804.67, 8046.7, 482.8],
+                "num_travelers": [1, 1, 1],
+                "driver": [0, 0, 0],
                 "duration_minutes": [10.0, 25.0, 15.0],
                 "trip_weight": [1.0, 1.0, 1.0],
             }
@@ -434,6 +440,7 @@ class TestAggregateLinkedTrips:
                     datetime(2024, 1, 1, 8, 10),
                     datetime(2024, 1, 1, 8, 45),
                 ],
+                "travel_dow": [1, 1],
                 "depart_date": [datetime(2024, 1, 1)] * 2,
                 "arrive_date": [datetime(2024, 1, 1)] * 2,
                 "depart_hour": [8, 8],
@@ -449,7 +456,9 @@ class TestAggregateLinkedTrips:
                 "d_lat": [37.71, 37.75],
                 "d_lon": [-122.41, -122.45],
                 "mode_type": [1, 3],  # walk 10 min, drive 30 min
-                "distance_miles": [0.5, 5.0],
+                "distance_meters": [804.67, 8046.7],
+                "num_travelers": [1, 1],
+                "driver": [0, 0],
                 "duration_minutes": [10.0, 30.0],
                 "trip_weight": [1.0, 1.0],
             }
@@ -476,6 +485,7 @@ class TestAggregateLinkedTrips:
                     datetime(2024, 1, 1, 8, 10),
                     datetime(2024, 1, 1, 8, 45),
                 ],
+                "travel_dow": [1, 1],
                 "depart_date": [datetime(2024, 1, 1)] * 2,
                 "arrive_date": [datetime(2024, 1, 1)] * 2,
                 "depart_hour": [8, 8],
@@ -491,7 +501,9 @@ class TestAggregateLinkedTrips:
                 "d_lat": [37.71, 37.75],
                 "d_lon": [-122.41, -122.45],
                 "mode_type": [1, 1],
-                "distance_miles": [0.5, 5.0],
+                "distance_meters": [804.67, 8046.7],
+                "num_travelers": [1, 1],
+                "driver": [0, 0],
                 "duration_minutes": [10.0, 25.0],  # Travel time
                 "trip_weight": [1.0, 1.0],
             }
@@ -527,6 +539,7 @@ class TestAggregateLinkedTrips:
                     datetime(2024, 1, 1, 17, 10),
                     datetime(2024, 1, 1, 17, 45),
                 ],
+                "travel_dow": [1, 1, 1, 1],
                 "depart_date": [datetime(2024, 1, 1)] * 4,
                 "arrive_date": [datetime(2024, 1, 1)] * 4,
                 "depart_hour": [8, 8, 17, 17],
@@ -542,7 +555,9 @@ class TestAggregateLinkedTrips:
                 "d_lat": [37.71, 37.75, 37.71, 37.7],
                 "d_lon": [-122.41, -122.45, -122.41, -122.4],
                 "mode_type": [1, 6, 6, 1],
-                "distance_miles": [0.5, 5.0, 5.0, 0.5],
+                "distance_meters": [804.67, 8046.7, 8046.7, 804.67],
+                "num_travelers": [1, 1, 1, 1],
+                "driver": [0, 0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 10.0, 30.0],
                 "trip_weight": [1.0, 1.0, 1.0, 1.0],
             }
@@ -577,6 +592,7 @@ class TestLinkTripsIntegration:
                     datetime(2024, 1, 1, 8, 45),
                     datetime(2024, 1, 1, 17, 30),
                 ],
+                "travel_dow": [1, 1, 1],
                 "depart_date": [datetime(2024, 1, 1)] * 3,
                 "arrive_date": [datetime(2024, 1, 1)] * 3,
                 "depart_hour": [8, 8, 17],
@@ -592,7 +608,9 @@ class TestLinkTripsIntegration:
                 "d_lat": [37.71, 37.75, 37.7],
                 "d_lon": [-122.41, -122.45, -122.4],
                 "mode_type": [1, 6, 6],
-                "distance_miles": [0.5, 5.0, 5.0],
+                "distance_meters": [804.67, 8046.7, 8046.7],
+                "num_travelers": [1, 1, 1],
+                "driver": [0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 30.0],
                 "trip_weight": [1.0, 1.0, 1.0],
             }
@@ -607,11 +625,11 @@ class TestLinkTripsIntegration:
         )
 
         # Should return dict with two DataFrames
-        assert "trips_with_ids" in result
+        assert "unlinked_trips" in result
         assert "linked_trips" in result
 
         # Original trips with linked_trip_id
-        trips_with_ids = result["trips_with_ids"]
+        trips_with_ids = result["unlinked_trips"]
         assert len(trips_with_ids) == 3
         assert "linked_trip_id" in trips_with_ids.columns
 
@@ -631,6 +649,7 @@ class TestLinkTripsIntegration:
                 "arrive_time": [datetime(2024, 1, 1, 8, 30)],
                 "depart_date": [datetime(2024, 1, 1)],
                 "arrive_date": [datetime(2024, 1, 1)],
+                "travel_dow": [1],
                 "depart_hour": [8],
                 "depart_minute": [0],
                 "depart_seconds": [0],
@@ -644,7 +663,9 @@ class TestLinkTripsIntegration:
                 "d_lat": [37.75],
                 "d_lon": [-122.45],
                 "mode_type": [1],
-                "distance_miles": [3.0],
+                "distance_meters": [804.67],
+                "num_travelers": [1],
+                "driver": [0],
                 "duration_minutes": [30.0],
                 "trip_weight": [1.0],
             }
@@ -669,7 +690,7 @@ class TestLinkTripsIntegration:
             "o_purpose_category",
             "d_purpose_category",
             "mode_type",
-            "distance_miles",
+            "distance_meters",
             "duration_minutes",
             "num_segments",
         ]

@@ -129,10 +129,10 @@ class UnlinkedTripModel(BaseModel):
         required_in_steps=["link_trips"]
     )
     mode_type: ModeType = step_field(required_in_steps=["link_trips"])
-    mode_1: Mode = step_field(required_in_steps=["link_trips"])
-    mode_2: Mode = step_field(required_in_steps=["link_trips"])
-    mode_3: Mode = step_field(required_in_steps=["link_trips"])
-    mode_4: Mode = step_field(required_in_steps=["link_trips"])
+    mode_1: Mode | None
+    mode_2: Mode | None
+    mode_3: Mode | None
+    mode_4: Mode | None
     duration_minutes: float = step_field(ge=0)
     distance_meters: float = step_field(ge=0)
 

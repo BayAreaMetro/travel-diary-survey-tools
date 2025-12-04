@@ -45,9 +45,9 @@ class TestSelectiveFieldRequirements:
         assert "depart_time" not in required_load
         assert "arrive_time" not in required_load
 
-        # Required in link_trip (after preprocessing)
+        # Required in link_trips (after preprocessing)
         required_link = get_required_fields_for_step(
-            UnlinkedTripModel, "link_trip"
+            UnlinkedTripModel, "link_trips"
         )
         assert "depart_time" in required_link
         assert "arrive_time" in required_link
@@ -165,13 +165,13 @@ class TestStepValidationBehavior:
             "d_purpose_category": 2,
             "mode_type": 1,
             "duration_minutes": 90.0,
-            "distance_miles": 10.5,
+            "distance_meters": 8000,
         }
         validate_row_for_step(row_no_dt, UnlinkedTripModel, "preprocessing")
 
         # Without datetime - Fails for link_trip
         with pytest.raises(ValueError, match=r"depart_time|arrive_time"):
-            validate_row_for_step(row_no_dt, UnlinkedTripModel, "link_trip")
+            validate_row_for_step(row_no_dt, UnlinkedTripModel, "link_trips")
 
         # With datetime and location fields - OK for link_trip
         row_with_dt = row_no_dt.copy()
@@ -181,7 +181,7 @@ class TestStepValidationBehavior:
         row_with_dt["o_lon"] = -122.4194
         row_with_dt["d_lat"] = 37.7849
         row_with_dt["d_lon"] = -122.4094
-        validate_row_for_step(row_with_dt, UnlinkedTripModel, "link_trip")
+        validate_row_for_step(row_with_dt, UnlinkedTripModel, "link_trips")
 
     def test_validates_present_fields_even_if_not_required_in_step(self):
         """Should validate type/constraints of present fields in any step."""

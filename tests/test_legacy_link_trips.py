@@ -4,7 +4,6 @@ import importlib.util
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np  # noqa: F401
 import pandas as pd
 import polars as pl
 
@@ -113,9 +112,12 @@ SIMPLE_TRANSIT_JOURNEY = pl.DataFrame(
         "arrive_hour": [8, 8, 9, 17],
         "arrive_minute": [10, 18, 0, 30],
         "arrive_seconds": [0, 0, 0, 0],
-        "distance_miles": [0.5, 0.5, 5.0, 5.0],
+        "distance_meters": [804.5, 804.5, 8046.7, 8046.7],
         "duration_minutes": [10.0, 3.0, 40.0, 30.0],
         "trip_weight": [1.0, 1.0, 1.0, 1.0],
+        "travel_dow": [1, 1, 1, 1],  # Monday
+        "num_travelers": [1, 1, 1, 1],
+        "driver": [2, 2, 2, 1],  # Passenger for transit/walk, Driver for drive
     }
 )
 
@@ -126,6 +128,85 @@ SIMPLE_TRANSIT_JOURNEY_EXPECTED = {
     "num_linked_trips": 2,
     "trip1_mode": MODE_MAP["transit"],  # Highest hierarchy mode
     "trip2_mode": MODE_MAP["drive"],
+}
+
+
+# Test data with complex mode sequences (multiple modes per trip segment)
+# This represents a more realistic scenario where respondents report
+# multiple modes within a single trip segment
+COMPLEX_MODE_JOURNEY = pl.DataFrame(
+    {
+        "trip_id": [1, 2, 3],
+        "day_id": [2, 2, 2],
+        "person_id": [2, 2, 2],
+        "hh_id": [2, 2, 2],
+        "depart_time": [
+            datetime(2024, 1, 1, 9, 0),  # Walk + bike-share to transit station
+            datetime(2024, 1, 1, 9, 30),  # BART + ferry
+            datetime(2024, 1, 1, 10, 15),  # Walk from ferry to work
+        ],
+        "arrive_time": [
+            datetime(2024, 1, 1, 9, 25),
+            datetime(2024, 1, 1, 10, 10),
+            datetime(2024, 1, 1, 10, 30),
+        ],
+        "o_purpose_category": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+        ],
+        "d_purpose_category": [
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "o_purpose": [
+            PURPOSE_MAP_NEW["home"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+        ],
+        "d_purpose": [
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["change_mode"],
+            PURPOSE_MAP_NEW["work"],
+        ],
+        "mode_type": [
+            MODE_MAP["bike"],  # Primary mode type
+            MODE_MAP["transit"],
+            MODE_MAP["walk"],
+        ],
+        # mode_1-4: Walk, bike-share, walk again on segment 1
+        # BART, ferry on segment 2; walk on segment 3
+        "mode_1": [1, 30, 1],  # Walk, BART, Walk
+        "mode_2": [69, 78, 995],  # Bike-share, Ferry, MISSING
+        "mode_3": [1, 995, 995],  # Walk again, MISSING, MISSING
+        "mode_4": [995, 995, 995],  # All MISSING
+        "o_lat": [37.80, 37.81, 37.82],
+        "o_lon": [-122.40, -122.41, -122.42],
+        "d_lat": [37.81, 37.82, 37.83],
+        "d_lon": [-122.41, -122.42, -122.43],
+        "depart_date": [datetime(2024, 1, 1).date()] * 3,
+        "arrive_date": [datetime(2024, 1, 1).date()] * 3,
+        "depart_hour": [9, 9, 10],
+        "depart_minute": [0, 30, 15],
+        "depart_seconds": [0, 0, 0],
+        "arrive_hour": [9, 10, 10],
+        "arrive_minute": [25, 10, 30],
+        "arrive_seconds": [0, 0, 0],
+        "distance_meters": [1609.3, 8046.7, 402.3],  # ~1, 5, 0.25 miles
+        "distance_miles": [1.0, 5.0, 0.25],
+        "duration_minutes": [25.0, 40.0, 15.0],
+        "trip_weight": [1.5, 1.5, 1.5],
+        "travel_dow": [2, 2, 2],  # Tuesday
+        "num_travelers": [1, 1, 1],
+        "driver": [2, 2, 2],  # All passenger (bike/transit/walk)
+    }
+)
+
+# Expected: 1 linked trip with all segments combined
+COMPLEX_MODE_JOURNEY_EXPECTED = {
+    "num_linked_trips": 1,
+    "trip1_mode": MODE_MAP["transit"],  # Transit is highest hierarchy
 }
 
 
