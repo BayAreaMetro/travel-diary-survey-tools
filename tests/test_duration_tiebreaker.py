@@ -3,11 +3,11 @@
 from datetime import datetime
 
 import polars as pl
-from pipeline.steps.extract_tours.extraction import TourExtractor
-from pipeline.steps.extract_tours.tour_configs import TourConfig
 
 from data_canon.codebook.persons import PersonType
 from data_canon.codebook.trips import ModeType, PurposeCategory
+from processing.tours.extraction import extract_tours
+from processing.tours.tour_configs import TourConfig
 
 
 def create_test_data(
@@ -122,10 +122,7 @@ def test_duration_tiebreaker_equal_priority():
     )
 
     config = TourConfig()
-    extractor = TourExtractor(persons, households, trips, config)
-
-    # Run tour extraction
-    _, tours = extractor.run()
+    _, tours = extract_tours(persons, households, trips, config)
 
     # Should have 1 tour
     assert len(tours) == 1
@@ -201,10 +198,7 @@ def test_duration_tiebreaker_different_priority():
     )
 
     config = TourConfig()
-    extractor = TourExtractor(persons, households, trips, config)
-
-    # Run tour extraction
-    _, tours = extractor.run()
+    _, tours = extract_tours(persons, households, trips, config)
 
     # Tour purpose should be work (priority 1) regardless of duration
     tour = tours.row(0, named=True)
@@ -235,8 +229,7 @@ def test_activity_duration_last_trip():
     )
 
     config = TourConfig()
-    extractor = TourExtractor(persons, households, trips, config)
+    _, tours = extract_tours(persons, households, trips, config)
 
     # This should not error - last trip gets default duration
-    _, tours = extractor.run()
     assert len(tours) == 1

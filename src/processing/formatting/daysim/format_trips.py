@@ -545,13 +545,7 @@ def format_linked_trips(
     else:
         trips_daysim = trips_daysim.with_columns(pl.lit(1.0).alias("trexpfac"))
 
-    # Step 6: Log diagnostic counts for validation
-    # mode_counts = trips_daysim.group_by("mode").len().sort("mode")  # noqa: E501, ERA001
-    # path_counts = trips_daysim.group_by("path").len().sort("path")  # noqa: E501, ERA001
-    # logger.info("Mode distribution: %s", mode_counts.to_dict())  # noqa: E501, ERA001
-    # logger.info("Path type distribution: %s", path_counts.to_dict())  # noqa: E501, ERA001
-
-    # Step 7: Select final DaySim fields and sort
+    # Step 6: Select final DaySim fields and sort
     trip_cols = [
         "hhno",
         "pno",
