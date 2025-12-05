@@ -167,8 +167,6 @@ def extract_tours(
         linked_trips_with_subtours, tours
     )
 
-    list(set(linked_trips_with_half_tour.columns) - set(linked_trips.columns))
-
     # Return clean linked_trips (drop temporary columns)
     drop_cols = [
         "leaving_home",
