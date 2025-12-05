@@ -74,17 +74,17 @@ import polars as pl
 from pipeline.decoration import step
 
 from .aggregation_helpers import aggregate_tours, assign_half_tour
+from .detection_helpers import (
+    detect_anchor_based_subtours,
+    expand_anchor_periods,
+    identify_home_based_tours,
+)
 from .location_helpers import (
     classify_trip_locations,
     prepare_person_locations,
 )
 from .person_type import derive_person_type
 from .tour_configs import TourConfig
-from .tour_helpers import (
-    detect_anchor_based_subtours,
-    expand_anchor_periods,
-    identify_home_based_tours,
-)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -160,40 +160,31 @@ def extract_tours(
     )
 
     # Step 5: Aggregate tours
-    tours = aggregate_tours(linked_trips_with_subtours, config)
+    linked_trips_with_tour_ids, tours = aggregate_tours(
+        linked_trips_with_subtours, config
+    )
 
     # Step 6: Assign half-tour classification using tours table
-    linked_trips_with_half_tour = assign_half_tour(
-        linked_trips_with_subtours, tours
+    linked_trips_with_tours = assign_half_tour(
+        linked_trips_with_tour_ids, tours
     )
 
-    # Return clean linked_trips (drop temporary columns)
-    drop_cols = [
-        "leaving_home",
-        "o_is_work",
-        "o_is_school",
-        "d_is_work",
-        "half_tour_type",
-        "_trip_num_in_tour",
-        "o_is_home",
-        "returning_home",
-        "anchor_period_end_trip_num",
-        "d_is_school",
-        "d_is_home",
-        "o_location_type",
-        "d_location_type",
-        "anchor_location_type",
-        "anchor_period_start_trip_num",
-    ]
-    linked_trips_with_tour_ids = linked_trips_with_half_tour.drop(drop_cols)
+    # Drop temporary columns, any starting with underscore
+    for df in [linked_trips_with_tours, tours]:
+        _cols = df.columns
+        drop_cols = [col for col in _cols if col.startswith("_")]
+        for c in drop_cols:
+            df.drop_in_place(c)
 
-    logger.info(
+    msg = (
         "Tour building complete: %d linked trips, %d tours",
-        len(linked_trips_with_tour_ids),
+        len(linked_trips_with_tours),
         len(tours),
+        "(tour count may increase due to sub-tours being identified.)",
     )
+    logger.info(msg)
 
     return {
-        "linked_trips": linked_trips_with_tour_ids,
+        "linked_trips": linked_trips_with_tours,
         "tours": tours,
     }

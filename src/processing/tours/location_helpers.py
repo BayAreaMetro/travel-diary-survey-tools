@@ -89,8 +89,8 @@ def classify_trip_locations(
 
     Returns:
         Trips with added columns:
-        - o_is_home, o_is_work, o_is_school (bool flags)
-        - d_is_home, d_is_work, d_is_school (bool flags)
+        - _o_is_home, _o_is_work, _o_is_school (bool flags)
+        - _d_is_home, _d_is_work, _d_is_school (bool flags)
         - o_location_type, d_location_type (LocationType enum)
     """
     logger.info("Classifying trip locations...")
@@ -110,7 +110,7 @@ def classify_trip_locations(
     linked_trips = _add_location_types(linked_trips)
 
     # Clean up temporary columns
-    # Keep location flags (o_is_home, d_is_work, etc.) for subtour detection
+    # Keep location flags (_o_is_home, _d_is_work, etc.) for subtour detection
     temp_cols = [
         "home_lat",
         "home_lon",
@@ -163,7 +163,7 @@ def _add_location_flags(
         distance_thresholds: Dict mapping LocationType to distance in meters
 
     Returns:
-        DataFrame with location flag columns (o_is_home, d_is_work, etc.)
+        DataFrame with location flag columns (_o_is_home, _d_is_work, etc.)
     """
     flag_cols = []
 
@@ -210,7 +210,7 @@ def _add_location_flags(
             # Match if EITHER purpose OR distance indicates location
             combined_check = purpose_check | distance_check
 
-            flag_cols.append(combined_check.alias(f"{end}_is_{loc}"))
+            flag_cols.append(combined_check.alias(f"_{end}_is_{loc}"))
 
     return df.with_columns(flag_cols)
 
@@ -244,7 +244,7 @@ def _add_location_types(df: pl.DataFrame) -> pl.DataFrame:
 
     return df.with_columns(
         [
-            build_location_expr("o").alias("o_location_type"),
-            build_location_expr("d").alias("d_location_type"),
+            build_location_expr("_o").alias("_o_location_type"),
+            build_location_expr("_d").alias("_d_location_type"),
         ]
     )

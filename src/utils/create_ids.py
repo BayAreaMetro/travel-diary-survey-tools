@@ -103,9 +103,9 @@ def create_concatenated_id(
         sequence_padding,
     )
 
-    id_expr = pl.col(parent_id_col).cast(pl.Utf8) + pl.col(sequence_col).cast(
-        pl.Utf8
-    ).str.pad_start(sequence_padding, "0")
+    id_expr = pl.col(parent_id_col).cast(pl.Int64) * (
+        10**sequence_padding
+    ) + pl.col(sequence_col).cast(pl.Int64)
 
     return df.with_columns(id_expr.alias(output_col))
 
@@ -148,84 +148,3 @@ def create_linked_trip_id(
         sequence_col=sequence_col,
         sequence_padding=sequence_padding,
     )
-
-
-def create_tour_id(
-    df: pl.DataFrame,
-    day_id_col: str = "day_id",
-    tour_num_col: str = "tour_num_in_day",
-    subtour_num_col: str | None = None,
-    padding: int = 2,
-) -> pl.DataFrame:
-    """Create tour_id with nested parent tour and subtour structure.
-
-    Tour IDs have a special nested structure:
-        tour_id = day_id + 2-digit tour_num + 2-digit subtour_num
-
-    For parent tours, subtour_num is 0 (or can be omitted).
-    For subtours, subtour_num is > 0.
-
-    Examples:
-        "23000075010100" - parent tour (tour #1, subtour #0)
-        "23000075010101" - subtour #1 of tour #1
-        "23000075010102" - subtour #2 of tour #1
-        "23000075010200" - parent tour #2
-
-    Args:
-        df: Input DataFrame containing day_id and tour number columns
-        day_id_col: Column name for day ID (default: "day_id")
-        tour_num_col: Column name for tour number within day
-            (default: "tour_num_in_day")
-        subtour_num_col: Optional column name for subtour number.
-            If None, subtour number will be 0 (parent tours only).
-            (default: None)
-        padding: Number of digits for padding each component (default: 2)
-
-    Returns:
-        DataFrame with "tour_id" column added
-
-    Raises:
-        ValueError: If validate=True and day_id contains duplicate values
-
-    Examples:
-        # Create parent tour IDs (subtour_num = 0)
-        >>> tours = create_tour_id(tours)
-
-        # Create tour IDs with subtours
-        >>> tours = create_tour_id(
-        ...     tours,
-        ...     subtour_num_col="subtour_num"
-        ... )
-    """
-    if df.is_empty():
-        logger.info("Empty DataFrame: adding tour_id with null values")
-        return df.with_columns(pl.lit(None).cast(pl.Utf8).alias("tour_id"))
-
-    # Build the tour ID expression
-    if subtour_num_col is None:
-        # Parent tours only: tour_id = day_id + tour_num + "00"
-        logger.info(
-            "Creating parent tour_id = %s + %s + 00",
-            day_id_col,
-            tour_num_col,
-        )
-        tour_id_expr = (
-            pl.col(day_id_col).cast(pl.Utf8)
-            + pl.col(tour_num_col).cast(pl.Utf8).str.pad_start(padding, "0")
-            + "00"
-        )
-    else:
-        # Tours with subtours: tour_id = day_id + tour_num + subtour_num
-        logger.info(
-            "Creating tour_id = %s + %s + %s",
-            day_id_col,
-            tour_num_col,
-            subtour_num_col,
-        )
-        tour_id_expr = (
-            pl.col(day_id_col).cast(pl.Utf8)
-            + pl.col(tour_num_col).cast(pl.Utf8).str.pad_start(padding, "0")
-            + pl.col(subtour_num_col).cast(pl.Utf8).str.pad_start(padding, "0")
-        )
-
-    return df.with_columns(tour_id_expr.alias("tour_id"))

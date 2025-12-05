@@ -175,7 +175,7 @@ class LinkedTripModel(BaseModel):
     distance_meters: float = step_field(ge=0)
     depart_time: datetime = step_field()
     arrive_time: datetime = step_field()
-    is_outbound: bool = step_field(required_in_steps=["format_daysim"])
+    tour_direction: bool = step_field(required_in_steps=["format_daysim"])
 
 
 class TourModel(BaseModel):
@@ -198,14 +198,6 @@ class TourModel(BaseModel):
     origin_arrive_time: datetime = step_field()
     dest_arrive_time: datetime = step_field()
     dest_depart_time: datetime = step_field()
-    origin_linked_trip_id: int = step_field(
-        ge=1,
-        fk_to="linked_trips.linked_trip_id",
-    )
-    dest_linked_trip_id: int = step_field(
-        ge=1,
-        fk_to="linked_trips.linked_trip_id",
-    )
 
     # Locations
     o_lat: float = step_field(ge=-90, le=90)
@@ -219,12 +211,3 @@ class TourModel(BaseModel):
     tour_mode: ModeType = step_field()
     outbound_mode: int = step_field(ge=1)
     inbound_mode: int = step_field(ge=1)
-
-    # Stops
-    num_outbound_stops: int = step_field(ge=0)
-    num_inbound_stops: int = step_field(ge=0)
-
-    # Flags
-    is_primary_tour: bool = step_field()
-    tour_starts_at_origin: bool = step_field()
-    tour_ends_at_origin: bool = step_field()

@@ -16,6 +16,7 @@ from data_canon.codebook.tours import (
     TourBoundary,
     TourType,
 )
+from utils.create_ids import create_concatenated_id
 from utils.helpers import expr_haversine
 
 from .priority_utils import (
@@ -44,22 +45,10 @@ def _calculate_tour_purp_and_dest(
 
     Returns:
         Tuple of (enhanced_linked_trips, tour_purp_and_coords):
-        - enhanced_linked_trips: All trips with _agg_key, priorities, and flags
+        - enhanced_linked_trips: All trips with tour_id, priorities, and flags
         - tour_purp_and_coords: Aggregated tour purpose and destination coords
     """
-    # Create hierarchical tour_id as aggregation key
-    linked_trips = linked_trips.with_columns(
-        [
-            (
-                pl.col("day_id").cast(pl.Utf8)
-                + pl.col("tour_num").cast(pl.Utf8).str.pad_start(2, "0")
-                + pl.col("subtour_num").cast(pl.Utf8).str.pad_start(2, "0")
-            )
-            .cast(pl.Int64)
-            .alias("_agg_key"),
-        ]
-    )
-
+    logger.info("Calculating tour purpose and primary destination...")
     # Add priorities and activity duration for selection logic
     linked_trips = add_purpose_priority_column(
         linked_trips, config, alias="_purpose_priority"
@@ -77,31 +66,31 @@ def _calculate_tour_purp_and_dest(
     linked_trips = linked_trips.with_columns(
         [
             (
-                pl.col("linked_trip_id").rank("ordinal").over("_agg_key")
-                == pl.col("linked_trip_id").count().over("_agg_key")
+                pl.col("linked_trip_id").rank("ordinal").over("tour_id")
+                == pl.col("linked_trip_id").count().over("tour_id")
             ).alias("_is_last_trip"),
         ]
     )
 
     # Determine tour purpose and primary destination from non-last trips
     non_last = linked_trips.filter(~pl.col("_is_last_trip")).sort(
-        ["_agg_key", "_purpose_priority", "_activity_duration"],
+        ["tour_id", "_purpose_priority", "_activity_duration"],
         descending=[False, False, True],
     )
 
     tour_purp_and_coords = non_last.group_by(
-        "_agg_key", maintain_order=True
+        "tour_id", maintain_order=True
     ).agg(
         [
             pl.col("d_purpose_category").first().alias("tour_purpose"),
             pl.col("d_lat").first().alias("_primary_d_lat"),
             pl.col("d_lon").first().alias("_primary_d_lon"),
-            pl.col("d_location_type").first().alias("_primary_d_type"),
+            pl.col("_d_location_type").first().alias("_primary_d_type"),
         ]
     )
 
     linked_trips = linked_trips.join(
-        tour_purp_and_coords, on="_agg_key", how="left"
+        tour_purp_and_coords, on="tour_id", how="left"
     )
 
     return linked_trips, tour_purp_and_coords
@@ -122,8 +111,9 @@ def _calculate_destination_times(
 
     Returns:
         DataFrame with dest_arrive_time, dest_depart_time, and
-        dest_linked_trip_id per _agg_key
+        dest_linked_trip_id per tour_id
     """
+    logger.info("Calculating destination arrival and departure times...")
     # Calculate distances to primary destination and apply thresholds
     linked_trips = linked_trips.with_columns(
         [
@@ -164,7 +154,7 @@ def _calculate_destination_times(
         linked_trips.filter(
             ~pl.col("_is_last_trip") & pl.col("_arrives_at_primary")
         )
-        .group_by("_agg_key")
+        .group_by("tour_id")
         .agg(
             [
                 pl.col("arrive_time").max().alias("dest_arrive_time"),
@@ -173,9 +163,9 @@ def _calculate_destination_times(
         )
         .join(
             linked_trips.filter(pl.col("_departs_from_primary"))
-            .group_by("_agg_key")
+            .group_by("tour_id")
             .agg(pl.col("depart_time").max().alias("dest_depart_time")),
-            on="_agg_key",
+            on="tour_id",
             how="full",
             coalesce=True,
         )
@@ -187,7 +177,7 @@ def _calculate_destination_times(
 def _aggregate_and_classify_tours(
     linked_trips: pl.DataFrame,
     tour_purpose_and_coords: pl.DataFrame,
-    dest_times: pl.DataFrame,
+    config: TourConfig,
 ) -> pl.DataFrame:
     """Aggregate trip data to tour level and classify tour categories.
 
@@ -198,15 +188,19 @@ def _aggregate_and_classify_tours(
     Args:
         linked_trips: Enhanced trip data with priorities and flags
         tour_purpose_and_coords: Tour purpose and destination coordinates
-        dest_times: Destination arrival/departure times
+        config: TourConfig with classification settings
 
     Returns:
         Tour-level DataFrame with all attributes and classifications
     """
-    tours = linked_trips.group_by("_agg_key").agg(
+    logger.info("Aggregating and classifying tours...")
+
+    # Calculate destination arrival/departure times
+    dest_times = _calculate_destination_times(linked_trips, config)
+
+    tours = linked_trips.group_by("tour_id").agg(
         [
-            # Identifiers
-            pl.col("_agg_key").first().alias("tour_id"),
+            # Identifiers (tour_id is automatically included from group_by)
             pl.col("person_id").first(),
             pl.col("hh_id").first(),
             pl.col("day_id").first(),
@@ -226,44 +220,40 @@ def _aggregate_and_classify_tours(
             pl.col("o_lon").first(),
             pl.col("d_lat").last(),
             pl.col("d_lon").last(),
-            pl.col("o_location_type").first(),
-            pl.col("d_location_type").last(),
+            pl.col("_o_location_type").first().alias("o_location_type"),
+            pl.col("_d_location_type").last().alias("d_location_type"),
             # Counts
             pl.col("linked_trip_id").count().alias("trip_count"),
             (pl.col("linked_trip_id").count() - 1).alias("stop_count"),
             # Flags for classification
             pl.col("subtour_num").first().alias("_subtour_num"),
-            pl.col("o_is_home").first().alias("_o_is_home"),
-            pl.col("d_is_home").last().alias("_d_is_home"),
+            pl.col("_o_is_home").first().alias("_o_is_home"),
+            pl.col("_d_is_home").last().alias("_d_is_home"),
         ]
     )
 
     # Join purpose and destination timing
     tours = tours.join(
-        tour_purpose_and_coords.select(["_agg_key", "tour_purpose"]),
-        on="_agg_key",
+        tour_purpose_and_coords.select(["tour_id", "tour_purpose"]),
+        on="tour_id",
         how="left",
-    ).join(dest_times, on="_agg_key", how="left")
+    ).join(dest_times, on="tour_id", how="left")
 
     # Classify tour category and clean up
-    tours = (
-        tours.with_columns(
-            [
-                pl.when(pl.col("_subtour_num") > 0)
-                .then(pl.lit(TourType.WORK_BASED))
-                .when(pl.col("_o_is_home") & pl.col("_d_is_home"))
-                .then(pl.lit(TourBoundary.COMPLETE))
-                .when(pl.col("_o_is_home") & ~pl.col("_d_is_home"))
-                .then(pl.lit(TourBoundary.PARTIAL_END))
-                .when(~pl.col("_o_is_home") & pl.col("_d_is_home"))
-                .then(pl.lit(TourBoundary.PARTIAL_START))
-                .otherwise(pl.lit(TourBoundary.PARTIAL_BOTH))
-                .alias("tour_category"),
-            ]
-        )
-        .drop(["_agg_key", "_subtour_num", "_o_is_home", "_d_is_home"])
-        .sort(["person_id", "day_id", "origin_depart_time"])
-    )
+    tours = tours.with_columns(
+        [
+            pl.when(pl.col("_subtour_num") > 0)
+            .then(pl.lit(TourType.WORK_BASED))
+            .when(pl.col("_o_is_home") & pl.col("_d_is_home"))
+            .then(pl.lit(TourBoundary.COMPLETE))
+            .when(pl.col("_o_is_home") & ~pl.col("_d_is_home"))
+            .then(pl.lit(TourBoundary.PARTIAL_END))
+            .when(~pl.col("_o_is_home") & pl.col("_d_is_home"))
+            .then(pl.lit(TourBoundary.PARTIAL_START))
+            .otherwise(pl.lit(TourBoundary.PARTIAL_BOTH))
+            .alias("tour_category"),
+        ]
+    ).sort(["person_id", "day_id", "origin_depart_time"])
 
     return tours
 
@@ -271,7 +261,7 @@ def _aggregate_and_classify_tours(
 def aggregate_tours(
     linked_trips: pl.DataFrame,
     config: TourConfig,
-) -> pl.DataFrame:
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Aggregate trip data to tour-level records with attributes.
 
     Calculates tour attributes from trip data:
@@ -290,26 +280,49 @@ def aggregate_tours(
         config: TourConfig object with priority settings
 
     Returns:
-        Tour-level DataFrame with aggregated attributes (includes
-        dest_arrive_time and dest_depart_time for half-tour classification)
+        Tuple of: (enhanced_linked_trips, tours)
+        - enhanced_linked_trips: Input trips with tour_id and subtour_id added
     """
     logger.info("Aggregating tour data...")
+
+    # Create hierarchical tour_id as aggregation key
+    linked_trips = linked_trips.with_columns(
+        (pl.col("tour_num") * 1000 + pl.col("subtour_num") * 10).alias(
+            "_tour_id_suffix"
+        )
+    )
+
+    linked_trips = create_concatenated_id(
+        linked_trips,
+        output_col="tour_id",
+        parent_id_col="day_id",
+        sequence_col="_tour_id_suffix",
+        sequence_padding=4,
+    )
+
+    # Create parent_tour_id for subtours
+    linked_trips = linked_trips.with_columns(
+        (pl.col("tour_num") * 1000).alias("_parent_tour_id_suffix")
+    )
+    linked_trips = create_concatenated_id(
+        linked_trips,
+        output_col="parent_tour_id",
+        parent_id_col="day_id",
+        sequence_col="_parent_tour_id_suffix",
+        sequence_padding=4,
+    )
 
     # Calculate tour purpose and primary destination
     linked_trips, tour_purp_and_coords = _calculate_tour_purp_and_dest(
         linked_trips, config
     )
 
-    # Calculate destination arrival/departure times
-    dest_times = _calculate_destination_times(linked_trips, config)
-
     # Aggregate to tour level and classify
     tours = _aggregate_and_classify_tours(
-        linked_trips, tour_purp_and_coords, dest_times
+        linked_trips, tour_purp_and_coords, config
     )
 
-    logger.info("Aggregated %d tours", len(tours))
-    return tours
+    return linked_trips, tours
 
 
 def assign_half_tour(
@@ -337,15 +350,12 @@ def assign_half_tour(
     linked_trips = linked_trips.join(
         tours.select(
             [
-                "hh_id",
-                "person_id",
-                "day_id",
-                "tour_num",
+                "tour_id",
                 "dest_arrive_time",
                 "dest_depart_time",
             ]
         ),
-        on=["day_id", "tour_num"],
+        on=["tour_id"],
         how="left",
     )
 
@@ -364,7 +374,7 @@ def assign_half_tour(
             .then(pl.lit(HalfTour.INBOUND))
             # Default to outbound if times are null (shouldn't happen)
             .otherwise(pl.lit(HalfTour.OUTBOUND))
-            .alias("half_tour_type"),
+            .alias("tour_direction"),
         ]
     )
 
@@ -376,5 +386,4 @@ def assign_half_tour(
         ]
     )
 
-    logger.info("Half-tour classification complete")
     return linked_trips
