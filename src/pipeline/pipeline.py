@@ -20,21 +20,18 @@ class Pipeline:
     steps: dict[str, Callable]
 
     def __init__(
-        self, config_path: str, processing_steps: list[Callable] | None = None
+        self, config_path: str, steps: list[Callable] | None = None
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
         Args:
             config_path: Path to the YAML configuration.
-            processing_steps: Optional list of processing step functions.
-                steps.
-            custom_steps: Mapping of step names to custom functions
-                (overrides default steps), optional.
+            steps: Optional list of processing step functions.
         """
         self.config_path = config_path
         self.config = self._load_config()
         self.data = CanonicalData()
-        self.steps = {func.__name__: func for func in processing_steps or []}
+        self.steps = {func.__name__: func for func in steps or []}
 
     def _load_config(self) -> dict[str, Any]:
         """Load the pipeline configuration from a YAML file.

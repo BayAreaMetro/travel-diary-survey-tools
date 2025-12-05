@@ -1,6 +1,7 @@
 """Runner script for the BATS 2023 DaySim processing pipeline."""
 
 import logging
+import os
 from pathlib import Path
 
 import geopandas as gpd
@@ -21,8 +22,19 @@ from processing.cleaning.clean_bats_2023 import clean_2023_bats
 # Configuration
 # ---------------------------------------------------------------------
 
-# os.system(r"net use M: \\models.ad.mtc.ca.gov\data\models")  # noqa: ERA001
-# os.system(r"net use X: \\model3-a\Model3A-Share")  # noqa: ERA001
+logger = logging.getLogger(__name__)
+
+# For MTC network drives that seem to keep unmapping within python VM sessions
+# Check if network drives are mapped; if not, map them
+drives = {
+    "M:": r"\\models.ad.mtc.ca.gov\data\models",
+    "X:": r"\\model3-a\Model3A-Share",
+}
+
+for drive, path in drives.items():
+    if not Path(drive).exists():
+        logger.info("Mapping network drive %s to %s", drive, path)
+        os.system(f"net use {drive} {path}")  # noqa: S605
 
 # Path to the YAML config file you provided
 CONFIG_PATH = Path(__file__).parent / "config_daysim.yaml"
@@ -174,9 +186,7 @@ processing_steps = [
 if __name__ == "__main__":
     logger.info("Starting BATS 2023 DaySim Processing Pipeline")
 
-    pipeline = Pipeline(
-        config_path=CONFIG_PATH, processing_steps=processing_steps
-    )
+    pipeline = Pipeline(config_path=CONFIG_PATH, steps=processing_steps)
     result = pipeline.run()
 
     logger.info("Pipeline finished successfully.")

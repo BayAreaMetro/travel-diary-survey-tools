@@ -44,9 +44,7 @@ processing_steps = [
 if __name__ == "__main__":
     logger.info("Starting BATS 2023 DaySim Processing Pipeline")
 
-    pipeline = Pipeline(
-        config_path=CONFIG_PATH, processing_steps=processing_steps
-    )
+    pipeline = Pipeline(config_path=CONFIG_PATH, steps=processing_steps)
     result = pipeline.run()
 
     logger.info("Pipeline finished successfully.")

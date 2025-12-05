@@ -20,7 +20,7 @@ steps:
         unlinked_trips: "{{ survey_dir }}/trip.csv"
         taz_shapefile: "{{ taz_shapefile }}"
 
-  - name: custom_cleaning
+  - name: clean_2023_bats
     validate_input: false
 
   # - name: imputation
@@ -50,9 +50,9 @@ steps:
   # This prepares a new set of files formatted for DaySim
   - name: format_daysim
     validate_input: false
-    validate_output: true
 
   - name: write_data
+    validate_input: true
     params:
       output_paths:
         # Standard Survey Formats
