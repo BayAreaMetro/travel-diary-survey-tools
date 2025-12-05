@@ -3,11 +3,11 @@
 import logging
 from pathlib import Path
 
+from transit_analysis import summarize_transit_trips
+
 from pipeline.pipeline import Pipeline
 from processing import link_trips, load_data, write_data
 from processing.cleaning.clean_bats_2023 import clean_2023_bats
-
-from .transit_analysis import summarize_transit_trips
 
 # ---------------------------------------------------------------------
 # Configuration

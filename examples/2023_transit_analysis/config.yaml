@@ -43,6 +43,7 @@ steps:
       transit_mode_codes: [12, 13] # transit, ferry
 
   - name: write_data
+    validate_input: true
     params:
       output_paths:
         # Standard Survey Formats

@@ -54,12 +54,18 @@ def load_data(
 def write_data(
     output_paths: dict[str, str],
     canonical_data: dict[str, pl.DataFrame | gpd.GeoDataFrame],
+    create_dirs: bool = True,  # noqa: FBT001, FBT002
 ) -> None:
     """Write all canonical tables to output paths."""
     for table, path in output_paths.items():
         logger.info("Writing %s to %s...", table, path)
 
         df = getattr(canonical_data, table)
+
+        # If parent dir does not exist, create it
+        parent_dir = Path(path).parent
+        if create_dirs and not parent_dir.exists():
+            parent_dir.mkdir(parents=True, exist_ok=True)
 
         # If .csv file, use polars to write
         if path.endswith(".csv"):
@@ -73,8 +79,11 @@ def write_data(
             df.to_file(path)
         elif path.endswith(".txt"):
             # Write string representation to text file
+            if not isinstance(df, str):
+                msg = f"Expected string for {table}, got {type(df)}"
+                raise ValueError(msg)
             with Path(path).open("w", encoding="utf-8") as f:
-                f.write(df.to_string())
+                f.write(df)
         else:
             msg = f"Unsupported file format for table {table}: {path}"
             raise ValueError(msg)
