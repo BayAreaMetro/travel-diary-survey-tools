@@ -42,13 +42,14 @@ steps:
     params:
       transit_mode_codes: [12, 13] # transit, ferry
 
-  # - name: write_data
-  #   params:
-  #     output_paths:
-  #       # Standard Survey Formats
-  #       households: "{{ output_dir }}/households.csv"
-  #       persons: "{{ output_dir }}/persons.csv"
-  #       days: "{{ output_dir }}/days.csv"
-  #       unlinked_trips: "{{ output_dir }}/unlinked_trips.csv"
-  #       linked_trips: "{{ output_dir }}/linked_trips.csv"
-  #       tours: "{{ output_dir }}/tours.csv"
+  - name: write_data
+    params:
+      output_paths:
+        # Standard Survey Formats
+        households: "{{ output_dir }}/households.csv"
+        persons: "{{ output_dir }}/persons.csv"
+        days: "{{ output_dir }}/days.csv"
+        unlinked_trips: "{{ output_dir }}/unlinked_trips.csv"
+        linked_trips: "{{ output_dir }}/linked_trips.csv"
+        transit_summary: "{{ output_dir }}/transit_summary.csv"
+        transit_report: "{{ output_dir }}/transit_report.txt"

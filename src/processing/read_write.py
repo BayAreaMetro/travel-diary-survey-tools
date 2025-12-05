@@ -66,11 +66,15 @@ def write_data(
             df.write_csv(path)
         elif path.endswith(".parquet"):
             df.write_parquet(path)
-        elif path.endswith((".shp", ".shp.zip")):
+        elif path.endswith((".shp", ".shp.zip", ".geojson")):
             if not isinstance(df, gpd.GeoDataFrame):
                 msg = f"Expected GeoDataFrame for table {table}, got {type(df)}"
                 raise ValueError(msg)
             df.to_file(path)
+        elif path.endswith(".txt"):
+            # Write string representation to text file
+            with Path(path).open("w", encoding="utf-8") as f:
+                f.write(df.to_string())
         else:
             msg = f"Unsupported file format for table {table}: {path}"
             raise ValueError(msg)
