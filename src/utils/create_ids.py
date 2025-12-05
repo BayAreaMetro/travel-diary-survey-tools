@@ -111,7 +111,7 @@ def create_concatenated_id(
 
 
 def create_linked_trip_id(
-    df: pl.DataFrame,
+    linked_trips: pl.DataFrame,
     day_id_col: str = "day_id",
     sequence_col: str = "linked_trip_num",
     sequence_padding: int = 2,
@@ -123,7 +123,7 @@ def create_linked_trip_id(
     the full hierarchy (hh_id + person_num + day_num).
 
     Args:
-        df: Input DataFrame containing day_id and sequence columns
+        linked_trips: Input DataFrame containing day_id and sequence columns
         day_id_col: Column name for day ID (default: "day_id")
         sequence_col: Column name for sequence number
             (default: "linked_trip_num")
@@ -142,9 +142,70 @@ def create_linked_trip_id(
         >>> trips = create_linked_trip_id(trips)
     """
     return create_concatenated_id(
-        df,
+        linked_trips,
         output_col="linked_trip_id",
         parent_id_col=day_id_col,
         sequence_col=sequence_col,
         sequence_padding=sequence_padding,
     )
+
+
+def create_tour_ids(
+    linked_trips: pl.DataFrame,
+    day_id_col: str = "day_id",
+    tour_num_col: str = "tour_num",
+    subtour_num_col: str = "subtour_num",
+) -> pl.DataFrame:
+    """Create tour_id and parent_tour_id from day_id and tour numbers.
+
+    Creates hierarchical tour identifiers by combining day_id with tour_num
+    and subtour_num. The tour_id includes both tour and subtour information,
+    while parent_tour_id only includes the tour number (for linking subtours
+    to their parent tour).
+
+    Args:
+        linked_trips: Input DataFrame containing day_id and tour number columns
+        day_id_col: Column name for day ID (default: "day_id")
+        tour_num_col: Column name for tour number (default: "tour_num")
+        subtour_num_col: Column name for subtour number
+            (default: "subtour_num")
+
+    Returns:
+        DataFrame with "tour_id" and "parent_tour_id" columns added
+
+    Example:
+        >>> linked_trips = create_tour_ids(linked_trips)
+    """
+    # Create hierarchical tour_id as aggregation key
+    linked_trips = linked_trips.with_columns(
+        (pl.col(tour_num_col) * 1000 + pl.col(subtour_num_col) * 10).alias(
+            "_tour_id_suffix"
+        )
+    )
+
+    linked_trips = create_concatenated_id(
+        linked_trips,
+        output_col="tour_id",
+        parent_id_col=day_id_col,
+        sequence_col="_tour_id_suffix",
+        sequence_padding=4,
+    )
+
+    # Create parent_tour_id for subtours
+    linked_trips = linked_trips.with_columns(
+        (pl.col(tour_num_col) * 1000).alias("_parent_tour_id_suffix")
+    )
+    linked_trips = create_concatenated_id(
+        linked_trips,
+        output_col="parent_tour_id",
+        parent_id_col=day_id_col,
+        sequence_col="_parent_tour_id_suffix",
+        sequence_padding=4,
+    )
+
+    # Drop temporary columns
+    linked_trips = linked_trips.drop(
+        "_tour_id_suffix", "_parent_tour_id_suffix"
+    )
+
+    return linked_trips

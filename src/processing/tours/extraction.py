@@ -72,8 +72,9 @@ from typing import Any
 import polars as pl
 
 from pipeline.decoration import step
+from utils.create_ids import create_tour_ids
 
-from .aggregation_helpers import aggregate_tours, assign_half_tour
+from .aggregation_helpers import aggregate_tour_attributes
 from .detection_helpers import (
     detect_anchor_based_subtours,
     expand_anchor_periods,
@@ -134,7 +135,7 @@ def extract_tours(
     msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
     logger.info(msg)
 
-    # Step 1: Classify trip locations
+    # Step 1: Prepare person locations
     linked_trips_classified = classify_trip_locations(
         linked_trips,
         person_locations,
@@ -159,18 +160,18 @@ def extract_tours(
         linked_trips_with_anchor_periods
     )
 
-    # Step 5: Aggregate tours
-    linked_trips_with_tour_ids, tours = aggregate_tours(
-        linked_trips_with_subtours, config
-    )
+    # Step 5: Aggregation and tour classification
+    # Create tour_id and parent_tour_id
+    linked_trips_with_tour_ids = create_tour_ids(linked_trips_with_subtours)
 
-    # Step 6: Assign half-tour classification using tours table
-    linked_trips_with_tours = assign_half_tour(
-        linked_trips_with_tour_ids, tours
+    # Aggregate tour attributes, also adds tour direction (inbound/outbound)
+    linked_trips_with_tour_dir, tours = aggregate_tour_attributes(
+        linked_trips_with_tour_ids,
+        config,
     )
 
     # Drop temporary columns, any starting with underscore
-    for df in [linked_trips_with_tours, tours]:
+    for df in [linked_trips_with_tour_dir, tours]:
         _cols = df.columns
         drop_cols = [col for col in _cols if col.startswith("_")]
         for c in drop_cols:
@@ -178,13 +179,13 @@ def extract_tours(
 
     msg = (
         "Tour building complete: %d linked trips, %d tours",
-        len(linked_trips_with_tours),
+        len(linked_trips_with_tour_dir),
         len(tours),
         "(tour count may increase due to sub-tours being identified.)",
     )
     logger.info(msg)
 
     return {
-        "linked_trips": linked_trips_with_tours,
+        "linked_trips": linked_trips_with_tour_dir,
         "tours": tours,
     }

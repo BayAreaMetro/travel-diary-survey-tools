@@ -16,7 +16,6 @@ from data_canon.codebook.tours import (
     TourBoundary,
     TourType,
 )
-from utils.create_ids import create_concatenated_id
 from utils.helpers import expr_haversine
 
 from .priority_utils import (
@@ -258,74 +257,7 @@ def _aggregate_and_classify_tours(
     return tours
 
 
-def aggregate_tours(
-    linked_trips: pl.DataFrame,
-    config: TourConfig,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Aggregate trip data to tour-level records with attributes.
-
-    Calculates tour attributes from trip data:
-    - Tour purpose: Highest priority destination, with duration tie-breaker
-      (When priorities equal, selects trip with longest activity duration)
-    - Tour mode: Highest priority trip mode
-    - Timing: First departure and last arrival
-    - Counts: Number of trips and stops
-
-    IMPORTANT: Work-based subtours are aggregated separately with their own
-    tour_id (which includes subtour_num in the last 2 digits). The final output
-    includes both home-based tours and work-based subtours as separate records.
-
-    Args:
-        linked_trips: Linked trips with tour_num and subtour_num assignments
-        config: TourConfig object with priority settings
-
-    Returns:
-        Tuple of: (enhanced_linked_trips, tours)
-        - enhanced_linked_trips: Input trips with tour_id and subtour_id added
-    """
-    logger.info("Aggregating tour data...")
-
-    # Create hierarchical tour_id as aggregation key
-    linked_trips = linked_trips.with_columns(
-        (pl.col("tour_num") * 1000 + pl.col("subtour_num") * 10).alias(
-            "_tour_id_suffix"
-        )
-    )
-
-    linked_trips = create_concatenated_id(
-        linked_trips,
-        output_col="tour_id",
-        parent_id_col="day_id",
-        sequence_col="_tour_id_suffix",
-        sequence_padding=4,
-    )
-
-    # Create parent_tour_id for subtours
-    linked_trips = linked_trips.with_columns(
-        (pl.col("tour_num") * 1000).alias("_parent_tour_id_suffix")
-    )
-    linked_trips = create_concatenated_id(
-        linked_trips,
-        output_col="parent_tour_id",
-        parent_id_col="day_id",
-        sequence_col="_parent_tour_id_suffix",
-        sequence_padding=4,
-    )
-
-    # Calculate tour purpose and primary destination
-    linked_trips, tour_purp_and_coords = _calculate_tour_purp_and_dest(
-        linked_trips, config
-    )
-
-    # Aggregate to tour level and classify
-    tours = _aggregate_and_classify_tours(
-        linked_trips, tour_purp_and_coords, config
-    )
-
-    return linked_trips, tours
-
-
-def assign_half_tour(
+def _assign_half_tour(
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
 ) -> pl.DataFrame:
@@ -387,3 +319,46 @@ def assign_half_tour(
     )
 
     return linked_trips
+
+
+def aggregate_tour_attributes(
+    linked_trips: pl.DataFrame,
+    config: TourConfig,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Aggregate trip data to tour-level records with attributes.
+
+    Calculates tour attributes from trip data:
+    - Tour purpose: Highest priority destination, with duration tie-breaker
+      (When priorities equal, selects trip with longest activity duration)
+    - Tour mode: Highest priority trip mode
+    - Timing: First departure and last arrival
+    - Counts: Number of trips and stops
+
+    IMPORTANT: Work-based subtours are aggregated separately with their own
+    tour_id (which includes subtour_num in the last 2 digits). The final output
+    includes both home-based tours and work-based subtours as separate records.
+
+    Args:
+        linked_trips: Linked trips with tour_id
+        config: TourConfig object with priority settings
+
+    Returns:
+        Tuple of: (enhanced_linked_trips, tours)
+        - enhanced_linked_trips: Input trips with tour_id and subtour_id added
+    """
+    logger.info("Aggregating tour data...")
+
+    # Calculate tour purpose and primary destination
+    linked_trips, tour_purp_and_coords = _calculate_tour_purp_and_dest(
+        linked_trips, config
+    )
+
+    # Aggregate to tour level and classify
+    tours = _aggregate_and_classify_tours(
+        linked_trips, tour_purp_and_coords, config
+    )
+
+    # Assign half-tour classification using tours table
+    linked_trips = _assign_half_tour(linked_trips, tours)
+
+    return linked_trips, tours

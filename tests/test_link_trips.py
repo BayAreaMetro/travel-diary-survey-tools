@@ -3,16 +3,16 @@
 from datetime import datetime
 
 import polars as pl
-from processing.utils.create_ids import (
-    create_concatenated_id,
-    create_linked_trip_id,
-    create_tour_id,
-)
 
 from processing.link import (
     aggregate_linked_trips,
     link_trip_ids,
     link_trips,
+)
+from utils.create_ids import (
+    create_concatenated_id,
+    create_linked_trip_id,
+    create_tour_ids,
 )
 
 
@@ -724,9 +724,9 @@ class TestIDCreation:
         assert len(result) == 3
         assert result["linked_trip_id"].n_unique() == 3
         assert result["linked_trip_id"].to_list() == [
-            "1000101",
-            "1000102",
-            "1000103",
+            1000101,
+            1000102,
+            1000103,
         ]
 
     def test_concatenated_id_basic(self):
@@ -749,26 +749,28 @@ class TestIDCreation:
         assert "linked_trip_id" in result.columns
         assert len(result) == 3
         assert result["linked_trip_id"].to_list() == [
-            "1000101",
-            "1000201",
-            "1000301",
+            1000101,
+            1000201,
+            1000301,
         ]
 
     def test_tour_id_with_duplicate_day_id(self):
         """Should handle multiple tours on same day."""
-        # Multiple tours on same day is normal
-        tours = pl.DataFrame(
+        # Tour with subtours on same day is valid
+        trips = pl.DataFrame(
             {
-                "day_id": [10001, 10001],  # Same day
-                "tour_num_in_day": [1, 2],  # Different tours
+                "day_id": [10001, 10001, 10001],  # Same day
+                "linked_trip_id": [1, 2, 3],
+                "tour_num": [1, 1, 1],
+                "subtour_num": [0, 1, 0],
             }
         )
 
-        result = create_tour_id(tours)
+        result = create_tour_ids(trips)
 
         # Should create unique tour_ids
         assert "tour_id" in result.columns
-        assert len(result) == 2
+        assert len(result) == 3
         assert result["tour_id"].n_unique() == 2
 
     def test_linked_trip_id_allows_duplicates(self):

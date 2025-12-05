@@ -21,8 +21,6 @@
             "args": [
                 "--config",
                 "config_daysim.yaml",
-                "--steps",
-                "link_trips,build_tours"
             ]
         }
     ]
