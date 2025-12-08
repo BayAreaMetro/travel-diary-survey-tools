@@ -178,10 +178,9 @@ def extract_tours(
             df.drop_in_place(c)
 
     msg = (
-        "Tour building complete: %d linked trips, %d tours",
-        len(linked_trips_with_tour_dir),
-        len(tours),
-        "(tour count may increase due to sub-tours being identified.)",
+        f"Tour building complete: {len(linked_trips_with_tour_dir)} "
+        f"linked trips, {len(tours)} tours"
+        "(tour count may increase due to sub-tours being identified.)"
     )
     logger.info(msg)
 

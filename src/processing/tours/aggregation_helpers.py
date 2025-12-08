@@ -27,6 +27,10 @@ from .tour_configs import TourConfig
 
 logger = logging.getLogger(__name__)
 
+# Constants
+# A tour requires at least some round-trip structure, even if not to/from home
+MIN_TRIPS_FOR_VALID_TOUR = 2
+
 
 def _calculate_tour_purp_and_dest(
     linked_trips: pl.DataFrame,
@@ -72,6 +76,8 @@ def _calculate_tour_purp_and_dest(
     )
 
     # Determine tour purpose and primary destination from non-last trips
+    # Note: Single-trip tours will have null purpose
+    # and will be filtered out later
     non_last = linked_trips.filter(~pl.col("_is_last_trip")).sort(
         ["tour_id", "_purpose_priority", "_activity_duration"],
         descending=[False, False, True],
@@ -149,7 +155,8 @@ def _calculate_destination_times(
     )
 
     # Aggregate arrive times (exclude last trip) and depart times (all trips)
-    dest_times = (
+    # Use distance filtering with fallback to trip sequence
+    dest_arrive = (
         linked_trips.filter(
             ~pl.col("_is_last_trip") & pl.col("_arrives_at_primary")
         )
@@ -160,10 +167,63 @@ def _calculate_destination_times(
                 pl.col("linked_trip_id").max().alias("dest_linked_trip_id"),
             ]
         )
+    )
+
+    # Fallback: use first non-last trip if distance threshold too restrictive
+    dest_arrive_fallback = (
+        linked_trips.filter(~pl.col("_is_last_trip"))
+        .group_by("tour_id")
+        .agg(
+            [
+                pl.col("arrive_time").first().alias("dest_arrive_time"),
+                pl.col("linked_trip_id").first().alias("dest_linked_trip_id"),
+            ]
+        )
+    )
+
+    dest_depart = (
+        linked_trips.filter(pl.col("_departs_from_primary"))
+        .group_by("tour_id")
+        .agg(pl.col("depart_time").max().alias("dest_depart_time"))
+    )
+
+    # Fallback: use last trip before home if distance threshold too restrictive
+    dest_depart_fallback = (
+        linked_trips.filter(~pl.col("_is_last_trip"))
+        .group_by("tour_id")
+        .agg(pl.col("depart_time").last().alias("dest_depart_time"))
+    )
+
+    dest_times = (
+        dest_arrive_fallback.join(
+            dest_arrive.select(
+                ["tour_id", "dest_arrive_time", "dest_linked_trip_id"]
+            ),
+            on="tour_id",
+            how="left",
+            suffix="_dist",
+        )
+        .with_columns(
+            [
+                pl.coalesce(
+                    ["dest_arrive_time_dist", "dest_arrive_time"]
+                ).alias("dest_arrive_time"),
+                pl.coalesce(
+                    ["dest_linked_trip_id_dist", "dest_linked_trip_id"]
+                ).alias("dest_linked_trip_id"),
+            ]
+        )
+        .select(["tour_id", "dest_arrive_time", "dest_linked_trip_id"])
         .join(
-            linked_trips.filter(pl.col("_departs_from_primary"))
-            .group_by("tour_id")
-            .agg(pl.col("depart_time").max().alias("dest_depart_time")),
+            dest_depart_fallback.join(
+                dest_depart, on="tour_id", how="left", suffix="_dist"
+            )
+            .with_columns(
+                pl.coalesce(
+                    ["dest_depart_time_dist", "dest_depart_time"]
+                ).alias("dest_depart_time")
+            )
+            .select(["tour_id", "dest_depart_time"]),
             on="tour_id",
             how="full",
             coalesce=True,
@@ -237,6 +297,24 @@ def _aggregate_and_classify_tours(
         on="tour_id",
         how="left",
     ).join(dest_times, on="tour_id", how="left")
+
+    # Flag single-trip tours (incomplete tours with only one trip)
+    # A valid tour must have at least 2 trips: one leaving and one returning
+    tours = tours.with_columns(
+        [
+            (pl.col("trip_count") < MIN_TRIPS_FOR_VALID_TOUR).alias(
+                "single_trip_tour"
+            )
+        ]
+    )
+
+    single_trip_count = tours.filter(pl.col("single_trip_tour")).height
+    logger.info(
+        "Tours: %d total, %d single-trip tours (<%d trips)",
+        len(tours),
+        single_trip_count,
+        MIN_TRIPS_FOR_VALID_TOUR,
+    )
 
     # Classify tour category and clean up
     tours = tours.with_columns(

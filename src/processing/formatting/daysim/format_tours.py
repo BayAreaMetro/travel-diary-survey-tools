@@ -150,13 +150,13 @@ def format_tours(
 
     # Count number of outbound and inbound stops from linked trips
     outbound_stops = (
-        linked_trips.filter(pl.col("half_tour_type") == HalfTour.OUTBOUND.value)
+        linked_trips.filter(pl.col("tour_direction") == HalfTour.OUTBOUND.value)
         .group_by("tour_id")
         .agg(pl.len().alias("num_outbound_stops"))
     )
 
     inbound_stops = (
-        linked_trips.filter(pl.col("half_tour_type") == HalfTour.INBOUND.value)
+        linked_trips.filter(pl.col("tour_direction") == HalfTour.INBOUND.value)
         .group_by("tour_id")
         .agg(pl.len().alias("num_inbound_stops"))
     )

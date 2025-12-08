@@ -43,11 +43,19 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
     logger.info("Computing day completeness indicators")
 
     # Pivot days by person and day of week
-    return (
+    pivoted = (
         days.select(["person_id", "is_complete", "travel_dow"])
         .pivot(index="person_id", on="travel_dow", values="is_complete")
         .fill_null(0)
-        .with_columns(
+    )
+
+    # Ensure all 7 day columns exist (Mon=1 through Sun=7)
+    for day in range(1, 8):
+        if str(day) not in pivoted.columns:
+            pivoted = pivoted.with_columns(pl.lit(0).alias(str(day)))
+
+    return (
+        pivoted.with_columns(
             # Extract hhno and pno from person_id (person_id = hhno*100 + pno)
             hhno=(pl.col("person_id") // 100),
             pno=(pl.col("person_id") % 100),

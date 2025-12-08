@@ -9,15 +9,17 @@ through rows.
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from data_canon.codebook.days import TravelDow
+from data_canon.codebook.generic import LocationType
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
     PersonType,
     SchoolType,
     Student,
+    WorkParking,
 )
 from data_canon.codebook.tours import HalfTour, TourBoundary
 from data_canon.codebook.trips import (
@@ -75,6 +77,9 @@ class PersonModel(BaseModel):
     student: Student = step_field(required_in_steps=["extract_tours"])
     school_type: SchoolType | None = step_field(
         required_in_steps=["extract_tours"],
+    )
+    work_park: WorkParking | None = step_field(
+        required_in_steps=["format_daysim"],
     )
 
 
@@ -143,6 +148,27 @@ class UnlinkedTripModel(BaseModel):
         required_in_steps=["link_trips", "extract_tours"]
     )
 
+    # You can add custom row-level validators here
+    # Don't confuse with the constom DataFrame-level validators elsewhere
+    @model_validator(mode="after")
+    def validate_arrival_after_departure(self) -> "UnlinkedTripModel":
+        """Ensure arrive_time is after depart_time.
+
+        Raises:
+            ValueError: If arrival time is before or equal to departure time
+        """
+        if (
+            self.arrive_time is not None
+            and self.depart_time is not None
+            and self.arrive_time <= self.depart_time
+        ):
+            msg = (
+                f"Trip {self.trip_id}: arrive_time ({self.arrive_time}) "
+                f"must be after depart_time ({self.depart_time})"
+            )
+            raise ValueError(msg)
+        return self
+
 
 class LinkedTripModel(BaseModel):
     """Linked Trip data model for validation."""
@@ -190,24 +216,73 @@ class TourModel(BaseModel):
         ge=1, fk_to="tours.tour_id", default=None
     )
 
-    tour_purpose: PurposeCategory = step_field()
+    tour_purpose: PurposeCategory | None = step_field(default=None)
     tour_category: TourBoundary = step_field()
+    single_trip_tour: bool = step_field(default=False)
 
     # Timing
     origin_depart_time: datetime = step_field()
     origin_arrive_time: datetime = step_field()
-    dest_arrive_time: datetime = step_field()
-    dest_depart_time: datetime = step_field()
+    dest_arrive_time: datetime | None = step_field(default=None)
+    dest_depart_time: datetime | None = step_field(default=None)
+
+    # Helpful foreign keys to linked trips
+    origin_linked_trip_id: int = step_field(
+        ge=1,
+        fk_to="linked_trips.linked_trip_id",
+        required_in_steps=["format_daysim"],
+    )
+    dest_linked_trip_id: int | None = step_field(
+        ge=1,
+        fk_to="linked_trips.linked_trip_id",
+        required_in_steps=["format_daysim"],
+        default=None,
+    )
 
     # Locations
     o_lat: float = step_field(ge=-90, le=90)
     o_lon: float = step_field(ge=-180, le=180)
     d_lat: float = step_field(ge=-90, le=90)
     d_lon: float = step_field(ge=-180, le=180)
-    o_location_type: str = step_field()  # 'home', 'work', 'school', 'other'
-    d_location_type: str = step_field()
+    o_location_type: LocationType = step_field()
+    d_location_type: LocationType = step_field()
 
     # Mode hierarchical
     tour_mode: ModeType = step_field()
     outbound_mode: int = step_field(ge=1)
     inbound_mode: int = step_field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_complete_tours(self) -> "TourModel":
+        """Validate that complete tours have all required fields.
+
+        Single-trip tours (where person made one trip but didn't return home)
+        are allowed to have null tour_purpose, destination times, and
+        dest_linked_trip_id. Complete tours must have these fields populated.
+        """
+        if not self.single_trip_tour:
+            if self.tour_purpose is None:
+                msg = (
+                    f"Tour {self.tour_id}: Complete tours must have "
+                    f"tour_purpose (non-null)"
+                )
+                raise ValueError(msg)
+            if self.dest_arrive_time is None:
+                msg = (
+                    f"Tour {self.tour_id}: Complete tours must have "
+                    f"dest_arrive_time (non-null)"
+                )
+                raise ValueError(msg)
+            if self.dest_depart_time is None:
+                msg = (
+                    f"Tour {self.tour_id}: Complete tours must have "
+                    f"dest_depart_time (non-null)"
+                )
+                raise ValueError(msg)
+            if self.dest_linked_trip_id is None:
+                msg = (
+                    f"Tour {self.tour_id}: Complete tours must have "
+                    f"dest_linked_trip_id (non-null)"
+                )
+                raise ValueError(msg)
+        return self

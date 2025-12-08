@@ -123,9 +123,9 @@ def _determine_linked_trip_mode_type(
 def _aggregate_transit_path_flags(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
     """Aggregate transit mode flags from unlinked segments for linked trip.
 
-    Scans ALL mode_1, mode_2, mode_3, mode_4 values across ALL unlinked
-    segments within each linked trip to determine which specific transit
-    modes were used.
+    Scans mode_1, mode_2, mode_3, mode_4 values (if present) or falls back
+    to the main mode column across ALL unlinked segments within each linked
+    trip to determine which specific transit modes were used.
 
     Why multi-segment scanning is necessary:
     - Linked trips can contain multiple unlinked segments (e.g., bus->walk)
@@ -135,9 +135,15 @@ def _aggregate_transit_path_flags(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
     - Must scan all segments x all slots (e.g., 3 segments x 4 modes = 12)
       to find all transit modes used in the linked trip
 
+    Fallback behavior:
+    - If mode_1 through mode_4 columns are not present, uses the main mode
+      column instead
+    - This allows the formatter to work with simplified test data or datasets
+      that don't have detailed mode sequences
+
     Args:
         unlinked_trips: DataFrame with canonical unlinked trip fields including
-            linked_trip_id, mode_1, mode_2, mode_3, mode_4
+            linked_trip_id, and either mode_1/mode_2/mode_3/mode_4 or mode
 
     Returns:
         DataFrame with columns [linked_trip_id, has_ferry, has_bart,
@@ -145,24 +151,31 @@ def _aggregate_transit_path_flags(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
         non-null (False for non-transit trips or when specific mode not
         present).
     """
-    # Regex starts with mode_ and ends with digit
+    # Check for mode_1 through mode_4 columns
     mode_cols = [
         col
         for col in unlinked_trips.columns
         if col.startswith("mode_") and col[-1].isdigit()
     ]
 
-    # Collect all mode values by unpivoting mode_1-4 columns
-    all_modes = (
-        unlinked_trips.select(["linked_trip_id", *mode_cols])
-        .unpivot(
-            index="linked_trip_id",
-            on=mode_cols,
-            variable_name="mode_slot",
-            value_name="mode",
+    # Use mode_1-4 columns if present, otherwise fallback to main mode column
+    if mode_cols:
+        # Collect all mode values by unpivoting mode_1-4 columns
+        all_modes = (
+            unlinked_trips.select(["linked_trip_id", *mode_cols])
+            .unpivot(
+                index="linked_trip_id",
+                on=mode_cols,
+                variable_name="mode_slot",
+                value_name="mode",
+            )
+            .filter(pl.col("mode") != Mode.MISSING.value)
         )
-        .filter(pl.col("mode") != Mode.MISSING.value)
-    )
+    else:
+        # Fallback: use the main mode column directly
+        all_modes = unlinked_trips.select(["linked_trip_id", "mode"]).filter(
+            pl.col("mode") != Mode.MISSING.value
+        )
 
     # Check for each specific transit mode across all linked trip segments
     transit_flags = all_modes.group_by("linked_trip_id").agg(
@@ -529,7 +542,7 @@ def format_linked_trips(
     trips_daysim = trips_daysim.with_columns(
         mode=_compute_daysim_mode_expr(),  # Evaluate this expression first
     ).with_columns(
-        path=_compute_daysim_path_type_expr(),
+        pathtype=_compute_daysim_path_type_expr(),
         dorp=_compute_driver_passenger_expr(),
     )
 
@@ -558,7 +571,7 @@ def format_linked_trips(
         "dpcl",
         "dtaz",
         "mode",
-        "path",
+        "pathtype",
         "dorp",
         "deptm",
         "arrtm",

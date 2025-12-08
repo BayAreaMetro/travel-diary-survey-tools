@@ -370,9 +370,9 @@ class PersonType(LabeledEnum):
 
 
 class WorkParking(LabeledEnum):
-    """work_parking value labels."""
+    """work_park value labels."""
 
-    canonical_field_name = "work_parking"
+    canonical_field_name = "work_park"
 
     FREE = (1, "Parking is always free at/near work, at park & ride, etc.")
     EMPLOYER_PAYS_ALL = (2, "Employer pays ALL parking costs (for me)")

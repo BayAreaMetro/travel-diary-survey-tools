@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def identify_home_based_tours(
     linked_trips: pl.DataFrame,
-    check_multiday_gaps: bool = False,  # noqa: FBT001, FBT002
+    check_multiday_gaps: bool = False,
 ) -> pl.DataFrame:
     """Identify home-based tours from classified trip data.
 

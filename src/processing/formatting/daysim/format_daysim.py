@@ -92,13 +92,13 @@ def format_daysim(
     )
 
     persons_daysim = persons_daysim.filter(
-        pl.col("hhno").is_in(households_daysim["hhno"])
+        pl.col("hhno").is_in(households_daysim["hhno"].implode())
     )
     linked_trips_daysim = linked_trips_daysim.filter(
-        pl.col("hhno").is_in(households_daysim["hhno"])
+        pl.col("hhno").is_in(households_daysim["hhno"].implode())
     )
     tours_daysim = tours_daysim.filter(
-        pl.col("hhno").is_in(households_daysim["hhno"])
+        pl.col("hhno").is_in(households_daysim["hhno"].implode())
     )
 
     logger.info("DaySim formatting complete")

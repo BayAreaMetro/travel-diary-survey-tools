@@ -22,32 +22,11 @@ from utils.helpers import expr_haversine
 CUSTOM_VALIDATORS: dict[str, list[Callable]] = {
     "unlinked_trips": [],  # Registered checks defined below
     "linked_trips": [],  # Registered checks defined below
+    "tours": [],  # Registered checks defined below
 }
 
 
 # Example check functions below:
-
-
-def check_arrival_after_departure(unlinked_trips: pl.DataFrame) -> list[str]:
-    """Ensure arrive_time is after depart_time for all trips.
-
-    Args:
-        unlinked_trips: DataFrame with trip records
-
-    Returns:
-        List of error messages (empty if validation passes)
-    """
-    errors = []
-    bad_trips = unlinked_trips.filter(
-        pl.col("arrive_time") < pl.col("depart_time")
-    )
-    if len(bad_trips) > 0:
-        trip_ids = bad_trips["trip_id"].to_list()[:5]
-        errors.append(
-            f"Found {len(bad_trips)} trips where arrive_time < depart_time. "
-            f"Sample trip IDs: {trip_ids}"
-        )
-    return errors
 
 
 def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
@@ -95,3 +74,48 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
             f"Sample trip IDs: {trip_ids}"
         )
     return errors
+
+
+def check_single_trip_tour_flag_consistency(
+    tours: pl.DataFrame, linked_trips: pl.DataFrame
+) -> list[str]:
+    """Verify single_trip_tour flag matches actual trip count.
+
+    This validates the business logic that sets the single_trip_tour flag.
+    Tours with trip_count=1 should have single_trip_tour=True, and tours
+    with trip_count>=2 should have single_trip_tour=False.
+
+    Args:
+        tours: Tour records with single_trip_tour flag
+        linked_trips: Trip records to count per tour
+
+    Returns:
+        List of error messages (empty if validation passes)
+    """
+    errors = []
+
+    # Count trips per tour
+    trip_counts = linked_trips.group_by("tour_id").agg(
+        pl.len().alias("actual_trip_count")
+    )
+
+    # Join with tours and check consistency
+    inconsistent = tours.join(trip_counts, on="tour_id", how="left").filter(
+        # Flag says single-trip but has multiple trips
+        (pl.col("single_trip_tour") & (pl.col("actual_trip_count") != 1))
+        # Flag says multi-trip but has only one trip
+        | (~pl.col("single_trip_tour") & (pl.col("actual_trip_count") == 1))
+    )
+
+    if len(inconsistent) > 0:
+        tour_ids = inconsistent["tour_id"].to_list()[:5]
+        errors.append(
+            f"Found {len(inconsistent)} tours where single_trip_tour flag "
+            f"doesn't match actual trip count. Sample tour IDs: {tour_ids}"
+        )
+
+    return errors
+
+
+# Register the tour validator
+CUSTOM_VALIDATORS["tours"].append(check_single_trip_tour_flag_consistency)
