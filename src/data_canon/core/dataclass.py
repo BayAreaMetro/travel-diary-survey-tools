@@ -9,21 +9,8 @@ from dataclasses import dataclass, field
 import polars as pl
 from pydantic import BaseModel
 
-from data_canon.models.daysim import (
-    HouseholdDaysimModel,
-    LinkedTripDaysimModel,
-    PersonDayDaysimModel,
-    PersonDaysimModel,
-    TourDaysimModel,
-)
-from data_canon.models.survey import (
-    HouseholdModel,
-    LinkedTripModel,
-    PersonDayModel,
-    PersonModel,
-    TourModel,
-    UnlinkedTripModel,
-)
+from data_canon.models import daysim as daysim_models
+from data_canon.models import survey as survey_models
 from data_canon.validation.column import (
     check_unique_constraints,
     get_unique_fields,
@@ -66,18 +53,18 @@ class CanonicalData:
     # Model mapping for validation
     _models: dict[str, type[BaseModel]] = field(
         default_factory=lambda: {
-            "households": HouseholdModel,
-            "persons": PersonModel,
-            "days": PersonDayModel,
-            "unlinked_trips": UnlinkedTripModel,
-            "linked_trips": LinkedTripModel,
-            "tours": TourModel,
+            "households": survey_models.HouseholdModel,
+            "persons": survey_models.PersonModel,
+            "days": survey_models.PersonDayModel,
+            "unlinked_trips": survey_models.UnlinkedTripModel,
+            "linked_trips": survey_models.LinkedTripModel,
+            "tours": survey_models.TourModel,
             # Daysim models
-            "households_daysim": HouseholdDaysimModel,
-            "persons_daysim": PersonDaysimModel,
-            "days_daysim": PersonDayDaysimModel,
-            "linked_trips_daysim": LinkedTripDaysimModel,
-            "tours_daysim": TourDaysimModel,
+            "households_daysim": daysim_models.HouseholdDaysimModel,
+            "persons_daysim": daysim_models.PersonDaysimModel,
+            "days_daysim": daysim_models.PersonDayDaysimModel,
+            "linked_trips_daysim": daysim_models.LinkedTripDaysimModel,
+            "tours_daysim": daysim_models.TourDaysimModel,
         }
     )
 
