@@ -16,7 +16,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.tours import TourCategory
+from data_canon.codebook.tours import TourCategory, TourDataQuality
 from pipeline.decoration import step
 
 from .format_households import format_households
@@ -28,15 +28,16 @@ logger = logging.getLogger(__name__)
 
 
 @step()
-def format_daysim(
+def format_daysim(  # noqa: PLR0913
     persons: pl.DataFrame,
     households: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
     days: pl.DataFrame,
-    drop_partial_tours: bool = False,
-    drop_missing_taz: bool = False,
+    drop_partial_tours: bool = True,
+    drop_missing_taz: bool = True,
+    drop_invalid_tours: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to DaySim model specification.
 
@@ -60,6 +61,7 @@ def format_daysim(
         days: Day-level data for completeness calculation
         drop_partial_tours: If True, remove tours not marked as complete
         drop_missing_taz: If True, remove households without valid TAZ/MAZ IDs
+        drop_invalid_tours: If True, remove tours marked as invalid
 
     Returns:
         Dictionary with keys:
@@ -74,6 +76,25 @@ def format_daysim(
     day_completeness = None
     if days is not None:
         day_completeness = compute_day_completeness(days)
+
+    # Drop invalid tours if specified
+    if drop_invalid_tours:
+        n_og_tours = len(tours)
+        n_og_trips = len(linked_trips)
+        tours = tours.filter(
+            pl.col("tour_data_quality") == TourDataQuality.VALID.value
+        )
+        linked_trips = linked_trips.filter(
+            pl.col("tour_id").is_in(tours["tour_id"].implode())
+        )
+        logger.info(
+            "Dropped %d invalid tours with %d linked trips; "
+            "%d tours remain and %d linked trips remain",
+            n_og_tours - len(tours),
+            n_og_trips - len(linked_trips),
+            len(tours),
+            len(linked_trips),
+        )
 
     # Drop partial/incomplete tours if specified
     if drop_partial_tours:

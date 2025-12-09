@@ -6,6 +6,16 @@ Based on https://github.com/RSGInc/DaySim/wiki/docs/Daysim%20Input%20Data%20File
 # ruff: noqa: E501
 from pydantic import BaseModel, Field
 
+from data_canon.codebook.daysim import (
+    DaysimDriverPassenger,
+    DaysimGender,
+    DaysimMode,
+    DaysimPathType,
+    DaysimPersonType,
+    DaysimPurpose,
+    DaysimWorkerType,
+)
+
 
 class HouseholdDaysimModel(BaseModel):
     """Household File Format for DaySim."""
@@ -96,10 +106,10 @@ class PersonDaysimModel(BaseModel):
         le=99,
         description="The person sequence number within the household",
     )
-    pptyp: int = Field(ge=1, le=8, description="Person type")
+    pptyp: DaysimPersonType = Field(description="Person type")
     pagey: int = Field(ge=0, le=99, description="Age in years")
-    pgend: int = Field(ge=1, le=9, description="Gender")
-    pwtyp: int = Field(ge=0, le=2, description="Worker type")
+    pgend: DaysimGender = Field(description="Gender")
+    pwtyp: DaysimWorkerType = Field(description="Worker type")
     pwpcl: int = Field(ge=-1, description="Usual work location parcel ID")
     pwtaz: int = Field(ge=-1, description="Usual work location zone ID")
     pwautime: float = Field(
@@ -121,7 +131,7 @@ class PersonDaysimModel(BaseModel):
         ge=-1,
         description="The 1-way peak auto travel distance between residence and school",
     )
-    puwmode: int = Field(ge=-1, le=9, description="The usual mode used to work")
+    puwmode: DaysimMode = Field(description="The usual mode used to work")
     puwarrp: int = Field(
         ge=-1, le=9, description="The usual arrival period at work"
     )
@@ -330,8 +340,8 @@ class TourDaysimModel(BaseModel):
         le=99,
         description="The number of work-based subtours made from the work activity",
     )
-    pdpurp: int = Field(
-        ge=1, le=9, description="The tour primary destination purpose"
+    pdpurp: DaysimPurpose = Field(
+        description="The tour primary destination purpose"
     )
     tlvorig: int = Field(
         ge=0,
@@ -361,8 +371,8 @@ class TourDaysimModel(BaseModel):
     totaz: int | None = Field(ge=-1, description="Tour origin zone ID")
     tdpcl: int | None = Field(ge=-1, description="Tour destination parcel ID")
     tdtaz: int | None = Field(ge=-1, description="Tour destination zone ID")
-    tmodetp: int = Field(ge=1, le=10, description="Tour main mode type")
-    tpathtp: int = Field(ge=1, le=8, description="Tour main mode path type")
+    tmodetp: DaysimMode = Field(description="Tour main mode type")
+    tpathtp: DaysimPathType = Field(description="Tour main mode path type")
     tautotime: float = Field(ge=-1, description="The one-way auto travel time")
     tautocost: float = Field(ge=-1, description="The one-way auto toll cost")
     tautodist: float = Field(
@@ -423,11 +433,9 @@ class LinkedTripDaysimModel(BaseModel):
     tsvid: int = Field(
         ge=1, le=99, description="Links to a travel survey trip ID"
     )
-    opurp: int = Field(
-        ge=0, le=11, description="The purpose at the trip origin"
-    )
-    dpurp: int = Field(
-        ge=0, le=11, description="The purpose at the trip destination"
+    opurp: DaysimPurpose = Field(description="The purpose at the trip origin")
+    dpurp: DaysimPurpose = Field(
+        description="The purpose at the trip destination"
     )
     oadtyp: int = Field(ge=1, le=6, description="Trip origin address type")
     dadtyp: int = Field(ge=1, le=6, description="Trip destination address type")
@@ -435,12 +443,10 @@ class LinkedTripDaysimModel(BaseModel):
     otaz: int | None = Field(ge=-1, description="Trip origin zone ID")
     dpcl: int | None = Field(ge=-1, description="Trip destination parcel ID")
     dtaz: int | None = Field(ge=-1, description="Trip destination zone ID")
-    mode: int = Field(ge=0, le=9, description="Trip mode")
-    pathtype: int = Field(ge=0, le=8, description="Trip path type")
-    dorp: int = Field(
-        ge=0,
-        le=999,
-        description="Driver/passenger for auto trips, walk time for transit trips",
+    mode: DaysimMode = Field(description="Trip mode")
+    pathtype: DaysimPathType = Field(description="Trip path type")
+    dorp: DaysimDriverPassenger = Field(
+        description="Driver/passenger for auto trips, walk time for transit trips"
     )
     deptm: int = Field(
         ge=0,

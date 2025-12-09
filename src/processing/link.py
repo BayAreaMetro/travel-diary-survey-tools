@@ -232,6 +232,35 @@ def aggregate_linked_trips(
         .select(["linked_trip_id", "mode_type"])
     )
 
+    # Get access and egress modes for transit trips
+    # Access mode = mode of first segment before transit
+    # Egress mode = mode of last segment after transit
+    access_egress = (
+        unlinked_trips.sort(["linked_trip_id", "depart_time", "arrive_time"])
+        .with_columns(
+            [
+                pl.col("mode_type")
+                .is_in(transit_mode_codes)
+                .alias("is_transit"),
+            ]
+        )
+        .group_by("linked_trip_id")
+        .agg(
+            [
+                # Access mode: first non-transit mode before any transit
+                pl.when(pl.col("is_transit").any())
+                .then(pl.col("mode_type").filter(~pl.col("is_transit")).first())
+                .otherwise(pl.lit(None))
+                .alias("access_mode"),
+                # Egress mode: last non-transit mode after transit
+                pl.when(pl.col("is_transit").any())
+                .then(pl.col("mode_type").filter(~pl.col("is_transit")).last())
+                .otherwise(pl.lit(None))
+                .alias("egress_mode"),
+            ]
+        )
+    )
+
     # Now aggregate with proper time ordering
     linked_trips = (
         unlinked_trips
@@ -305,6 +334,8 @@ def aggregate_linked_trips(
         )
         # Join with mode selection based on longest duration
         .join(mode_selection, on="linked_trip_id", how="left")
+        # Join with access/egress modes
+        .join(access_egress, on="linked_trip_id", how="left")
     )
 
     # Join day_id back for reference

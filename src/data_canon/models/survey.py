@@ -23,6 +23,7 @@ from data_canon.codebook.persons import (
 )
 from data_canon.codebook.tours import TourCategory, TourDirection
 from data_canon.codebook.trips import (
+    AccessEgressMode,
     Driver,
     Mode,
     ModeType,
@@ -197,6 +198,13 @@ class LinkedTripModel(BaseModel):
         required_in_steps=["link_trips", "format_daysim"]
     )
     num_travelers: int = step_field(ge=1)
+    access_mode: AccessEgressMode = step_field(
+        required_in_steps=["format_daysim"]
+    )
+    egress_mode: AccessEgressMode = step_field(
+        required_in_steps=["format_daysim"]
+    )
+
     duration_minutes: float = step_field(ge=0)
     distance_meters: float = step_field(ge=0)
     depart_time: datetime = step_field()

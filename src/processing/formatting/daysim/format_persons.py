@@ -4,10 +4,9 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.daysim import DaysimStudentType
+from data_canon.codebook.daysim import DaysimPersonType, DaysimStudentType
 from data_canon.codebook.persons import (
     Employment,
-    PersonType,
     SchoolType,
     Student,
 )
@@ -163,9 +162,9 @@ def format_persons(
     # Derive person type (pptyp) using cascading logic
     persons_daysim = persons_daysim.with_columns(
         pptyp=pl.when(pl.col("pagey") < AgeThreshold.CHILD_PRESCHOOL)
-        .then(pl.lit(PersonType.CHILD_UNDER_5.value))
+        .then(pl.lit(DaysimPersonType.CHILD_UNDER_5.value))
         .when(pl.col("pagey") < AgeThreshold.CHILD_SCHOOL)
-        .then(pl.lit(PersonType.CHILD_5_15.value))
+        .then(pl.lit(DaysimPersonType.CHILD_5_15.value))
         # Age >= 16:
         .when(
             pl.col("employment").is_in(
@@ -177,7 +176,7 @@ def format_persons(
                 ]
             )
         )
-        .then(pl.lit(PersonType.FULL_TIME_WORKER.value))
+        .then(pl.lit(DaysimPersonType.FULL_TIME_WORKER.value))
         # Age >= 16 and not full-time employed:
         .when(
             (pl.col("pagey") < AgeThreshold.YOUNG_ADULT)  # 16-17
@@ -192,7 +191,7 @@ def format_persons(
                 )
             )
         )
-        .then(pl.lit(PersonType.HIGH_SCHOOL_STUDENT.value))
+        .then(pl.lit(DaysimPersonType.HIGH_SCHOOL_STUDENT.value))
         .when(
             (pl.col("pagey") < AgeThreshold.ADULT)  # 18-24
             & (
@@ -214,7 +213,7 @@ def format_persons(
                 )
             )
         )
-        .then(pl.lit(PersonType.HIGH_SCHOOL_STUDENT.value))
+        .then(pl.lit(DaysimPersonType.HIGH_SCHOOL_STUDENT.value))
         # Age >= 18:
         .when(
             pl.col("student").is_in(
@@ -226,7 +225,7 @@ def format_persons(
                 ]
             )
         )
-        .then(pl.lit(PersonType.UNIVERSITY_STUDENT.value))
+        .then(pl.lit(DaysimPersonType.UNIVERSITY_STUDENT.value))
         .when(
             pl.col("employment").is_in(
                 [
@@ -236,10 +235,10 @@ def format_persons(
                 ]
             )
         )
-        .then(pl.lit(PersonType.PART_TIME_WORKER.value))
+        .then(pl.lit(DaysimPersonType.PART_TIME_WORKER.value))
         .when(pl.col("pagey") < AgeThreshold.SENIOR)
-        .then(pl.lit(PersonType.NON_WORKER.value))
-        .otherwise(pl.lit(PersonType.RETIRED.value))
+        .then(pl.lit(DaysimPersonType.NON_WORKER.value))
+        .otherwise(pl.lit(DaysimPersonType.RETIRED.value))
     )
 
     # Derive worker type (pwtyp) from person type and employment
@@ -247,8 +246,8 @@ def format_persons(
         pwtyp=pl.when(
             pl.col("pptyp").is_in(
                 [
-                    PersonType.FULL_TIME_WORKER.value,
-                    PersonType.PART_TIME_WORKER.value,
+                    DaysimPersonType.FULL_TIME_WORKER.value,
+                    DaysimPersonType.PART_TIME_WORKER.value,
                 ]
             )
         )
@@ -256,8 +255,8 @@ def format_persons(
         .when(
             pl.col("pptyp").is_in(
                 [
-                    PersonType.UNIVERSITY_STUDENT.value,
-                    PersonType.HIGH_SCHOOL_STUDENT.value,
+                    DaysimPersonType.UNIVERSITY_STUDENT.value,
+                    DaysimPersonType.HIGH_SCHOOL_STUDENT.value,
                 ]
             )
             & pl.col("employment").is_in(
@@ -268,7 +267,7 @@ def format_persons(
                 ]
             )
         )
-        .then(pl.lit(PersonType.PART_TIME_WORKER.value))
+        .then(pl.lit(DaysimPersonType.PART_TIME_WORKER.value))
         .otherwise(pl.lit(0))  # non-worker
     )
 

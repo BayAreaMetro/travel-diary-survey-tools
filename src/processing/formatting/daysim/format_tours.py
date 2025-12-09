@@ -7,7 +7,7 @@ import polars as pl
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import ModeType
 
-from .mappings import PURPOSE_MAP
+from .mappings import PURPOSE_MAP, determine_tour_mode
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +93,10 @@ def format_tours(
         toyco=pl.col("o_lat"),
         tdxco=pl.col("d_lon"),
         tdyco=pl.col("d_lat"),
-        tmodetp=pl.col("tour_mode"),
     )
+
+    # Determine tour mode (requires linked_trips for HOV and transit access)
+    tours_daysim = determine_tour_mode(tours_daysim, linked_trips)
 
     # Aggregate auto time and distance from linked_trips
     auto_agg = (

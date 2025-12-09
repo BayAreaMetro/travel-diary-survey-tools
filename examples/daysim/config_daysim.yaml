@@ -59,6 +59,7 @@ steps:
     params:
       drop_partial_tours: true
       drop_missing_taz: true
+      drop_invalid_tours: true
 
   - name: write_data
     validate_input: true

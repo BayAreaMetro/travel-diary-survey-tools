@@ -70,8 +70,8 @@ class DaysimPurpose(LabeledEnum):
     SHOP = (5, "Shop")
     MEAL = (6, "Meal")
     SOCIAL_REC = (7, "Social/recreation")
-    CHANGE_MODE = (10, "Change mode")
-    OTHER = (11, "Other")
+    CHANGE_MODE = (8, "Change mode")
+    OTHER = (9, "Other")
 
 
 class DaysimGender(LabeledEnum):
@@ -90,6 +90,17 @@ class DaysimStudentType(LabeledEnum):
     FULL_TIME = (1, "Full-time student")
     PART_TIME = (2, "Part-time student")
     MISSING = (-1, "Missing")
+
+
+class DaysimWorkerType(LabeledEnum):
+    """DaySim worker type codes.
+
+    Employment status classification for persons.
+    """
+
+    NON_WORKER = (0, "Not a worker")
+    FULL_TIME_WORKER = (1, "Full-time worker")
+    PART_TIME_WORKER = (2, "Part-time worker")
 
 
 class DaysimPaidParking(LabeledEnum):
@@ -130,3 +141,19 @@ class VehicleOccupancy(LabeledEnum):
     SOV = (1, "Single occupant vehicle (1 person)")
     HOV2 = (2, "High occupancy vehicle 2 (2 people)")
     HOV3_MIN = (2, "Minimum occupancy for HOV3+ (>2 people)")
+
+
+class DaysimPersonType(LabeledEnum):
+    """DaySim person type codes.
+
+    Person type classification based on employment, student status, and age.
+    """
+
+    FULL_TIME_WORKER = (1, "Full-time worker")
+    PART_TIME_WORKER = (2, "Part-time worker")
+    RETIRED = (3, "Retired (65+)")
+    NON_WORKER = (4, "Non-working adult")
+    UNIVERSITY_STUDENT = (5, "University student")
+    HIGH_SCHOOL_STUDENT = (6, "High school student (16+)")
+    CHILD_5_15 = (7, "Child age 5-15")
+    CHILD_UNDER_5 = (8, "Child age 0-4")

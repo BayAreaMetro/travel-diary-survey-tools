@@ -3,8 +3,11 @@
 import logging
 from enum import IntEnum
 
+import polars as pl
+
 from data_canon.codebook.daysim import (
     DaysimGender,
+    DaysimMode,
     DaysimPaidParking,
     DaysimPathType,
     DaysimPurpose,
@@ -27,6 +30,7 @@ from data_canon.codebook.persons import (
 from data_canon.codebook.trips import (
     AccessEgressMode,
     Mode,
+    ModeType,
     PurposeCategory,
 )
 
@@ -182,6 +186,25 @@ TRANSIT_MODE_TO_PATH_TYPE = {
     Mode.STREETCAR: DaysimPathType.LRT,
 }
 
+# Mode to DaySim mode codes
+MODE_TO_DAYSIM = {
+    ModeType.WALK: DaysimMode.WALK,
+    ModeType.BIKE: DaysimMode.BIKE,
+    ModeType.BIKESHARE: DaysimMode.BIKE,
+    ModeType.SCOOTERSHARE: DaysimMode.BIKE,
+    ModeType.CAR: DaysimMode.SOV,  # Will be refined to HOV2/HOV3 based on occ
+    ModeType.CARSHARE: DaysimMode.SOV,
+    ModeType.TNC: DaysimMode.TNC,
+    ModeType.TAXI: DaysimMode.TNC,
+    ModeType.FERRY: DaysimMode.WALK_TRANSIT,
+    ModeType.TRANSIT: DaysimMode.WALK_TRANSIT,  # Will be refined based on access/egress mode  # noqa: E501
+    ModeType.SCHOOL_BUS: DaysimMode.SCHOOL_BUS,
+    ModeType.SHUTTLE: DaysimMode.OTHER,
+    ModeType.LONG_DISTANCE: DaysimMode.OTHER,
+    ModeType.OTHER: DaysimMode.OTHER,
+    ModeType.MISSING: DaysimMode.OTHER,
+}
+
 # Access/egress mode codes that indicate drove to transit
 DROVE_ACCESS_EGRESS = [
     AccessEgressMode.TNC.value,
@@ -202,3 +225,68 @@ GENDER_MAP = {k.value: v.value for k, v in GENDER_TO_DAYSIM.items()}
 STUDENT_MAP = {k.value: v.value for k, v in STUDENT_TO_DAYSIM.items()}
 WORK_PARK_MAP = {k.value: v.value for k, v in WORK_PARK_TO_DAYSIM.items()}
 PURPOSE_MAP = {k.value: v.value for k, v in PURPOSE_TO_DAYSIM.items()}
+MODE_MAP = {k.value: v.value for k, v in MODE_TO_DAYSIM.items()}
+
+
+# =============================================================================
+# Custom Step Functions
+# =============================================================================
+def determine_tour_mode(
+    tours: pl.DataFrame, linked_trips: pl.DataFrame
+) -> pl.DataFrame:
+    """Determine DaySim tour mode from mode_type, passengers, and access mode.
+
+    Args:
+        tours: DataFrame with tour_mode (ModeType) column
+        linked_trips: DataFrame with trip-level details including num_travelers
+
+    Returns:
+        DataFrame with tmodetp column containing DaySim mode codes
+    """
+    # Get HOV status from linked trips - check max occupancy for car trips
+    hov_status = (
+        linked_trips.filter(pl.col("mode_type") == ModeType.CAR.value)
+        .group_by("tour_id")
+        .agg(pl.col("num_travelers").max().alias("max_occupancy"))
+    )
+
+    # Get transit access/egress mode - check if drove to transit
+    transit_access = (
+        linked_trips.filter(pl.col("mode_type") == ModeType.TRANSIT.value)
+        .group_by("tour_id")
+        .agg(
+            (
+                pl.col("access_mode").is_in(DROVE_ACCESS_EGRESS)
+                | pl.col("egress_mode").is_in(DROVE_ACCESS_EGRESS)
+            )
+            .any()
+            .alias("drove_to_transit")
+        )
+    )
+
+    # Join aggregations to tours
+    tours = tours.join(hov_status, on="tour_id", how="left").join(
+        transit_access, on="tour_id", how="left"
+    )
+
+    # Determine DaySim mode
+    tours = tours.with_columns(
+        pl.when(pl.col("tour_mode") == ModeType.CAR.value)
+        .then(
+            pl.when(pl.col("max_occupancy") >= 3)  # noqa: PLR2004
+            .then(pl.lit(DaysimMode.HOV3.value))
+            .when(pl.col("max_occupancy") == 2)  # noqa: PLR2004
+            .then(pl.lit(DaysimMode.HOV2.value))
+            .otherwise(pl.lit(DaysimMode.SOV.value))
+        )
+        .when(pl.col("tour_mode") == ModeType.TRANSIT.value)
+        .then(
+            pl.when(pl.col("drove_to_transit").fill_null(value=False))
+            .then(pl.lit(DaysimMode.DRIVE_TRANSIT.value))
+            .otherwise(pl.lit(DaysimMode.WALK_TRANSIT.value))
+        )
+        .otherwise(pl.col("tour_mode").replace_strict(MODE_MAP))
+        .alias("tmodetp")
+    )
+
+    return tours
