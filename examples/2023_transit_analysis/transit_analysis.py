@@ -60,6 +60,30 @@ def summarize_transit_trips(
         9998: "Another County in California",
     }
 
+    # Drop any existing old weight columns to avoid confusion
+    if "trip_weight" in unlinked_trips.columns:
+        unlinked_trips.drop_in_place("trip_weight")
+    if "linked_trip_weight" in linked_trips.columns:
+        linked_trips.drop_in_place("linked_trip_weight")
+
+    # Before join, check that the two dataframes have matching trip_ids
+    # If there are weights withought matching trips, stop
+    # If there are trips without weights, check which days are missing
+    # (e.g., Fri/Sat/Sun)
+
+    unlinked_trip_ids = set(
+        unlinked_trips.select("trip_id").to_series().to_list()
+    )
+    trip_weight_ids = set(trip_weights.select("trip_id").to_series().to_list())
+    missing_ids = trip_weight_ids - unlinked_trip_ids
+    if missing_ids:
+        msg = (
+            f"trip_weights contain trip_ids not found in unlinked_trips: "
+            f"{list(missing_ids)[:10]} "
+            f"(showing up to 10 IDs of {len(missing_ids)} total)"
+        )
+        raise ValueError(msg)
+
     # Join trip weights to unlinked trips for analysis
     unlinked_trips = unlinked_trips.join(
         trip_weights,

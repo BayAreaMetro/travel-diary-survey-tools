@@ -126,13 +126,14 @@ def _update_canonical_data(
     for key, value in result.items():
         if _is_canonical_dataframe(key, value):
             logger.info("Updating canonical_data with output '%s'", key)
-            setattr(canonical_data, key, value)
         else:
             logger.warning(
                 "Output '%s' is not a canonical table. "
                 "This cannot be validated automatically.",
                 key,
             )
+        # Add to canonical_data instance either way
+        setattr(canonical_data, key, value)
 
 
 def _try_load_from_cache(

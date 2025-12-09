@@ -54,7 +54,7 @@ def load_data(
 def write_data(
     output_paths: dict[str, str],
     canonical_data: dict[str, pl.DataFrame | gpd.GeoDataFrame],
-    create_dirs: bool = True,  # noqa: FBT001, FBT002
+    create_dirs: bool = True,
 ) -> None:
     """Write all canonical tables to output paths."""
     for table, path in output_paths.items():
