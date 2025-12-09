@@ -7,7 +7,6 @@ from pathlib import Path
 import geopandas as gpd
 import polars as pl
 
-from data_canon.codebook.tours import TourCategory
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
 from processing import (
@@ -152,28 +151,6 @@ def custom_add_taz_ids(
     }
 
 
-@step()
-def filter_incomplete_tours(
-    households_daysim: pl.DataFrame,
-    persons_daysim: pl.DataFrame,
-    days_daysim: pl.DataFrame,
-    linked_trips_daysim: pl.DataFrame,
-    tours_daysim: pl.DataFrame,
-) -> dict[str, pl.DataFrame]:
-    """Custom post-processing steps go here, not in the main pipeline."""
-    tours_daysim = tours_daysim.filter(
-        pl.col("tour_category") == TourCategory.COMPLETE.value
-    )
-
-    return {
-        "households_daysim": households_daysim,
-        "persons_daysim": persons_daysim,
-        "days_daysim": days_daysim,
-        "linked_trips_daysim": linked_trips_daysim,
-        "tours_daysim": tours_daysim,
-    }
-
-
 # Set up custom steps dictionary ----------------------------------
 processing_steps = [
     load_data,
@@ -182,7 +159,6 @@ processing_steps = [
     link_trips,
     extract_tours,
     format_daysim,
-    filter_incomplete_tours,
     write_data,
 ]
 

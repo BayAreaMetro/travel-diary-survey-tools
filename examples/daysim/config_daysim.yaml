@@ -54,9 +54,11 @@ steps:
   # This prepares a new set of files formatted for DaySim
   - name: format_daysim
     validate_input: false
-    cache: true
-
-  - name: filter_incomplete_tours
+    validate_output: true
+    cache: false
+    params:
+      drop_partial_tours: true
+      drop_missing_taz: true
 
   - name: write_data
     validate_input: true

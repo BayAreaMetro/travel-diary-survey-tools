@@ -436,7 +436,7 @@ class LinkedTripDaysimModel(BaseModel):
     dpcl: int | None = Field(ge=-1, description="Trip destination parcel ID")
     dtaz: int | None = Field(ge=-1, description="Trip destination zone ID")
     mode: int = Field(ge=0, le=9, description="Trip mode")
-    pathtype: int = Field(ge=1, le=8, description="Trip path type")
+    pathtype: int = Field(ge=0, le=8, description="Trip path type")
     dorp: int = Field(
         ge=0,
         le=999,

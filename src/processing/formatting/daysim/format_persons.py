@@ -54,7 +54,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
         if str(day) not in pivoted.columns:
             pivoted = pivoted.with_columns(pl.lit(0).alias(str(day)))
 
-    return (
+    result = (
         pivoted.with_columns(
             # Extract hhno and pno from person_id (person_id = hhno*100 + pno)
             hhno=(pl.col("person_id") // 100),
@@ -96,6 +96,8 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
             }
         )
     )
+    logger.info("Computed day completeness for %d persons", len(result))
+    return result.sort(by=["hhno", "pno"])
 
 
 def format_persons(
@@ -349,4 +351,5 @@ def format_persons(
             ]
         )
 
+    logger.info("Formatted %d persons", len(persons_daysim))
     return persons_daysim.select(person_cols).sort(by=["hhno", "pno"])

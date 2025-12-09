@@ -54,15 +54,19 @@ def format_tours(
     )
 
     # Map tour identifiers and purpose
-    tours_daysim = tours_daysim.with_columns(
-        parent=pl.when(pl.col("parent_tour_id").is_null())
-        .then(pl.lit(0))
-        .otherwise(pl.col("parent_tour_id")),
+    tours_daysim = tours_daysim.join(
+        tours.select(["tour_id", "tour_num"]).rename(
+            {"tour_num": "parent_tour_num"}
+        ),
+        left_on="parent_tour_id",
+        right_on="tour_id",
+        how="left",
+    ).with_columns(
+        parent=pl.col("parent_tour_num").fill_null(0).cast(pl.Int16),
         pdpurp=pl.col("tour_purpose").replace_strict(PURPOSE_MAP),
         toadtyp=pl.col("o_location_type"),
         tdadtyp=pl.col("d_location_type"),
     )
-
     # Convert times to DaySim format (minutes after midnight)
     tours_daysim = tours_daysim.with_columns(
         tlvorig=(
@@ -243,4 +247,5 @@ def format_tours(
         by=["hhno", "pno", "day", "tour"]
     )
 
+    logger.info("Formatted %d tours", len(tours_daysim))
     return tours_daysim

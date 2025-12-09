@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def format_households(
-    households: pl.DataFrame, persons: pl.DataFrame
+    households: pl.DataFrame, persons_daysim: pl.DataFrame
 ) -> pl.DataFrame:
     """Format household data to DaySim specification.
 
@@ -34,15 +34,15 @@ def format_households(
 
     Args:
         households: DataFrame with canonical household fields
-        persons: DataFrame with formatted DaySim person fields
+        persons_daysim: DataFrame with formatted DaySim person fields
 
     Returns:
         DataFrame with DaySim household fields
     """
     logger.info("Formatting household data")
 
-    # Calculate household composition from persons
-    hh_composition = persons.group_by("hhno").agg(
+    # Calculate household composition from persons_daysim
+    hh_composition = persons_daysim.group_by("hhno").agg(
         hhftw=(pl.col("pptyp") == PersonType.FULL_TIME_WORKER.value).sum(),
         hhptw=(pl.col("pptyp") == PersonType.PART_TIME_WORKER.value).sum(),
         hhret=(pl.col("pptyp") == PersonType.RETIRED.value).sum(),
@@ -114,4 +114,5 @@ def format_households(
         "samptype",
     ]
 
+    logger.info("Formatted %d households", len(households_daysim))
     return households_daysim.select(hh_cols).sort(by="hhno")

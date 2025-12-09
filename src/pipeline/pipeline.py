@@ -155,7 +155,8 @@ class Pipeline:
 
     def run(self) -> CanonicalData:
         """Run a data processing pipeline based on a configuration file."""
-        for step_cfg in self.config["steps"]:
+        n_steps = len(self.config["steps"])
+        for i, step_cfg in enumerate(self.config["steps"], start=1):
             step_name = step_cfg["name"]
 
             if step_name not in self.steps:
@@ -164,7 +165,10 @@ class Pipeline:
 
             step_obj = self.steps.get(step_name)
 
-            logger.info("▶ Running step: %s", step_name)
+            logger.info("")
+            logger.info("=" * 70)
+            logger.info("Step %d/%d: %s", i, n_steps, step_name)
+            logger.info("=" * 70)
 
             kwargs = self.parse_step_args(step_name, step_obj)
             kwargs["validate_input"] = step_cfg.get("validate_input", True)

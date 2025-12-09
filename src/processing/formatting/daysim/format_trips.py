@@ -586,4 +586,5 @@ def format_linked_trips(
         by=["hhno", "pno", "day", "tripno"]
     )
 
+    logger.info("Formatted %d linked trips", len(trips_daysim))
     return trips_daysim
