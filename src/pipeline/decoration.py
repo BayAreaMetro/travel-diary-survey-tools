@@ -1,4 +1,4 @@
-"""Decorators for pipeline steps with automatic validation."""
+"""Decorators for pipeline steps with automatic validation and caching."""
 
 import functools
 import inspect
@@ -20,8 +20,9 @@ def step(
     *,
     validate_input: bool = True,
     validate_output: bool = False,
+    cache: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator for pipeline steps with automatic validation.
+    """Decorator for pipeline steps with automatic validation and caching.
 
     This decorator validates canonical data inputs and/or outputs using
     the Pydantic models defined in data.models. Only parameters/returns
@@ -31,6 +32,11 @@ def step(
     Validation is skipped for tables that have already been validated
     if a CanonicalData instance is passed as 'canonical_data' parameter.
 
+    When caching is enabled, the decorator will check for cached outputs
+    before executing the step function. If valid cache exists, outputs are
+    loaded from parquet files. Otherwise, the step executes and results
+    are cached after successful validation.
+
     The default value is to only validate inputs to avoid duplicate validation.
     Recommend putting a final step full_check step at the end of the pipeline
     to validate all tables after all processing is complete.
@@ -38,6 +44,7 @@ def step(
     Args:
         validate_input: Whether to validate inputs. Defaults to True.
         validate_output: Whether to validate outputs. Defaults to False.
+        cache: Whether to enable caching for this step. Defaults to False.
 
     Example:
         >>> @step(validate_input=True)
@@ -64,11 +71,13 @@ def step(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            # Extract validation flags
+            # Extract validation flags and cache configuration
             should_validate_input = kwargs.pop("validate_input", validate_input)
             should_validate_output = kwargs.pop(
                 "validate_output", validate_output
             )
+            should_cache = kwargs.pop("cache", cache)
+            pipeline_cache = kwargs.pop("pipeline_cache", None)
 
             # Only pop canonical_data if function doesn't expect it
             sig = inspect.signature(func)
@@ -77,6 +86,15 @@ def step(
             else:
                 canonical_data = kwargs.pop("canonical_data", None)
 
+            # Check cache if enabled
+            if should_cache and pipeline_cache:
+                cached_result = _try_load_from_cache(
+                    func, pipeline_cache, args, kwargs, canonical_data
+                )
+                if cached_result is not None:
+                    return cached_result
+
+            # Cache miss or caching disabled - execute step
             if should_validate_input:
                 _validates(func, args, kwargs, canonical_data)
 
@@ -84,32 +102,141 @@ def step(
 
             # Update canonical_data with results if available
             if canonical_data and isinstance(result, dict):
-                for key, value in result.items():
-                    if _is_canonical_dataframe(key, value):
-                        logger.info(
-                            "Updating canonical_data with output '%s' "
-                            "from step '%s'",
-                            key,
-                            func.__name__,
-                        )
-                    else:
-                        logger.warning(
-                            "Output '%s' from step '%s' is not a canonical "
-                            "table. This cannot be validated automatically.",
-                            key,
-                            func.__name__,
-                        )
-
-                    setattr(canonical_data, key, value)
+                _update_canonical_data(canonical_data, result)
 
             if should_validate_output and isinstance(result, dict):
                 _validate_dict_outputs(result, func.__name__, canonical_data)
+
+            # Cache result if enabled and validation passed
+            if should_cache and pipeline_cache and isinstance(result, dict):
+                _save_to_cache(func, pipeline_cache, args, kwargs, result)
 
             return result
 
         return wrapper  # type: ignore[return-value]
 
     return decorator
+
+
+def _update_canonical_data(
+    canonical_data: CanonicalData,
+    result: dict[str, pl.DataFrame],
+) -> None:
+    """Update canonical_data instance with result DataFrames."""
+    for key, value in result.items():
+        if _is_canonical_dataframe(key, value):
+            logger.info("Updating canonical_data with output '%s'", key)
+            setattr(canonical_data, key, value)
+        else:
+            logger.warning(
+                "Output '%s' is not a canonical table. "
+                "This cannot be validated automatically.",
+                key,
+            )
+
+
+def _try_load_from_cache(
+    func: Callable,
+    pipeline_cache: Any,  # noqa: ANN401
+    args: tuple,
+    kwargs: dict,
+    canonical_data: CanonicalData | None,
+) -> dict[str, pl.DataFrame] | None:
+    """Try to load cached result for a step.
+
+    Returns cached result dict if found, None otherwise.
+    """
+    sig = inspect.signature(func)
+    bound = sig.bind(*args, **kwargs)
+    bound.apply_defaults()
+
+    # Get input DataFrames for cache key generation
+    input_dfs = {
+        name: value
+        for name, value in bound.arguments.items()
+        if _is_canonical_dataframe(name, value)
+    }
+
+    # Extract params (non-DataFrame arguments)
+    params = {
+        name: value
+        for name, value in bound.arguments.items()
+        if name != "canonical_data" and not _is_canonical_dataframe(name, value)
+    }
+
+    # Generate cache key
+    cache_key = pipeline_cache.get_cache_key(
+        func.__name__,
+        input_dfs if input_dfs else None,
+        params if params else None,
+    )
+
+    # Try to load from cache
+    cached_result = pipeline_cache.load(func.__name__, cache_key)
+    if cached_result is not None:
+        logger.info(
+            "Using cached result for step '%s' (tables: %s)",
+            func.__name__,
+            list(cached_result.keys()),
+        )
+
+        # Update canonical_data with cached results
+        if canonical_data:
+            for key, value in cached_result.items():
+                setattr(canonical_data, key, value)
+
+        return cached_result
+
+    return None
+
+
+def _save_to_cache(
+    func: Callable,
+    pipeline_cache: Any,  # noqa: ANN401
+    args: tuple,
+    kwargs: dict,
+    result: dict[str, pl.DataFrame],
+) -> None:
+    """Save step result to cache.
+
+    Only caches outputs that are canonical DataFrames.
+    """
+    # Only cache canonical DataFrames
+    cacheable_outputs = {
+        key: value
+        for key, value in result.items()
+        if _is_canonical_dataframe(key, value)
+    }
+
+    if not cacheable_outputs:
+        return
+
+    sig = inspect.signature(func)
+    bound = sig.bind(*args, **kwargs)
+    bound.apply_defaults()
+
+    # Get input DataFrames for cache key generation
+    input_dfs = {
+        name: value
+        for name, value in bound.arguments.items()
+        if _is_canonical_dataframe(name, value)
+    }
+
+    # Extract params (non-DataFrame arguments)
+    params = {
+        name: value
+        for name, value in bound.arguments.items()
+        if name != "canonical_data" and not _is_canonical_dataframe(name, value)
+    }
+
+    # Generate cache key
+    cache_key = pipeline_cache.get_cache_key(
+        func.__name__,
+        input_dfs if input_dfs else None,
+        params if params else None,
+    )
+
+    pipeline_cache.save(func.__name__, cache_key, cacheable_outputs)
 
 
 def _validates(

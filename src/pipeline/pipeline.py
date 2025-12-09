@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from data_canon.core.dataclass import CanonicalData
+from pipeline.cache import PipelineCache
 
 logger = logging.getLogger(__name__)
 
@@ -18,20 +19,37 @@ class Pipeline:
 
     data: CanonicalData
     steps: dict[str, Callable]
+    cache: PipelineCache
 
     def __init__(
-        self, config_path: str, steps: list[Callable] | None = None
+        self,
+        config_path: str,
+        steps: list[Callable] | None = None,
+        cache_dir: Path | str | None = None,
+        disable_cache: bool = True,
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
         Args:
             config_path: Path to the YAML configuration.
             steps: Optional list of processing step functions.
+            cache_dir: Directory for cache storage. Defaults to .cache/
+            disable_cache: If True, ignore all cache settings. Defaults to True.
         """
         self.config_path = config_path
         self.config = self._load_config()
         self.data = CanonicalData()
         self.steps = {func.__name__: func for func in steps or []}
+        self.disable_cache = disable_cache
+
+        # Initialize cache
+        if not disable_cache:
+            cache_path = Path(cache_dir) if cache_dir else Path(".cache")
+            self.cache = PipelineCache(cache_dir=cache_path)
+            logger.info("Pipeline cache initialized at: %s", cache_path)
+        else:
+            self.cache = None
+            logger.info("Pipeline caching disabled")
 
     def _load_config(self) -> dict[str, Any]:
         """Load the pipeline configuration from a YAML file.
@@ -93,6 +111,8 @@ class Pipeline:
             "canonical_data",
             "validate_input",
             "validate_output",
+            "cache",
+            "pipeline_cache",
             "kwargs",
         }
         expected_kwargs = [x for x in step_args if x not in reserved]
@@ -152,8 +172,24 @@ class Pipeline:
             kwargs["validate_output"] = step_cfg.get("validate_output", False)
             kwargs["canonical_data"] = self.data
 
+            # Pass cache configuration
+            if not self.disable_cache and self.cache:
+                kwargs["cache"] = step_cfg.get("cache", False)
+                kwargs["pipeline_cache"] = self.cache
+
             # Execute step
             step_obj(**kwargs)
+
+        # Log cache statistics if caching was enabled
+        if not self.disable_cache and self.cache:
+            stats = self.cache.get_stats()
+            if stats["total"] > 0:
+                logger.info(
+                    "Cache statistics: %d hits, %d misses (%.1f%% hit rate)",
+                    stats["hits"],
+                    stats["misses"],
+                    stats["hit_rate"] * 100,
+                )
 
         logger.info("Pipeline completed.")
         return self.data

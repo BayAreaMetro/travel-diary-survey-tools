@@ -36,6 +36,7 @@ steps:
 
   - name: extract_tours
     validate_input: false
+    cache: true
 
   # - name: weighting
   #   validate_input: true

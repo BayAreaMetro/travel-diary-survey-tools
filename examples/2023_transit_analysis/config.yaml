@@ -4,7 +4,9 @@
 # config.yaml
 
 # Define directory shorthands
-survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
+
+survey_dir: "E:/Box/Modeling and Surveys/Surveys/Travel Diary Survey/BATS_2023/Versioned_Data/PreWeight_PreLink_MonToSun_20250610"
+# survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
 output_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/BATS2019_2023/Transit_Analysis"
 weights_dir: "X:/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output"
 
