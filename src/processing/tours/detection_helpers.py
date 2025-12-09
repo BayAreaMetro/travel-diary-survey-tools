@@ -23,7 +23,7 @@ def identify_home_based_tours(
     """Identify home-based tours from classified trip data.
 
     Creates tour boundaries for sequences of trips, classifying each tour
-    by whether it starts/ends at home using TourBoundary enum:
+    by whether it starts/ends at home using TourCategory enum:
     - COMPLETE: Starts at home, ends at home
     - PARTIAL_END: Starts at home, doesn't end at home
     - PARTIAL_START: Doesn't start at home, ends at home
@@ -35,7 +35,7 @@ def identify_home_based_tours(
     3. Multi-day gaps (if check_multiday_gaps=True)
 
     Tours can be filtered downstream using the tour_category column:
-    - Filter to TourBoundary.COMPLETE for legacy compatibility
+    - Filter to TourCategory.COMPLETE for legacy compatibility
     - Include partial tours for more comprehensive analysis
 
     Args:

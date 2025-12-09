@@ -25,31 +25,30 @@ class Pipeline:
         self,
         config_path: str,
         steps: list[Callable] | None = None,
-        cache_dir: Path | str | None = None,
-        disable_cache: bool = True,
+        caching: bool | Path | str | None = None,
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
         Args:
             config_path: Path to the YAML configuration.
             steps: Optional list of processing step functions.
-            cache_dir: Directory for cache storage. Defaults to .cache/
-            disable_cache: If True, ignore all cache settings. Defaults to True.
+            caching: If False, disable caching.
+                If True, use default cache directory ".cache".
+                If str or Path, use specified directory for caching.
         """
         self.config_path = config_path
         self.config = self._load_config()
         self.data = CanonicalData()
         self.steps = {func.__name__: func for func in steps or []}
-        self.disable_cache = disable_cache
 
-        # Initialize cache
-        if not disable_cache:
-            cache_path = Path(cache_dir) if cache_dir else Path(".cache")
-            self.cache = PipelineCache(cache_dir=cache_path)
-            logger.info("Pipeline cache initialized at: %s", cache_path)
-        else:
+        # Initialize cache based on caching parameter
+        if caching is False:
             self.cache = None
             logger.info("Pipeline caching disabled")
+        else:
+            cache_dir = Path(caching) if caching is not True else Path(".cache")
+            self.cache = PipelineCache(cache_dir=cache_dir)
+            logger.info("Pipeline cache initialized at: %s", cache_dir)
 
     def _load_config(self) -> dict[str, Any]:
         """Load the pipeline configuration from a YAML file.
@@ -173,7 +172,7 @@ class Pipeline:
             kwargs["canonical_data"] = self.data
 
             # Pass cache configuration
-            if not self.disable_cache and self.cache:
+            if self.cache:
                 kwargs["cache"] = step_cfg.get("cache", False)
                 kwargs["pipeline_cache"] = self.cache
 

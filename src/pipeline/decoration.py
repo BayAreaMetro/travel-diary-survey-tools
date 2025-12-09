@@ -202,14 +202,7 @@ def _save_to_cache(
 
     Only caches outputs that are canonical DataFrames.
     """
-    # Only cache canonical DataFrames
-    cacheable_outputs = {
-        key: value
-        for key, value in result.items()
-        if _is_canonical_dataframe(key, value)
-    }
-
-    if not cacheable_outputs:
+    if not result.items():
         return
 
     sig = inspect.signature(func)
@@ -237,7 +230,7 @@ def _save_to_cache(
         params if params else None,
     )
 
-    pipeline_cache.save(func.__name__, cache_key, cacheable_outputs)
+    pipeline_cache.save(func.__name__, cache_key, result)
 
 
 def _validates(

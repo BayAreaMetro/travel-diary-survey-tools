@@ -12,6 +12,7 @@ taz_shapefile: "X:/travel-model-one-master/utilities/geographies/bayarea_rtaz145
 steps:
   - name: load_data
     validate_input: false # This will override @step(validate=True/False) in the function definition
+    cache: true
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
@@ -22,6 +23,7 @@ steps:
 
   - name: clean_2023_bats
     validate_input: false
+    cache: true
 
   # - name: imputation
   #   validate_input: true
@@ -40,9 +42,11 @@ steps:
 
   # - name: weighting
   #   validate_input: true
+  #   cache: true
 
   - name: custom_add_taz_ids
     validate_input: false
+    cache: true
 
   # - name: final_check
   #   validate_input: true
@@ -50,6 +54,9 @@ steps:
   # This prepares a new set of files formatted for DaySim
   - name: format_daysim
     validate_input: false
+    cache: true
+
+  - name: filter_incomplete_tours
 
   - name: write_data
     validate_input: true

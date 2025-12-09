@@ -7,10 +7,12 @@ pipeline step outputs, enabling fast debugging and iteration.
 import hashlib
 import json
 import logging
+import pickle
 import shutil
 from pathlib import Path
 from typing import Any
 
+import geopandas as gpd
 import polars as pl
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ class PipelineCache:
 
     The cache key is a hash of:
     - Step name
-    - Input data (schema + row count + sample hash)
+    - Input data (schema + row count + content hash of all rows)
     - Step parameters
 
     This ensures cache invalidation when inputs or configuration change.
@@ -53,6 +55,18 @@ class PipelineCache:
     ) -> str:
         """Generate cache key from step name, inputs, and parameters.
 
+        The key is a hash of:
+        - Step name
+        - For each input DataFrame:
+            - Table name
+            - Schema (column names and types)
+            - Row count
+            - Content hash (hash of all row values)
+        - Step parameters (as sorted JSON)
+
+        This ensures the cache invalidates when any input data or
+        configuration changes.
+
         Args:
             step_name: Name of the pipeline step
             inputs: Input DataFrames (or None for first step)
@@ -64,7 +78,7 @@ class PipelineCache:
         # Start with step name
         hash_parts = [step_name]
 
-        # Hash input data characteristics (not full data for performance)
+        # Hash input data schemas and content
         if inputs:
             for table_name in sorted(inputs.keys()):
                 df = inputs[table_name]
@@ -84,8 +98,18 @@ class PipelineCache:
 
         # Hash parameters
         if params:
+            # Remove any non-serializable entries (e.g., DataFrames)
+            serializable_params = {}
+            for k, v in params.items():
+                try:
+                    json.dumps(v)
+                    serializable_params[k] = v
+                except (TypeError, ValueError):
+                    # Skip non-serializable values
+                    logger.debug("Skipping non-serializable param: %s", k)
+
             # Sort keys for deterministic hashing
-            params_str = json.dumps(params, sort_keys=True)
+            params_str = json.dumps(serializable_params, sort_keys=True)
             hash_parts.append(params_str)
 
         # Generate hash
@@ -113,7 +137,6 @@ class PipelineCache:
             logger.debug("Cache miss for %s (key: %s)", step_name, cache_key)
             return None
 
-        # Check for metadata file
         metadata_path = cache_path / "metadata.json"
         if not metadata_path.exists():
             logger.warning(
@@ -121,35 +144,48 @@ class PipelineCache:
             )
             return None
 
+        # Load metadata
         try:
-            # Load metadata
             with metadata_path.open() as f:
                 metadata = json.load(f)
-
-            # Load all parquet files
-            outputs = {}
-            for table_name in metadata.get("tables", []):
-                parquet_path = cache_path / f"{table_name}.parquet"
-                if parquet_path.exists():
-                    outputs[table_name] = pl.read_parquet(parquet_path)
-                else:
-                    logger.warning(
-                        "Cache corrupted: missing %s.parquet", table_name
-                    )
-                    return None
-
-            self._stats["hits"] += 1
-            logger.info(
-                "Cache hit for %s (key: %s, tables: %s)",
-                step_name,
-                cache_key,
-                list(outputs.keys()),
-            )
         except (OSError, json.JSONDecodeError) as e:
-            logger.warning("Failed to load cache for %s: %s", step_name, e)
+            logger.warning("Failed to read metadata for %s: %s", step_name, e)
             return None
-        else:
-            return outputs
+
+        # Load each table based on its type
+        outputs = {}
+        load_info = []
+        for table_name in metadata.get("tables", []):
+            table_type = metadata.get("table_types", {}).get(
+                table_name, "polars"
+            )
+            obj = _load_data(cache_path, table_name, table_type)
+
+            if obj is None:
+                return None
+
+            outputs[table_name] = obj
+
+            # Build info string
+            obj_type = type(obj).__name__
+            shape = ""
+            if isinstance(obj, (pl.DataFrame, gpd.GeoDataFrame)):
+                shape = f" ({len(obj)}x{len(obj.columns)})"
+            elif hasattr(obj, "shape"):
+                shape = f" {obj.shape}"
+            elif hasattr(obj, "__len__"):
+                shape = f" (len={len(obj)})"
+
+            load_info.append(f"  - {table_name}: {obj_type}{shape}")
+
+        self._stats["hits"] += 1
+        logger.info(
+            "Cache hit for %s (key: %s)\n%s",
+            step_name,
+            cache_key,
+            "\n".join(load_info),
+        )
+        return outputs
 
     def save(
         self,
@@ -168,17 +204,23 @@ class PipelineCache:
         cache_path.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Save each DataFrame as parquet
-            for table_name, df in outputs.items():
-                if df is not None:
-                    parquet_path = cache_path / f"{table_name}.parquet"
-                    df.write_parquet(parquet_path)
+            # Save each obj as parquet or pickle
+            save_info = []
+            table_types = {}  # Track type for each table
+
+            for table_name, obj in outputs.items():
+                obj_type, format_str = _save_data(cache_path, table_name, obj)
+                table_types[table_name] = obj_type
+
+                # Build info string
+                save_info.append(format_str)
 
             # Save metadata
             metadata = {
                 "step_name": step_name,
                 "cache_key": cache_key,
                 "tables": list(outputs.keys()),
+                "table_types": table_types,  # Add type info
                 "row_counts": {
                     name: len(df) if df is not None else 0
                     for name, df in outputs.items()
@@ -189,10 +231,10 @@ class PipelineCache:
                 json.dump(metadata, f, indent=2)
 
             logger.info(
-                "Cached %s (key: %s, tables: %s)",
+                "Cached step: %s (key: %s)\n%s",
                 step_name,
                 cache_key,
-                list(outputs.keys()),
+                "\n".join(save_info),
             )
 
         except Exception:
@@ -286,3 +328,76 @@ class PipelineCache:
     def reset_stats(self) -> None:
         """Reset cache statistics."""
         self._stats = {"hits": 0, "misses": 0}
+
+
+def _load_data(cache_path: Path, name: str, data_type: str) -> Any:  # noqa: ANN401
+    """Load a single table from cache based on its type.
+
+    Args:
+        cache_path: Path to the cache directory
+        name: Name of the table to load
+        data_type: Type of table ('polars', 'geopandas', or 'pickle')
+
+    Returns:
+        Loaded object or None if file missing
+    """
+    try:
+        if data_type == "pickle":
+            file_path = cache_path / f"{name}.pkl"
+            with file_path.open("rb") as f:
+                return pickle.load(f)  # noqa: S301
+        elif data_type == "geopandas":
+            file_path = cache_path / f"{name}.parquet"
+            return gpd.read_parquet(file_path)
+        else:  # polars (default)
+            file_path = cache_path / f"{name}.parquet"
+            return pl.read_parquet(file_path)
+    except FileNotFoundError:
+        logger.warning("Cache corrupted: missing %s", file_path.name)
+        return None
+    except (OSError, pickle.UnpicklingError, ValueError) as e:
+        logger.warning("Failed to load %s: %s", name, e)
+        return None
+
+
+def _save_data(cache_path: Path, name: str, obj: Any) -> tuple[str, str]:  # noqa: ANN401
+    """Save a single object to cache and return metadata.
+
+    Args:
+        cache_path: Path to the cache directory
+        name: Name of the table to save
+        obj: Object to save
+
+    Returns:
+        Tuple of (data_type, info_string) where info_string is formatted
+        as "name obj_type → format (shape)"
+    """
+    obj_path = cache_path / name
+    obj_type = type(obj).__name__
+
+    # Handle DataFrames (Polars or GeoPandas)
+    if isinstance(obj, (pl.DataFrame, gpd.GeoDataFrame)):
+        obj_path = obj_path.with_suffix(".parquet")
+        if isinstance(obj, pl.DataFrame):
+            obj.write_parquet(obj_path)
+        else:
+            obj.to_parquet(obj_path)
+        shape = f"{len(obj)}x{len(obj.columns)}"
+        data_type = (
+            "geopandas" if isinstance(obj, gpd.GeoDataFrame) else "polars"
+        )
+        return data_type, f"  - {name} {obj_type} → parquet ({shape})"
+
+    # Handle other objects with pickle
+    obj_path = obj_path.with_suffix(".pkl")
+    with obj_path.open("wb") as f:
+        pickle.dump(obj, f)
+
+    # Format shape info
+    shape = ""
+    if hasattr(obj, "shape"):
+        shape = f" ({obj.shape})"
+    elif hasattr(obj, "__len__"):
+        shape = f" (len={len(obj)})"
+
+    return "pickle", f"{name} {obj_type} → pickle{shape}"

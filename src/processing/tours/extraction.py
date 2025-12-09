@@ -179,8 +179,8 @@ def extract_tours(
 
     msg = (
         f"Tour building complete: {len(linked_trips_with_tour_dir)} "
-        f"linked trips, {len(tours)} tours"
-        "(tour count may increase due to sub-tours being identified.)"
+        f"linked trips, {len(tours)} tours."
+        "\nTour count may increase due to sub-tours being identified."
     )
     logger.info(msg)
 

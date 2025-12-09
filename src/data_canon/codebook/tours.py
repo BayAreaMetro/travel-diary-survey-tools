@@ -18,7 +18,7 @@ class PersonCategory:
     OTHER = "other"
 
 
-class TourBoundary(LabeledEnum):
+class TourCategory(LabeledEnum):
     """Tour boundary types."""
 
     COMPLETE = (1, "Start at home, end at home")
@@ -27,7 +27,7 @@ class TourBoundary(LabeledEnum):
     PARTIAL_BOTH = (4, "Start not at home, end not at home")
 
 
-class HalfTour(LabeledEnum):
+class TourDirection(LabeledEnum):
     """Half-tour classification."""
 
     OUTBOUND = (1, "Outbound half-tour")

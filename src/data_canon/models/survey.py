@@ -21,7 +21,7 @@ from data_canon.codebook.persons import (
     Student,
     WorkParking,
 )
-from data_canon.codebook.tours import HalfTour, TourBoundary
+from data_canon.codebook.tours import TourCategory, TourDirection
 from data_canon.codebook.trips import (
     Driver,
     Mode,
@@ -201,7 +201,9 @@ class LinkedTripModel(BaseModel):
     distance_meters: float = step_field(ge=0)
     depart_time: datetime = step_field()
     arrive_time: datetime = step_field()
-    tour_direction: HalfTour = step_field(required_in_steps=["format_daysim"])
+    tour_direction: TourDirection = step_field(
+        required_in_steps=["format_daysim"]
+    )
 
 
 class TourModel(BaseModel):
@@ -217,7 +219,7 @@ class TourModel(BaseModel):
     )
 
     tour_purpose: PurposeCategory | None = step_field(default=None)
-    tour_category: TourBoundary = step_field()
+    tour_category: TourCategory = step_field()
     single_trip_tour: bool = step_field(default=False)
 
     # Timing

@@ -381,22 +381,22 @@ class TourDaysimModel(BaseModel):
     phtindx1: int = Field(
         ge=0,
         le=99,
-        description="Links to the sequence number of the first half tour in PartialHalfTour",
+        description="Links to the sequence number of the first half tour in partial half tour",
     )
     phtindx2: int = Field(
         ge=0,
         le=99,
-        description="Links to the sequence number of the second half tour in PartialHalfTour",
+        description="Links to the sequence number of the second half tour in partial half tour",
     )
     fhtindx1: int = Field(
         ge=0,
         le=99,
-        description="Links to the sequence number of the first half tour in FullHalfTour",
+        description="Links to the sequence number of the first half tour in full half tour",
     )
     fhtindx2: int = Field(
         ge=0,
         le=99,
-        description="Links to the sequence number of the second half tour in FullHalfTour",
+        description="Links to the sequence number of the second half tour in full half tour",
     )
     toexpfac: float = Field(
         ge=0, description="The expansion factor for the tour"

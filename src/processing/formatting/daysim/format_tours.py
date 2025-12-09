@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.tours import HalfTour
+from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import ModeType
 
 from .mappings import PURPOSE_MAP
@@ -150,13 +150,17 @@ def format_tours(
 
     # Count number of outbound and inbound stops from linked trips
     outbound_stops = (
-        linked_trips.filter(pl.col("tour_direction") == HalfTour.OUTBOUND.value)
+        linked_trips.filter(
+            pl.col("tour_direction") == TourDirection.OUTBOUND.value
+        )
         .group_by("tour_id")
         .agg(pl.len().alias("num_outbound_stops"))
     )
 
     inbound_stops = (
-        linked_trips.filter(pl.col("tour_direction") == HalfTour.INBOUND.value)
+        linked_trips.filter(
+            pl.col("tour_direction") == TourDirection.INBOUND.value
+        )
         .group_by("tour_id")
         .agg(pl.len().alias("num_inbound_stops"))
     )

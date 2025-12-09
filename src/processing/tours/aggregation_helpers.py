@@ -12,8 +12,8 @@ import polars as pl
 
 from data_canon.codebook.generic import LocationType
 from data_canon.codebook.tours import (
-    HalfTour,
-    TourBoundary,
+    TourCategory,
+    TourDirection,
     TourType,
 )
 from utils.helpers import expr_haversine
@@ -322,12 +322,12 @@ def _aggregate_and_classify_tours(
             pl.when(pl.col("_subtour_num") > 0)
             .then(pl.lit(TourType.WORK_BASED))
             .when(pl.col("_o_is_home") & pl.col("_d_is_home"))
-            .then(pl.lit(TourBoundary.COMPLETE))
+            .then(pl.lit(TourCategory.COMPLETE))
             .when(pl.col("_o_is_home") & ~pl.col("_d_is_home"))
-            .then(pl.lit(TourBoundary.PARTIAL_END))
+            .then(pl.lit(TourCategory.PARTIAL_END))
             .when(~pl.col("_o_is_home") & pl.col("_d_is_home"))
-            .then(pl.lit(TourBoundary.PARTIAL_START))
-            .otherwise(pl.lit(TourBoundary.PARTIAL_BOTH))
+            .then(pl.lit(TourCategory.PARTIAL_START))
+            .otherwise(pl.lit(TourCategory.PARTIAL_BOTH))
             .alias("tour_category"),
         ]
     ).sort(["person_id", "day_id", "origin_depart_time"])
@@ -351,7 +351,7 @@ def _assign_half_tour(
         tours: Tour table with dest_arrive_time and dest_depart_time
 
     Returns:
-        Linked trips with half_tour_type (HalfTour enum) column added
+        Linked trips with half_tour_type (TourDirection enum) column added
     """
     logger.info("Assigning half-tour classification...")
 
@@ -375,15 +375,15 @@ def _assign_half_tour(
         [
             # Subtours are identified by subtour_num > 0
             pl.when(pl.col("subtour_num") > 0)
-            .then(pl.lit(HalfTour.SUBTOUR))
+            .then(pl.lit(TourDirection.SUBTOUR))
             # Outbound: trip arrives before or at first arrival at primary dest
             .when(pl.col("arrive_time") <= pl.col("dest_arrive_time"))
-            .then(pl.lit(HalfTour.OUTBOUND))
+            .then(pl.lit(TourDirection.OUTBOUND))
             # Inbound: trip departs after final departure from primary dest
             .when(pl.col("depart_time") >= pl.col("dest_depart_time"))
-            .then(pl.lit(HalfTour.INBOUND))
+            .then(pl.lit(TourDirection.INBOUND))
             # Default to outbound if times are null (shouldn't happen)
-            .otherwise(pl.lit(HalfTour.OUTBOUND))
+            .otherwise(pl.lit(TourDirection.OUTBOUND))
             .alias("tour_direction"),
         ]
     )
