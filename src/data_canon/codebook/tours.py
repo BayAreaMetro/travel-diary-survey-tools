@@ -33,3 +33,13 @@ class TourDirection(LabeledEnum):
     OUTBOUND = (1, "Outbound half-tour")
     INBOUND = (2, "Inbound half-tour")
     SUBTOUR = (3, "Subtour")
+
+
+class TourDataQuality(LabeledEnum):
+    """Tour data quality classification for validation and filtering."""
+
+    VALID = (0, "Valid tour")
+    SINGLE_TRIP = (1, "Single-trip tour")
+    LOOP_TRIP = (2, "Home-based loop trip")
+    MISSING_HOME_ANCHOR = (3, "No home anchor at either end of tour")
+    INDETERMINATE = (4, "Invalid tour, cause unknown")

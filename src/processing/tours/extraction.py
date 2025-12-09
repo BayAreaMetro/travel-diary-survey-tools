@@ -86,6 +86,7 @@ from .location_helpers import (
 )
 from .person_type import derive_person_type
 from .tour_configs import TourConfig
+from .validation_helpers import validate_and_correct_tours
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -169,6 +170,9 @@ def extract_tours(
         linked_trips_with_tour_ids,
         config,
     )
+
+    # Step 6: Validate tours and correct data quality issues
+    tours = validate_and_correct_tours(tours, linked_trips_with_tour_ids)
 
     # Drop temporary columns, any starting with underscore
     for df in [linked_trips_with_tour_dir, tours]:

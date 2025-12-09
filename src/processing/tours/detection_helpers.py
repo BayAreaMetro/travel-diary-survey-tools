@@ -53,8 +53,10 @@ def identify_home_based_tours(
     # Mark trip characteristics for tour boundary detection
     is_leaving_home = pl.col("_o_is_home") & ~pl.col("_d_is_home")
     is_returning_home = ~pl.col("_o_is_home") & pl.col("_d_is_home")
-    is_first_trip = pl.col("depart_time") == pl.col("depart_time").min().over(
-        ["person_id", "day_id"]
+    is_loop_trip = pl.col("_o_is_home") & pl.col("_d_is_home")
+    # Use rank with tiebreakers to handle duplicate departure times
+    is_first_trip = (
+        pl.col("depart_time").rank("ordinal").over(["person_id", "day_id"]) == 1
     )
     is_last_trip = pl.col("depart_time") == pl.col("depart_time").max().over(
         ["person_id", "day_id"]
@@ -69,12 +71,18 @@ def identify_home_based_tours(
     else:
         has_gap = pl.lit(value=False)
 
-    # Tour starts when: leaving home OR (first trip AND not at home) OR gap
+    # Tour starts when:
+    # Tour starts when: leaving home OR loop trip OR
+    # (first trip AND not at home) OR gap
     tour_starts_leaving = is_leaving_home
+    tour_starts_loop = is_loop_trip
     tour_starts_away = is_first_trip & ~pl.col("_o_is_home")
     tour_starts_gap = has_gap & ~pl.col("_o_is_home")
     tour_starts = (
-        tour_starts_leaving | tour_starts_away | tour_starts_gap
+        tour_starts_leaving
+        | tour_starts_loop
+        | tour_starts_away
+        | tour_starts_gap
     ).cast(pl.Int32)
 
     # Tour ends when: returning home OR last trip

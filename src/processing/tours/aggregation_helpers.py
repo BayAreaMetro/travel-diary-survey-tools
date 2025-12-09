@@ -316,7 +316,8 @@ def _aggregate_and_classify_tours(
         MIN_TRIPS_FOR_VALID_TOUR,
     )
 
-    # Classify tour category and clean up
+    # Classify tour category based on actual tour structure
+    # Validation will separately flag data quality issues (tour_num=0, etc.)
     tours = tours.with_columns(
         [
             pl.when(pl.col("_subtour_num") > 0)
