@@ -165,7 +165,7 @@ class Mode(LabeledEnum):
     BUS_PRIVATE = (26, "Private shuttle/bus")
     BUS_OTHER = (28, "Other bus")
     PARATRANSIT = (27, "Paratransit/Dial-A-Ride")
-    BART = (30, "BART")  # NOTE: Bay Area Rapid Transit ????
+    BART = (30, "BART")
     AIR = (31, "Airplane/helicopter")
     CAR_WORK = (33, "Work car")
     CAR_FRIEND = (34, "Friend/relative/colleague car")
@@ -178,10 +178,7 @@ class Mode(LabeledEnum):
     ATV = (45, "ATV")
     MOTORCYCLE = (47, "Motorcycle (household)")
     TNC = (49, "Rideshare (Uber, Lyft, etc.)")
-    MUNI_METRO = (
-        53,
-        "MUNI Metro",
-    )  # NOTE: San Francisco MUNI Metro light rail ????
+    MUNI_METRO = (53, "MUNI Metro")
     MOTORCYCLE_OTHER = (54, "Motorcycle (non-household)")
     BUS_EXPRESS = (55, "Express/Transbay bus")
     CAR_RENTAL_P2P = (59, "Peer-to-peer rental (Turo, etc.)")
@@ -195,6 +192,7 @@ class Mode(LabeledEnum):
     BIKE_SHARE_ELECTRIC = (70, "Bike-share (electric)")
     MOPED_SHARE = (73, "Moped-share (Scoot, etc.)")
     SEGWAY = (74, "Segway")
+    OTHER_ALT = (75, "Other")
     CARPOOL_SERVICE = (76, "Carpool match (Waze, etc.)")
     MOPED = (77, "Personal scooter/moped")
     FERRY = (78, "Ferry/water taxi")

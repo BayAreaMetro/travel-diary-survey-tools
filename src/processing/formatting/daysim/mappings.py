@@ -205,6 +205,25 @@ MODE_TO_DAYSIM = {
     ModeType.MISSING: DaysimMode.OTHER,
 }
 
+# ModeType to AccessEgressMode mapping
+MODE_TYPE_TO_ACCESS_EGRESS = {
+    ModeType.WALK: AccessEgressMode.WALK,
+    ModeType.BIKE: AccessEgressMode.BICYCLE,
+    ModeType.BIKESHARE: AccessEgressMode.BICYCLE,
+    ModeType.SCOOTERSHARE: AccessEgressMode.MICROMOBILITY,
+    ModeType.TAXI: AccessEgressMode.TNC,
+    ModeType.TNC: AccessEgressMode.TNC,
+    ModeType.CAR: AccessEgressMode.CAR_HOUSEHOLD,
+    ModeType.CARSHARE: AccessEgressMode.CAR_OTHER,
+    ModeType.SCHOOL_BUS: AccessEgressMode.TRANSFER_BUS,
+    ModeType.SHUTTLE: AccessEgressMode.TRANSFER_BUS,
+    ModeType.FERRY: AccessEgressMode.TRANSFER_OTHER,
+    ModeType.TRANSIT: AccessEgressMode.TRANSFER_OTHER,
+    ModeType.LONG_DISTANCE: AccessEgressMode.TRANSFER_OTHER,
+    ModeType.OTHER: AccessEgressMode.OTHER,
+    ModeType.MISSING: AccessEgressMode.MISSING,
+}
+
 # Access/egress mode codes that indicate drove to transit
 DROVE_ACCESS_EGRESS = [
     AccessEgressMode.TNC.value,
@@ -226,6 +245,9 @@ STUDENT_MAP = {k.value: v.value for k, v in STUDENT_TO_DAYSIM.items()}
 WORK_PARK_MAP = {k.value: v.value for k, v in WORK_PARK_TO_DAYSIM.items()}
 PURPOSE_MAP = {k.value: v.value for k, v in PURPOSE_TO_DAYSIM.items()}
 MODE_MAP = {k.value: v.value for k, v in MODE_TO_DAYSIM.items()}
+MODE_TYPE_TO_ACCESS_EGRESS_MAP = {
+    k.value: v.value for k, v in MODE_TYPE_TO_ACCESS_EGRESS.items()
+}
 
 
 # =============================================================================

@@ -198,11 +198,11 @@ class LinkedTripModel(BaseModel):
         required_in_steps=["link_trips", "format_daysim"]
     )
     num_travelers: int = step_field(ge=1)
-    access_mode: AccessEgressMode = step_field(
-        required_in_steps=["format_daysim"]
+    access_mode: AccessEgressMode | None = step_field(
+        required_in_steps=["format_daysim"], default=None
     )
-    egress_mode: AccessEgressMode = step_field(
-        required_in_steps=["format_daysim"]
+    egress_mode: AccessEgressMode | None = step_field(
+        required_in_steps=["format_daysim"], default=None
     )
 
     duration_minutes: float = step_field(ge=0)
@@ -259,8 +259,8 @@ class TourModel(BaseModel):
 
     # Mode hierarchical
     tour_mode: ModeType = step_field()
-    outbound_mode: int = step_field(ge=1)
-    inbound_mode: int = step_field(ge=1)
+    outbound_mode: ModeType | None = step_field()
+    inbound_mode: ModeType | None = step_field()
 
     @model_validator(mode="after")
     def validate_complete_tours(self) -> "TourModel":

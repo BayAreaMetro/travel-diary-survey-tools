@@ -339,7 +339,7 @@ def _aggregate_and_classify_tours(
 def _assign_half_tour(
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
-) -> pl.DataFrame:
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Assign half-tour classification based on primary destination.
 
     Classifies each trip as:
@@ -353,6 +353,7 @@ def _assign_half_tour(
 
     Returns:
         Linked trips with half_tour_type (TourDirection enum) column added
+        and tours with outbound and inbound modes added
     """
     logger.info("Assigning half-tour classification...")
 
@@ -389,6 +390,30 @@ def _assign_half_tour(
         ]
     )
 
+    # Aggregate half-tour modes after tour_direction exists
+    # Sort entire group first, then filter and take last
+    half_tour_modes = (
+        linked_trips.sort("_mode_priority")
+        .group_by("tour_id")
+        .agg(
+            [
+                pl.col("mode_type")
+                .filter(
+                    pl.col("tour_direction") == TourDirection.OUTBOUND.value
+                )
+                .last()
+                .alias("outbound_mode"),
+                pl.col("mode_type")
+                .filter(pl.col("tour_direction") == TourDirection.INBOUND.value)
+                .last()
+                .alias("inbound_mode"),
+            ]
+        )
+    )
+
+    # Join half-tour modes to tours
+    tours = tours.join(half_tour_modes, on="tour_id", how="left")
+
     # Clean up temporary columns
     linked_trips = linked_trips.drop(
         [
@@ -397,7 +422,7 @@ def _assign_half_tour(
         ]
     )
 
-    return linked_trips
+    return linked_trips, tours
 
 
 def aggregate_tour_attributes(
@@ -438,6 +463,6 @@ def aggregate_tour_attributes(
     )
 
     # Assign half-tour classification using tours table
-    linked_trips = _assign_half_tour(linked_trips, tours)
+    linked_trips, tours = _assign_half_tour(linked_trips, tours)
 
     return linked_trips, tours

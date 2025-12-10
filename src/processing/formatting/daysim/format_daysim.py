@@ -19,8 +19,9 @@ import polars as pl
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from pipeline.decoration import step
 
+from .format_days import format_days
 from .format_households import format_households
-from .format_persons import compute_day_completeness, format_persons
+from .format_persons import format_persons
 from .format_tours import format_tours
 from .format_trips import format_linked_trips
 
@@ -72,11 +73,6 @@ def format_daysim(  # noqa: PLR0913
     """
     logger.info("Starting DaySim formatting")
 
-    # Compute day completeness if days data provided
-    day_completeness = None
-    if days is not None:
-        day_completeness = compute_day_completeness(days)
-
     # Drop invalid tours if specified
     if drop_invalid_tours:
         n_og_tours = len(tours)
@@ -87,6 +83,12 @@ def format_daysim(  # noqa: PLR0913
         linked_trips = linked_trips.filter(
             pl.col("tour_id").is_in(tours["tour_id"].implode())
         )
+
+        # Drop lost days in case of invalid tours
+        days = days.filter(
+            pl.col("day_id").is_in(tours["day_id"].unique().implode())
+        )
+
         logger.info(
             "Dropped %d invalid tours with %d linked trips; "
             "%d tours remain and %d linked trips remain",
@@ -105,6 +107,10 @@ def format_daysim(  # noqa: PLR0913
         )
         linked_trips = linked_trips.filter(
             pl.col("tour_id").is_in(tours["tour_id"].implode())
+        )
+        # Drop lost days in case of partial tours
+        days = days.filter(
+            pl.col("day_id").is_in(tours["day_id"].unique().implode())
         )
         logger.info(
             "Dropped %d partial tours with %d linked trips; "
@@ -129,6 +135,7 @@ def format_daysim(  # noqa: PLR0913
         persons = persons.filter(
             pl.col("hh_id").is_in(households["hh_id"].implode())
         )
+        days = days.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
         linked_trips = linked_trips.filter(
             pl.col("hh_id").is_in(households["hh_id"].implode())
         )
@@ -150,17 +157,22 @@ def format_daysim(  # noqa: PLR0913
         )
 
     # Format each table
-    persons_daysim = format_persons(persons, day_completeness)
 
-    households_daysim = format_households(
-        households,
-        persons_daysim,  # requires person types from formatted persons
-    )
+    # Format persons, includes day for completeness computation
+    persons_daysim = format_persons(persons, days)
 
+    # Format households, requires the daysim formatted person types
+    households_daysim = format_households(households, persons_daysim)
+
+    # Format days
+    days_daysim = format_days(persons, days, tours)
+
+    # Format linked trips
     linked_trips_daysim = format_linked_trips(
         persons, unlinked_trips, linked_trips
     )
 
+    # Format tours
     tours_daysim = format_tours(persons, days, linked_trips, tours)
 
     logger.info("DaySim formatting complete")
@@ -168,6 +180,7 @@ def format_daysim(  # noqa: PLR0913
     return {
         "households_daysim": households_daysim,
         "persons_daysim": persons_daysim,
+        "days_daysim": days_daysim,
         "linked_trips_daysim": linked_trips_daysim,
         "tours_daysim": tours_daysim,
     }

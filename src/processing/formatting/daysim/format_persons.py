@@ -100,7 +100,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
 
 
 def format_persons(
-    persons: pl.DataFrame, day_completeness: pl.DataFrame | None
+    persons: pl.DataFrame, days: pl.DataFrame | None
 ) -> pl.DataFrame:
     """Format person data to DaySim specification.
 
@@ -120,12 +120,15 @@ def format_persons(
 
     Args:
         persons: DataFrame with canonical person fields
-        day_completeness: Optional DataFrame with day completeness indicators
+        days: Optional DataFrame with day completeness indicators
 
     Returns:
         DataFrame with DaySim person fields
     """
     logger.info("Formatting person data")
+
+    # Compute day completeness if days data provided
+    day_completeness = compute_day_completeness(days)
 
     # Rename columns to DaySim naming convention
     persons_daysim = persons.rename(

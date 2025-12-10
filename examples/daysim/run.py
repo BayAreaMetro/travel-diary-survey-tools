@@ -90,65 +90,43 @@ def custom_add_taz_ids(
 
         return pl.from_pandas(gdf_joined)
 
-    # Get home_taz for households
-    households = add_taz_to_dataframe(
-        households,
-        taz_shapefile,
-        lon_col="home_lon",
-        lat_col="home_lat",
-        taz_col_name="home_taz",
-    )
-
-    # Get work_taz and school_taz for persons
-    persons = add_taz_to_dataframe(
-        persons,
-        taz_shapefile,
-        lon_col="work_lon",
-        lat_col="work_lat",
-        taz_col_name="work_taz",
-    )
-
-    persons = add_taz_to_dataframe(
-        persons,
-        taz_shapefile,
-        lon_col="school_lon",
-        lat_col="school_lat",
-        taz_col_name="school_taz",
-    )
-
-    # Get o_taz and d_taz for linked trips
-    linked_trips = add_taz_to_dataframe(
-        linked_trips,
-        taz_shapefile,
-        lon_col="o_lon",
-        lat_col="o_lat",
-        taz_col_name="o_taz",
-    )
-
-    linked_trips = add_taz_to_dataframe(
-        linked_trips,
-        taz_shapefile,
-        lon_col="d_lon",
-        lat_col="d_lat",
-        taz_col_name="d_taz",
-    )
-
-    # SF MTC Has only TAZ, so we spoof MAZ from TAZ
-    households = households.with_columns(pl.col("home_taz").alias("home_maz"))
-    persons = persons.with_columns(
-        pl.col("work_taz").alias("work_maz"),
-        pl.col("school_taz").alias("school_maz"),
-    )
-    linked_trips = linked_trips.with_columns(
-        pl.col("o_taz").alias("o_maz"),
-        pl.col("d_taz").alias("d_maz"),
-    )
-
-    return {
+    # Add TAZ IDs to all dataframes
+    dataframe_configs = [
+        ("households", "home_lon", "home_lat", "home_taz"),
+        ("persons", "work_lon", "work_lat", "work_taz"),
+        ("persons", "school_lon", "school_lat", "school_taz"),
+        ("linked_trips", "o_lon", "o_lat", "o_taz"),
+        ("linked_trips", "d_lon", "d_lat", "d_taz"),
+    ]
+    results = {
         "households": households,
         "persons": persons,
         "linked_trips": linked_trips,
     }
+
+    for df_name, lon_col, lat_col, taz_col_name in dataframe_configs:
+        results[df_name] = add_taz_to_dataframe(
+            results[df_name],
+            taz_shapefile,
+            lon_col=lon_col,
+            lat_col=lat_col,
+            taz_col_name=taz_col_name,
+        )
+
+    # SF MTC Has only TAZ, so we spoof MAZ from TAZ
+    results["households"] = results["households"].with_columns(
+        pl.col("home_taz").alias("home_maz")
+    )
+    results["persons"] = results["persons"].with_columns(
+        pl.col("work_taz").alias("work_maz"),
+        pl.col("school_taz").alias("school_maz"),
+    )
+    results["linked_trips"] = results["linked_trips"].with_columns(
+        pl.col("o_taz").alias("o_maz"),
+        pl.col("d_taz").alias("d_maz"),
+    )
+
+    return results
 
 
 # Set up custom steps dictionary ----------------------------------

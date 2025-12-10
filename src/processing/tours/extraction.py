@@ -124,16 +124,16 @@ def extract_tours(
     config = TourConfig(**kwargs)
 
     # Derive person_type column
-    persons = derive_person_type(persons)
+    persons_ptype = derive_person_type(persons)
 
     # Prepare person location cache with categories
     person_locations = prepare_person_locations(
-        persons,
+        persons_ptype,
         households,
         config.person_type_mapping,
     )
 
-    msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
+    msg = f"Processing {len(persons_ptype)} persons, {len(linked_trips)} trips"
     logger.info(msg)
 
     # Step 1: Prepare person locations
@@ -177,9 +177,9 @@ def extract_tours(
     # Drop temporary columns, any starting with underscore
     for df in [linked_trips_with_tour_dir, tours]:
         _cols = df.columns
-        drop_cols = [col for col in _cols if col.startswith("_")]
-        for c in drop_cols:
-            df.drop_in_place(c)
+        for c in _cols:
+            if c.startswith("_"):
+                df.drop_in_place(c)
 
     msg = (
         f"Tour building complete: {len(linked_trips_with_tour_dir)} "
@@ -189,6 +189,7 @@ def extract_tours(
     logger.info(msg)
 
     return {
+        "persons": persons_ptype,
         "linked_trips": linked_trips_with_tour_dir,
         "tours": tours,
     }

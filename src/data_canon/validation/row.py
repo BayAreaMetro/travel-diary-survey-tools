@@ -78,7 +78,7 @@ def validate_row_for_step(
     """
     if step_name is None:
         # No step specified - validate all fields strictly
-        model(**row_dict)
+        model.model_validate(row_dict, strict=False, from_attributes=False)
         return
 
     # Get fields required for this step

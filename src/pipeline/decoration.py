@@ -71,6 +71,9 @@ def step(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            # Save a copy of original kwargs to restore after validation
+            kwargs_copy = kwargs.copy()
+
             # Extract validation flags and cache configuration
             should_validate_input = kwargs.pop("validate_input", validate_input)
             should_validate_output = kwargs.pop(
@@ -93,6 +96,15 @@ def step(
                 )
                 if cached_result is not None:
                     return cached_result
+
+            # Add back in any popped flags if requested by the function
+            kwargs.update(
+                {
+                    key: value
+                    for key, value in kwargs_copy.items()
+                    if key in sig.parameters
+                }
+            )
 
             # Cache miss or caching disabled - execute step
             if should_validate_input:
@@ -175,12 +187,6 @@ def _try_load_from_cache(
     # Try to load from cache
     cached_result = pipeline_cache.load(func.__name__, cache_key)
     if cached_result is not None:
-        logger.info(
-            "Using cached result for step '%s' (tables: %s)",
-            func.__name__,
-            list(cached_result.keys()),
-        )
-
         # Update canonical_data with cached results
         if canonical_data:
             for key, value in cached_result.items():

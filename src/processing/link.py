@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.trips import Driver
+from data_canon.codebook.trips import AccessEgressMode, Driver, ModeType
 from pipeline.decoration import step
 from utils.create_ids import create_linked_trip_id
 from utils.helpers import (
@@ -13,6 +13,25 @@ from utils.helpers import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ModeType to AccessEgressMode mapping for transit access/egress
+MODE_TYPE_TO_ACCESS_EGRESS = {
+    ModeType.WALK.value: AccessEgressMode.WALK.value,
+    ModeType.BIKE.value: AccessEgressMode.BICYCLE.value,
+    ModeType.BIKESHARE.value: AccessEgressMode.BICYCLE.value,
+    ModeType.SCOOTERSHARE.value: AccessEgressMode.MICROMOBILITY.value,
+    ModeType.TAXI.value: AccessEgressMode.TNC.value,
+    ModeType.TNC.value: AccessEgressMode.TNC.value,
+    ModeType.CAR.value: AccessEgressMode.CAR_HOUSEHOLD.value,
+    ModeType.CARSHARE.value: AccessEgressMode.CAR_OTHER.value,
+    ModeType.SCHOOL_BUS.value: AccessEgressMode.TRANSFER_BUS.value,
+    ModeType.SHUTTLE.value: AccessEgressMode.TRANSFER_BUS.value,
+    ModeType.FERRY.value: AccessEgressMode.TRANSFER_OTHER.value,
+    ModeType.TRANSIT.value: AccessEgressMode.TRANSFER_OTHER.value,
+    ModeType.LONG_DISTANCE.value: AccessEgressMode.TRANSFER_OTHER.value,
+    ModeType.OTHER.value: AccessEgressMode.OTHER.value,
+    ModeType.MISSING.value: AccessEgressMode.MISSING.value,
+}
 
 
 # Trip Linker Functions --------------------------------------------------------
@@ -233,8 +252,9 @@ def aggregate_linked_trips(
     )
 
     # Get access and egress modes for transit trips
-    # Access mode = mode of first segment before transit
-    # Egress mode = mode of last segment after transit
+    # Access mode = mode_type of first segment before transit
+    # Egress mode = mode_type of last segment after transit
+    # These will be cast to AccessEgressMode enum values during join
     access_egress = (
         unlinked_trips.sort(["linked_trip_id", "depart_time", "arrive_time"])
         .with_columns(
@@ -247,12 +267,12 @@ def aggregate_linked_trips(
         .group_by("linked_trip_id")
         .agg(
             [
-                # Access mode: first non-transit mode before any transit
+                # Access mode: first non-transit mode_type before any transit
                 pl.when(pl.col("is_transit").any())
                 .then(pl.col("mode_type").filter(~pl.col("is_transit")).first())
                 .otherwise(pl.lit(None))
                 .alias("access_mode"),
-                # Egress mode: last non-transit mode after transit
+                # Egress mode: last non-transit mode_type after transit
                 pl.when(pl.col("is_transit").any())
                 .then(pl.col("mode_type").filter(~pl.col("is_transit")).last())
                 .otherwise(pl.lit(None))
@@ -336,6 +356,27 @@ def aggregate_linked_trips(
         .join(mode_selection, on="linked_trip_id", how="left")
         # Join with access/egress modes
         .join(access_egress, on="linked_trip_id", how="left")
+        # Map mode_type values to AccessEgressMode enum values
+        .with_columns(
+            [
+                pl.when(pl.col("access_mode").is_not_null())
+                .then(
+                    pl.col("access_mode").replace_strict(
+                        MODE_TYPE_TO_ACCESS_EGRESS
+                    )
+                )
+                .otherwise(pl.lit(None))
+                .alias("access_mode"),
+                pl.when(pl.col("egress_mode").is_not_null())
+                .then(
+                    pl.col("egress_mode").replace_strict(
+                        MODE_TYPE_TO_ACCESS_EGRESS
+                    )
+                )
+                .otherwise(pl.lit(None))
+                .alias("egress_mode"),
+            ]
+        )
     )
 
     # Join day_id back for reference

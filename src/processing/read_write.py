@@ -54,36 +54,35 @@ def load_data(
 def write_data(
     output_paths: dict[str, str],
     canonical_data: dict[str, pl.DataFrame | gpd.GeoDataFrame],
+    validate_input: bool,
     create_dirs: bool = True,
 ) -> None:
     """Write all canonical tables to output paths."""
+    # Validate all tables first
+    for table in output_paths:
+        logger.info("Validating %s...", table)
+
+        # If the table is truly canonical, validate it
+        if table in canonical_data.__annotations__ and validate_input:
+            canonical_data.validate(table)
+
     for table, path in output_paths.items():
         logger.info("Writing %s to %s...", table, path)
 
-        df = getattr(canonical_data, table)
+        df = canonical_data[table]
+        file_path = Path(path)
 
-        # If parent dir does not exist, create it
-        parent_dir = Path(path).parent
-        if create_dirs and not parent_dir.exists():
-            parent_dir.mkdir(parents=True, exist_ok=True)
+        if create_dirs:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # If .csv file, use polars to write
         if path.endswith(".csv"):
             df.write_csv(path)
         elif path.endswith(".parquet"):
             df.write_parquet(path)
         elif path.endswith((".shp", ".shp.zip", ".geojson")):
-            if not isinstance(df, gpd.GeoDataFrame):
-                msg = f"Expected GeoDataFrame for table {table}, got {type(df)}"
-                raise ValueError(msg)
             df.to_file(path)
         elif path.endswith(".txt"):
-            # Write string representation to text file
-            if not isinstance(df, str):
-                msg = f"Expected string for {table}, got {type(df)}"
-                raise ValueError(msg)
-            with Path(path).open("w", encoding="utf-8") as f:
-                f.write(df)
+            file_path.write_text(df, encoding="utf-8")
         else:
             msg = f"Unsupported file format for table {table}: {path}"
             raise ValueError(msg)
