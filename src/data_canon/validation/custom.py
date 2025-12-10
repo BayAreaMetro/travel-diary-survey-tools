@@ -4,6 +4,10 @@ This module contains DataFrame-level validation checks that run during the
 custom validator phase (after row-level validation). Users can add checks here
 and register them to tables using CUSTOM_VALIDATORS.
 
+These checks are for more complex validation logic that requires multiple tables
+or spanning multiple rows. Most checks can be done using built-in validators,
+or at the row-level.
+
 To add a new check:
 1. Define a function that takes one or more DataFrames and returns list[str]
 2. Add it to CUSTOM_VALIDATORS dict below, mapping table name to check functions
@@ -20,15 +24,16 @@ from utils.helpers import expr_haversine
 # Format: {table_name: [check_function1, check_function2, ...]}  # noqa: ERA001
 # Each check function should return list[str] of error messages
 CUSTOM_VALIDATORS: dict[str, list[Callable]] = {
-    "unlinked_trips": [],  # Registered checks defined below
-    "linked_trips": [],  # Registered checks defined below
-    "tours": [],  # Registered checks defined below
+    "households": [],
+    "persons": [],
+    "days": [],
+    "unlinked_trips": [],
+    "linked_trips": [],
+    "tours": [],
 }
 
 
 # Example check functions below:
-
-
 def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
     """Check for when trip destination is too far from next trip origin."""
     errors = []

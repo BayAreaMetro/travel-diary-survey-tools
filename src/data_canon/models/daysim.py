@@ -13,6 +13,8 @@ from data_canon.codebook.daysim import (
     DaysimPathType,
     DaysimPersonType,
     DaysimPurpose,
+    DaysimResidenceOwnership,
+    DaysimResidenceType,
     DaysimWorkerType,
 )
 
@@ -75,11 +77,11 @@ class HouseholdDaysimModel(BaseModel):
         le=9999999,
         description="The household annual income, in integer dollars",
     )
-    hhownrent: int = Field(
-        ge=1, le=9, description="Household own versus rent status"
+    hhownrent: DaysimResidenceOwnership = Field(
+        description="Household own versus rent status"
     )
-    hhrestype: int = Field(
-        ge=1, le=9, description="Household residence building type"
+    hhrestype: DaysimResidenceType = Field(
+        description="Household residence building type"
     )
     hhparcel: int = Field(
         ge=1,

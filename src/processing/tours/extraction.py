@@ -96,6 +96,7 @@ logger = logging.getLogger(__name__)
 def extract_tours(
     persons: pl.DataFrame,
     households: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
     **kwargs: dict[str, Any],
 ) -> dict[str, pl.DataFrame]:
@@ -111,6 +112,7 @@ def extract_tours(
     Args:
         persons: DataFrame with person attributes
         households: DataFrame with household attributes
+        unlinked_trips: DataFrame with unlinked trip data
         linked_trips: DataFrame with linked trip data
         **kwargs: Additional configuration parameters for TourConfig
 
@@ -174,6 +176,13 @@ def extract_tours(
     # Step 6: Validate tours and correct data quality issues
     tours = validate_and_correct_tours(tours, linked_trips_with_tour_ids)
 
+    # Step 7: Add tour_id to unlinked_trips
+    unlinked_trips_with_tour_ids = unlinked_trips.join(
+        linked_trips_with_tour_dir.select("linked_trip_id", "tour_id"),
+        on="linked_trip_id",
+        how="left",
+    )
+
     # Drop temporary columns, any starting with underscore
     for df in [linked_trips_with_tour_dir, tours]:
         _cols = df.columns
@@ -190,6 +199,7 @@ def extract_tours(
 
     return {
         "persons": persons_ptype,
+        "unlinked_trips": unlinked_trips_with_tour_ids,
         "linked_trips": linked_trips_with_tour_dir,
         "tours": tours,
     }

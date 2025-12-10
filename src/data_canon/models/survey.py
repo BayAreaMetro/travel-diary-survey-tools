@@ -161,7 +161,7 @@ class UnlinkedTripModel(BaseModel):
         if (
             self.arrive_time is not None
             and self.depart_time is not None
-            and self.arrive_time <= self.depart_time
+            and self.arrive_time < self.depart_time
         ):
             msg = (
                 f"Trip {self.trip_id}: arrive_time ({self.arrive_time}) "

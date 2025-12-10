@@ -397,14 +397,14 @@ def detect_anchor_based_subtours(  # noqa: C901, PLR0915
     )
     subtour_counter = 0
     modified_tours = []
-
     for i, tour_df in enumerate(tour_groups):
-        # Progress update every 10%
-        if i % max(1, len(tour_groups) // 10) == 0:
+        # Progress update every 30,000 tours
+        if i % 30000 == 0:
             pct = round((i / len(tour_groups)) * 100)
             logger.info(
-                "Subtour detection progress: %d%% of %d tours processed",
+                "Subtour detection progress: %d%% -- %d of %d tours processed",
                 pct,
+                i,
                 len(tour_groups),
             )
 
@@ -481,9 +481,7 @@ def detect_anchor_based_subtours(  # noqa: C901, PLR0915
 
         # Update tour DataFrame with subtour assignments
         updated_tour_df = tour_df.with_columns(
-            [
-                pl.Series("subtour_num", subtour_nums, dtype=pl.Int8),
-            ]
+            pl.Series("subtour_num", subtour_nums, dtype=pl.Int8),
         )
 
         modified_tours.append(updated_tour_df)

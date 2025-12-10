@@ -103,7 +103,7 @@ WORK_PARK_TO_DAYSIM = {
 }
 
 # Residence ownership to DaySim codes
-RESIDENCE_OWN_TO_DAYSIM = {
+RENTOWN_TO_DAYSIM = {
     ResidenceRentOwn.OWN: DaysimResidenceOwnership.OWN,
     ResidenceRentOwn.RENT: DaysimResidenceOwnership.RENT,
     ResidenceRentOwn.NOPAYMENT_EMPLOYER: DaysimResidenceOwnership.OTHER,
@@ -248,6 +248,8 @@ MODE_MAP = {k.value: v.value for k, v in MODE_TO_DAYSIM.items()}
 MODE_TYPE_TO_ACCESS_EGRESS_MAP = {
     k.value: v.value for k, v in MODE_TYPE_TO_ACCESS_EGRESS.items()
 }
+RENTOWN_MAP = {k.value: v.value for k, v in RENTOWN_TO_DAYSIM.items()}
+RESTYPE_MAP = {k.value: v.value for k, v in RESIDENCE_TYPE_TO_DAYSIM.items()}
 
 
 # =============================================================================

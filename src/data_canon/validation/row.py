@@ -115,7 +115,7 @@ def validate_row_for_step(
         relevant_errors = [
             err
             for err in e.errors()
-            if err.get("loc", [None])[0] in present_fields
+            if not err.get("loc") or err["loc"][0] in present_fields
         ]
         if relevant_errors:
             raise PydanticValidationError.from_exception_data(

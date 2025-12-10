@@ -117,7 +117,7 @@ class DaysimResidenceOwnership(LabeledEnum):
     OWN = (1, "Own")
     RENT = (2, "Rent")
     OTHER = (3, "Other")
-    MISSING = (9, "Missing")
+    MISSING = (-1, "Missing")
 
 
 class DaysimResidenceType(LabeledEnum):
@@ -129,7 +129,7 @@ class DaysimResidenceType(LabeledEnum):
     MOBILE_HOME = (4, "Mobile home/trailer")
     DORM = (5, "Dorm/group quarters")
     OTHER = (6, "Other")
-    MISSING = (9, "Missing")
+    MISSING = (-1, "Missing")
 
 
 class VehicleOccupancy(LabeledEnum):

@@ -217,7 +217,7 @@ def validate_and_correct_tours(
     ).height
     if invalid_count > 0:
         logger.warning(
-            "Found %d tours with data quality issues. "
+            "Found %d tours with data quality issues.\n"
             "These tours should be filtered in formatters.",
             invalid_count,
         )
