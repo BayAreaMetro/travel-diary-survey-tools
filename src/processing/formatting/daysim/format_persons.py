@@ -4,22 +4,34 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.daysim import DaysimPersonType, DaysimStudentType
+from data_canon.codebook.daysim import (
+    DaysimPersonType,
+    DaysimStudentType,
+    DaysimWorkerType,
+)
+from data_canon.codebook.generic import BooleanYesNo
 from data_canon.codebook.persons import (
     Employment,
     SchoolType,
     Student,
 )
+from data_canon.codebook.trips import ModeType
 
 from .mappings import (
     AGE_MAP,
     GENDER_MAP,
+    MODE_TYPE_MAP,
     STUDENT_MAP,
     WORK_PARK_MAP,
     AgeThreshold,
 )
 
 logger = logging.getLogger(__name__)
+
+
+MODE_TO_MODE_TYPE_MAP = {
+    k.value: v.value for k, v in ModeType.from_mode().items()
+}
 
 
 def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
@@ -276,28 +288,28 @@ def format_persons(
 
     # Set work/school locations to -1 if person is not worker/student
     persons_daysim = persons_daysim.with_columns(
-        pwtaz=pl.when(pl.col("pwtyp") != 0)
+        pwtaz=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
         .then(pl.col("pwtaz"))
         .otherwise(pl.lit(-1)),
-        pwpcl=pl.when(pl.col("pwtyp") != 0)
+        pwpcl=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
         .then(pl.col("pwpcl"))
         .otherwise(pl.lit(-1)),
-        pwxcord=pl.when(pl.col("pwtyp") != 0)
+        pwxcord=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
         .then(pl.col("pwxcord"))
         .otherwise(pl.lit(-1)),
-        pwycord=pl.when(pl.col("pwtyp") != 0)
+        pwycord=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
         .then(pl.col("pwycord"))
         .otherwise(pl.lit(-1)),
-        pstaz=pl.when(pl.col("pstyp") != 0)
+        pstaz=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
         .then(pl.col("pstaz"))
         .otherwise(pl.lit(-1)),
-        pspcl=pl.when(pl.col("pstyp") != 0)
+        pspcl=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
         .then(pl.col("pspcl"))
         .otherwise(pl.lit(-1)),
-        psxcord=pl.when(pl.col("pstyp") != 0)
+        psxcord=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
         .then(pl.col("psxcord"))
         .otherwise(pl.lit(-1)),
-        psycord=pl.when(pl.col("pstyp") != 0)
+        psycord=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
         .then(pl.col("psycord"))
         .otherwise(pl.lit(-1)),
     )
@@ -306,6 +318,25 @@ def format_persons(
     persons_daysim = persons_daysim.with_columns(
         psexpfac=pl.lit(1.0),
         pwautime=pl.lit(-1),  # auto time to work (not available)
+        pwaudist=pl.lit(-1),  # auto distance to work (not available)
+        psautime=pl.lit(-1),  # auto time to school (not available)
+        psaudist=pl.lit(-1),  # auto distance to school (not available)
+        # Map work_mode: Mode --> ModeType --> DaysimMode
+        puwmode=pl.col("work_mode")
+        .replace_strict(MODE_TO_MODE_TYPE_MAP)
+        .replace_strict(MODE_TYPE_MAP),
+        puwarrp=pl.lit(-1),  # usual work arrival period (not available)
+        puwdepp=pl.lit(-1),  # usual work departure period (not available)
+        # transit pass
+        ptpass=pl.when(pl.col("transit_pass") == BooleanYesNo.YES.value)
+        .then(1)
+        .otherwise(0),
+        # proxy respondent
+        pproxy=pl.when(pl.col("is_proxy") == BooleanYesNo.YES.value)
+        .then(1)
+        .otherwise(0),
+        # has diary day
+        pdiary=pl.when(pl.col("num_days_complete") > 0).then(1).otherwise(0),
     )
 
     # Join day completeness if available
@@ -329,6 +360,15 @@ def format_persons(
         "pstaz",
         "ppaidprk",
         "pwautime",
+        "pwaudist",
+        "psautime",
+        "psaudist",
+        "puwmode",
+        "puwarrp",
+        "puwdepp",
+        "ptpass",
+        "pproxy",
+        "pdiary",
         "pwxcord",
         "pwycord",
         "psxcord",

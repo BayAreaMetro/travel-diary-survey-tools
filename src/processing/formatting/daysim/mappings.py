@@ -187,7 +187,7 @@ TRANSIT_MODE_TO_PATH_TYPE = {
 }
 
 # Mode to DaySim mode codes
-MODE_TO_DAYSIM = {
+MODE_TYPE_TO_DAYSIM = {
     ModeType.WALK: DaysimMode.WALK,
     ModeType.BIKE: DaysimMode.BIKE,
     ModeType.BIKESHARE: DaysimMode.BIKE,
@@ -244,7 +244,7 @@ GENDER_MAP = {k.value: v.value for k, v in GENDER_TO_DAYSIM.items()}
 STUDENT_MAP = {k.value: v.value for k, v in STUDENT_TO_DAYSIM.items()}
 WORK_PARK_MAP = {k.value: v.value for k, v in WORK_PARK_TO_DAYSIM.items()}
 PURPOSE_MAP = {k.value: v.value for k, v in PURPOSE_TO_DAYSIM.items()}
-MODE_MAP = {k.value: v.value for k, v in MODE_TO_DAYSIM.items()}
+MODE_TYPE_MAP = {k.value: v.value for k, v in MODE_TYPE_TO_DAYSIM.items()}
 MODE_TYPE_TO_ACCESS_EGRESS_MAP = {
     k.value: v.value for k, v in MODE_TYPE_TO_ACCESS_EGRESS.items()
 }
@@ -309,7 +309,7 @@ def determine_tour_mode(
             .then(pl.lit(DaysimMode.DRIVE_TRANSIT.value))
             .otherwise(pl.lit(DaysimMode.WALK_TRANSIT.value))
         )
-        .otherwise(pl.col("tour_mode").replace_strict(MODE_MAP))
+        .otherwise(pl.col("tour_mode").replace_strict(MODE_TYPE_MAP))
         .alias("tmodetp")
     )
 

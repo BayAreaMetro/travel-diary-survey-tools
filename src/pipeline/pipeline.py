@@ -184,7 +184,7 @@ class Pipeline:
             step_obj(**kwargs)
 
         # Log cache statistics if caching was enabled
-        if not self.disable_cache and self.cache:
+        if self.cache:
             stats = self.cache.get_stats()
             if stats["total"] > 0:
                 logger.info(

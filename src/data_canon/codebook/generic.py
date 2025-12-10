@@ -19,6 +19,13 @@ class YesNoMissing(LabeledEnum):
     MISSING = (995, "Missing Response")
 
 
+class BooleanYesNo(LabeledEnum):
+    """Generic boolean yes/no value labels."""
+
+    YES = (1, "Yes")
+    NO = (0, "No")
+
+
 class LocationType(LabeledEnum):
     """Generic location type labels."""
 

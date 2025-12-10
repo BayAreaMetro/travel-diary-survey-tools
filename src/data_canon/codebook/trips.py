@@ -229,11 +229,98 @@ class ModeType(LabeledEnum):
     LONG_DISTANCE = (14, "Long distance passenger")
     MISSING = (995, "Missing Response")
 
+    @classmethod
+    def from_mode(cls) -> dict["Mode", "ModeType"]:
+        """Get mapping from detailed Mode to ModeType.
 
-class ModeTypeMap:
-    """Mapping from detailed mode codes to mode types."""
-
-    # Need to populate this...
+        Returns:
+            Dictionary mapping Mode enum values to ModeType enum values
+        """
+        return {
+            # Walk
+            Mode.WALK: cls.WALK,
+            # Bike
+            Mode.BIKE: cls.BIKE,
+            Mode.BIKE_BORROWED: cls.BIKE,
+            Mode.BIKE_RENTED: cls.BIKE,
+            Mode.BIKE_ELECTRIC: cls.BIKE,
+            Mode.BICYCLE: cls.BIKE,
+            # Bikeshare
+            Mode.BIKE_SHARE: cls.BIKESHARE,
+            Mode.BIKE_SHARE_ELECTRIC: cls.BIKESHARE,
+            # Scootershare
+            Mode.SCOOTER_SHARE: cls.SCOOTERSHARE,
+            Mode.MOPED_SHARE: cls.SCOOTERSHARE,
+            Mode.MICROMOBILITY: cls.SCOOTERSHARE,
+            Mode.SKATE: cls.SCOOTERSHARE,
+            Mode.SEGWAY: cls.SCOOTERSHARE,
+            Mode.MOPED: cls.SCOOTERSHARE,
+            # Taxi
+            Mode.TAXI: cls.TAXI,
+            Mode.TOWNCAR: cls.TAXI,
+            # TNC
+            Mode.TNC: cls.TNC,
+            Mode.TNC_OTHER: cls.TNC,
+            # Car
+            Mode.HOUSEHOLD_VEHICLE_1: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_2: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_3: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_4: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_5: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_6: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_7: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_8: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_9: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_10: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE_OTHER: cls.CAR,
+            Mode.HOUSEHOLD_VEHICLE: cls.CAR,
+            Mode.CAR_WORK: cls.CAR,
+            Mode.CAR_FRIEND: cls.CAR,
+            Mode.OTHER_VEHICLE: cls.CAR,
+            Mode.CAR_OTHER: cls.CAR,
+            Mode.MOTORCYCLE: cls.CAR,
+            Mode.MOTORCYCLE_OTHER: cls.CAR,
+            Mode.GOLF_CART: cls.CAR,
+            Mode.ATV: cls.CAR,
+            # Carshare
+            Mode.CAR_RENTAL: cls.CARSHARE,
+            Mode.CAR_SHARE: cls.CARSHARE,
+            Mode.CAR_RENTAL_P2P: cls.CARSHARE,
+            Mode.CARPOOL_SERVICE: cls.CARSHARE,
+            # School bus
+            Mode.BUS_SCHOOL: cls.SCHOOL_BUS,
+            # Shuttle/vanpool
+            Mode.VANPOOL: cls.SHUTTLE,
+            Mode.BUS_PRIVATE: cls.SHUTTLE,
+            Mode.BUS_UNIVERSITY: cls.SHUTTLE,
+            Mode.BUS_WORK: cls.SHUTTLE,
+            Mode.BUS_PRIVATE_LOCAL: cls.SHUTTLE,
+            Mode.SHUTTLE: cls.SHUTTLE,
+            Mode.PARATRANSIT: cls.SHUTTLE,
+            Mode.MEDICAL: cls.SHUTTLE,
+            # Ferry
+            Mode.FERRY: cls.FERRY,
+            Mode.BOAT: cls.FERRY,
+            # Transit
+            Mode.BUS_LOCAL: cls.TRANSIT,
+            Mode.BUS_EXPRESS: cls.TRANSIT,
+            Mode.BUS_BRT: cls.TRANSIT,
+            Mode.BUS_OTHER: cls.TRANSIT,
+            Mode.BART: cls.TRANSIT,
+            Mode.MUNI_METRO: cls.TRANSIT,
+            Mode.STREETCAR: cls.TRANSIT,
+            Mode.RAIL_OTHER: cls.TRANSIT,
+            Mode.RAIL: cls.TRANSIT,
+            # Long distance
+            Mode.BUS_INTERCITY: cls.LONG_DISTANCE,
+            Mode.RAIL_INTERCITY: cls.LONG_DISTANCE,
+            Mode.AIR: cls.LONG_DISTANCE,
+            # Other
+            Mode.OTHER: cls.OTHER,
+            Mode.OTHER_ALT: cls.OTHER,
+            Mode.OTHER_OTHER: cls.OTHER,
+            Mode.MISSING: cls.MISSING,
+        }
 
 
 class AccessEgressMode(LabeledEnum):

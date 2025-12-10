@@ -69,7 +69,7 @@ def write_data(
     for table, path in output_paths.items():
         logger.info("Writing %s to %s...", table, path)
 
-        df = canonical_data[table]
+        df = getattr(canonical_data, table)
         file_path = Path(path)
 
         if create_dirs:

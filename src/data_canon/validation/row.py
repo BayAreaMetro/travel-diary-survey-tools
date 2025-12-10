@@ -154,8 +154,8 @@ def validate_dataframe_rows(
 
     # Batch validate with progress reporting
     batch_size = 100_000
-    errors = []
-    max_errors_to_collect = 10
+    error_groups: dict[str, list[int]] = {}
+    max_unique_errors = 10
 
     for batch_start in range(0, total_rows, batch_size):
         batch_end = min(batch_start + batch_size, total_rows)
@@ -168,9 +168,14 @@ def validate_dataframe_rows(
             try:
                 validate_row_for_step(row, model, step)
             except (PydanticValidationError, ValueError) as e:
-                # Collect errors instead of raising immediately
-                errors.append((row_idx, str(e)))
-                if len(errors) >= max_errors_to_collect:
+                # Group errors by message
+                msg = str(e)
+                if msg not in error_groups:
+                    error_groups[msg] = []
+                error_groups[msg].append(row_idx)
+
+                # Stop if we've collected enough unique error types
+                if len(error_groups) >= max_unique_errors:
                     break
 
         # Progress updates for large datasets (time-based)
@@ -186,29 +191,54 @@ def validate_dataframe_rows(
                 total_rows,
             )
 
-        # Stop early if we've collected enough errors
-        if errors and len(errors) >= max_errors_to_collect:
+        # Stop early if we've collected enough unique errors
+        if len(error_groups) >= max_unique_errors:
             break
 
-    # Raise with error details
-    if errors:
-        if len(errors) == 1:
-            row_idx, msg = errors[0]
-            raise DataValidationError(
-                table=table_name,
-                rule="row_validation",
-                row_id=row_idx,
-                message=msg,
+        # Raise with error details
+        _report_errors(error_groups, table_name)
+
+
+def _report_errors(error_groups: dict[str, list[int]], table_name: str) -> None:
+    """Report validation errors for a DataFrame."""
+    if not error_groups:
+        return
+
+    total_error_count = sum(len(rows) for rows in error_groups.values())
+
+    # Format error summary
+    error_lines = []
+    max_rows_to_show = 3
+
+    for msg, row_indices in error_groups.items():
+        num_affected = len(row_indices)
+
+        if num_affected <= max_rows_to_show:
+            rows_str = f"Row(s) {', '.join(map(str, row_indices))}"
+        else:
+            shown = row_indices[:max_rows_to_show]
+            rows_str = (
+                f"{num_affected} rows (e.g., {', '.join(map(str, shown))})"
             )
-        # Multiple errors - provide summary
-        error_summary = "\n".join(f"  Row {idx}: {msg}" for idx, msg in errors)
-        raise DataValidationError(
-            table=table_name,
-            rule="row_validation",
-            message=(
-                f"Found {len(errors)} validation errors:\n{error_summary}"
-            ),
-        )
+
+        error_lines.append(f"  {rows_str}: {msg}")
+
+    error_summary = "\n".join(error_lines)
+    num_unique = len(error_groups)
+
+    summary_msg = (
+        f"Found {num_unique} unique error type"
+        f"{'s' if num_unique > 1 else ''} "
+        f"affecting {total_error_count} row"
+        f"{'s' if total_error_count > 1 else ''}:\n"
+        f"{error_summary}"
+    )
+
+    raise DataValidationError(
+        table=table_name,
+        rule="row_validation",
+        message=summary_msg,
+    )
 
 
 def get_step_validation_summary(
