@@ -47,6 +47,7 @@ lint.ignore = [
     "RET504",  # Allow return of assigned variable
     "FBT001",  # Boolean args OK in this codebase
     "FBT002",  # Boolean args OK in this codebase
+    "ERA001",  # Ignore commented out code
 ]
 lint.pydocstyle.convention = "google"
 exclude = ["scripts/daysim_old"]

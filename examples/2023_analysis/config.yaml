@@ -17,6 +17,7 @@ date: "20250610"
 steps:
   - name: load_data
     validate_input: false # This will override @step(validate=True/False) in the function definition
+    cache: true
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
@@ -30,12 +31,14 @@ steps:
 
   - name: clean_2023_bats
     validate_input: false
+    cache: true
 
   # - name: imputation
   #   validate_input: true
 
   - name: link_trips
-    validate_input: false
+    validate_input: true
+    cache: true
     params:
       change_mode_code: 11  # Purpose code for 'change_mode'
       transit_mode_codes: [12, 13, 14] # NOTE: this is not elegant
@@ -46,6 +49,9 @@ steps:
     validate_input: false
     params:
       transit_mode_codes: [12, 13] # transit, ferry
+
+  - name: summarize_wfh
+    validate_input: false
 
   - name: write_data
     validate_input: true
@@ -59,3 +65,4 @@ steps:
         linked_trips: "{{ output_dir }}/source_data_{{ date }}/linked_trips.csv"
         transit_summary: "{{ output_dir }}/source_data_{{ date }}/transit_summary.csv"
         transit_report: "{{ output_dir }}/source_data_{{ date }}/transit_report.txt"
+        wfh_summary: "{{ output_dir }}/source_data_{{ date }}/wfh_summary.csv"
