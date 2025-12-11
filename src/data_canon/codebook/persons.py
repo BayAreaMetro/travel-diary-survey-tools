@@ -96,9 +96,9 @@ class Employment(LabeledEnum):
     )
     MISSING = (995, "Missing Response")
     # NOTE: This should be broken out into multiple categories if possible
-    # UNEMPLOYED_PARENT = (6, "Not employed and not looking, full-time parent")  # noqa: E501, ERA001
-    # UNEMPLOYED_STUDENT = (7, "Not employed and not looking, enrolled as full-time student")  # noqa: E501, ERA001
-    # UNEMPLOYED_RETIRED = (8, "Not employed and not working, retired")  # noqa: E501, ERA001
+    # UNEMPLOYED_PARENT = (6, "Not employed and not looking, full-time parent")
+    # UNEMPLOYED_STUDENT = (7, "Not employed and not looking, enrolled as full-time student")  # noqa: E501
+    # UNEMPLOYED_RETIRED = (8, "Not employed and not working, retired")
 
 
 class Ethnicity(LabeledEnum):
