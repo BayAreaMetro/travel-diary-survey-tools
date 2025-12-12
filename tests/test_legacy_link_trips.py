@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
+import pytest
 
 from processing.link import link_trips
 
@@ -261,6 +262,7 @@ def to_legacy_format(new_df: pl.DataFrame) -> pd.DataFrame:
     )
 
 
+@pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_linking_row_count():
     """Test new implementation produces same row count as legacy."""
     new_data = SIMPLE_TRANSIT_JOURNEY
@@ -297,6 +299,7 @@ def test_linking_row_count():
     )
 
 
+@pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_linked_trip_purposes():
     """Test that linked trip purposes are correctly preserved."""
     new_data = SIMPLE_TRANSIT_JOURNEY
@@ -325,6 +328,7 @@ def test_linked_trip_purposes():
     assert linked_df[1, "d_purpose_category"] == PURPOSE_MAP_NEW["home"]
 
 
+@pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_linked_trip_modes():
     """Test that linked trip modes follow hierarchy rules."""
     new_data = SIMPLE_TRANSIT_JOURNEY

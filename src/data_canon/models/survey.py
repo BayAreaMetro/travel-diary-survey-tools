@@ -13,6 +13,7 @@ from pydantic import BaseModel, model_validator
 
 from data_canon.codebook.days import TravelDow
 from data_canon.codebook.generic import LocationType
+from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
@@ -45,6 +46,12 @@ class HouseholdModel(BaseModel):
     )
     home_lon: float = step_field(
         ge=-180, le=180, required_in_steps=["extract_tours"]
+    )
+    residence_rent_own: ResidenceRentOwn = step_field(
+        required_in_steps=["format_daysim"]
+    )
+    residence_type: ResidenceType = step_field(
+        required_in_steps=["format_daysim"]
     )
 
 
@@ -82,6 +89,11 @@ class PersonModel(BaseModel):
     work_park: WorkParking | None = step_field(
         required_in_steps=["format_daysim"],
     )
+    work_mode: Mode | None = step_field(
+        required_in_steps=["format_daysim"],
+    )
+    is_proxy: bool = step_field(required_in_steps=["format_daysim"])
+    num_days_complete: int = step_field(ge=0, default=0)
 
 
 class PersonDayModel(BaseModel):
@@ -112,7 +124,7 @@ class UnlinkedTripModel(BaseModel):
     tour_id: int = step_field(
         ge=1,
         fk_to="tours.tour_id",
-        required_in_steps=["extract_tours"],
+        required_in_steps=["format_daysim"],
     )
     depart_date: datetime
     depart_hour: int = step_field(ge=0, le=23)
@@ -181,7 +193,9 @@ class LinkedTripModel(BaseModel):
     hh_id: int = step_field(ge=1, fk_to="households.hh_id")
 
     linked_trip_id: int = step_field(ge=1, unique=True)
-    tour_id: int = step_field(ge=1, fk_to="tours.tour_id")
+    tour_id: int = step_field(
+        ge=1, fk_to="tours.tour_id", required_in_steps=["format_daysim"]
+    )
     travel_dow: TravelDow = step_field(required_in_steps=["extract_tours"])
     depart_date: datetime = step_field()
     depart_hour: int = step_field(ge=0, le=23)
@@ -222,9 +236,7 @@ class TourModel(BaseModel):
     day_id: int = step_field(ge=1, fk_to="days.day_id")
     tour_num: int = step_field(ge=1)
     subtour_num: int = step_field(ge=0)
-    parent_tour_id: int | None = step_field(
-        ge=1, fk_to="tours.tour_id", default=None
-    )
+    parent_tour_id: int = step_field(ge=1, fk_to="tours.tour_id")
 
     tour_purpose: PurposeCategory | None = step_field(default=None)
     tour_category: TourCategory = step_field()

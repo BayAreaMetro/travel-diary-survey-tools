@@ -21,19 +21,17 @@ class TestSelectiveFieldRequirements:
 
     def test_step_specific_fields_required_only_in_that_step(self):
         """Fields should only be required in their designated step."""
-        # linked_trip_id required in extract_tours
+        # linked_trip_id is not required in link_trips, but is in extract_tours
+
+        required_linking = get_required_fields_for_step(
+            UnlinkedTripModel, "link_trips"
+        )
+        assert "linked_trip_id" not in required_linking
+
         required_tours = get_required_fields_for_step(
             UnlinkedTripModel, "extract_tours"
         )
         assert "linked_trip_id" in required_tours
-        assert "tour_id" in required_tours
-
-        # But not required in other steps
-        required_other = get_required_fields_for_step(
-            UnlinkedTripModel, "preprocessing"
-        )
-        assert "linked_trip_id" not in required_other
-        assert "tour_id" not in required_other
 
     def test_fields_added_during_pipeline(self):
         """Fields added during pipeline only required after creation."""

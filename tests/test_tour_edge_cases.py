@@ -18,7 +18,8 @@ from data_canon.codebook.persons import (
     Employment,
     Student,
 )
-from data_canon.codebook.trips import ModeType, PurposeCategory
+from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
+from processing.link import link_trips
 from processing.tours.extraction import extract_tours
 
 
@@ -54,16 +55,15 @@ def single_trip_tour_data():
     )
 
     # Single trip: home -> grocery store
-    # (Return home is implicit)
-    linked_trips = pl.DataFrame(
+    unlinked_trips = pl.DataFrame(
         {
-            "linked_trip_id": [1],
+            "trip_id": [1],
             "day_id": [1],
             "person_id": [1],
             "hh_id": [1],
             "travel_dow": [TravelDow.WEDNESDAY.value],
-            "depart_time": [datetime(2024, 1, 15, 9, 0, 0)],  # 9:00 AM
-            "arrive_time": [datetime(2024, 1, 15, 9, 15, 0)],  # 9:15 AM
+            "depart_time": [datetime(2024, 1, 15, 9, 0, 0)],
+            "arrive_time": [datetime(2024, 1, 15, 9, 15, 0)],
             "o_purpose_category": [PurposeCategory.HOME.value],
             "d_purpose_category": [PurposeCategory.SHOP.value],
             "mode_type": [ModeType.CAR.value],
@@ -71,10 +71,24 @@ def single_trip_tour_data():
             "o_lon": [-122.4],
             "d_lat": [37.82],
             "d_lon": [-122.42],
+            "trip_weight": [1.0],
+            "distance_meters": [2000.0],
+            "duration_minutes": [15.0],
+            "num_travelers": [1],
+            "driver": [Driver.DRIVER.value],
         }
     )
 
-    return persons, households, linked_trips
+    # Link trips
+    link_result = link_trips(
+        unlinked_trips=unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value],
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    return persons, households, unlinked_trips_with_ids, linked_trips
 
 
 @pytest.fixture
@@ -109,9 +123,9 @@ def partial_tour_data():
     )
 
     # Trips: work -> lunch -> work -> home
-    linked_trips = pl.DataFrame(
+    unlinked_trips = pl.DataFrame(
         {
-            "linked_trip_id": [1, 2, 3],
+            "trip_id": [1, 2, 3],
             "day_id": [1, 1, 1],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],
@@ -145,10 +159,28 @@ def partial_tour_data():
             "o_lon": [-122.45, -122.46, -122.45],
             "d_lat": [37.86, 37.85, 37.8],
             "d_lon": [-122.46, -122.45, -122.4],
+            "trip_weight": [1.0, 1.0, 1.0],
+            "distance_meters": [1000.0, 1000.0, 5000.0],
+            "duration_minutes": [15.0, 15.0, 30.0],
+            "num_travelers": [1, 1, 1],
+            "driver": [
+                Driver.DRIVER.value,
+                Driver.DRIVER.value,
+                Driver.DRIVER.value,
+            ],
         }
     )
 
-    return persons, households, linked_trips
+    # Link trips
+    link_result = link_trips(
+        unlinked_trips=unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value],
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    return persons, households, unlinked_trips_with_ids, linked_trips
 
 
 @pytest.fixture
@@ -183,9 +215,9 @@ def distant_destinations_data():
 
     # Tour with widely scattered destinations:
     # home -> SF -> Oakland -> SJ -> home
-    linked_trips = pl.DataFrame(
+    unlinked_trips = pl.DataFrame(
         {
-            "linked_trip_id": [1, 2, 3],
+            "trip_id": [1, 2, 3],
             "day_id": [1, 1, 1],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],
@@ -219,17 +251,35 @@ def distant_destinations_data():
             "o_lon": [-122.4, -122.39, -122.2],
             "d_lat": [37.79, 37.6, 37.8],  # SF, Oakland, Home
             "d_lon": [-122.39, -122.2, -122.4],
+            "trip_weight": [1.0, 1.0, 1.0],
+            "distance_meters": [10000.0, 20000.0, 30000.0],
+            "duration_minutes": [60.0, 60.0, 120.0],
+            "num_travelers": [1, 1, 1],
+            "driver": [
+                Driver.DRIVER.value,
+                Driver.DRIVER.value,
+                Driver.DRIVER.value,
+            ],
         }
     )
 
-    return persons, households, linked_trips
+    # Link trips
+    link_result = link_trips(
+        unlinked_trips=unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value],
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    return persons, households, unlinked_trips_with_ids, linked_trips
 
 
 def test_single_trip_tour(single_trip_tour_data):
     """Test that single-trip tours are flagged appropriately."""
-    persons, households, linked_trips = single_trip_tour_data
+    persons, households, unlinked_trips, linked_trips = single_trip_tour_data
 
-    result = extract_tours(persons, households, linked_trips)
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_df = result["tours"]
 
     # Single-trip tours should be kept but flagged
@@ -249,9 +299,9 @@ def test_single_trip_tour(single_trip_tour_data):
 
 def test_partial_tour(partial_tour_data):
     """Test that tours starting away from home get valid tour numbers."""
-    persons, households, linked_trips = partial_tour_data
+    persons, households, unlinked_trips, linked_trips = partial_tour_data
 
-    result = extract_tours(persons, households, linked_trips)
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_df = result["tours"]
 
     # All tour numbers should be >= 1
@@ -263,9 +313,11 @@ def test_partial_tour(partial_tour_data):
 
 def test_distant_destinations(distant_destinations_data):
     """Test that tours with distant destinations still get valid times."""
-    persons, households, linked_trips = distant_destinations_data
+    persons, households, unlinked_trips, linked_trips = (
+        distant_destinations_data
+    )
 
-    result = extract_tours(persons, households, linked_trips)
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_df = result["tours"]
 
     assert len(tours_df) == 1
@@ -306,9 +358,9 @@ def test_tour_num_sequential():
 
     # Three complete tours:
     # home->work->home, home->shop->home, home->social->home
-    linked_trips = pl.DataFrame(
+    unlinked_trips = pl.DataFrame(
         {
-            "linked_trip_id": [1, 2, 3, 4, 5],
+            "trip_id": [1, 2, 3, 4, 5],
             "day_id": [1, 1, 1, 1, 1],
             "person_id": [1, 1, 1, 1, 1],
             "hh_id": [1, 1, 1, 1, 1],
@@ -346,10 +398,26 @@ def test_tour_num_sequential():
             "o_lon": [-122.4, -122.45, -122.4, -122.41, -122.4],
             "d_lat": [37.85, 37.8, 37.81, 37.8, 37.82],
             "d_lon": [-122.45, -122.4, -122.41, -122.4, -122.42],
+            "trip_weight": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "distance_meters": [5000.0, 5000.0, 1000.0, 1000.0, 2000.0],
+            "duration_minutes": [30.0, 30.0, 15.0, 15.0, 15.0],
+            "num_travelers": [1, 1, 1, 1, 1],
+            "driver": [Driver.DRIVER.value] * 5,
         }
     )
 
-    result = extract_tours(persons, households, linked_trips)
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value],
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours_df = result["tours"]
 
     # Should have 3 tours
@@ -394,9 +462,9 @@ def test_all_tours_have_required_fields():
     )
 
     # Mix of scenarios: normal tours, single-trip tours, partial tours
-    linked_trips = pl.DataFrame(
+    unlinked_trips = pl.DataFrame(
         {
-            "linked_trip_id": [1, 2, 3, 4],
+            "trip_id": [1, 2, 3, 4],
             "day_id": [1, 1, 2, 2],
             "person_id": [1, 1, 2, 2],
             "hh_id": [1, 1, 1, 1],
@@ -435,10 +503,26 @@ def test_all_tours_have_required_fields():
             "o_lon": [-122.4, -122.45, -122.4, -122.41],
             "d_lat": [37.85, 37.8, 37.81, 37.8],
             "d_lon": [-122.45, -122.4, -122.41, -122.4],
+            "trip_weight": [1.0, 1.0, 1.0, 1.0],
+            "distance_meters": [5000.0, 5000.0, 1000.0, 1000.0],
+            "duration_minutes": [30.0, 30.0, 30.0, 30.0],
+            "num_travelers": [1, 1, 1, 1],
+            "driver": [Driver.DRIVER.value] * 4,
         }
     )
 
-    result = extract_tours(persons, households, linked_trips)
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value],
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours_df = result["tours"]
 
     # All tours should have tour_num >= 1

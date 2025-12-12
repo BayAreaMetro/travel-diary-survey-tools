@@ -71,12 +71,14 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
             hhno=(pl.col("person_id") // 100),
             pno=(pl.col("person_id") % 100),
             # Compute weekday aggregates
-            num_days_complete_3dayweekday=pl.sum_horizontal(["2", "3", "4"]),
+            num_days_complete_3dayweekday=pl.sum_horizontal(
+                ["2", "3", "4"]  # Tue, Wed, Thu
+            ),
             num_days_complete_4dayweekday=pl.sum_horizontal(
-                ["1", "2", "3", "4"]
+                ["1", "2", "3", "4"]  # Mon, Tue, Wed, Thu
             ),
             num_days_complete_5dayweekday=pl.sum_horizontal(
-                ["1", "2", "3", "4", "5"]
+                ["1", "2", "3", "4", "5"]  # Mon, Tue, Wed, Thu, Fri
             ),
         )
         .select(
@@ -111,9 +113,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
     return result.sort(by=["hhno", "pno"])
 
 
-def format_persons(
-    persons: pl.DataFrame, days: pl.DataFrame | None
-) -> pl.DataFrame:
+def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
     """Format person data to DaySim specification.
 
     Applies mapping dictionaries and derives person type (pptyp) and worker

@@ -26,7 +26,7 @@ class TestUniqueConstraints:
                 "num_vehicles": [1, 2, 2],
             }
         )
-        data.validate("households")
+        data.validate("households", step="link_trips")
 
     def test_unique_fails_with_duplicates(self):
         """Should fail with duplicate IDs."""
@@ -43,7 +43,7 @@ class TestUniqueConstraints:
             }
         )
         with pytest.raises(DataValidationError) as exc:
-            data.validate("households")
+            data.validate("households", step="link_trips")
         assert exc.value.rule == "unique_constraint"
 
 

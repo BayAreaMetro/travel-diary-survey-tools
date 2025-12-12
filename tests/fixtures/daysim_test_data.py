@@ -25,6 +25,7 @@ from data_canon.codebook.persons import (
     Student,
     WorkParking,
 )
+from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.codebook.trips import (
     AccessEgressMode,
     Driver,
@@ -48,6 +49,8 @@ class DaysimTestDataBuilder:
         vehicles: int = 1,
         income_detailed: IncomeDetailed | None = IncomeDetailed.INCOME_75TO100,
         income_followup: IncomeFollowup | None = None,
+        residence_type: ResidenceType = ResidenceType.SFH,
+        residence_rent_own: ResidenceRentOwn = ResidenceRentOwn.OWN,
         **overrides,
     ) -> dict:
         """Create a complete canonical household record.
@@ -62,6 +65,8 @@ class DaysimTestDataBuilder:
             vehicles: Number of vehicles
             income_detailed: Detailed income category
             income_followup: Followup income category (if detailed is null)
+            residence_type: Residence type
+            residence_rent_own: Residence rent/own status
             **overrides: Override any default values
 
         Returns:
@@ -77,6 +82,7 @@ class DaysimTestDataBuilder:
             "num_people": size,  # Add this field for DaySim formatting
             "vehicles": vehicles,
             "num_vehicles": vehicles,  # Add this field for DaySim formatting
+            "num_workers": 1,  # Default to 1 worker
             "income": 87500,  # Approximate midpoint for 75-100k
             "income_detailed": income_detailed.value
             if income_detailed
@@ -84,9 +90,9 @@ class DaysimTestDataBuilder:
             "income_followup": income_followup.value
             if income_followup
             else None,
-            "residence_type": ResidenceType.SFH.value,
-            "residence_rent_own": ResidenceRentOwn.OWN.value,
-            "weight": 1.0,
+            "residence_type": residence_type.value,
+            "residence_rent_own": residence_rent_own.value,
+            "hh_weight": 1.0,
             **overrides,
         }
 
@@ -113,6 +119,9 @@ class DaysimTestDataBuilder:
         school_maz: int | None = None,
         school_type: SchoolType | None = None,
         transit_pass: bool = False,
+        work_mode: Mode = Mode.MISSING,
+        is_proxy: bool = False,
+        num_complete_days: int = 1,
         **overrides,
     ) -> dict:
         """Create a complete canonical person record.
@@ -139,6 +148,9 @@ class DaysimTestDataBuilder:
             school_maz: School MAZ
             school_type: School type
             transit_pass: Has transit pass
+            work_mode: Usual work mode
+            is_proxy: Is proxy respondent
+            num_complete_days: Number of complete diary days
             **overrides: Override any default values
 
         Returns:
@@ -221,7 +233,10 @@ class DaysimTestDataBuilder:
             "school_type": school_type.value if school_type else None,
             "work_park": work_park.value,
             "transit_pass": transit_pass,
-            "weight": 1.0,
+            "work_mode": work_mode.value,
+            "is_proxy": is_proxy,
+            "num_days_complete": num_complete_days,
+            "person_weight": 1.0,
             **overrides,
         }
 
@@ -262,13 +277,14 @@ class DaysimTestDataBuilder:
             "travel_date": travel_date,
             "travel_dow": travel_dow.value,
             "is_complete": is_complete,
-            "weight": 1.0,
+            "day_weight": 1.0,
             **overrides,
         }
 
     @staticmethod
     def create_unlinked_trip(
         trip_id: int = 1,
+        tour_id: int = 1,
         linked_trip_id: int = 1,
         person_id: int = 1,
         hh_id: int = 1,
@@ -289,13 +305,14 @@ class DaysimTestDataBuilder:
         transit_access: AccessEgressMode | None = None,
         transit_egress: AccessEgressMode | None = None,
         num_travelers: int = 1,
-        distance_miles: float = 0.5,
+        distance_meters: float = 5.0,
         **overrides,
     ) -> dict:
         """Create a complete canonical unlinked trip record.
 
         Args:
             trip_id: Trip ID
+            tour_id: Tour ID
             linked_trip_id: Linked trip ID this unlinked trip belongs to
             person_id: Person ID
             hh_id: Household ID
@@ -316,7 +333,7 @@ class DaysimTestDataBuilder:
             transit_access: Transit access mode (for transit trips)
             transit_egress: Transit egress mode (for transit trips)
             num_travelers: Number of travelers in vehicle
-            distance_miles: Trip distance in miles
+            distance_meters: Trip distance in meters
             **overrides: Override any default values
 
         Returns:
@@ -330,6 +347,7 @@ class DaysimTestDataBuilder:
             "person_num": person_num,
             "day_num": day_num,
             "trip_num": trip_num,
+            "tour_id": tour_id,
             "depart_time": depart_time,
             "arrive_time": arrive_time,
             "origin_lat": origin_lat,
@@ -344,8 +362,8 @@ class DaysimTestDataBuilder:
             "transit_access": transit_access.value if transit_access else None,
             "transit_egress": transit_egress.value if transit_egress else None,
             "num_travelers": num_travelers,
-            "distance_miles": distance_miles,
-            "weight": 1.0,
+            "distance_meters": distance_meters,
+            "trip_weight": 1.0,
             **overrides,
         }
 
@@ -376,9 +394,11 @@ class DaysimTestDataBuilder:
         mode_type: ModeType = ModeType.CAR,
         driver: Driver = Driver.DRIVER,
         num_travelers: int = 1,
-        distance_miles: float = 5.0,
+        distance_meters: float = 8046.72,
         num_unlinked_trips: int = 1,
         tour_direction: int = 1,  # 1=OUTBOUND, 2=INBOUND
+        access_mode: AccessEgressMode | None = None,
+        egress_mode: AccessEgressMode | None = None,
         **overrides,
     ) -> dict:
         """Create a complete canonical linked trip record.
@@ -409,9 +429,11 @@ class DaysimTestDataBuilder:
             mode_type: Aggregated mode type enum
             driver: Driver status
             num_travelers: Number of travelers
-            distance_miles: Trip distance
+            distance_meters: Trip distance
             num_unlinked_trips: Number of component unlinked trips
             tour_direction: Tour direction (1=OUTBOUND, 2=INBOUND)
+            access_mode: Transit access mode (for transit trips)
+            egress_mode: Transit egress mode (for transit trips)
             **overrides: Override any default values
 
         Returns:
@@ -446,11 +468,12 @@ class DaysimTestDataBuilder:
             "mode_type": mode_type.value,
             "driver": driver.value,
             "num_travelers": num_travelers,
-            "distance_miles": distance_miles,
-            "distance_meters": distance_miles * 1609.34,  # miles to meters
+            "distance_meters": distance_meters,
             "num_unlinked_trips": num_unlinked_trips,
             "tour_direction": tour_direction,
-            "weight": 1.0,
+            "access_mode": access_mode.value if access_mode else None,
+            "egress_mode": egress_mode.value if egress_mode else None,
+            "linked_trip_weight": 1.0,
             **overrides,
         }
 
@@ -477,7 +500,7 @@ class DaysimTestDataBuilder:
         num_trips: int = 2,
         origin_linked_trip_id: int | None = None,
         dest_linked_trip_id: int | None = None,
-        parent_tour_id: int | None = None,
+        parent_tour_id: int = 1,
         **overrides,
     ) -> dict:
         """Create a complete canonical tour record.
@@ -543,6 +566,9 @@ class DaysimTestDataBuilder:
             "origin_linked_trip_id": origin_linked_trip_id,
             "dest_linked_trip_id": dest_linked_trip_id,
             "parent_tour_id": parent_tour_id,
+            "tour_category": TourCategory.COMPLETE.value,
+            "tour_data_quality": TourDataQuality.VALID.value,
+            "tour_weight": 1.0,
             **overrides,
         }
 
@@ -605,7 +631,7 @@ class DaysimScenarioBuilder:
                     mode=Mode.HOUSEHOLD_VEHICLE_1,
                     driver=Driver.DRIVER,
                     num_travelers=1,
-                    distance_miles=10.0,
+                    distance_meters=1000.0,
                 ),
                 DaysimTestDataBuilder.create_linked_trip(
                     linked_trip_id=2,
@@ -622,7 +648,7 @@ class DaysimScenarioBuilder:
                     mode=Mode.HOUSEHOLD_VEHICLE_1,
                     driver=Driver.DRIVER,
                     num_travelers=1,
-                    distance_miles=10.0,
+                    distance_meters=1000.0,
                 ),
             ]
         )
@@ -706,7 +732,7 @@ class DaysimScenarioBuilder:
                     mode_type=ModeType.TRANSIT,
                     driver=Driver.MISSING,
                     num_travelers=1,
-                    distance_miles=15.0,
+                    distance_meters=15000.0,
                 ),
                 DaysimTestDataBuilder.create_linked_trip(
                     linked_trip_id=2,
@@ -724,7 +750,7 @@ class DaysimScenarioBuilder:
                     mode_type=ModeType.TRANSIT,
                     driver=Driver.MISSING,
                     num_travelers=1,
-                    distance_miles=15.0,
+                    distance_meters=15000.0,
                 ),
             ]
         )

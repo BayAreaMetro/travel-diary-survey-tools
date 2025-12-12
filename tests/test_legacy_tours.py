@@ -40,8 +40,9 @@ from data_canon.codebook.persons import (
     Student,
 )
 from data_canon.codebook.tours import TourType
-from data_canon.codebook.trips import ModeType, PurposeCategory
+from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
 from processing.formatting.daysim.mappings import PURPOSE_MAP
+from processing.link import link_trips
 from processing.tours.extraction import extract_tours
 from tests.fixtures.tour_test_data import ScenarioBuilder
 
@@ -88,6 +89,12 @@ MODE_MAP_NEW = {
     "transit": ModeType.TRANSIT,
     "school_bus": ModeType.SCHOOL_BUS,
 }
+
+TRANSIT_MODE_CODES = [
+    ModeType.TRANSIT.value,
+    ModeType.FERRY.value,
+    ModeType.LONG_DISTANCE.value,
+]
 
 
 def create_households_from_persons(persons_df: pl.DataFrame) -> pl.DataFrame:
@@ -373,6 +380,11 @@ def mode_hierarchy_data():
             "o_lon": [home_coords[1], work_coords[1]],
             "d_lat": [work_coords[0], home_coords[0]],
             "d_lon": [work_coords[1], home_coords[1]],
+            "distance_meters": [10000, 10000],
+            "duration_minutes": [60, 30],
+            "num_travelers": [1, 1],
+            "driver": [Driver.MISSING.value, Driver.DRIVER.value],
+            "trip_weight": [1.0, 1.0],
         }
     )
 
@@ -408,7 +420,20 @@ def test_simple_work_tour(simple_work_tour_data):
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours_new = result["tours"]
 
     # Compare tour counts
@@ -460,20 +485,33 @@ def test_work_tour_with_subtour(work_tour_with_subtour_data):
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
-    tours = result["tours"]
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
+    tours_new = result["tours"]
 
     # Compare tour counts
-    assert len(tours) == len(tours_legacy), (
-        f"Tour count mismatch: new={len(tours)}, legacy={len(tours_legacy)}"
+    assert len(tours_new) == len(tours_legacy), (
+        f"Tour count mismatch: new={len(tours_new)}, legacy={len(tours_legacy)}"
     )
-    assert len(tours) == expected["num_tours"], (
-        f"Expected {expected['num_tours']} tours total, got {len(tours)}"
+    assert len(tours_new) == expected["num_tours"], (
+        f"Expected {expected['num_tours']} tours total, got {len(tours_new)}"
     )
 
     # Check tour types
-    hb_tours = tours.filter(pl.col("tour_category") == TourType.HOME_BASED)
-    wb_tours = tours.filter(pl.col("tour_category") == TourType.WORK_BASED)
+    hb_tours = tours_new.filter(pl.col("tour_category") == TourType.HOME_BASED)
+    wb_tours = tours_new.filter(pl.col("tour_category") == TourType.WORK_BASED)
 
     assert len(hb_tours) == expected["num_hb_tours"], (
         f"Expected {expected['num_hb_tours']} home-based tours, "
@@ -528,7 +566,20 @@ def test_multiple_tours_same_day(multiple_tours_data):
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours = result["tours"]
 
     # Compare tour counts
@@ -576,7 +627,20 @@ def test_mode_hierarchy(mode_hierarchy_data):
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours = result["tours"]
 
     # Compare tour counts
@@ -727,6 +791,16 @@ def test_tour_timing():
                 work_coords[1],
                 home_coords[1],
             ],
+            "distance_meters": [15000, 500, 500, 15000],
+            "duration_minutes": [30, 15, 30, 30],
+            "num_travelers": [1, 1, 1, 1],
+            "driver": [
+                Driver.DRIVER.value,
+                Driver.MISSING.value,
+                Driver.MISSING.value,
+                Driver.DRIVER.value,
+            ],
+            "trip_weight": [1.0, 1.0, 1.0, 1.0],
         }
     )
 
@@ -738,7 +812,20 @@ def test_tour_timing():
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours = result["tours"]
 
     # Compare tour counts - should find 1 HB tour + 1 WB subtour
@@ -858,6 +945,11 @@ def test_tour_trip_counts():
             "o_lon": [home_coords[1], -122.41, -122.42, work_coords[1]],
             "d_lat": [37.71, 37.72, work_coords[0], home_coords[0]],
             "d_lon": [-122.41, -122.42, work_coords[1], home_coords[1]],
+            "distance_meters": [5000, 3000, 10000, 15000],
+            "duration_minutes": [15, 15, 30, 30],
+            "num_travelers": [1, 1, 1, 1],
+            "driver": [Driver.DRIVER.value] * 4,
+            "trip_weight": [1.0, 1.0, 1.0, 1.0],
         }
     )
 
@@ -869,7 +961,20 @@ def test_tour_trip_counts():
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours = result["tours"]
 
     # Compare tour counts
@@ -953,6 +1058,15 @@ def test_incomplete_tour_at_end_of_day():
             "o_lon": [home_coords[1], work_coords[1], home_coords[1]],
             "d_lat": [work_coords[0], home_coords[0], work_coords[0]],
             "d_lon": [work_coords[1], home_coords[1], work_coords[1]],
+            "distance_meters": [15000, 15000, 15000],
+            "duration_minutes": [60, 30, 60],
+            "num_travelers": [1, 1, 1],
+            "driver": [
+                Driver.DRIVER.value,
+                Driver.DRIVER.value,
+                Driver.DRIVER.value,
+            ],
+            "trip_weight": [1.0, 1.0, 1.0],
         }
     )
 
@@ -964,7 +1078,20 @@ def test_incomplete_tour_at_end_of_day():
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours = result["tours"]
 
     # Legacy only counts complete tours (should be 1)
@@ -1032,6 +1159,14 @@ def test_no_work_location():
             "o_lon": [home_coords[1], work_coords[1]],
             "d_lat": [work_coords[0], home_coords[0]],
             "d_lon": [work_coords[1], home_coords[1]],
+            "distance_meters": [15000, 15000],
+            "duration_minutes": [
+                60,
+                30,
+            ],  # Add duration_minutes required by link_trips
+            "num_travelers": [1, 1],
+            "driver": [Driver.DRIVER.value, Driver.DRIVER.value],
+            "trip_weight": [1.0, 1.0],
         }
     )
 
@@ -1043,7 +1178,20 @@ def test_no_work_location():
 
     # Run new implementation
     households = create_households_from_persons(persons)
-    result = extract_tours(persons, households, trips)
+
+    # Link trips first
+    link_result = link_trips(
+        unlinked_trips=trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=TRANSIT_MODE_CODES,
+    )
+    unlinked_trips_with_ids = link_result["unlinked_trips"]
+    linked_trips = link_result["linked_trips"]
+
+    # Extract tours using both unlinked and linked trips
+    result = extract_tours(
+        persons, households, unlinked_trips_with_ids, linked_trips
+    )
     tours = result["tours"]
 
     # Compare tour counts

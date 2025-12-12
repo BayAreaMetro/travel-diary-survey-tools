@@ -12,22 +12,23 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from data_canon.codebook.trips import ModeType, PurposeCategory
+from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
+from processing.link import link_trips
 from processing.tours.extraction import extract_tours
 
 
 def create_test_data(
     person_data: dict,
-    linked_trips_data: list[dict],
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    unlinked_trips_data: list[dict],
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Create minimal test data for tour extraction.
 
     Args:
         person_data: Dictionary with person attributes
-        linked_trips_data: List of trip dictionaries with required fields
+        unlinked_trips_data: List of trip dictionaries with required fields
 
     Returns:
-        Tuple of (persons, households, linked_trips) DataFrames
+        Tuple of (persons, households, linked_trips, unlinked_trips) DataFrames
     """
     # Set defaults for required person fields
     person_defaults = {
@@ -58,23 +59,31 @@ def create_test_data(
     )
 
     # Create linked_trips DataFrame
-    linked_trips = pl.DataFrame(linked_trips_data)
+    unlinked_trips = pl.DataFrame(unlinked_trips_data)
 
-    return persons, households, linked_trips
+    unlinked_trips, linked_trips = link_trips(
+        unlinked_trips,
+        change_mode_code=11,  # Purpose code for 'change_mode'
+        transit_mode_codes=[12, 13, 14],
+        max_dwell_time=180,  # in minutes
+        dwell_buffer_distance=100,  # in meters
+    ).values()
+
+    return persons, households, unlinked_trips, linked_trips
 
 
 def test_duration_tiebreaker_equal_priority():
     """When destinations have equal priority, select longest duration."""
     # Create sample trips with equal priority destinations
-    persons, households, linked_trips = create_test_data(
+    persons, households, unlinked_trips, linked_trips = create_test_data(
         person_data={
             "person_id": 100,
             "hh_id": 10,
             "person_type": PersonType.FULL_TIME_WORKER.value,
         },
-        linked_trips_data=[
+        unlinked_trips_data=[
             {
-                "linked_trip_id": 1,
+                "trip_id": 1,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -85,12 +94,17 @@ def test_duration_tiebreaker_equal_priority():
                 "o_lon": -122.4194,  # Home
                 "d_lat": 37.7850,
                 "d_lon": -122.4000,  # First destination
+                "distance_meters": 2000,
+                "duration_minutes": 30,
                 "o_purpose_category": PurposeCategory.HOME.value,
                 "d_purpose_category": PurposeCategory.ERRAND.value,
                 "mode_type": ModeType.CAR.value,
+                "num_travelers": 1,
+                "driver": Driver.DRIVER.value,
+                "trip_weight": 1.0,
             },
             {
-                "linked_trip_id": 2,
+                "trip_id": 2,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -102,12 +116,17 @@ def test_duration_tiebreaker_equal_priority():
                 "o_lon": -122.4000,  # First destination
                 "d_lat": 37.7950,
                 "d_lon": -122.4100,  # Second destination
+                "distance_meters": 2000,
+                "duration_minutes": 30,
                 "o_purpose_category": PurposeCategory.ERRAND.value,
                 "d_purpose_category": PurposeCategory.ERRAND.value,
                 "mode_type": ModeType.CAR.value,
+                "num_travelers": 1,
+                "driver": Driver.DRIVER.value,
+                "trip_weight": 1.0,
             },
             {
-                "linked_trip_id": 3,
+                "trip_id": 3,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -119,14 +138,18 @@ def test_duration_tiebreaker_equal_priority():
                 "o_lon": -122.4100,  # Second destination
                 "d_lat": 37.7749,
                 "d_lon": -122.4194,  # Home
+                "distance_meters": 3000,
+                "duration_minutes": 30,
                 "o_purpose_category": PurposeCategory.ERRAND.value,
                 "d_purpose_category": PurposeCategory.HOME.value,
                 "mode_type": ModeType.CAR.value,
+                "driver": Driver.DRIVER.value,
+                "num_travelers": 1,
+                "trip_weight": 1.0,
             },
         ],
     )
-
-    result = extract_tours(persons, households, linked_trips)
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
 
     # Should have 1 tour
     assert len(result["tours"]) == 1
@@ -144,15 +167,15 @@ def test_duration_tiebreaker_equal_priority():
 def test_duration_tiebreaker_different_priority():
     """Priority wins over duration when priorities differ."""
     # Create sample trips with different priorities
-    persons, households, linked_trips = create_test_data(
+    persons, households, unlinked_trips, linked_trips = create_test_data(
         person_data={
             "person_id": 100,
             "hh_id": 10,
             "person_type": PersonType.FULL_TIME_WORKER.value,
         },
-        linked_trips_data=[
+        unlinked_trips_data=[
             {
-                "linked_trip_id": 1,
+                "trip_id": 1,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -166,9 +189,14 @@ def test_duration_tiebreaker_different_priority():
                 "o_purpose_category": PurposeCategory.HOME.value,
                 "d_purpose_category": PurposeCategory.WORK.value,
                 "mode_type": ModeType.CAR.value,
+                "distance_meters": 2000,
+                "duration_minutes": 30,
+                "num_travelers": 1,
+                "driver": Driver.DRIVER.value,
+                "trip_weight": 1.0,
             },
             {
-                "linked_trip_id": 2,
+                "trip_id": 2,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -183,9 +211,14 @@ def test_duration_tiebreaker_different_priority():
                 "o_purpose_category": PurposeCategory.WORK.value,
                 "d_purpose_category": PurposeCategory.SHOP.value,
                 "mode_type": ModeType.CAR.value,
+                "distance_meters": 2000,
+                "duration_minutes": 30,
+                "num_travelers": 1,
+                "driver": Driver.DRIVER.value,
+                "trip_weight": 1.0,
             },
             {
-                "linked_trip_id": 3,
+                "trip_id": 3,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -199,11 +232,16 @@ def test_duration_tiebreaker_different_priority():
                 "o_purpose_category": PurposeCategory.SHOP.value,
                 "d_purpose_category": PurposeCategory.HOME.value,
                 "mode_type": ModeType.CAR.value,
+                "distance_meters": 3000,
+                "duration_minutes": 30,
+                "num_travelers": 1,
+                "driver": Driver.DRIVER.value,
+                "trip_weight": 1.0,
             },
         ],
     )
 
-    result = extract_tours(persons, households, linked_trips)
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
 
     # Tour purpose should be work (priority 1) regardless of duration
     tour = result["tours"].row(0, named=True)
@@ -212,7 +250,7 @@ def test_duration_tiebreaker_different_priority():
 
 def test_activity_duration_last_trip():
     """Last trip of day should get default 240 minute duration."""
-    persons, households, linked_trips = create_test_data(
+    persons, households, unlinked_trips, linked_trips = create_test_data(
         person_data={
             "person_id": 101,
             "hh_id": 10,
@@ -222,9 +260,9 @@ def test_activity_duration_last_trip():
             "school_type": SchoolType.MISSING.value,
             "student": Student.NONSTUDENT.value,
         },
-        linked_trips_data=[
+        unlinked_trips_data=[
             {
-                "linked_trip_id": 1010101,
+                "trip_id": 1010101,
                 "day_id": 10101,
                 "person_id": 101,
                 "hh_id": 10,
@@ -238,9 +276,14 @@ def test_activity_duration_last_trip():
                 "o_purpose_category": PurposeCategory.HOME.value,
                 "d_purpose_category": PurposeCategory.WORK.value,
                 "mode_type": ModeType.CAR.value,
+                "distance_meters": 10000,
+                "duration_minutes": 60,
+                "num_travelers": 1,
+                "driver": Driver.DRIVER.value,
+                "trip_weight": 1.0,
             },
             {
-                "linked_trip_id": 1010102,
+                "trip_id": 1010102,
                 "day_id": 10101,
                 "person_id": 101,
                 "hh_id": 10,
@@ -254,11 +297,16 @@ def test_activity_duration_last_trip():
                 "o_purpose_category": PurposeCategory.WORK.value,
                 "d_purpose_category": PurposeCategory.HOME.value,
                 "mode_type": ModeType.CAR.value,
+                "distance_meters": 10000,
+                "duration_minutes": 60,
+                "num_travelers": 1,
+                "driver": Driver.DRIVER.value,
+                "trip_weight": 1.0,
             },
         ],
     )
 
-    result = extract_tours(persons, households, linked_trips)
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
 
     # This should not error - last trip gets default duration
     assert len(result["tours"]) == 1

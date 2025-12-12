@@ -21,7 +21,7 @@ import polars as pl
 from utils.helpers import expr_haversine
 
 # Registry of custom validators
-# Format: {table_name: [check_function1, check_function2, ...]}  # noqa: ERA001
+# Format: {table_name: [check_function1, check_function2, ...]}
 # Each check function should return list[str] of error messages
 CUSTOM_VALIDATORS: dict[str, list[Callable]] = {
     "households": [],

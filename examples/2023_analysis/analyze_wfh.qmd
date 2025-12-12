@@ -779,7 +779,66 @@ print(commute_freq_summary.filter(pl.col("year") == "2023").drop("commute_freq_c
 ### Combined Telework and Commute Frequency Distribution
 
 ```{python}
-#| label: fig-freq-shift-plot
+#| label: fig-freq-shift-bar-plot
+#| fig-cap: "Telework and Commute Frequency Distribution: 2019 vs 2023"
+
+# Define consistent colors for years
+year_colors = {
+    "2019": "#1f77b4",  # Blue
+    "2023": "#ff7f0e"   # Orange
+}
+
+# Filter out missing responses
+telework_plot_data = telework_freq_summary.filter(
+    pl.col("telework_freq_str") != "Missing Response"
+)
+
+commute_plot_data = commute_freq_summary.filter(
+    pl.col("commute_freq_str") != "Missing Response"
+)
+
+# Create subplots
+fig = make_subplots(
+    rows=1, cols=2,
+    subplot_titles=("Telework Frequency", "Commute Frequency")
+)
+
+# Add telework bars
+for year in ["2019", "2023"]:
+    data = telework_plot_data.filter(pl.col("year") == year).sort("telework_freq_cat")
+    fig.add_trace(
+        go.Bar(
+            x=data["telework_freq_str"].to_list(),
+            y=data["% (wtd)"].to_list(),
+            name=year,
+            marker_color=year_colors[year],
+        ),
+        row=1, col=1
+    )
+
+# Add commute bars
+for year in ["2019", "2023"]:
+    data = commute_plot_data.filter(pl.col("year") == year).sort("commute_freq_cat")
+    fig.add_trace(
+        go.Bar(
+            x=data["commute_freq_str"].to_list(),
+            y=data["% (wtd)"].to_list(),
+            name=year,
+            marker_color=year_colors[year],
+            showlegend=False,
+        ),
+        row=1, col=2
+    )
+
+fig.update_yaxes(title_text="% (Weighted)")
+fig.update_xaxes(tickangle=45)
+fig.update_layout(height=500, barmode="group", title_text="Work Pattern Comparison: 2019 vs 2023")
+fig.show()
+
+```
+
+```{python}
+#| label: fig-freq-shift-point-plot
 #| fig-cap: "Shift in Telework and Commute Frequency: 2019 vs 2023"
 # Create simple shift plots
 # Create color mapping for consistent colors across both plots
@@ -856,6 +915,105 @@ max_val = max_val = max(
 fig.update_xaxes(tickvals=[2019, 2023])
 fig.update_yaxes(title_text="% (Weighted)", range=[0, max_val * 1.1])
 fig.update_layout(height=500, title_text="Work Pattern Changes: 2019 to 2023")
+fig.show()
+```
+
+```{python}
+#| label: fig-telework-commute-diverging
+#| fig-cap: "Change in Telework and Commute Frequency: 2019 vs 2023"
+
+# Pivot telework data
+telework_pivot = (
+    telework_plot_data
+    .pivot(index=["telework_freq_str", "telework_freq_cat"], on="year", values="% (wtd)")
+    .sort("telework_freq_cat", descending=True)
+)
+
+# Pivot commute data
+commute_pivot = (
+    commute_plot_data
+    .pivot(index=["commute_freq_str", "commute_freq_cat"], on="year", values="% (wtd)")
+    .sort("commute_freq_cat", descending=True)
+)
+
+# Colors
+telework_2019_color = 'rgba(31, 119, 180, 0.5)'  # Light blue
+telework_2023_color = '#1f77b4'  # Full blue
+commute_2019_color = 'rgba(255, 127, 14, 0.5)'  # Light orange
+commute_2023_color = '#ff7f0e'  # Full orange
+
+fig = go.Figure()
+
+# Commute 2019 (left side)
+fig.add_trace(go.Bar(
+    y=commute_pivot["commute_freq_str"],
+    x=-commute_pivot["2019"],
+    name="2019",
+    orientation='h',
+    marker_color=commute_2019_color,
+    text=commute_pivot["2019"].round(1),
+    texttemplate='%{text}%',
+    textposition='inside',
+    offsetgroup=0,
+    legendgroup='2019',
+))
+
+# Commute 2023 (left side, dodged)
+fig.add_trace(go.Bar(
+    y=commute_pivot["commute_freq_str"],
+    x=-commute_pivot["2023"],
+    name="2023",
+    orientation='h',
+    marker_color=commute_2023_color,
+    text=commute_pivot["2023"].round(1),
+    texttemplate='%{text}%',
+    textposition='inside',
+    offsetgroup=1,
+    legendgroup='2023',
+))
+
+# Telework 2019 (right side)
+fig.add_trace(go.Bar(
+    y=telework_pivot["telework_freq_str"],
+    x=telework_pivot["2019"],
+    name="2019",
+    orientation='h',
+    marker_color=telework_2019_color,
+    text=telework_pivot["2019"].round(1),
+    texttemplate='%{text}%',
+    textposition='inside',
+    offsetgroup=0,
+    legendgroup='2019',
+    showlegend=False,
+))
+
+# Telework 2023 (right side, dodged)
+fig.add_trace(go.Bar(
+    y=telework_pivot["telework_freq_str"],
+    x=telework_pivot["2023"],
+    name="2023",
+    orientation='h',
+    marker_color=telework_2023_color,
+    text=telework_pivot["2023"].round(1),
+    texttemplate='%{text}%',
+    textposition='inside',
+    offsetgroup=1,
+    legendgroup='2023',
+    showlegend=False,
+))
+
+fig.update_layout(
+    title="Commute vs Telework Frequency: 2019 vs 2023",
+    xaxis_title="← Commute Frequency | Telework Frequency →<br>% of Employed Persons (Weighted)",
+    yaxis_title="",
+    barmode='group',
+    height=600,
+    xaxis=dict(
+        tickvals=[-40, -30, -20, -10, 0, 10, 20, 30, 40],
+        ticktext=['40%', '30%', '20%', '10%', '0', '10%', '20%', '30%', '40%']
+    )
+)
+
 fig.show()
 ```
 

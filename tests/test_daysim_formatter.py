@@ -16,7 +16,12 @@ from data_canon.codebook.daysim import (
     DaysimPathType,
     DaysimPurpose,
 )
-from data_canon.codebook.households import IncomeDetailed, IncomeFollowup
+from data_canon.codebook.households import (
+    IncomeDetailed,
+    IncomeFollowup,
+    ResidenceRentOwn,
+    ResidenceType,
+)
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
@@ -25,7 +30,12 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from data_canon.codebook.trips import Driver, Mode, ModeType, PurposeCategory
+from data_canon.codebook.trips import (
+    Driver,
+    Mode,
+    ModeType,
+    PurposeCategory,
+)
 from processing.formatting.daysim.format_daysim import format_daysim
 from processing.formatting.daysim.format_households import format_households
 from processing.formatting.daysim.format_persons import (
@@ -187,13 +197,30 @@ class TestPersonFormatting:
                     employment=Employment.EMPLOYED_FULLTIME,
                     age=AgeCategory.AGE_35_TO_44,
                     age_years=40,
+                    work_mode=Mode.HOUSEHOLD_VEHICLE_1,
                     work_taz=200,
                     work_maz=2000,
+                    is_proxy=False,
+                    num_days_complete=1,
                 )
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.MONDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert len(result) == 1
         assert result["hhno"][0] == 1
@@ -218,11 +245,28 @@ class TestPersonFormatting:
                     age_years=30,
                     work_taz=200,
                     work_maz=2000,
+                    work_mode=Mode.HOUSEHOLD_VEHICLE_1,
+                    is_proxy=False,
+                    num_days_complete=1,
                 )
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.TUESDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result["pptyp"][0] == PersonType.PART_TIME_WORKER.value
         assert result["pwtyp"][0] == 2  # Part-time worker
@@ -247,11 +291,28 @@ class TestPersonFormatting:
                     school_taz=300,
                     school_maz=3000,
                     school_type=SchoolType.COLLEGE_4YEAR,
+                    work_mode=Mode.MISSING,
+                    is_proxy=False,
+                    num_days_complete=1,
                 )
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.WEDNESDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result["pptyp"][0] == PersonType.UNIVERSITY_STUDENT.value
         assert result["pwtaz"][0] == -1  # No work location
@@ -278,11 +339,28 @@ class TestPersonFormatting:
                     school_taz=150,
                     school_maz=1500,
                     school_type=SchoolType.HIGH_SCHOOL,
+                    work_mode=Mode.MISSING,
+                    is_proxy=False,
+                    num_days_complete=1,
                 )
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.THURSDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result["pptyp"][0] == PersonType.HIGH_SCHOOL_STUDENT.value
         assert result["pstaz"][0] == 150
@@ -305,11 +383,28 @@ class TestPersonFormatting:
                     work_lon=None,
                     work_taz=None,
                     work_maz=None,
+                    work_mode=Mode.MISSING,
+                    is_proxy=False,
+                    num_days_complete=1,
                 )
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.FRIDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result["pptyp"][0] == PersonType.RETIRED.value
         assert result["pwtaz"][0] == -1
@@ -335,7 +430,21 @@ class TestPersonFormatting:
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.SATURDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result["pptyp"][0] == PersonType.NON_WORKER.value
 
@@ -360,7 +469,21 @@ class TestPersonFormatting:
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.SUNDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result["pptyp"][0] == PersonType.CHILD_5_15.value
         assert result["pagey"][0] == 10
@@ -386,7 +509,21 @@ class TestPersonFormatting:
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.MONDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result["pptyp"][0] == PersonType.CHILD_UNDER_5.value
         assert result["pagey"][0] == 3
@@ -404,30 +541,68 @@ class TestPersonFormatting:
             ]
         )
 
-        day_completeness = pl.DataFrame(
+        days = pl.DataFrame(
             [
-                {
-                    "hhno": 1,
-                    "pno": 1,
-                    "mon_complete": 1,
-                    "tue_complete": 1,
-                    "wed_complete": 1,
-                    "thu_complete": 0,
-                    "fri_complete": 0,
-                    "sat_complete": 0,
-                    "sun_complete": 0,
-                    "num_days_complete_3dayweekday": 2,
-                    "num_days_complete_4dayweekday": 3,
-                    "num_days_complete_5dayweekday": 3,
-                }
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.MONDAY,
+                    is_complete=True,
+                ),
+                DaysimTestDataBuilder.create_day(
+                    day_id=2,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=2,
+                    travel_dow=TravelDow.TUESDAY,
+                    is_complete=True,
+                ),
+                DaysimTestDataBuilder.create_day(
+                    day_id=3,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=3,
+                    travel_dow=TravelDow.WEDNESDAY,
+                    is_complete=True,
+                ),
+                DaysimTestDataBuilder.create_day(
+                    day_id=4,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=4,
+                    travel_dow=TravelDow.THURSDAY,
+                    is_complete=False,
+                ),
+                DaysimTestDataBuilder.create_day(
+                    day_id=5,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=5,
+                    travel_dow=TravelDow.FRIDAY,
+                    is_complete=False,
+                ),
             ]
         )
 
-        result = format_persons(persons, day_completeness)
+        result = format_persons(persons, days)
 
         assert "mon_complete" in result.columns
         assert result["mon_complete"][0] == 1
+        assert result["tue_complete"][0] == 1
+        assert result["wed_complete"][0] == 1
+        # Because Thu is incomplete, only 2 complete days in Tue-Wed-Thu
         assert result["num_days_complete_3dayweekday"][0] == 2
+        # Because Thu and Fri are incomplete, only 3 complete days in Mon-Thu
+        assert result["num_days_complete_4dayweekday"][0] == 3
+        # Because Thu and Fri are incomplete, only 3 complete days in Mon-Fri
+        assert result["num_days_complete_5dayweekday"][0] == 3
 
     def test_format_persons_gender_mapping(self):
         """Test gender code mapping."""
@@ -450,7 +625,30 @@ class TestPersonFormatting:
             ]
         )
 
-        result = format_persons(persons, day_completeness=None)
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.MONDAY,
+                    is_complete=True,
+                ),
+                DaysimTestDataBuilder.create_day(
+                    day_id=2,
+                    person_id=102,
+                    hh_id=1,
+                    person_num=2,
+                    day_num=1,
+                    travel_dow=TravelDow.MONDAY,
+                    is_complete=True,
+                ),
+            ]
+        )
+
+        result = format_persons(persons, days)
 
         assert result.filter(pl.col("pno") == 1)["pgend"][0] == 1  # Male
         assert result.filter(pl.col("pno") == 2)["pgend"][0] == 2  # Female
@@ -469,20 +667,40 @@ class TestHouseholdFormatting:
                     home_maz=1000,
                     vehicles=1,
                     income_detailed=IncomeDetailed.INCOME_75TO100,
+                    residence_rent_own=ResidenceRentOwn.OWN,
+                    residence_type=ResidenceType.SFH,
+                    num_workers=1,
                 )
             ]
         )
 
-        persons_daysim = pl.DataFrame(
+        # Create persons table, then format to get persons_daysim
+        persons = pl.DataFrame(
             [
-                {
-                    "hhno": 1,
-                    "pno": 1,
-                    "pptyp": PersonType.FULL_TIME_WORKER.value,
-                    "pwtyp": 1,
-                }
+                DaysimTestDataBuilder.create_person(
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    person_type=PersonType.FULL_TIME_WORKER,
+                )
             ]
         )
+
+        days = pl.DataFrame(
+            [
+                DaysimTestDataBuilder.create_day(
+                    day_id=1,
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    day_num=1,
+                    travel_dow=TravelDow.MONDAY,
+                    is_complete=True,
+                )
+            ]
+        )
+
+        persons_daysim = format_persons(persons, days)
 
         result = format_households(households, persons_daysim)
 
@@ -956,6 +1174,7 @@ class TestTourFormatting:
             [
                 DaysimTestDataBuilder.create_tour(
                     tour_id=1,
+                    parent_tour_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -1009,6 +1228,7 @@ class TestTourFormatting:
             [
                 DaysimTestDataBuilder.create_tour(
                     tour_id=1,
+                    parent_tour_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -1057,6 +1277,7 @@ class TestTourFormatting:
             [
                 DaysimTestDataBuilder.create_tour(
                     tour_id=1,
+                    parent_tour_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,

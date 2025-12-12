@@ -4,6 +4,7 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
 from data_canon.models.survey import PersonDayModel
 from pipeline.decoration import step
 from utils.helpers import add_time_columns, expr_haversine
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 @step()
 def clean_2023_bats(
-    # households: pl.DataFrame,
+    households: pl.DataFrame,
     persons: pl.DataFrame,
     days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
@@ -127,4 +128,31 @@ def clean_2023_bats(
     # Add dummy days to days dataframe
     days = pl.concat([days, dummy_days], how="diagonal")
 
-    return {"unlinked_trips": unlinked_trips, "days": days}
+    # Move residence type and residence rent/own from persons to households
+    # Extract household-level attributes from persons table
+    # Only one person reports residence_rent_own and residence_type
+    hh_attributes = persons.group_by("hh_id").agg(
+        pl.col("residence_rent_own")
+        .filter(
+            ~pl.col("residence_rent_own").is_in(
+                [ResidenceRentOwn.MISSING.value, ResidenceRentOwn.PNTA.value]
+            )
+        )
+        .mode()
+        .first()
+        .fill_null(-1),
+        pl.col("residence_type")
+        .filter(pl.col("residence_type") != ResidenceType.MISSING.value)
+        .mode()
+        .first()
+        .fill_null(-1),
+    )
+    # Join to households
+    households = households.join(hh_attributes, on="hh_id", how="left")
+
+    return {
+        "households": households,
+        "persons": persons,
+        "unlinked_trips": unlinked_trips,
+        "days": days,
+    }

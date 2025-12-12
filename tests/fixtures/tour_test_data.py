@@ -17,7 +17,7 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from data_canon.codebook.trips import ModeType, PurposeCategory
+from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 
 
 class TestDataBuilder:
@@ -160,18 +160,22 @@ class TestDataBuilder:
         day_id: int = 2,
         depart_time: datetime = datetime(2024, 1, 1, 8, 0),
         arrive_time: datetime = datetime(2024, 1, 1, 9, 0),
-        o_purpose: PurposeCategory = PurposeCategory.HOME,
-        d_purpose: PurposeCategory = PurposeCategory.WORK,
+        o_purpose_category: PurposeCategory = PurposeCategory.HOME,
+        d_purpose_category: PurposeCategory = PurposeCategory.WORK,
         mode: ModeType = ModeType.CAR,
         o_lat: float = 37.70,
         o_lon: float = -122.40,
         d_lat: float = 37.75,
         d_lon: float = -122.45,
+        num_travelers: int = 1,
+        driver: int = Driver.DRIVER.value,
         **overrides,
     ) -> dict:
         """Create a minimal but complete trip record.
 
-        Includes ALL fields required by LinkedTripModel validation.
+        Includes ALL fields required by UnlinkedTripModel validation.
+        The detailed o_purpose/d_purpose fields are set to generic values
+        since tour extraction primarily uses purpose_category.
 
         Args:
             trip_id: Trip ID
@@ -180,13 +184,15 @@ class TestDataBuilder:
             day_id: Day ID
             depart_time: Departure datetime
             arrive_time: Arrival datetime
-            o_purpose: Origin purpose category
-            d_purpose: Destination purpose category
+            o_purpose_category: Origin purpose category
+            d_purpose_category: Destination purpose category
             mode: Mode type
             o_lat: Origin latitude
             o_lon: Origin longitude
             d_lat: Destination latitude
             d_lon: Destination longitude
+            num_travelers: Number of travelers on trip
+            driver: Driver status code
             **overrides: Override any default values
 
         Returns:
@@ -210,17 +216,20 @@ class TestDataBuilder:
             "arrive_hour": arrive_time.hour,
             "arrive_minute": arrive_time.minute,
             "arrive_seconds": 0,
-            "o_purpose_category": o_purpose.value,
-            "d_purpose_category": d_purpose.value,
-            "o_purpose": o_purpose.value,
-            "d_purpose": d_purpose.value,
+            "o_purpose_category": o_purpose_category.value,
+            "d_purpose_category": d_purpose_category.value,
+            # Detailed purpose - generic values since tests focus on category
+            "o_purpose": Purpose.MISSING.value,
+            "d_purpose": Purpose.MISSING.value,
             "mode_type": mode.value,
             "o_lat": o_lat,
             "o_lon": o_lon,
             "d_lat": d_lat,
             "d_lon": d_lon,
-            "distance_miles": 5.0,
+            "distance_meters": 5.0,
             "duration_minutes": duration_minutes,
+            "num_travelers": num_travelers,
+            "driver": driver,
             "trip_weight": 1.0,
             **overrides,
         }
@@ -267,8 +276,8 @@ class ScenarioBuilder:
                     trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
-                    o_purpose=PurposeCategory.HOME,
-                    d_purpose=PurposeCategory.WORK,
+                    o_purpose_category=PurposeCategory.HOME,
+                    d_purpose_category=PurposeCategory.WORK,
                     mode=ModeType.CAR,
                     o_lat=home[0],
                     o_lon=home[1],
@@ -280,8 +289,8 @@ class ScenarioBuilder:
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),
-                    o_purpose=PurposeCategory.WORK,
-                    d_purpose=PurposeCategory.HOME,
+                    o_purpose_category=PurposeCategory.WORK,
+                    d_purpose_category=PurposeCategory.HOME,
                     mode=ModeType.CAR,
                     o_lat=work[0],
                     o_lon=work[1],
@@ -334,8 +343,8 @@ class ScenarioBuilder:
                     trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
-                    o_purpose=PurposeCategory.HOME,
-                    d_purpose=PurposeCategory.WORK,
+                    o_purpose_category=PurposeCategory.HOME,
+                    d_purpose_category=PurposeCategory.WORK,
                     mode=ModeType.CAR,
                     o_lat=home[0],
                     o_lon=home[1],
@@ -347,8 +356,8 @@ class ScenarioBuilder:
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 12, 0),
                     arrive_time=datetime(2024, 1, 1, 12, 15),
-                    o_purpose=PurposeCategory.WORK,
-                    d_purpose=PurposeCategory.MEAL,
+                    o_purpose_category=PurposeCategory.WORK,
+                    d_purpose_category=PurposeCategory.MEAL,
                     mode=ModeType.WALK,
                     o_lat=work[0],
                     o_lon=work[1],
@@ -360,8 +369,8 @@ class ScenarioBuilder:
                     linked_trip_id=3,
                     depart_time=datetime(2024, 1, 1, 13, 0),
                     arrive_time=datetime(2024, 1, 1, 13, 15),
-                    o_purpose=PurposeCategory.MEAL,
-                    d_purpose=PurposeCategory.WORK,
+                    o_purpose_category=PurposeCategory.MEAL,
+                    d_purpose_category=PurposeCategory.WORK,
                     mode=ModeType.WALK,
                     o_lat=lunch[0],
                     o_lon=lunch[1],
@@ -373,8 +382,8 @@ class ScenarioBuilder:
                     linked_trip_id=4,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),
-                    o_purpose=PurposeCategory.WORK,
-                    d_purpose=PurposeCategory.HOME,
+                    o_purpose_category=PurposeCategory.WORK,
+                    d_purpose_category=PurposeCategory.HOME,
                     mode=ModeType.CAR,
                     o_lat=work[0],
                     o_lon=work[1],
@@ -425,8 +434,8 @@ class ScenarioBuilder:
                     trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
-                    o_purpose=PurposeCategory.HOME,
-                    d_purpose=PurposeCategory.WORK,
+                    o_purpose_category=PurposeCategory.HOME,
+                    d_purpose_category=PurposeCategory.WORK,
                     mode=ModeType.CAR,
                     o_lat=home[0],
                     o_lon=home[1],
@@ -438,8 +447,8 @@ class ScenarioBuilder:
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),
-                    o_purpose=PurposeCategory.WORK,
-                    d_purpose=PurposeCategory.HOME,
+                    o_purpose_category=PurposeCategory.WORK,
+                    d_purpose_category=PurposeCategory.HOME,
                     mode=ModeType.CAR,
                     o_lat=work[0],
                     o_lon=work[1],
@@ -451,8 +460,8 @@ class ScenarioBuilder:
                     linked_trip_id=3,
                     depart_time=datetime(2024, 1, 1, 18, 0),
                     arrive_time=datetime(2024, 1, 1, 18, 15),
-                    o_purpose=PurposeCategory.HOME,
-                    d_purpose=PurposeCategory.SHOP,
+                    o_purpose_category=PurposeCategory.HOME,
+                    d_purpose_category=PurposeCategory.SHOP,
                     mode=ModeType.WALK,
                     o_lat=home[0],
                     o_lon=home[1],
@@ -464,8 +473,8 @@ class ScenarioBuilder:
                     linked_trip_id=4,
                     depart_time=datetime(2024, 1, 1, 19, 0),
                     arrive_time=datetime(2024, 1, 1, 19, 15),
-                    o_purpose=PurposeCategory.SHOP,
-                    d_purpose=PurposeCategory.HOME,
+                    o_purpose_category=PurposeCategory.SHOP,
+                    d_purpose_category=PurposeCategory.HOME,
                     mode=ModeType.WALK,
                     o_lat=shop[0],
                     o_lon=shop[1],
@@ -515,8 +524,8 @@ class ScenarioBuilder:
                     trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
-                    o_purpose=PurposeCategory.HOME,
-                    d_purpose=PurposeCategory.WORK,
+                    o_purpose_category=PurposeCategory.HOME,
+                    d_purpose_category=PurposeCategory.WORK,
                     mode=ModeType.CAR,
                     o_lat=home[0],
                     o_lon=home[1],
@@ -528,8 +537,8 @@ class ScenarioBuilder:
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),
-                    o_purpose=PurposeCategory.WORK,
-                    d_purpose=PurposeCategory.HOME,
+                    o_purpose_category=PurposeCategory.WORK,
+                    d_purpose_category=PurposeCategory.HOME,
                     mode=ModeType.CAR,
                     o_lat=work_dest[0],
                     o_lon=work_dest[1],

@@ -10,7 +10,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.tours import TourCategory, TourDataQuality
+from data_canon.codebook.tours import TourCategory, TourDataQuality, TourType
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +155,8 @@ def validate_and_correct_tours(
     # Assign data quality flags (priority order matters)
     # Note: Loop trips are a specific type of single-trip tour
     # (trip starts and ends at home)
+    # Note: Work-based tours (subtours) don't need home anchors,
+    # so we skip that check for them
     tours = tours.with_columns(
         [
             # Check conditions in order of specificity
@@ -166,7 +168,13 @@ def validate_and_correct_tours(
             .then(pl.lit(TourDataQuality.LOOP_TRIP))
             .when(pl.col("trip_count") == 1)
             .then(pl.lit(TourDataQuality.SINGLE_TRIP))
-            .when(~pl.col("_has_home_origin") & ~pl.col("_has_home_dest"))
+            .when(
+                # Only check for home anchor on home-based tours
+                # Work-based tours (subtours) have work as their anchor
+                (pl.col("tour_category") != TourType.WORK_BASED)
+                & ~pl.col("_has_home_origin")
+                & ~pl.col("_has_home_dest")
+            )
             .then(pl.lit(TourDataQuality.MISSING_HOME_ANCHOR))
             .when(pl.col("tour_num") == 0)
             .then(pl.lit(TourDataQuality.INDETERMINATE))
