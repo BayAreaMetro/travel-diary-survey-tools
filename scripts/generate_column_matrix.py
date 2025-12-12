@@ -171,12 +171,9 @@ def generate_matrix_markdown(models: dict[str, type]) -> str:  # noqa: C901, PLR
             if step != "ALL":
                 required_steps.add(step)
 
-    # Read examples/config_daysim.yaml for preferred order if available
+    # Read projects/config.yaml for preferred order if available
     example_path = (
-        Path(__file__).parent.parent
-        / "examples"
-        / "daysim"
-        / "config_daysim.yaml"
+        Path(__file__).parent.parent / "projects" / "bats_2023" / "config.yaml"
     )
 
     sorted_steps = check_steps_and_order(required_steps, example_path)
@@ -296,10 +293,7 @@ def generate_matrix_csv(models: dict[str, type]) -> str:  # noqa: C901, PLR0912
 
     # Sort steps for consistent ordering
     example_path = (
-        Path(__file__).parent.parent
-        / "examples"
-        / "daysim"
-        / "config_daysim.yaml"
+        Path(__file__).parent.parent / "projects" / "bats_2023" / "config.yaml"
     )
     sorted_steps = check_steps_and_order(required_steps, example_path)
 

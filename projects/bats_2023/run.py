@@ -37,7 +37,7 @@ for drive, path in drives.items():
         os.system(f"net use {drive} {path}")  # noqa: S605
 
 # Path to the YAML config file you provided
-CONFIG_PATH = Path(__file__).parent / "config_daysim.yaml"
+CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 # ---------------------------------------------------------------------
 # Logging setup
