@@ -394,7 +394,7 @@ The plan to handle this is to create tours with maximum granularity and flexibil
 ```
 travel-diary-survey-tools/
 ├── scripts/                        # One-off helper scripts
-├── examples/                       # Example configs and runners. Maybe rename to projects/ later?
+├── projects/                       # Example configs and runners.
 ├── src/
 │   ├── data_canon/
 |   |   ├── validation <----------- # Column, row, relational, and custom validators here!

@@ -50,7 +50,7 @@ lint.ignore = [
     "ERA001",  # Ignore commented out code
 ]
 lint.pydocstyle.convention = "google"
-exclude = ["scripts/daysim_old", "*.html"]
+exclude = ["projects/daysim_old", "*.html"]
 
 
 [tool.ruff.lint.per-file-ignores]
@@ -65,7 +65,7 @@ exclude = ["scripts/daysim_old", "*.html"]
 "scripts/**/*.py" = [
     "INP001",      # script not part of package
 ]
-"examples/**/*.py" = [
+"projects/**/*.py" = [
     "INP001",      # script not part of package
 ]
 
