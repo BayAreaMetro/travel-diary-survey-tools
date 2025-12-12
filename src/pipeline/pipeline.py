@@ -1,6 +1,7 @@
 """Pipeline execution module for running data processing steps."""
 
 import inspect
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -50,6 +51,13 @@ class Pipeline:
             self.cache = PipelineCache(cache_dir=cache_dir)
             logger.info("Pipeline cache initialized at: %s", cache_dir)
 
+        # Initialize step status tracking
+        self._step_status: dict[str, dict[str, Any]] = {}
+
+        # Scan cache and report status
+        self._scan_cache()
+        self.report_status()
+
     def _load_config(self) -> dict[str, Any]:
         """Load the pipeline configuration from a YAML file.
 
@@ -86,6 +94,139 @@ class Pipeline:
             return obj
 
         return replace_templates(config)
+
+    def _scan_cache(self) -> None:
+        """Scan cache directory to determine which steps have cached data.
+
+        For each step in the config, checks if cache exists and reads
+        metadata from the newest cache key directory.
+        """
+        if not self.cache:
+            # No caching enabled, mark all steps as no cache
+            for step_cfg in self.config.get("steps", []):
+                step_name = step_cfg["name"]
+                self._step_status[step_name] = {
+                    "has_cache": False,
+                    "cache_key": None,
+                    "tables": [],
+                    "cache_enabled": False,
+                }
+            return
+
+        for step_cfg in self.config.get("steps", []):
+            step_name = step_cfg["name"]
+            cache_enabled = step_cfg.get("cache", False)
+            step_cache_dir = self.cache.cache_dir / step_name
+
+            if not step_cache_dir.exists() or not cache_enabled:
+                self._step_status[step_name] = {
+                    "has_cache": False,
+                    "cache_key": None,
+                    "tables": [],
+                    "cache_enabled": cache_enabled,
+                }
+                continue
+
+            # Find newest cache key directory by modification time
+            cache_key_dirs = [d for d in step_cache_dir.iterdir() if d.is_dir()]
+            if not cache_key_dirs:
+                self._step_status[step_name] = {
+                    "has_cache": False,
+                    "cache_key": None,
+                    "tables": [],
+                    "cache_enabled": cache_enabled,
+                }
+                continue
+
+            # Get newest cache directory
+            newest_cache_dir = max(
+                cache_key_dirs, key=lambda p: p.stat().st_mtime
+            )
+            cache_key = newest_cache_dir.name
+
+            # Read metadata
+            metadata_path = newest_cache_dir / "metadata.json"
+            if metadata_path.exists():
+                try:
+                    with metadata_path.open() as f:
+                        metadata = json.load(f)
+                    tables = metadata.get("tables", [])
+                except Exception:
+                    logger.exception(
+                        "Failed to read metadata for %s/%s",
+                        step_name,
+                        cache_key,
+                    )
+                    tables = []
+            else:
+                tables = []
+
+            self._step_status[step_name] = {
+                "has_cache": True,
+                "cache_key": cache_key,
+                "tables": tables,
+                "cache_enabled": cache_enabled,
+            }
+
+    def report_status(self) -> None:
+        """Report the current pipeline status with ASCII flow diagram.
+
+        Shows which steps have cached data available:
+        - ✓ CACHED: Step has valid cache
+        - ✗ NO CACHE: Step caching enabled but no cache exists
+        - ∅ NO CACHE (disabled): Step caching disabled
+        """
+        # Build entire status report as a single string
+        lines = []
+        lines.append("")
+        lines.append("=" * 70)
+        lines.append("Pipeline Status")
+        lines.append("=" * 70)
+
+        # Find max step name length for alignment
+        max_step_len = max(
+            (
+                len(step_cfg["name"])
+                for step_cfg in self.config.get("steps", [])
+            ),
+            default=0,
+        )
+
+        # Build flow diagram with tables inline
+        for i, step_cfg in enumerate(self.config.get("steps", [])):
+            step_name = step_cfg["name"]
+            status_info = self._step_status.get(step_name, {})
+
+            has_cache = status_info.get("has_cache", False)
+            cache_enabled = status_info.get("cache_enabled", False)
+            tables = status_info.get("tables", [])
+
+            if has_cache:
+                symbol = "✓"
+                status = "CACHED"
+                tables_str = f" ({', '.join(tables)})" if tables else ""
+            elif cache_enabled:
+                symbol = "✗"
+                status = "NO CACHE"
+                tables_str = ""
+            else:
+                symbol = "∅"
+                status = "NO CACHE (disabled)"
+                tables_str = ""
+
+            # Pad step name for alignment
+            padded_step = step_name.ljust(max_step_len)
+            lines.append(f"[{padded_step}] {symbol} {status}{tables_str}")
+
+            # Add arrow if not last step
+            if i < len(self.config.get("steps", [])) - 1:
+                lines.append("     ↓")
+
+        lines.append("=" * 70)
+        lines.append("")
+
+        # Log as single message
+        logger.info("\n".join(lines))
 
     def parse_step_args(
         self, step_name: str, step_obj: Callable
@@ -194,5 +335,146 @@ class Pipeline:
                     stats["hit_rate"] * 100,
                 )
 
+        # Refresh cache status after run
+        self._scan_cache()
+
         logger.info("Pipeline completed.")
         return self.data
+
+    def _get_available_tables(self) -> dict[str, list[str]]:
+        """Get all available tables across cached steps.
+
+        Returns:
+            Dictionary mapping table names to list of steps containing them.
+        """
+        table_locations = {}
+        for step_cfg in self.config.get("steps", []):
+            step_name = step_cfg["name"]
+            status_info = self._step_status.get(step_name, {})
+            if status_info.get("has_cache"):
+                for tbl in status_info.get("tables", []):
+                    if tbl not in table_locations:
+                        table_locations[tbl] = []
+                    table_locations[tbl].append(step_name)
+        return table_locations
+
+    def _find_step_with_table(self, table_name: str) -> str | None:
+        """Find the latest step that has cached data for a table.
+
+        Args:
+            table_name: Name of the table to find.
+
+        Returns:
+            Step name containing the table, or None if not found.
+        """
+        for step_cfg in reversed(self.config.get("steps", [])):
+            step_name = step_cfg["name"]
+            status_info = self._step_status.get(step_name, {})
+
+            if not status_info.get("has_cache"):
+                continue
+
+            if table_name in status_info.get("tables", []):
+                return step_name
+
+        return None
+
+    def _load_from_step(self, table_name: str, step_name: str) -> Any:  # noqa: ANN401
+        """Load a specific table from a specific step's cache.
+
+        Args:
+            table_name: Name of the table to load.
+            step_name: Name of the step to load from.
+
+        Returns:
+            The loaded table data.
+
+        Raises:
+            ValueError: If step has no cache or table not in step.
+        """
+        status_info = self._step_status.get(step_name)
+        if not status_info or not status_info.get("has_cache"):
+            msg = f"Step '{step_name}' has no cached data."
+            raise ValueError(msg)
+
+        cache_key = status_info["cache_key"]
+        tables = status_info["tables"]
+
+        if table_name not in tables:
+            msg = (
+                f"Table '{table_name}' not found in step '{step_name}'. "
+                f"Available tables: {', '.join(tables)}"
+            )
+            raise ValueError(msg)
+
+        cached_data = self.cache.load(step_name, cache_key)
+        if not cached_data or table_name not in cached_data:
+            msg = (
+                f"Failed to load '{table_name}' "
+                f"from cache for step '{step_name}'."
+            )
+            raise ValueError(msg)
+
+        # Update canonical data and return
+        table_data = cached_data[table_name]
+        setattr(self.data, table_name, table_data)
+        logger.info(
+            "Loaded '%s' from step '%s' (cache key: %s)",
+            table_name,
+            step_name,
+            cache_key[:8] + "...",
+        )
+        return table_data
+
+    def get_data(
+        self,
+        table_name: str,
+        step: str | None = None,
+    ) -> Any:  # noqa: ANN401
+        """Fetch a table from cached pipeline data.
+
+        Args:
+            table_name: Name of the table to fetch (e.g., 'households', 'trips')
+            step: Optional step name to fetch from. If None, uses the last
+                step that has a cache containing this table.
+
+        Returns:
+            The requested DataFrame or data object
+
+        Raises:
+            ValueError: If table not found in any cached steps, or if
+                specified step doesn't have cache or doesn't contain table.
+
+        Example:
+            >>> pipeline = Pipeline(config_path, steps, caching=True)
+            >>> # Fetch from latest cached step
+            >>> households = pipeline.get_data("households")
+            >>> # Fetch from specific step
+            >>> trips = pipeline.get_data("linked_trips", step="link_trips")
+        """
+        if not self.cache:
+            msg = "Caching is disabled. Cannot fetch cached data."
+            raise ValueError(msg)
+
+        # If step specified, load from that specific step
+        if step:
+            return self._load_from_step(table_name, step)
+
+        # No step specified - find latest step with this table
+        step_name = self._find_step_with_table(table_name)
+        if step_name:
+            return self._load_from_step(table_name, step_name)
+
+        # Table not found - build helpful error message
+        table_locations = self._get_available_tables()
+
+        if not table_locations:
+            msg = "No cached data found. Run the pipeline first."
+            raise ValueError(msg)
+
+        available_tables = ", ".join(sorted(table_locations.keys()))
+        msg = (
+            f"Table '{table_name}' not found in any cached step. "
+            f"Available tables: {available_tables}"
+        )
+        raise ValueError(msg)

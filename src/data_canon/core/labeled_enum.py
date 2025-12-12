@@ -156,3 +156,12 @@ class LabeledEnum(Enum, metaclass=LabeledEnumMeta):
             The field_description class attribute if defined, otherwise None
         """
         return getattr(cls, "field_description", None)
+
+    @classmethod
+    def to_dict(cls) -> dict[int, str]:
+        """Get a dictionary mapping enum values to labels.
+
+        Returns:
+            A dictionary where keys are enum values and values are labels
+        """
+        return {member.value: member.label for member in cls}
