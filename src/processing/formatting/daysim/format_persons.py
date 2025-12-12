@@ -147,10 +147,10 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         {
             "hh_id": "hhno",
             "person_num": "pno",
-            "work_lon": "pwxcord",
-            "work_lat": "pwycord",
-            "school_lon": "psxcord",
-            "school_lat": "psycord",
+            "work_lon": "pwxco",
+            "work_lat": "pwyco",
+            "school_lon": "psxco",
+            "school_lat": "psyco",
             "work_taz": "pwtaz",
             "work_maz": "pwpcl",
             "school_taz": "pstaz",
@@ -294,11 +294,11 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         pwpcl=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
         .then(pl.col("pwpcl"))
         .otherwise(pl.lit(-1)),
-        pwxcord=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
-        .then(pl.col("pwxcord"))
+        pwxco=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
+        .then(pl.col("pwxco"))
         .otherwise(pl.lit(-1)),
-        pwycord=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
-        .then(pl.col("pwycord"))
+        pwyco=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
+        .then(pl.col("pwyco"))
         .otherwise(pl.lit(-1)),
         pstaz=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
         .then(pl.col("pstaz"))
@@ -306,11 +306,11 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         pspcl=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
         .then(pl.col("pspcl"))
         .otherwise(pl.lit(-1)),
-        psxcord=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
-        .then(pl.col("psxcord"))
+        psxco=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
+        .then(pl.col("psxco"))
         .otherwise(pl.lit(-1)),
-        psycord=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
-        .then(pl.col("psycord"))
+        psyco=pl.when(pl.col("pstyp") != DaysimStudentType.NOT_STUDENT.value)
+        .then(pl.col("psyco"))
         .otherwise(pl.lit(-1)),
     )
 
@@ -369,10 +369,10 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         "ptpass",
         "pproxy",
         "pdiary",
-        "pwxcord",
-        "pwycord",
-        "psxcord",
-        "psycord",
+        "pwxco",
+        "pwyco",
+        "psxco",
+        "psyco",
         "psexpfac",
     ]
 

@@ -124,7 +124,7 @@ def format_tours(
     subtour_counts = (
         tours_daysim.filter(pl.col("parent_tour_id").is_not_null())
         .group_by("parent_tour_id")
-        .agg(pl.len().alias("subtours"))
+        .agg(pl.len().alias("subtrs"))
     )
     tours_daysim = tours_daysim.join(
         subtour_counts, on="parent_tour_id", how="left"
@@ -189,7 +189,7 @@ def format_tours(
     tours_daysim = tours_daysim.with_columns(
         # Tour structure fields
         jtindex=pl.lit(0),  # Joint tour index (not supported)
-        subtours=pl.col("subtours").fill_null(0),  # Work-based subtours count
+        subtrs=pl.col("subtrs").fill_null(0),  # Work-based subtours count
         # Travel characteristics (not available)
         tpathtp=pl.lit(1),  # Path type (default to full network)
         tautocost=pl.lit(-1.0),  # Auto cost
@@ -215,7 +215,7 @@ def format_tours(
         "tour",
         "jtindex",
         "parent",
-        "subtours",
+        "subtrs",
         "pdpurp",
         "tlvorig",
         "tardest",

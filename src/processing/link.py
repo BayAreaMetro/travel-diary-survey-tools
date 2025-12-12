@@ -291,6 +291,8 @@ def aggregate_linked_trips(
         )
         .agg(
             [
+                # Linked trip number (from first trip segment)
+                pl.first("linked_trip_num"),
                 # Travel dow is from first trip. Caution for overnight trips
                 pl.first("travel_dow"),
                 # Departure information (from first trip segment)

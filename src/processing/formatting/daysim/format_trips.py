@@ -423,8 +423,9 @@ def _prepare_basic_fields(
 ) -> pl.DataFrame:
     """Prepare basic DaySim fields from linked trips.
 
-    Joins person_num, computes trip_num, renames columns to DaySim
-    convention, fills null coordinates, formats times, and maps purposes.
+    Joins person_num, computes Daysim trip identification fields (tour, half,
+    tseg, tsvid), renames columns to DaySim convention, fills null coordinates,
+    formats times, and maps purposes.
 
     Args:
         linked_trips: DataFrame with canonical linked trip fields
@@ -440,12 +441,44 @@ def _prepare_basic_fields(
         how="left",
     )
 
-    # Calculate trip_num as numbered trips per person per day
+    # Compute Daysim trip identification fields:
+    # - tour: tour sequence number within person-day (from tour_num)
+    # - half: half-tour direction (1=OUTBOUND, 2=INBOUND, from tour_direction)
+    # - tseg: trip sequence within half-tour
+    # - tsvid: travel survey trip ID (use linked_trip_id)
+    # - tripno: sequential trip number per person-day (bonus field)
     trips = trips.with_columns(
-        trip_num=pl.col("linked_trip_id")
-        .cum_count()
-        .over(["hh_id", "person_id", "day_id"])
-        + 1
+        [
+            # Use tour_num if it exists, otherwise create it
+            pl.col("tour_num").alias("tour")
+            if "tour_num" in linked_trips.columns
+            else pl.lit(1).alias("tour"),
+            # Map tour_direction to half (1=OUTBOUND, 2=INBOUND)
+            pl.col("tour_direction").alias("half")
+            if "tour_direction" in linked_trips.columns
+            else pl.lit(1).alias("half"),
+            # Compute trip sequence within half-tour
+            pl.col("linked_trip_id")
+            .cum_count()
+            .over(
+                ["hh_id", "person_id", "day_id", "tour_num", "tour_direction"]
+                if "tour_num" in linked_trips.columns
+                and "tour_direction" in linked_trips.columns
+                else ["hh_id", "person_id", "day_id"]
+            )
+            .alias("tseg"),
+            # Use linked_trip_num as travel survey ID
+            pl.col("linked_trip_num").cast(pl.Int32).alias("tsvid"),
+            # Bonus: sequential trip number per person-day
+            (
+                pl.col("linked_trip_id")
+                .cum_count()
+                .over(["hh_id", "person_id", "day_id"])
+            ).alias("tripno"),
+            # Add default address types (3 = other)
+            pl.lit(3).alias("oadtyp"),
+            pl.lit(3).alias("dadtyp"),
+        ]
     )
 
     # Rename columns to DaySim naming convention
@@ -453,16 +486,15 @@ def _prepare_basic_fields(
         {
             "hh_id": "hhno",
             "person_num": "pno",
-            "trip_num": "tripno",
             "travel_dow": "day",
             "o_taz": "otaz",
             "o_maz": "opcl",
             "d_taz": "dtaz",
             "d_maz": "dpcl",
-            "o_lon": "oxcord",
-            "o_lat": "oycord",
-            "d_lon": "dxcord",
-            "d_lat": "dycord",
+            "o_lon": "oxco",
+            "o_lat": "oyco",
+            "d_lon": "dxco",
+            "d_lat": "dyco",
             "o_purpose_category": "opurp",
             "d_purpose_category": "dpurp",
         }
@@ -472,10 +504,10 @@ def _prepare_basic_fields(
     trips = trips.with_columns(
         [
             # Fill null coordinates with -1
-            pl.col("oxcord").fill_null(value=-1),
-            pl.col("oycord").fill_null(value=-1),
-            pl.col("dxcord").fill_null(value=-1),
-            pl.col("dycord").fill_null(value=-1),
+            pl.col("oxco").fill_null(value=-1),
+            pl.col("oyco").fill_null(value=-1),
+            pl.col("dxco").fill_null(value=-1),
+            pl.col("dyco").fill_null(value=-1),
             # Convert datetime to minutes after midnight (0-1439)
             (
                 pl.col("depart_time").dt.hour().cast(pl.Int16) * 60
@@ -485,6 +517,11 @@ def _prepare_basic_fields(
                 pl.col("arrive_time").dt.hour().cast(pl.Int16) * 60
                 + pl.col("arrive_time").dt.minute()
             ).alias("arrtm"),
+            # Compute end activity time (same as arrival for now)
+            (
+                pl.col("arrive_time").dt.hour().cast(pl.Int16) * 60
+                + pl.col("arrive_time").dt.minute()
+            ).alias("endacttm"),
             # Map purposes
             pl.col("opurp").replace(PURPOSE_MAP).alias("opurp"),
             pl.col("dpurp").replace(PURPOSE_MAP).alias("dpurp"),
@@ -544,6 +581,10 @@ def format_linked_trips(
     ).with_columns(
         pathtype=_compute_daysim_path_type_expr(),
         dorp=_compute_driver_passenger_expr(),
+        # Add default travel time, cost, dist (set to -1 for missing)
+        travtime=pl.lit(-1.0),
+        travcost=pl.lit(-1.0),
+        travdist=pl.lit(-1.0),
     )
 
     # Step 5: Add trip weight from linked trips, assign 1.0 if missing
@@ -563,27 +604,37 @@ def format_linked_trips(
         "hhno",
         "pno",
         "day",
-        "tripno",
+        "tour",
+        "half",
+        "tseg",
+        "tsvid",
         "opurp",
         "dpurp",
+        "oadtyp",
+        "dadtyp",
         "opcl",
         "otaz",
+        "oxco",
+        "oyco",
         "dpcl",
         "dtaz",
+        "dxco",
+        "dyco",
         "mode",
         "pathtype",
         "dorp",
         "deptm",
         "arrtm",
-        "oxcord",
-        "oycord",
-        "dxcord",
-        "dycord",
+        "endacttm",
+        "travtime",
+        "travcost",
+        "travdist",
         "trexpfac",
+        "tripno",  # Bonus field for reference
     ]
 
     trips_daysim = trips_daysim.select(trip_cols).sort(
-        by=["hhno", "pno", "day", "tripno"]
+        by=["hhno", "pno", "day", "tour", "half", "tseg"]
     )
 
     logger.info("Formatted %d linked trips", len(trips_daysim))

@@ -77,11 +77,17 @@ class HouseholdDaysimModel(BaseModel):
         le=9999999,
         description="The household annual income, in integer dollars",
     )
-    hhownrent: DaysimResidenceOwnership = Field(
+    hownrent: DaysimResidenceOwnership = Field(
         description="Household own versus rent status"
     )
-    hhrestype: DaysimResidenceType = Field(
+    hrestype: DaysimResidenceType = Field(
         description="Household residence building type"
+    )
+    hhxco: float = Field(
+        ge=-9999, le=9999, description="Household residence X coordinate"
+    )
+    hhyco: float = Field(
+        ge=-9999, le=9999, description="Household residence Y coordinate"
     )
     hhparcel: int = Field(
         ge=1,
@@ -148,6 +154,18 @@ class PersonDaysimModel(BaseModel):
         ge=0, le=1, description="Survey respondent used their diary"
     )
     pproxy: int = Field(ge=0, le=1, description="Survey responses by proxy")
+    psxco: float | None = Field(
+        ge=-9999, le=9999, description="Person's school X coordinate"
+    )
+    psyco: float | None = Field(
+        ge=-9999, le=9999, description="Person's school Y coordinate"
+    )
+    pwxco: float | None = Field(
+        ge=-9999, le=9999, description="Person's work X coordinate"
+    )
+    pwyco: float | None = Field(
+        ge=-9999, le=9999, description="Person's work Y coordinate"
+    )
     psexpfac: float = Field(
         ge=0, description="The expansion factor for the person"
     )
@@ -297,16 +315,16 @@ class PersonDayDaysimModel(BaseModel):
         le=1439,
         description="The number of minutes spent working at home during the day",
     )
-    pwxcord: float | None = Field(
+    pwxco: float | None = Field(
         ge=-9999, le=9999, description="Person's work location X coordinate"
     )
-    pwycord: float | None = Field(
+    pwyco: float | None = Field(
         ge=-9999, le=9999, description="Person's work location Y coordinate"
     )
-    psxcord: float | None = Field(
+    psxco: float | None = Field(
         ge=-9999, le=9999, description="Person's school location X coordinate"
     )
-    psycord: float | None = Field(
+    psyco: float | None = Field(
         ge=-9999, le=9999, description="Person's school location Y coordinate"
     )
     pdexpfac: float = Field(
@@ -337,7 +355,7 @@ class TourDaysimModel(BaseModel):
         le=99,
         description="The tour sequence number of the parent work tour",
     )
-    subtours: int = Field(
+    subtrs: int = Field(
         ge=0,
         le=99,
         description="The number of work-based subtours made from the work activity",
@@ -443,8 +461,20 @@ class LinkedTripDaysimModel(BaseModel):
     dadtyp: int = Field(ge=1, le=6, description="Trip destination address type")
     opcl: int | None = Field(ge=-1, description="Trip origin parcel ID")
     otaz: int | None = Field(ge=-1, description="Trip origin zone ID")
+    oxco: float = Field(
+        ge=-9999, le=9999, description="Trip origin X coordinate"
+    )
+    oyco: float = Field(
+        ge=-9999, le=9999, description="Trip origin Y coordinate"
+    )
     dpcl: int | None = Field(ge=-1, description="Trip destination parcel ID")
     dtaz: int | None = Field(ge=-1, description="Trip destination zone ID")
+    dxco: float = Field(
+        ge=-9999, le=9999, description="Trip destination X coordinate"
+    )
+    dyco: float = Field(
+        ge=-9999, le=9999, description="Trip destination Y coordinate"
+    )
     mode: DaysimMode = Field(description="Trip mode")
     pathtype: DaysimPathType = Field(description="Trip path type")
     dorp: DaysimDriverPassenger = Field(

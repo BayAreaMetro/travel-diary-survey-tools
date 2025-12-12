@@ -62,8 +62,8 @@ def format_households(
             "hh_id": "hhno",
             "home_maz": "hhparcel",
             "home_taz": "hhtaz",
-            "home_lon": "hxcord",
-            "home_lat": "hycord",
+            "home_lon": "hhxco",
+            "home_lat": "hhyco",
             "num_people": "hhsize",
             "num_vehicles": "hhvehs",
             "num_workers": "hhwkrs",
@@ -80,8 +80,8 @@ def format_households(
         pl.col("income_followup")
         .fill_null(-1)
         .replace(INCOME_FOLLOWUP_TO_MIDPOINT),
-        hhownrent=pl.col("residence_rent_own").replace(RENTOWN_MAP),
-        hhrestype=pl.col("residence_type").replace(RESTYPE_MAP),
+        hownrent=pl.col("residence_rent_own").replace(RENTOWN_MAP),
+        hrestype=pl.col("residence_type").replace(RESTYPE_MAP),
     )
 
     # Use income_detailed if available, otherwise income_followup
@@ -113,12 +113,12 @@ def format_households(
         "hh515",
         "hhcu5",
         "hhincome",
-        "hhownrent",
-        "hhrestype",
+        "hownrent",
+        "hrestype",
         "hhparcel",
         "hhtaz",
-        "hxcord",
-        "hycord",
+        "hhxco",
+        "hhyco",
         "hhexpfac",
         "samptype",
     ]
