@@ -45,24 +45,20 @@ steps:
       max_dwell_time: 180  # in minutes
       dwell_buffer_distance: 100  # in meters
 
-  - name: summarize_transit_trips
-    validate_input: false
-    params:
-      transit_mode_codes: [12, 13] # transit, ferry
+  # - name: summarize_transit_trips
+  #   validate_input: false
+  #   params:
+  #     transit_mode_codes: [12, 13] # transit, ferry
 
-  - name: summarize_wfh
-    validate_input: false
-
-  - name: write_data
-    validate_input: true
-    params:
-      output_paths:
-        # Standard Survey Formats
-        households: "{{ output_dir }}/source_data_{{ date }}/households.csv"
-        persons: "{{ output_dir }}/source_data_{{ date }}/persons.csv"
-        days: "{{ output_dir }}/source_data_{{ date }}/days.csv"
-        unlinked_trips: "{{ output_dir }}/source_data_{{ date }}/unlinked_trips.csv"
-        linked_trips: "{{ output_dir }}/source_data_{{ date }}/linked_trips.csv"
-        transit_summary: "{{ output_dir }}/source_data_{{ date }}/transit_summary.csv"
-        transit_report: "{{ output_dir }}/source_data_{{ date }}/transit_report.txt"
-        wfh_summary: "{{ output_dir }}/source_data_{{ date }}/wfh_summary.csv"
+  # - name: write_data
+  #   validate_input: true
+  #   params:
+  #     output_paths:
+  #       # Standard Survey Formats
+  #       households: "{{ output_dir }}/source_data_{{ date }}/households.csv"
+  #       persons: "{{ output_dir }}/source_data_{{ date }}/persons.csv"
+  #       days: "{{ output_dir }}/source_data_{{ date }}/days.csv"
+  #       unlinked_trips: "{{ output_dir }}/source_data_{{ date }}/unlinked_trips.csv"
+  #       linked_trips: "{{ output_dir }}/source_data_{{ date }}/linked_trips.csv"
+        # transit_summary: "{{ output_dir }}/source_data_{{ date }}/transit_summary.csv"
+        # transit_report: "{{ output_dir }}/source_data_{{ date }}/transit_report.txt"

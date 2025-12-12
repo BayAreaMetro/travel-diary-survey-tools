@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 
 from analyze_transit import summarize_transit_trips
-from analyze_wfh import summarize_wfh
 
 from pipeline.pipeline import Pipeline
 from processing import link_trips, load_data, write_data
@@ -37,7 +36,6 @@ processing_steps = [
     clean_2023_bats,
     link_trips,
     summarize_transit_trips,
-    summarize_wfh,
     write_data,
 ]
 
