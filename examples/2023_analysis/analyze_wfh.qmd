@@ -91,7 +91,7 @@ class TeleworkRatio(LabeledEnum):
     MISSING = (-1, "Missing Response")
 
 # Employment codes we care about (from data_canon.codebook.persons.Employment)
-EMPLOYED_CODES = [1, 2, 3]  # Fulltime, parttime, self-employed
+EMPLOYED_CODES = [1]  # Fulltime employed persons only
 
 # Configuration
 CONFIG_PATH = Path("config.yaml")
@@ -275,6 +275,9 @@ persons_19.group_by("commute_freq").len()
 
 ```
 
+### Data filtering
+
+For `job_type==3` (WFH always), it is ambiguous to know if someone simply never commutes because they hardly work outside the home, or if they truly never commute. Therefore, for simplicity, we will narrow the analysis to only full-time employed persons.
 
 ```{python}
 #| label: prepare-data
@@ -349,10 +352,10 @@ Mirrored for commute freq using commute_freq instead of telework_freq
 |------------------------|---------------------------------------------------|---------------------------------------------------|
 | 5+ days per week       | `telework_freq` in \[1, 2\] OR `job_type` == 3    | `commute_freq` in \[1, 2\] AND `job_type` != 3    |
 | 4 days per week        | `telework_freq` == 3                              | `commute_freq` == 3                               |
-| 2-3 days per week      | `telework_freq` in \[4, 5\]                       | `commute_freq` in \[4, 5\]                        |
-| 1 day per week         | `telework_freq` == 6                              | `commute_freq` == 6                               |
-| Less than once a week  | `telework_freq` in \[7, 8\]                       | `commute_freq` in \[7, 8\]                        |
-| Never                  | `telework_freq` == 996                            | `commute_freq` == 996 OR `job_type` == 3          |
+| 2-3 days per week      | `telework_freq` == 4                              | `commute_freq` == 4                               |
+| 1 day per week         | `telework_freq` == 5                              | `commute_freq` == 5                               |
+| Less than once a week  | `telework_freq` in \[6, 7\]                       | `commute_freq` in \[6, 7\]                        |
+| Never                  | `telework_freq` == 8                              | `commute_freq` == 8                               |
 | Missing Response       | `telework_freq` == 995 AND `job_type` != 3        | `commute_freq` == 995 AND `job_type` != 3         |
 
 
@@ -361,12 +364,12 @@ Mirrored for commute freq using commute_freq instead of telework_freq
 While more broad, this categorization accounts for part-time or over-time work scenarios (<5 and >5 days/week).
 
 | Telework Ratio Category           | Rules                                                                                                 |
-|-----------------------------------|-------------------------------------------------------------------------------------------------------|
-| Never, or less than once a week   | `telework_freq` in [996, 995, 7, 8] AND `job_type` != 3                                               |
+|-----------------------------------|-----------------------------------------------------------------------------------------------|
+| Never, or less than once a week   | `telework_freq` in [995, 6, 7, 8] AND `job_type` != 3                                               |
 | Less than 40% of the time         | `telework_freq` > `commute_freq` + 1 AND both < 7 (weekly+) AND both != 995 AND `job_type` != 3       |
 | About half (40-60%)               | \|`telework_freq` - `commute_freq`\| ≤ 1 AND both < 7 (weekly+) AND both != 995 AND `job_type` != 3   |
 | More than 60% of the time         | `commute_freq` > `telework_freq` + 1 AND both < 7 (weekly+) AND both != 995 AND `job_type` != 3       |
-| Always                            | (`telework_freq` in [1, 2] AND `commute_freq` == 996) OR `job_type` == 3                              |
+| Always                            | (`telework_freq` in [1, 2] AND `commute_freq` == 8) OR `job_type` == 3                              |
 
 #### Categorization Function
 ```{python}
@@ -534,13 +537,13 @@ telework_conditions = {
     # Works 4 days
     FrequencyCategory.FOUR: (pl.col("telework_freq") == 3),
     # Works 2-3 days
-    FrequencyCategory.TWO_THREE: (pl.col("telework_freq").is_in([4, 5])),
+    FrequencyCategory.TWO_THREE: (pl.col("telework_freq") == 4),
     # Works 1 day
-    FrequencyCategory.ONE: (pl.col("telework_freq") == 6),
+    FrequencyCategory.ONE: (pl.col("telework_freq") == 5),
     # Less than weekly
-    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col("telework_freq").is_in([7, 8])),
+    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col("telework_freq").is_in([6, 7])),
     # Never
-    FrequencyCategory.NEVER: (pl.col("telework_freq") == 996),
+    FrequencyCategory.NEVER: (pl.col("telework_freq") == 8),
     # Missing
     FrequencyCategory.MISSING: (
         (pl.col("telework_freq") == 995)
@@ -569,17 +572,17 @@ commute_conditions = {
     # Works 4 days
     FrequencyCategory.FOUR: (pl.col("commute_freq") == 3),
     # Works 2-3 days
-    FrequencyCategory.TWO_THREE: (pl.col("commute_freq").is_in([4, 5])),
+    FrequencyCategory.TWO_THREE: (pl.col("commute_freq") == 4),
     # Works 1 day
-    FrequencyCategory.ONE: (pl.col("commute_freq") == 6),
+    FrequencyCategory.ONE: (pl.col("commute_freq") == 5),
     # Less than weekly
-    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col("commute_freq").is_in([7, 8])),
+    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col("commute_freq").is_in([6, 7])),
     # Never
     FrequencyCategory.NEVER: (
         # WFH Always
         (pl.col("job_type") == 3)
         # Never commutes
-        | (pl.col("commute_freq") == 996)
+        | (pl.col("commute_freq") == 8)
     ),
     # Missing
     FrequencyCategory.MISSING: (
@@ -723,9 +726,9 @@ telework_freq_summary = (
     )
     .with_columns(
         (
-            100 * pl.col("weighted_count") / pl.col("weighted_count").sum()
+            100 * pl.col("weighted_count") / pl.col("weighted_count").sum().over("year")
         ).alias("% (wtd)"),
-        (100 * pl.col("count") / pl.col("count").sum()).alias("% (unwtd)"),
+        (100 * pl.col("count") / pl.col("count").sum().over("year")).alias("% (unwtd)"),
     )
     .with_columns(
         pl.col("weighted_count").round(2),
@@ -746,7 +749,6 @@ print(telework_freq_summary.filter(pl.col("year") == "2023").drop("telework_freq
 
 ```{python}
 #| label: commute-freq-summary
-#| output: false
 
 commute_freq_summary = (
     employed_persons.group_by("year", "commute_freq_str", "commute_freq_cat")
@@ -756,9 +758,9 @@ commute_freq_summary = (
     )
     .with_columns(
         (
-            100 * pl.col("weighted_count") / pl.col("weighted_count").sum()
+            100 * pl.col("weighted_count") / pl.col("weighted_count").sum().over("year")
         ).alias("% (wtd)"),
-        (100 * pl.col("count") / pl.col("count").sum()).alias("% (unwtd)"),
+        (100 * pl.col("count") / pl.col("count").sum().over("year")).alias("% (unwtd)"),
     )
     .with_columns(
         pl.col("weighted_count").round(2),
@@ -779,8 +781,25 @@ print(commute_freq_summary.filter(pl.col("year") == "2023").drop("commute_freq_c
 ```{python}
 #| label: fig-freq-shift-plot
 #| fig-cap: "Shift in Telework and Commute Frequency: 2019 vs 2023"
-
 # Create simple shift plots
+# Create color mapping for consistent colors across both plots
+import plotly.express as px
+
+# Create graduated color scale
+colors = px.colors.sample_colorscale(
+    px.colors.sequential.Bluered,
+    [0, 0.2, 0.4, 0.6, 0.8, 1.0]
+)
+
+color_map = {
+    FrequencyCategory.FIVE_PLUS.label: colors[0],
+    FrequencyCategory.FOUR.label: colors[1],
+    FrequencyCategory.TWO_THREE.label: colors[2],
+    FrequencyCategory.ONE.label: colors[3],
+    FrequencyCategory.LESS_THAN_WEEKLY.label: colors[4],
+    FrequencyCategory.NEVER.label: colors[5],
+}
+
 fig = make_subplots(rows=1, cols=2, subplot_titles=("Telework Frequency", "Commute Frequency"))
 
 # Telework data
@@ -798,6 +817,8 @@ for row in telework_pivot.iter_rows(named=True):
             y=[row["2019"], row["2023"]],
             mode='lines+markers',
             name=row["telework_freq_str"],
+            line=dict(color=color_map.get(row["telework_freq_str"])),
+            marker=dict(color=color_map.get(row["telework_freq_str"])),
         ),
         row=1, col=1
     )
@@ -817,16 +838,25 @@ for row in commute_pivot.iter_rows(named=True):
             y=[row["2019"], row["2023"]],
             mode='lines+markers',
             name=row["commute_freq_str"],
+            line=dict(color=color_map.get(row["commute_freq_str"])),
+            marker=dict(color=color_map.get(row["commute_freq_str"])),
             showlegend=False,
         ),
         row=1, col=2
     )
 
+# Find max value across both datasets to set matching y-axis range
+max_val = max_val = max(
+    telework_pivot['2019'].max(),
+    telework_pivot['2023'].max(),
+    commute_pivot['2019'].max(),
+    commute_pivot['2023'].max(),
+)
+
 fig.update_xaxes(tickvals=[2019, 2023])
-fig.update_yaxes(title_text="% (Weighted)")
+fig.update_yaxes(title_text="% (Weighted)", range=[0, max_val * 1.1])
 fig.update_layout(height=500, title_text="Work Pattern Changes: 2019 to 2023")
 fig.show()
-
 ```
 
 ### Telework Ratio (Proportion of Work Days at Home)
@@ -842,9 +872,9 @@ telework_ratio_summary = (
     )
     .with_columns(
         (
-            100 * pl.col("weighted_count") / pl.col("weighted_count").sum()
+            100 * pl.col("weighted_count") / pl.col("weighted_count").sum().over("year")
         ).alias("% (wtd)"),
-        (100 * pl.col("count") / pl.col("count").sum()).alias("% (unwtd)"),
+        (100 * pl.col("count") / pl.col("count").sum().over("year")).alias("% (unwtd)"),
     )
     .with_columns(
         pl.col("weighted_count").round(2),
@@ -876,4 +906,53 @@ fig = px.bar(
 )
 fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
 fig.show()
+```
+
+
+## Summary
+
+```{python}
+
+# Define metric categories based on frequency
+is_5plus = pl.col("telework_freq_cat") > FrequencyCategory.FOUR.value
+is_2plus = pl.col("telework_freq_cat") >= FrequencyCategory.TWO_THREE.value
+is_1orless = (
+    (pl.col("telework_freq_cat") <= FrequencyCategory.ONE.value)
+    & (pl.col("telework_freq_cat") != FrequencyCategory.MISSING.value)
+)
+
+# Categorize and aggregate in one chain
+telework_metrics = (
+    telework_freq_summary
+    .with_columns(
+        pl.when(is_5plus).then(pl.lit("5+ days per week"))
+        .when(is_2plus).then(pl.lit("2+ days per week"))
+        .when(is_1orless).then(pl.lit("1 day or less per week"))
+        .alias("Telework Frequency")
+    )
+    .filter(pl.col("Telework Frequency").is_not_null())
+    .group_by("year", "Telework Frequency")
+    .agg(pl.col("% (wtd)").sum())
+    .pivot(index="Telework Frequency", on="year", values="% (wtd)")
+).sort("Telework Frequency").select(
+    "Telework Frequency",
+    "2019",
+    "2023",
+).with_columns(
+    pl.col("2019").round(2).alias("2019 (%)"),
+    pl.col("2023").round(2).alias("2023 (%)"),
+)
+
+# column sums
+
+telework_metrics
+# print("Summary of Key Telework Metrics:")
+# print(f"Proportion of employed persons teleworking 5+ days/week:")
+# for year, pct in telework_5plus.items():
+#     print(f"  {year}: {pct:.2f}%")
+
+# print(f"Proportion of employed persons teleworking 2+ days/week:")
+# for year, pct in telework_2plus.items():
+#     print(f"  {year}: {pct:.2f}%")
+
 ```

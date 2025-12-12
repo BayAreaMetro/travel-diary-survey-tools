@@ -99,6 +99,7 @@ if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.M
   <ul class="collapse">
   <li><a href="#telework-frequency" id="toc-telework-frequency" class="nav-link" data-scroll-target="#telework-frequency">Telework frequency</a></li>
   <li><a href="#impute-commute_freq" id="toc-impute-commute_freq" class="nav-link" data-scroll-target="#impute-commute_freq">Impute commute_freq</a></li>
+  <li><a href="#data-filtering" id="toc-data-filtering" class="nav-link" data-scroll-target="#data-filtering">Data filtering</a></li>
   <li><a href="#survey-code-reference" id="toc-survey-code-reference" class="nav-link" data-scroll-target="#survey-code-reference">Survey Code Reference</a></li>
   </ul></li>
   <li><a href="#analysis" id="toc-analysis" class="nav-link" data-scroll-target="#analysis">Analysis</a>
@@ -116,6 +117,7 @@ if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.M
   <li><a href="#combined-telework-and-commute-frequency-distribution" id="toc-combined-telework-and-commute-frequency-distribution" class="nav-link" data-scroll-target="#combined-telework-and-commute-frequency-distribution">Combined Telework and Commute Frequency Distribution</a></li>
   <li><a href="#telework-ratio-proportion-of-work-days-at-home" id="toc-telework-ratio-proportion-of-work-days-at-home" class="nav-link" data-scroll-target="#telework-ratio-proportion-of-work-days-at-home">Telework Ratio (Proportion of Work Days at Home)</a></li>
   </ul></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary">Summary</a></li>
   </ul></li>
   </ul>
 </nav>
@@ -224,7 +226,7 @@ if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.M
 <span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    MISSING <span class="op">=</span> (<span class="op">-</span><span class="dv">1</span>, <span class="st">"Missing Response"</span>)</span>
 <span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Employment codes we care about (from data_canon.codebook.persons.Employment)</span></span>
-<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>EMPLOYED_CODES <span class="op">=</span> [<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">3</span>]  <span class="co"># Fulltime, parttime, self-employed</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>EMPLOYED_CODES <span class="op">=</span> [<span class="dv">1</span>]  <span class="co"># Fulltime employed persons only</span></span>
 <span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a><span class="co"># Configuration</span></span>
 <span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>CONFIG_PATH <span class="op">=</span> Path(<span class="st">"config.yaml"</span>)</span>
@@ -467,6 +469,10 @@ if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.M
 <span id="cb6-75"><a href="#cb6-75" aria-hidden="true" tabindex="-1"></a>persons_19.group_by(<span class="st">"commute_freq"</span>).<span class="bu">len</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
+</section>
+<section id="data-filtering" class="level3">
+<h3 class="anchored" data-anchor-id="data-filtering">Data filtering</h3>
+<p>For <code>job_type==3</code> (WFH always), it is ambiguous to know if someone simply never commutes because they hardly work outside the home, or if they truly never commute. Therefore, for simplicity, we will narrow the analysis to only full-time employed persons.</p>
 <div id="prepare-data" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Code</summary>
@@ -521,8 +527,8 @@ if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.M
 </details>
 <div class="cell-output cell-output-stderr">
 <pre><code>INFO:__main__:Sum of person weights: 12891187.54
-INFO:__main__:Total employed persons: 11,362
-INFO:__main__:Weighted employed persons: 8198864</code></pre>
+INFO:__main__:Total employed persons: 9,084
+INFO:__main__:Weighted employed persons: 6152092</code></pre>
 </div>
 </div>
 </section>
@@ -567,23 +573,23 @@ Mirrored for commute freq using commute_freq instead of telework_freq</p>
 </tr>
 <tr class="odd">
 <td>2-3 days per week</td>
-<td><code>telework_freq</code> in [4, 5]</td>
-<td><code>commute_freq</code> in [4, 5]</td>
+<td><code>telework_freq</code> == 4</td>
+<td><code>commute_freq</code> == 4</td>
 </tr>
 <tr class="even">
 <td>1 day per week</td>
-<td><code>telework_freq</code> == 6</td>
-<td><code>commute_freq</code> == 6</td>
+<td><code>telework_freq</code> == 5</td>
+<td><code>commute_freq</code> == 5</td>
 </tr>
 <tr class="odd">
 <td>Less than once a week</td>
-<td><code>telework_freq</code> in [7, 8]</td>
-<td><code>commute_freq</code> in [7, 8]</td>
+<td><code>telework_freq</code> in [6, 7]</td>
+<td><code>commute_freq</code> in [6, 7]</td>
 </tr>
 <tr class="even">
 <td>Never</td>
-<td><code>telework_freq</code> == 996</td>
-<td><code>commute_freq</code> == 996 OR <code>job_type</code> == 3</td>
+<td><code>telework_freq</code> == 8</td>
+<td><code>commute_freq</code> == 8</td>
 </tr>
 <tr class="odd">
 <td>Missing Response</td>
@@ -598,8 +604,8 @@ Mirrored for commute freq using commute_freq instead of telework_freq</p>
 <p>While more broad, this categorization accounts for part-time or over-time work scenarios (&lt;5 and &gt;5 days/week).</p>
 <table class="caption-top table">
 <colgroup>
-<col style="width: 25%">
-<col style="width: 74%">
+<col style="width: 26%">
+<col style="width: 73%">
 </colgroup>
 <thead>
 <tr class="header">
@@ -610,7 +616,7 @@ Mirrored for commute freq using commute_freq instead of telework_freq</p>
 <tbody>
 <tr class="odd">
 <td>Never, or less than once a week</td>
-<td><code>telework_freq</code> in [996, 995, 7, 8] AND <code>job_type</code> != 3</td>
+<td><code>telework_freq</code> in [995, 6, 7, 8] AND <code>job_type</code> != 3</td>
 </tr>
 <tr class="even">
 <td>Less than 40% of the time</td>
@@ -626,7 +632,7 @@ Mirrored for commute freq using commute_freq instead of telework_freq</p>
 </tr>
 <tr class="odd">
 <td>Always</td>
-<td>(<code>telework_freq</code> in [1, 2] AND <code>commute_freq</code> == 996) OR <code>job_type</code> == 3</td>
+<td>(<code>telework_freq</code> in [1, 2] AND <code>commute_freq</code> == 8) OR <code>job_type</code> == 3</td>
 </tr>
 </tbody>
 </table>
@@ -789,7 +795,7 @@ shape: (1, 4)
 │ ---   ┆ ---            ┆ ---     ┆ ---       │
 │ i64   ┆ f64            ┆ f64     ┆ f64       │
 ╞═══════╪════════════════╪═════════╪═══════════╡
-│ 289   ┆ 165303.83      ┆ 2.02    ┆ 2.54      │
+│ 188   ┆ 113402.38      ┆ 1.84    ┆ 2.07      │
 └───────┴────────────────┴─────────┴───────────┘</code></pre>
 </div>
 </div>
@@ -809,13 +815,13 @@ shape: (1, 4)
 <span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Works 4 days</span></span>
 <span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.FOUR: (pl.col(<span class="st">"telework_freq"</span>) <span class="op">==</span> <span class="dv">3</span>),</span>
 <span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Works 2-3 days</span></span>
-<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.TWO_THREE: (pl.col(<span class="st">"telework_freq"</span>).is_in([<span class="dv">4</span>, <span class="dv">5</span>])),</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.TWO_THREE: (pl.col(<span class="st">"telework_freq"</span>) <span class="op">==</span> <span class="dv">4</span>),</span>
 <span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Works 1 day</span></span>
-<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.ONE: (pl.col(<span class="st">"telework_freq"</span>) <span class="op">==</span> <span class="dv">6</span>),</span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.ONE: (pl.col(<span class="st">"telework_freq"</span>) <span class="op">==</span> <span class="dv">5</span>),</span>
 <span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Less than weekly</span></span>
-<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col(<span class="st">"telework_freq"</span>).is_in([<span class="dv">7</span>, <span class="dv">8</span>])),</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col(<span class="st">"telework_freq"</span>).is_in([<span class="dv">6</span>, <span class="dv">7</span>])),</span>
 <span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Never</span></span>
-<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.NEVER: (pl.col(<span class="st">"telework_freq"</span>) <span class="op">==</span> <span class="dv">996</span>),</span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.NEVER: (pl.col(<span class="st">"telework_freq"</span>) <span class="op">==</span> <span class="dv">8</span>),</span>
 <span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Missing</span></span>
 <span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.MISSING: (</span>
 <span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>        (pl.col(<span class="st">"telework_freq"</span>) <span class="op">==</span> <span class="dv">995</span>)</span>
@@ -849,17 +855,17 @@ shape: (1, 4)
 <span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Works 4 days</span></span>
 <span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.FOUR: (pl.col(<span class="st">"commute_freq"</span>) <span class="op">==</span> <span class="dv">3</span>),</span>
 <span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Works 2-3 days</span></span>
-<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.TWO_THREE: (pl.col(<span class="st">"commute_freq"</span>).is_in([<span class="dv">4</span>, <span class="dv">5</span>])),</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.TWO_THREE: (pl.col(<span class="st">"commute_freq"</span>) <span class="op">==</span> <span class="dv">4</span>),</span>
 <span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Works 1 day</span></span>
-<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.ONE: (pl.col(<span class="st">"commute_freq"</span>) <span class="op">==</span> <span class="dv">6</span>),</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.ONE: (pl.col(<span class="st">"commute_freq"</span>) <span class="op">==</span> <span class="dv">5</span>),</span>
 <span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Less than weekly</span></span>
-<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col(<span class="st">"commute_freq"</span>).is_in([<span class="dv">7</span>, <span class="dv">8</span>])),</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.LESS_THAN_WEEKLY: (pl.col(<span class="st">"commute_freq"</span>).is_in([<span class="dv">6</span>, <span class="dv">7</span>])),</span>
 <span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Never</span></span>
 <span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.NEVER: (</span>
 <span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>        <span class="co"># WFH Always</span></span>
 <span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>        (pl.col(<span class="st">"job_type"</span>) <span class="op">==</span> <span class="dv">3</span>)</span>
 <span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Never commutes</span></span>
-<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>        <span class="op">|</span> (pl.col(<span class="st">"commute_freq"</span>) <span class="op">==</span> <span class="dv">996</span>)</span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>        <span class="op">|</span> (pl.col(<span class="st">"commute_freq"</span>) <span class="op">==</span> <span class="dv">8</span>)</span>
 <span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>    ),</span>
 <span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Missing</span></span>
 <span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.MISSING: (</span>
@@ -1012,9 +1018,9 @@ shape: (1, 4)
 <span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>    )</span>
 <span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
 <span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>        (</span>
-<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>            <span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"weighted_count"</span>) <span class="op">/</span> pl.col(<span class="st">"weighted_count"</span>).<span class="bu">sum</span>()</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>            <span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"weighted_count"</span>) <span class="op">/</span> pl.col(<span class="st">"weighted_count"</span>).<span class="bu">sum</span>().over(<span class="st">"year"</span>)</span>
 <span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>        ).alias(<span class="st">"% (wtd)"</span>),</span>
-<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>        (<span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"count"</span>) <span class="op">/</span> pl.col(<span class="st">"count"</span>).<span class="bu">sum</span>()).alias(<span class="st">"% (unwtd)"</span>),</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>        (<span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"count"</span>) <span class="op">/</span> pl.col(<span class="st">"count"</span>).<span class="bu">sum</span>().over(<span class="st">"year"</span>)).alias(<span class="st">"% (unwtd)"</span>),</span>
 <span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>    )</span>
 <span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
 <span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"weighted_count"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
@@ -1031,32 +1037,34 @@ shape: (1, 4)
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Telework Frequency Summary - 2019:
-shape: (6, 6)
+shape: (7, 6)
 ┌──────┬───────────────────────┬───────┬────────────────┬─────────┬───────────┐
 │ year ┆ telework_freq_str     ┆ count ┆ weighted_count ┆ % (wtd) ┆ % (unwtd) │
 │ ---  ┆ ---                   ┆ ---   ┆ ---            ┆ ---     ┆ ---       │
 │ str  ┆ str                   ┆ u32   ┆ f64            ┆ f64     ┆ f64       │
 ╞══════╪═══════════════════════╪═══════╪════════════════╪═════════╪═══════════╡
-│ 2019 ┆ Missing Response      ┆ 66    ┆ 145293.92      ┆ 1.77    ┆ 0.58      │
-│ 2019 ┆ Less than once a week ┆ 1799  ┆ 2.1518e6       ┆ 26.24   ┆ 15.83     │
-│ 2019 ┆ 1 day per week        ┆ 649   ┆ 480270.16      ┆ 5.86    ┆ 5.71      │
-│ 2019 ┆ 2-3 days per week     ┆ 741   ┆ 725743.75      ┆ 8.85    ┆ 6.52      │
-│ 2019 ┆ 4 days per week       ┆ 70    ┆ 74223.5        ┆ 0.91    ┆ 0.62      │
-│ 2019 ┆ 5+ days per week      ┆ 512   ┆ 674391.48      ┆ 8.23    ┆ 4.51      │
+│ 2019 ┆ Missing Response      ┆ 34    ┆ 83868.97       ┆ 2.62    ┆ 1.09      │
+│ 2019 ┆ Almost never          ┆ 879   ┆ 1.1691e6       ┆ 36.56   ┆ 28.08     │
+│ 2019 ┆ Less than once a week ┆ 1260  ┆ 898789.78      ┆ 28.1    ┆ 40.26     │
+│ 2019 ┆ 1 day per week        ┆ 402   ┆ 286405.59      ┆ 8.96    ┆ 12.84     │
+│ 2019 ┆ 2-3 days per week     ┆ 213   ┆ 302433.05      ┆ 9.46    ┆ 6.81      │
+│ 2019 ┆ 4 days per week       ┆ 44    ┆ 34929.63       ┆ 1.09    ┆ 1.41      │
+│ 2019 ┆ 5+ days per week      ┆ 298   ┆ 422532.66      ┆ 13.21   ┆ 9.52      │
 └──────┴───────────────────────┴───────┴────────────────┴─────────┴───────────┘
 Telework Frequency Summary - 2023:
-shape: (6, 6)
+shape: (7, 6)
 ┌──────┬───────────────────────┬───────┬────────────────┬─────────┬───────────┐
 │ year ┆ telework_freq_str     ┆ count ┆ weighted_count ┆ % (wtd) ┆ % (unwtd) │
 │ ---  ┆ ---                   ┆ ---   ┆ ---            ┆ ---     ┆ ---       │
 │ str  ┆ str                   ┆ u32   ┆ f64            ┆ f64     ┆ f64       │
 ╞══════╪═══════════════════════╪═══════╪════════════════╪═════════╪═══════════╡
-│ 2023 ┆ Missing Response      ┆ 24    ┆ 20446.54       ┆ 0.25    ┆ 0.21      │
-│ 2023 ┆ Less than once a week ┆ 2094  ┆ 1.5605e6       ┆ 19.03   ┆ 18.43     │
-│ 2023 ┆ 1 day per week        ┆ 459   ┆ 247060.8       ┆ 3.01    ┆ 4.04      │
-│ 2023 ┆ 2-3 days per week     ┆ 2353  ┆ 1.0250e6       ┆ 12.5    ┆ 20.71     │
-│ 2023 ┆ 4 days per week       ┆ 515   ┆ 218418.82      ┆ 2.66    ┆ 4.53      │
-│ 2023 ┆ 5+ days per week      ┆ 2080  ┆ 875776.11      ┆ 10.68   ┆ 18.31     │
+│ 2023 ┆ Missing Response      ┆ 2     ┆ 4123.52        ┆ 0.14    ┆ 0.03      │
+│ 2023 ┆ Almost never          ┆ 1259  ┆ 859103.88      ┆ 29.08   ┆ 21.15     │
+│ 2023 ┆ Less than once a week ┆ 703   ┆ 377696.65      ┆ 12.79   ┆ 11.81     │
+│ 2023 ┆ 1 day per week        ┆ 461   ┆ 198417.69      ┆ 6.72    ┆ 7.74      │
+│ 2023 ┆ 2-3 days per week     ┆ 1626  ┆ 668746.07      ┆ 22.64   ┆ 27.31     │
+│ 2023 ┆ 4 days per week       ┆ 431   ┆ 184486.89      ┆ 6.25    ┆ 7.24      │
+│ 2023 ┆ 5+ days per week      ┆ 1472  ┆ 661415.87      ┆ 22.39   ┆ 24.72     │
 └──────┴───────────────────────┴───────┴────────────────┴─────────┴───────────┘</code></pre>
 </div>
 </div>
@@ -1074,9 +1082,9 @@ shape: (6, 6)
 <span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>    )</span>
 <span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
 <span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>        (</span>
-<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>            <span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"weighted_count"</span>) <span class="op">/</span> pl.col(<span class="st">"weighted_count"</span>).<span class="bu">sum</span>()</span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>            <span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"weighted_count"</span>) <span class="op">/</span> pl.col(<span class="st">"weighted_count"</span>).<span class="bu">sum</span>().over(<span class="st">"year"</span>)</span>
 <span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>        ).alias(<span class="st">"% (wtd)"</span>),</span>
-<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>        (<span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"count"</span>) <span class="op">/</span> pl.col(<span class="st">"count"</span>).<span class="bu">sum</span>()).alias(<span class="st">"% (unwtd)"</span>),</span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>        (<span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"count"</span>) <span class="op">/</span> pl.col(<span class="st">"count"</span>).<span class="bu">sum</span>().over(<span class="st">"year"</span>)).alias(<span class="st">"% (unwtd)"</span>),</span>
 <span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>    )</span>
 <span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
 <span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"weighted_count"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
@@ -1090,6 +1098,37 @@ shape: (6, 6)
 <span id="cb20-22"><a href="#cb20-22" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Commute Frequency Summary - 2023:"</span>)</span>
 <span id="cb20-23"><a href="#cb20-23" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(commute_freq_summary.<span class="bu">filter</span>(pl.col(<span class="st">"year"</span>) <span class="op">==</span> <span class="st">"2023"</span>).drop(<span class="st">"commute_freq_cat"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Commute Frequency Summary - 2019:
+shape: (6, 6)
+┌──────┬───────────────────┬───────┬────────────────┬─────────┬───────────┐
+│ year ┆ commute_freq_str  ┆ count ┆ weighted_count ┆ % (wtd) ┆ % (unwtd) │
+│ ---  ┆ ---               ┆ ---   ┆ ---            ┆ ---     ┆ ---       │
+│ str  ┆ str               ┆ u32   ┆ f64            ┆ f64     ┆ f64       │
+╞══════╪═══════════════════╪═══════╪════════════════╪═════════╪═══════════╡
+│ 2019 ┆ Missing Response  ┆ 51    ┆ 121896.02      ┆ 3.81    ┆ 1.63      │
+│ 2019 ┆ Almost never      ┆ 280   ┆ 381958.95      ┆ 11.94   ┆ 8.95      │
+│ 2019 ┆ 1 day per week    ┆ 66    ┆ 85451.38       ┆ 2.67    ┆ 2.11      │
+│ 2019 ┆ 2-3 days per week ┆ 217   ┆ 276474.37      ┆ 8.64    ┆ 6.93      │
+│ 2019 ┆ 4 days per week   ┆ 595   ┆ 547029.85      ┆ 17.1    ┆ 19.01     │
+│ 2019 ┆ 5+ days per week  ┆ 1921  ┆ 1.7853e6       ┆ 55.82   ┆ 61.37     │
+└──────┴───────────────────┴───────┴────────────────┴─────────┴───────────┘
+Commute Frequency Summary - 2023:
+shape: (7, 6)
+┌──────┬───────────────────────┬───────┬────────────────┬─────────┬───────────┐
+│ year ┆ commute_freq_str      ┆ count ┆ weighted_count ┆ % (wtd) ┆ % (unwtd) │
+│ ---  ┆ ---                   ┆ ---   ┆ ---            ┆ ---     ┆ ---       │
+│ str  ┆ str                   ┆ u32   ┆ f64            ┆ f64     ┆ f64       │
+╞══════╪═══════════════════════╪═══════╪════════════════╪═════════╪═══════════╡
+│ 2023 ┆ Missing Response      ┆ 49    ┆ 54134.88       ┆ 1.83    ┆ 0.82      │
+│ 2023 ┆ Almost never          ┆ 994   ┆ 450879.64      ┆ 15.26   ┆ 16.69     │
+│ 2023 ┆ Less than once a week ┆ 410   ┆ 192583.74      ┆ 6.52    ┆ 6.89      │
+│ 2023 ┆ 1 day per week        ┆ 390   ┆ 158292.44      ┆ 5.36    ┆ 6.55      │
+│ 2023 ┆ 2-3 days per week     ┆ 1676  ┆ 693801.24      ┆ 23.49   ┆ 28.15     │
+│ 2023 ┆ 4 days per week       ┆ 604   ┆ 288057.35      ┆ 9.75    ┆ 10.14     │
+│ 2023 ┆ 5+ days per week      ┆ 1831  ┆ 1.1162e6       ┆ 37.79   ┆ 30.75     │
+└──────┴───────────────────────┴───────┴────────────────┴─────────┴───────────┘</code></pre>
+</div>
 </div>
 </section>
 <section id="combined-telework-and-commute-frequency-distribution" class="level3">
@@ -1097,60 +1136,90 @@ shape: (6, 6)
 <div id="cell-fig-freq-shift-plot" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create simple shift plots</span></span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>fig <span class="op">=</span> make_subplots(rows<span class="op">=</span><span class="dv">1</span>, cols<span class="op">=</span><span class="dv">2</span>, subplot_titles<span class="op">=</span>(<span class="st">"Telework Frequency"</span>, <span class="st">"Commute Frequency"</span>))</span>
-<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Telework data</span></span>
-<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>telework_pivot <span class="op">=</span> (</span>
-<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>    telework_freq_summary</span>
-<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">filter</span>(pl.col(<span class="st">"telework_freq_str"</span>) <span class="op">!=</span> <span class="st">"Missing Response"</span>)</span>
-<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>    .pivot(index<span class="op">=</span>[<span class="st">"telework_freq_str"</span>, <span class="st">"telework_freq_cat"</span>], on<span class="op">=</span><span class="st">"year"</span>, values<span class="op">=</span><span class="st">"% (wtd)"</span>)</span>
-<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>    .sort(<span class="st">"telework_freq_cat"</span>, descending<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> row <span class="kw">in</span> telework_pivot.iter_rows(named<span class="op">=</span><span class="va">True</span>):</span>
-<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>    fig.add_trace(</span>
-<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>        go.Scatter(</span>
-<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a>            x<span class="op">=</span>[<span class="dv">2019</span>, <span class="dv">2023</span>],</span>
-<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a>            y<span class="op">=</span>[row[<span class="st">"2019"</span>], row[<span class="st">"2023"</span>]],</span>
-<span id="cb21-17"><a href="#cb21-17" aria-hidden="true" tabindex="-1"></a>            mode<span class="op">=</span><span class="st">'lines+markers'</span>,</span>
-<span id="cb21-18"><a href="#cb21-18" aria-hidden="true" tabindex="-1"></a>            name<span class="op">=</span>row[<span class="st">"telework_freq_str"</span>],</span>
-<span id="cb21-19"><a href="#cb21-19" aria-hidden="true" tabindex="-1"></a>        ),</span>
-<span id="cb21-20"><a href="#cb21-20" aria-hidden="true" tabindex="-1"></a>        row<span class="op">=</span><span class="dv">1</span>, col<span class="op">=</span><span class="dv">1</span></span>
-<span id="cb21-21"><a href="#cb21-21" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb21-22"><a href="#cb21-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb21-23"><a href="#cb21-23" aria-hidden="true" tabindex="-1"></a><span class="co"># Commute data</span></span>
-<span id="cb21-24"><a href="#cb21-24" aria-hidden="true" tabindex="-1"></a>commute_pivot <span class="op">=</span> (</span>
-<span id="cb21-25"><a href="#cb21-25" aria-hidden="true" tabindex="-1"></a>    commute_freq_summary</span>
-<span id="cb21-26"><a href="#cb21-26" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">filter</span>(pl.col(<span class="st">"commute_freq_str"</span>) <span class="op">!=</span> <span class="st">"Missing Response"</span>)</span>
-<span id="cb21-27"><a href="#cb21-27" aria-hidden="true" tabindex="-1"></a>    .pivot(index<span class="op">=</span>[<span class="st">"commute_freq_str"</span>, <span class="st">"commute_freq_cat"</span>], on<span class="op">=</span><span class="st">"year"</span>, values<span class="op">=</span><span class="st">"% (wtd)"</span>)</span>
-<span id="cb21-28"><a href="#cb21-28" aria-hidden="true" tabindex="-1"></a>    .sort(<span class="st">"commute_freq_cat"</span>, descending<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb21-29"><a href="#cb21-29" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb21-30"><a href="#cb21-30" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb21-31"><a href="#cb21-31" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> row <span class="kw">in</span> commute_pivot.iter_rows(named<span class="op">=</span><span class="va">True</span>):</span>
-<span id="cb21-32"><a href="#cb21-32" aria-hidden="true" tabindex="-1"></a>    fig.add_trace(</span>
-<span id="cb21-33"><a href="#cb21-33" aria-hidden="true" tabindex="-1"></a>        go.Scatter(</span>
-<span id="cb21-34"><a href="#cb21-34" aria-hidden="true" tabindex="-1"></a>            x<span class="op">=</span>[<span class="dv">2019</span>, <span class="dv">2023</span>],</span>
-<span id="cb21-35"><a href="#cb21-35" aria-hidden="true" tabindex="-1"></a>            y<span class="op">=</span>[row[<span class="st">"2019"</span>], row[<span class="st">"2023"</span>]],</span>
-<span id="cb21-36"><a href="#cb21-36" aria-hidden="true" tabindex="-1"></a>            mode<span class="op">=</span><span class="st">'lines+markers'</span>,</span>
-<span id="cb21-37"><a href="#cb21-37" aria-hidden="true" tabindex="-1"></a>            name<span class="op">=</span>row[<span class="st">"commute_freq_str"</span>],</span>
-<span id="cb21-38"><a href="#cb21-38" aria-hidden="true" tabindex="-1"></a>            showlegend<span class="op">=</span><span class="va">False</span>,</span>
-<span id="cb21-39"><a href="#cb21-39" aria-hidden="true" tabindex="-1"></a>        ),</span>
-<span id="cb21-40"><a href="#cb21-40" aria-hidden="true" tabindex="-1"></a>        row<span class="op">=</span><span class="dv">1</span>, col<span class="op">=</span><span class="dv">2</span></span>
-<span id="cb21-41"><a href="#cb21-41" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb21-42"><a href="#cb21-42" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb21-43"><a href="#cb21-43" aria-hidden="true" tabindex="-1"></a>fig.update_xaxes(tickvals<span class="op">=</span>[<span class="dv">2019</span>, <span class="dv">2023</span>])</span>
-<span id="cb21-44"><a href="#cb21-44" aria-hidden="true" tabindex="-1"></a>fig.update_yaxes(title_text<span class="op">=</span><span class="st">"% (Weighted)"</span>)</span>
-<span id="cb21-45"><a href="#cb21-45" aria-hidden="true" tabindex="-1"></a>fig.update_layout(height<span class="op">=</span><span class="dv">500</span>, title_text<span class="op">=</span><span class="st">"Work Pattern Changes: 2019 to 2023"</span>)</span>
-<span id="cb21-46"><a href="#cb21-46" aria-hidden="true" tabindex="-1"></a>fig.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create simple shift plots</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Create color mapping for consistent colors across both plots</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> plotly.express <span class="im">as</span> px</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Create graduated color scale</span></span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>colors <span class="op">=</span> px.colors.sample_colorscale(</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>    px.colors.sequential.Bluered,</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>    [<span class="dv">0</span>, <span class="fl">0.2</span>, <span class="fl">0.4</span>, <span class="fl">0.6</span>, <span class="fl">0.8</span>, <span class="fl">1.0</span>]</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>color_map <span class="op">=</span> {</span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.FIVE_PLUS.label: colors[<span class="dv">0</span>],</span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.FOUR.label: colors[<span class="dv">1</span>],</span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.TWO_THREE.label: colors[<span class="dv">2</span>],</span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.ONE.label: colors[<span class="dv">3</span>],</span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.LESS_THAN_WEEKLY.label: colors[<span class="dv">4</span>],</span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a>    FrequencyCategory.NEVER.label: colors[<span class="dv">5</span>],</span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>fig <span class="op">=</span> make_subplots(rows<span class="op">=</span><span class="dv">1</span>, cols<span class="op">=</span><span class="dv">2</span>, subplot_titles<span class="op">=</span>(<span class="st">"Telework Frequency"</span>, <span class="st">"Commute Frequency"</span>))</span>
+<span id="cb22-21"><a href="#cb22-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-22"><a href="#cb22-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Telework data</span></span>
+<span id="cb22-23"><a href="#cb22-23" aria-hidden="true" tabindex="-1"></a>telework_pivot <span class="op">=</span> (</span>
+<span id="cb22-24"><a href="#cb22-24" aria-hidden="true" tabindex="-1"></a>    telework_freq_summary</span>
+<span id="cb22-25"><a href="#cb22-25" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">filter</span>(pl.col(<span class="st">"telework_freq_str"</span>) <span class="op">!=</span> <span class="st">"Missing Response"</span>)</span>
+<span id="cb22-26"><a href="#cb22-26" aria-hidden="true" tabindex="-1"></a>    .pivot(index<span class="op">=</span>[<span class="st">"telework_freq_str"</span>, <span class="st">"telework_freq_cat"</span>], on<span class="op">=</span><span class="st">"year"</span>, values<span class="op">=</span><span class="st">"% (wtd)"</span>)</span>
+<span id="cb22-27"><a href="#cb22-27" aria-hidden="true" tabindex="-1"></a>    .sort(<span class="st">"telework_freq_cat"</span>, descending<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb22-28"><a href="#cb22-28" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb22-29"><a href="#cb22-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-30"><a href="#cb22-30" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> row <span class="kw">in</span> telework_pivot.iter_rows(named<span class="op">=</span><span class="va">True</span>):</span>
+<span id="cb22-31"><a href="#cb22-31" aria-hidden="true" tabindex="-1"></a>    fig.add_trace(</span>
+<span id="cb22-32"><a href="#cb22-32" aria-hidden="true" tabindex="-1"></a>        go.Scatter(</span>
+<span id="cb22-33"><a href="#cb22-33" aria-hidden="true" tabindex="-1"></a>            x<span class="op">=</span>[<span class="dv">2019</span>, <span class="dv">2023</span>],</span>
+<span id="cb22-34"><a href="#cb22-34" aria-hidden="true" tabindex="-1"></a>            y<span class="op">=</span>[row[<span class="st">"2019"</span>], row[<span class="st">"2023"</span>]],</span>
+<span id="cb22-35"><a href="#cb22-35" aria-hidden="true" tabindex="-1"></a>            mode<span class="op">=</span><span class="st">'lines+markers'</span>,</span>
+<span id="cb22-36"><a href="#cb22-36" aria-hidden="true" tabindex="-1"></a>            name<span class="op">=</span>row[<span class="st">"telework_freq_str"</span>],</span>
+<span id="cb22-37"><a href="#cb22-37" aria-hidden="true" tabindex="-1"></a>            line<span class="op">=</span><span class="bu">dict</span>(color<span class="op">=</span>color_map.get(row[<span class="st">"telework_freq_str"</span>])),</span>
+<span id="cb22-38"><a href="#cb22-38" aria-hidden="true" tabindex="-1"></a>            marker<span class="op">=</span><span class="bu">dict</span>(color<span class="op">=</span>color_map.get(row[<span class="st">"telework_freq_str"</span>])),</span>
+<span id="cb22-39"><a href="#cb22-39" aria-hidden="true" tabindex="-1"></a>        ),</span>
+<span id="cb22-40"><a href="#cb22-40" aria-hidden="true" tabindex="-1"></a>        row<span class="op">=</span><span class="dv">1</span>, col<span class="op">=</span><span class="dv">1</span></span>
+<span id="cb22-41"><a href="#cb22-41" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb22-42"><a href="#cb22-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-43"><a href="#cb22-43" aria-hidden="true" tabindex="-1"></a><span class="co"># Commute data</span></span>
+<span id="cb22-44"><a href="#cb22-44" aria-hidden="true" tabindex="-1"></a>commute_pivot <span class="op">=</span> (</span>
+<span id="cb22-45"><a href="#cb22-45" aria-hidden="true" tabindex="-1"></a>    commute_freq_summary</span>
+<span id="cb22-46"><a href="#cb22-46" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">filter</span>(pl.col(<span class="st">"commute_freq_str"</span>) <span class="op">!=</span> <span class="st">"Missing Response"</span>)</span>
+<span id="cb22-47"><a href="#cb22-47" aria-hidden="true" tabindex="-1"></a>    .pivot(index<span class="op">=</span>[<span class="st">"commute_freq_str"</span>, <span class="st">"commute_freq_cat"</span>], on<span class="op">=</span><span class="st">"year"</span>, values<span class="op">=</span><span class="st">"% (wtd)"</span>)</span>
+<span id="cb22-48"><a href="#cb22-48" aria-hidden="true" tabindex="-1"></a>    .sort(<span class="st">"commute_freq_cat"</span>, descending<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb22-49"><a href="#cb22-49" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb22-50"><a href="#cb22-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-51"><a href="#cb22-51" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> row <span class="kw">in</span> commute_pivot.iter_rows(named<span class="op">=</span><span class="va">True</span>):</span>
+<span id="cb22-52"><a href="#cb22-52" aria-hidden="true" tabindex="-1"></a>    fig.add_trace(</span>
+<span id="cb22-53"><a href="#cb22-53" aria-hidden="true" tabindex="-1"></a>        go.Scatter(</span>
+<span id="cb22-54"><a href="#cb22-54" aria-hidden="true" tabindex="-1"></a>            x<span class="op">=</span>[<span class="dv">2019</span>, <span class="dv">2023</span>],</span>
+<span id="cb22-55"><a href="#cb22-55" aria-hidden="true" tabindex="-1"></a>            y<span class="op">=</span>[row[<span class="st">"2019"</span>], row[<span class="st">"2023"</span>]],</span>
+<span id="cb22-56"><a href="#cb22-56" aria-hidden="true" tabindex="-1"></a>            mode<span class="op">=</span><span class="st">'lines+markers'</span>,</span>
+<span id="cb22-57"><a href="#cb22-57" aria-hidden="true" tabindex="-1"></a>            name<span class="op">=</span>row[<span class="st">"commute_freq_str"</span>],</span>
+<span id="cb22-58"><a href="#cb22-58" aria-hidden="true" tabindex="-1"></a>            line<span class="op">=</span><span class="bu">dict</span>(color<span class="op">=</span>color_map.get(row[<span class="st">"commute_freq_str"</span>])),</span>
+<span id="cb22-59"><a href="#cb22-59" aria-hidden="true" tabindex="-1"></a>            marker<span class="op">=</span><span class="bu">dict</span>(color<span class="op">=</span>color_map.get(row[<span class="st">"commute_freq_str"</span>])),</span>
+<span id="cb22-60"><a href="#cb22-60" aria-hidden="true" tabindex="-1"></a>            showlegend<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb22-61"><a href="#cb22-61" aria-hidden="true" tabindex="-1"></a>        ),</span>
+<span id="cb22-62"><a href="#cb22-62" aria-hidden="true" tabindex="-1"></a>        row<span class="op">=</span><span class="dv">1</span>, col<span class="op">=</span><span class="dv">2</span></span>
+<span id="cb22-63"><a href="#cb22-63" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb22-64"><a href="#cb22-64" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-65"><a href="#cb22-65" aria-hidden="true" tabindex="-1"></a><span class="co"># Find max value across both datasets to set matching y-axis range</span></span>
+<span id="cb22-66"><a href="#cb22-66" aria-hidden="true" tabindex="-1"></a>max_val <span class="op">=</span> max_val <span class="op">=</span> <span class="bu">max</span>(</span>
+<span id="cb22-67"><a href="#cb22-67" aria-hidden="true" tabindex="-1"></a>    telework_pivot[<span class="st">'2019'</span>].<span class="bu">max</span>(),</span>
+<span id="cb22-68"><a href="#cb22-68" aria-hidden="true" tabindex="-1"></a>    telework_pivot[<span class="st">'2023'</span>].<span class="bu">max</span>(),</span>
+<span id="cb22-69"><a href="#cb22-69" aria-hidden="true" tabindex="-1"></a>    commute_pivot[<span class="st">'2019'</span>].<span class="bu">max</span>(),</span>
+<span id="cb22-70"><a href="#cb22-70" aria-hidden="true" tabindex="-1"></a>    commute_pivot[<span class="st">'2023'</span>].<span class="bu">max</span>(),</span>
+<span id="cb22-71"><a href="#cb22-71" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb22-72"><a href="#cb22-72" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-73"><a href="#cb22-73" aria-hidden="true" tabindex="-1"></a>fig.update_xaxes(tickvals<span class="op">=</span>[<span class="dv">2019</span>, <span class="dv">2023</span>])</span>
+<span id="cb22-74"><a href="#cb22-74" aria-hidden="true" tabindex="-1"></a>fig.update_yaxes(title_text<span class="op">=</span><span class="st">"% (Weighted)"</span>, <span class="bu">range</span><span class="op">=</span>[<span class="dv">0</span>, max_val <span class="op">*</span> <span class="fl">1.1</span>])</span>
+<span id="cb22-75"><a href="#cb22-75" aria-hidden="true" tabindex="-1"></a>fig.update_layout(height<span class="op">=</span><span class="dv">500</span>, title_text<span class="op">=</span><span class="st">"Work Pattern Changes: 2019 to 2023"</span>)</span>
+<span id="cb22-76"><a href="#cb22-76" aria-hidden="true" tabindex="-1"></a>fig.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div id="fig-freq-shift-plot" class="cell-output cell-output-display quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-freq-shift-plot-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div>            <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_SVG"></script><script type="text/javascript">if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.MathJax.Hub.Config({SVG: {font: "STIX-Web"}});}</script>                <script type="text/javascript">window.PlotlyConfig = {MathJaxConfig: 'local'};</script>
-        <script charset="utf-8" src="https://cdn.plot.ly/plotly-3.2.0.min.js" integrity="sha256-iZ2u/oU2wf/vDbl/ChcX93WgbBRSBvUO6N413hDz7xM=" crossorigin="anonymous"></script>                <div id="05304996-0db9-432f-91db-fd8b0921230a" class="plotly-graph-div" style="height:500px; width:100%;"></div>            <script type="text/javascript">                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("05304996-0db9-432f-91db-fd8b0921230a")) {                    Plotly.newPlot(                        "05304996-0db9-432f-91db-fd8b0921230a",                        [{"mode":"lines+markers","name":"5+ days per week","x":[2019,2023],"y":[8.23,10.68],"type":"scatter","xaxis":"x","yaxis":"y"},{"mode":"lines+markers","name":"4 days per week","x":[2019,2023],"y":[0.91,2.66],"type":"scatter","xaxis":"x","yaxis":"y"},{"mode":"lines+markers","name":"2-3 days per week","x":[2019,2023],"y":[8.85,12.5],"type":"scatter","xaxis":"x","yaxis":"y"},{"mode":"lines+markers","name":"1 day per week","x":[2019,2023],"y":[5.86,3.01],"type":"scatter","xaxis":"x","yaxis":"y"},{"mode":"lines+markers","name":"Less than once a week","x":[2019,2023],"y":[26.24,19.03],"type":"scatter","xaxis":"x","yaxis":"y"},{"mode":"lines+markers","name":"5+ days per week","showlegend":false,"x":[2019,2023],"y":[22.05,16.87],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"mode":"lines+markers","name":"4 days per week","showlegend":false,"x":[2019,2023],"y":[8.58,5.31],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"mode":"lines+markers","name":"2-3 days per week","showlegend":false,"x":[2019,2023],"y":[9.99,14.12],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"mode":"lines+markers","name":"1 day per week","showlegend":false,"x":[2019,2023],"y":[null,1.77],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"mode":"lines+markers","name":"Less than once a week","showlegend":false,"x":[2019,2023],"y":[4.62,2.27],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"mode":"lines+markers","name":"Almost never","showlegend":false,"x":[2019,2023],"y":[3.62,6.61],"type":"scatter","xaxis":"x2","yaxis":"y2"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"},"margin":{"b":0,"l":0,"r":0,"t":30}}},"xaxis":{"anchor":"y","domain":[0.0,0.45],"tickvals":[2019,2023]},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"% (Weighted)"}},"xaxis2":{"anchor":"y2","domain":[0.55,1.0],"tickvals":[2019,2023]},"yaxis2":{"anchor":"x2","domain":[0.0,1.0],"title":{"text":"% (Weighted)"}},"annotations":[{"font":{"size":16},"showarrow":false,"text":"Telework Frequency","x":0.225,"xanchor":"center","xref":"paper","y":1.0,"yanchor":"bottom","yref":"paper"},{"font":{"size":16},"showarrow":false,"text":"Commute Frequency","x":0.775,"xanchor":"center","xref":"paper","y":1.0,"yanchor":"bottom","yref":"paper"}],"title":{"text":"Work Pattern Changes: 2019 to 2023"},"height":500},                        {"responsive": true}                    ).then(function(){
+        <script charset="utf-8" src="https://cdn.plot.ly/plotly-3.2.0.min.js" integrity="sha256-iZ2u/oU2wf/vDbl/ChcX93WgbBRSBvUO6N413hDz7xM=" crossorigin="anonymous"></script>                <div id="f69afb3d-81b6-4f78-9e9d-718fa0863ce6" class="plotly-graph-div" style="height:500px; width:100%;"></div>            <script type="text/javascript">                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("f69afb3d-81b6-4f78-9e9d-718fa0863ce6")) {                    Plotly.newPlot(                        "f69afb3d-81b6-4f78-9e9d-718fa0863ce6",                        [{"line":{"color":"rgb(0, 0, 255)"},"marker":{"color":"rgb(0, 0, 255)"},"mode":"lines+markers","name":"5+ days per week","x":[2019,2023],"y":[13.21,22.39],"type":"scatter","xaxis":"x","yaxis":"y"},{"line":{"color":"rgb(51, 0, 204)"},"marker":{"color":"rgb(51, 0, 204)"},"mode":"lines+markers","name":"4 days per week","x":[2019,2023],"y":[1.09,6.25],"type":"scatter","xaxis":"x","yaxis":"y"},{"line":{"color":"rgb(102, 0, 153)"},"marker":{"color":"rgb(102, 0, 153)"},"mode":"lines+markers","name":"2-3 days per week","x":[2019,2023],"y":[9.46,22.64],"type":"scatter","xaxis":"x","yaxis":"y"},{"line":{"color":"rgb(153, 0, 102)"},"marker":{"color":"rgb(153, 0, 102)"},"mode":"lines+markers","name":"1 day per week","x":[2019,2023],"y":[8.96,6.72],"type":"scatter","xaxis":"x","yaxis":"y"},{"line":{"color":"rgb(204, 0, 51)"},"marker":{"color":"rgb(204, 0, 51)"},"mode":"lines+markers","name":"Less than once a week","x":[2019,2023],"y":[28.1,12.79],"type":"scatter","xaxis":"x","yaxis":"y"},{"line":{"color":"rgb(255, 0, 0)"},"marker":{"color":"rgb(255, 0, 0)"},"mode":"lines+markers","name":"Almost never","x":[2019,2023],"y":[36.56,29.08],"type":"scatter","xaxis":"x","yaxis":"y"},{"line":{"color":"rgb(0, 0, 255)"},"marker":{"color":"rgb(0, 0, 255)"},"mode":"lines+markers","name":"5+ days per week","showlegend":false,"x":[2019,2023],"y":[55.82,37.79],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"line":{"color":"rgb(51, 0, 204)"},"marker":{"color":"rgb(51, 0, 204)"},"mode":"lines+markers","name":"4 days per week","showlegend":false,"x":[2019,2023],"y":[17.1,9.75],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"line":{"color":"rgb(102, 0, 153)"},"marker":{"color":"rgb(102, 0, 153)"},"mode":"lines+markers","name":"2-3 days per week","showlegend":false,"x":[2019,2023],"y":[8.64,23.49],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"line":{"color":"rgb(153, 0, 102)"},"marker":{"color":"rgb(153, 0, 102)"},"mode":"lines+markers","name":"1 day per week","showlegend":false,"x":[2019,2023],"y":[2.67,5.36],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"line":{"color":"rgb(204, 0, 51)"},"marker":{"color":"rgb(204, 0, 51)"},"mode":"lines+markers","name":"Less than once a week","showlegend":false,"x":[2019,2023],"y":[null,6.52],"type":"scatter","xaxis":"x2","yaxis":"y2"},{"line":{"color":"rgb(255, 0, 0)"},"marker":{"color":"rgb(255, 0, 0)"},"mode":"lines+markers","name":"Almost never","showlegend":false,"x":[2019,2023],"y":[11.94,15.26],"type":"scatter","xaxis":"x2","yaxis":"y2"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"},"margin":{"b":0,"l":0,"r":0,"t":30}}},"xaxis":{"anchor":"y","domain":[0.0,0.45],"tickvals":[2019,2023]},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"% (Weighted)"},"range":[0,61.40200000000001]},"xaxis2":{"anchor":"y2","domain":[0.55,1.0],"tickvals":[2019,2023]},"yaxis2":{"anchor":"x2","domain":[0.0,1.0],"title":{"text":"% (Weighted)"},"range":[0,61.40200000000001]},"annotations":[{"font":{"size":16},"showarrow":false,"text":"Telework Frequency","x":0.225,"xanchor":"center","xref":"paper","y":1.0,"yanchor":"bottom","yref":"paper"},{"font":{"size":16},"showarrow":false,"text":"Commute Frequency","x":0.775,"xanchor":"center","xref":"paper","y":1.0,"yanchor":"bottom","yref":"paper"}],"title":{"text":"Work Pattern Changes: 2019 to 2023"},"height":500},                        {"responsive": true}                    ).then(function(){
 
-var gd = document.getElementById('05304996-0db9-432f-91db-fd8b0921230a');
+var gd = document.getElementById('f69afb3d-81b6-4f78-9e9d-718fa0863ce6');
 var x = new MutationObserver(function (mutations, observer) {{
         var display = window.getComputedStyle(gd).display;
         if (!display || display === 'none') {{
@@ -1186,31 +1255,31 @@ Figure&nbsp;1: Shift in Telework and Commute Frequency: 2019 vs 2023
 <div id="telework-ratio-summary" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>telework_ratio_summary <span class="op">=</span> (</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>    employed_persons.group_by(<span class="st">"year"</span>, <span class="st">"telework_ratio_str"</span>, <span class="st">"telework_ratio_cat"</span>)</span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>    .agg(</span>
-<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>        pl.<span class="bu">len</span>().alias(<span class="st">"count"</span>),</span>
-<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"person_weight"</span>).<span class="bu">sum</span>().alias(<span class="st">"weighted_count"</span>),</span>
-<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
-<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>        (</span>
-<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>            <span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"weighted_count"</span>) <span class="op">/</span> pl.col(<span class="st">"weighted_count"</span>).<span class="bu">sum</span>()</span>
-<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>        ).alias(<span class="st">"% (wtd)"</span>),</span>
-<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>        (<span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"count"</span>) <span class="op">/</span> pl.col(<span class="st">"count"</span>).<span class="bu">sum</span>()).alias(<span class="st">"% (unwtd)"</span>),</span>
-<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
-<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"weighted_count"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
-<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"% (wtd)"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
-<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"% (unwtd)"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
-<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>    .sort(<span class="st">"telework_ratio_cat"</span>)</span>
-<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>    .drop(<span class="st">"telework_ratio_cat"</span>)</span>
-<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb22-21"><a href="#cb22-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb22-22"><a href="#cb22-22" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Telework Ratio Summary - 2019:"</span>)</span>
-<span id="cb22-23"><a href="#cb22-23" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(telework_ratio_summary.<span class="bu">filter</span>(pl.col(<span class="st">"year"</span>) <span class="op">==</span> <span class="st">"2019"</span>))</span>
-<span id="cb22-24"><a href="#cb22-24" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Telework Ratio Summary - 2023:"</span>)</span>
-<span id="cb22-25"><a href="#cb22-25" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(telework_ratio_summary.<span class="bu">filter</span>(pl.col(<span class="st">"year"</span>) <span class="op">==</span> <span class="st">"2023"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>telework_ratio_summary <span class="op">=</span> (</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>    employed_persons.group_by(<span class="st">"year"</span>, <span class="st">"telework_ratio_str"</span>, <span class="st">"telework_ratio_cat"</span>)</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>    .agg(</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>        pl.<span class="bu">len</span>().alias(<span class="st">"count"</span>),</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"person_weight"</span>).<span class="bu">sum</span>().alias(<span class="st">"weighted_count"</span>),</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>        (</span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>            <span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"weighted_count"</span>) <span class="op">/</span> pl.col(<span class="st">"weighted_count"</span>).<span class="bu">sum</span>().over(<span class="st">"year"</span>)</span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>        ).alias(<span class="st">"% (wtd)"</span>),</span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>        (<span class="dv">100</span> <span class="op">*</span> pl.col(<span class="st">"count"</span>) <span class="op">/</span> pl.col(<span class="st">"count"</span>).<span class="bu">sum</span>().over(<span class="st">"year"</span>)).alias(<span class="st">"% (unwtd)"</span>),</span>
+<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
+<span id="cb23-14"><a href="#cb23-14" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"weighted_count"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
+<span id="cb23-15"><a href="#cb23-15" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"% (wtd)"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
+<span id="cb23-16"><a href="#cb23-16" aria-hidden="true" tabindex="-1"></a>        pl.col(<span class="st">"% (unwtd)"</span>).<span class="bu">round</span>(<span class="dv">2</span>),</span>
+<span id="cb23-17"><a href="#cb23-17" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb23-18"><a href="#cb23-18" aria-hidden="true" tabindex="-1"></a>    .sort(<span class="st">"telework_ratio_cat"</span>)</span>
+<span id="cb23-19"><a href="#cb23-19" aria-hidden="true" tabindex="-1"></a>    .drop(<span class="st">"telework_ratio_cat"</span>)</span>
+<span id="cb23-20"><a href="#cb23-20" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb23-21"><a href="#cb23-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-22"><a href="#cb23-22" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Telework Ratio Summary - 2019:"</span>)</span>
+<span id="cb23-23"><a href="#cb23-23" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(telework_ratio_summary.<span class="bu">filter</span>(pl.col(<span class="st">"year"</span>) <span class="op">==</span> <span class="st">"2019"</span>))</span>
+<span id="cb23-24"><a href="#cb23-24" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Telework Ratio Summary - 2023:"</span>)</span>
+<span id="cb23-25"><a href="#cb23-25" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(telework_ratio_summary.<span class="bu">filter</span>(pl.col(<span class="st">"year"</span>) <span class="op">==</span> <span class="st">"2023"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Telework Ratio Summary - 2019:
@@ -1220,12 +1289,12 @@ shape: (6, 6)
 │ ---  ┆ ---                             ┆ ---   ┆ ---            ┆ ---     ┆ ---       │
 │ str  ┆ str                             ┆ u32   ┆ f64            ┆ f64     ┆ f64       │
 ╞══════╪═════════════════════════════════╪═══════╪════════════════╪═════════╪═══════════╡
-│ 2019 ┆ Missing Response                ┆ 136   ┆ 246329.48      ┆ 3.0     ┆ 1.2       │
-│ 2019 ┆ Never, or less than once a wee… ┆ 1756  ┆ 2.0690e6       ┆ 25.24   ┆ 15.46     │
-│ 2019 ┆ Less than 40% of the time       ┆ 705   ┆ 555787.46      ┆ 6.78    ┆ 6.2       │
-│ 2019 ┆ About half (40-60%)             ┆ 688   ┆ 651860.43      ┆ 7.95    ┆ 6.06      │
-│ 2019 ┆ More than 60% of the time       ┆ 54    ┆ 77471.55       ┆ 0.94    ┆ 0.48      │
-│ 2019 ┆ Always                          ┆ 498   ┆ 651195.24      ┆ 7.94    ┆ 4.38      │
+│ 2019 ┆ Missing Response                ┆ 51    ┆ 121896.02      ┆ 3.81    ┆ 1.63      │
+│ 2019 ┆ Never, or less than once a wee… ┆ 2130  ┆ 2.0453e6       ┆ 63.96   ┆ 68.05     │
+│ 2019 ┆ Less than 40% of the time       ┆ 346   ┆ 259459.1       ┆ 8.11    ┆ 11.05     │
+│ 2019 ┆ About half (40-60%)             ┆ 266   ┆ 310943.52      ┆ 9.72    ┆ 8.5       │
+│ 2019 ┆ More than 60% of the time       ┆ 62    ┆ 97243.17       ┆ 3.04    ┆ 1.98      │
+│ 2019 ┆ Always                          ┆ 275   ┆ 363211.66      ┆ 11.36   ┆ 8.79      │
 └──────┴─────────────────────────────────┴───────┴────────────────┴─────────┴───────────┘
 Telework Ratio Summary - 2023:
 shape: (6, 6)
@@ -1234,38 +1303,38 @@ shape: (6, 6)
 │ ---  ┆ ---                             ┆ ---   ┆ ---            ┆ ---     ┆ ---       │
 │ str  ┆ str                             ┆ u32   ┆ f64            ┆ f64     ┆ f64       │
 ╞══════╪═════════════════════════════════╪═══════╪════════════════╪═════════╪═══════════╡
-│ 2023 ┆ Missing Response                ┆ 112   ┆ 97326.73       ┆ 1.19    ┆ 0.99      │
-│ 2023 ┆ Never, or less than once a wee… ┆ 2047  ┆ 1502889.1      ┆ 18.33   ┆ 18.02     │
-│ 2023 ┆ Less than 40% of the time       ┆ 546   ┆ 294871.27      ┆ 3.6     ┆ 4.81      │
-│ 2023 ┆ About half (40-60%)             ┆ 2780  ┆ 1.2181e6       ┆ 14.86   ┆ 24.47     │
-│ 2023 ┆ More than 60% of the time       ┆ 462   ┆ 168449.22      ┆ 2.05    ┆ 4.07      │
-│ 2023 ┆ Always                          ┆ 1578  ┆ 665536.8       ┆ 8.12    ┆ 13.89     │
+│ 2023 ┆ Missing Response                ┆ 49    ┆ 54134.88       ┆ 1.83    ┆ 0.82      │
+│ 2023 ┆ Never, or less than once a wee… ┆ 1933  ┆ 1.1977e6       ┆ 40.55   ┆ 32.47     │
+│ 2023 ┆ Less than 40% of the time       ┆ 463   ┆ 204383.86      ┆ 6.92    ┆ 7.78      │
+│ 2023 ┆ About half (40-60%)             ┆ 1728  ┆ 722956.48      ┆ 24.47   ┆ 29.02     │
+│ 2023 ┆ More than 60% of the time       ┆ 426   ┆ 172590.89      ┆ 5.84    ┆ 7.15      │
+│ 2023 ┆ Always                          ┆ 1355  ┆ 602217.18      ┆ 20.39   ┆ 22.76     │
 └──────┴─────────────────────────────────┴───────┴────────────────┴─────────┴───────────┘</code></pre>
 </div>
 </div>
 <div id="cell-fig-telework-ratio" class="cell" data-execution_count="17">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>fig <span class="op">=</span> px.bar(</span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>    telework_ratio_summary,</span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>    x<span class="op">=</span><span class="st">"telework_ratio_str"</span>,</span>
-<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>    y<span class="op">=</span><span class="st">"% (wtd)"</span>,</span>
-<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>    color<span class="op">=</span><span class="st">"year"</span>,</span>
-<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>    barmode<span class="op">=</span><span class="st">"group"</span>,</span>
-<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>    title<span class="op">=</span><span class="st">"Proportion of Work Days Spent Working From Home by Survey Year"</span>,</span>
-<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>    labels<span class="op">=</span>{<span class="st">"telework_ratio_str"</span>: <span class="st">"Telework Ratio"</span>, <span class="st">"% (wtd)"</span>: <span class="st">"Percentage (Weighted)"</span>, <span class="st">"year"</span>: <span class="st">"Survey Year"</span>},</span>
-<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>    text<span class="op">=</span><span class="st">"% (wtd)"</span>,</span>
-<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>fig.update_traces(texttemplate<span class="op">=</span><span class="st">'%</span><span class="sc">{text:.1f}</span><span class="st">%'</span>, textposition<span class="op">=</span><span class="st">'outside'</span>)</span>
-<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>fig.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>fig <span class="op">=</span> px.bar(</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>    telework_ratio_summary,</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>    x<span class="op">=</span><span class="st">"telework_ratio_str"</span>,</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>    y<span class="op">=</span><span class="st">"% (wtd)"</span>,</span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>    color<span class="op">=</span><span class="st">"year"</span>,</span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>    barmode<span class="op">=</span><span class="st">"group"</span>,</span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>    title<span class="op">=</span><span class="st">"Proportion of Work Days Spent Working From Home by Survey Year"</span>,</span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>    labels<span class="op">=</span>{<span class="st">"telework_ratio_str"</span>: <span class="st">"Telework Ratio"</span>, <span class="st">"% (wtd)"</span>: <span class="st">"Percentage (Weighted)"</span>, <span class="st">"year"</span>: <span class="st">"Survey Year"</span>},</span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>    text<span class="op">=</span><span class="st">"% (wtd)"</span>,</span>
+<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>fig.update_traces(texttemplate<span class="op">=</span><span class="st">'%</span><span class="sc">{text:.1f}</span><span class="st">%'</span>, textposition<span class="op">=</span><span class="st">'outside'</span>)</span>
+<span id="cb25-12"><a href="#cb25-12" aria-hidden="true" tabindex="-1"></a>fig.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div id="fig-telework-ratio" class="cell-output cell-output-display quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-telework-ratio-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div>            <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_SVG"></script><script type="text/javascript">if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.MathJax.Hub.Config({SVG: {font: "STIX-Web"}});}</script>                <script type="text/javascript">window.PlotlyConfig = {MathJaxConfig: 'local'};</script>
-        <script charset="utf-8" src="https://cdn.plot.ly/plotly-3.2.0.min.js" integrity="sha256-iZ2u/oU2wf/vDbl/ChcX93WgbBRSBvUO6N413hDz7xM=" crossorigin="anonymous"></script>                <div id="4e0c1759-392c-4580-936f-e92a86b0b1ec" class="plotly-graph-div" style="height:525px; width:100%;"></div>            <script type="text/javascript">                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("4e0c1759-392c-4580-936f-e92a86b0b1ec")) {                    Plotly.newPlot(                        "4e0c1759-392c-4580-936f-e92a86b0b1ec",                        [{"alignmentgroup":"True","hovertemplate":"Survey Year=2023\u003cbr\u003eTelework Ratio=%{x}\u003cbr\u003ePercentage (Weighted)=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"2023","marker":{"color":"#636efa","pattern":{"shape":""}},"name":"2023","offsetgroup":"2023","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"CtejcD0K8z8UrkfhelQyQM3MzMzMzAxAuB6F61G4LUBmZmZmZmYAQD0K16NwPSBA"},"textposition":"outside","x":["Missing Response","Never, or less than once a week","Less than 40% of the time","About half (40-60%)","More than 60% of the time","Always"],"xaxis":"x","y":{"dtype":"f8","bdata":"CtejcD0K8z8UrkfhelQyQM3MzMzMzAxAuB6F61G4LUBmZmZmZmYAQD0K16NwPSBA"},"yaxis":"y","type":"bar","texttemplate":"%{text:.1f}%"},{"alignmentgroup":"True","hovertemplate":"Survey Year=2019\u003cbr\u003eTelework Ratio=%{x}\u003cbr\u003ePercentage (Weighted)=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"2019","marker":{"color":"#EF553B","pattern":{"shape":""}},"name":"2019","offsetgroup":"2019","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAACEA9CtejcD05QB+F61G4HhtAzczMzMzMH0AUrkfhehTuP8P1KFyPwh9A"},"textposition":"outside","x":["Missing Response","Never, or less than once a week","Less than 40% of the time","About half (40-60%)","More than 60% of the time","Always"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAACEA9CtejcD05QB+F61G4HhtAzczMzMzMH0AUrkfhehTuP8P1KFyPwh9A"},"yaxis":"y","type":"bar","texttemplate":"%{text:.1f}%"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"},"margin":{"b":0,"l":0,"r":0,"t":30}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":"Telework Ratio"}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Percentage (Weighted)"}},"legend":{"title":{"text":"Survey Year"},"tracegroupgap":0},"title":{"text":"Proportion of Work Days Spent Working From Home by Survey Year"},"barmode":"group"},                        {"responsive": true}                    ).then(function(){
+        <script charset="utf-8" src="https://cdn.plot.ly/plotly-3.2.0.min.js" integrity="sha256-iZ2u/oU2wf/vDbl/ChcX93WgbBRSBvUO6N413hDz7xM=" crossorigin="anonymous"></script>                <div id="b3d5588d-b9c2-4b71-9b52-bf83f40bf8ce" class="plotly-graph-div" style="height:525px; width:100%;"></div>            <script type="text/javascript">                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("b3d5588d-b9c2-4b71-9b52-bf83f40bf8ce")) {                    Plotly.newPlot(                        "b3d5588d-b9c2-4b71-9b52-bf83f40bf8ce",                        [{"alignmentgroup":"True","hovertemplate":"Survey Year=2023\u003cbr\u003eTelework Ratio=%{x}\u003cbr\u003ePercentage (Weighted)=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"2023","marker":{"color":"#636efa","pattern":{"shape":""}},"name":"2023","offsetgroup":"2023","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"SOF6FK5H\u002fT9mZmZmZkZEQK5H4XoUrhtAuB6F61F4OEBcj8L1KFwXQKRwPQrXYzRA"},"textposition":"outside","x":["Missing Response","Never, or less than once a week","Less than 40% of the time","About half (40-60%)","More than 60% of the time","Always"],"xaxis":"x","y":{"dtype":"f8","bdata":"SOF6FK5H\u002fT9mZmZmZkZEQK5H4XoUrhtAuB6F61F4OEBcj8L1KFwXQKRwPQrXYzRA"},"yaxis":"y","type":"bar","texttemplate":"%{text:.1f}%"},{"alignmentgroup":"True","hovertemplate":"Survey Year=2019\u003cbr\u003eTelework Ratio=%{x}\u003cbr\u003ePercentage (Weighted)=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"2019","marker":{"color":"#EF553B","pattern":{"shape":""}},"name":"2019","offsetgroup":"2019","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"exSuR+F6DkB7FK5H4fpPQLgehetROCBAcT0K16NwI0BSuB6F61EIQLgehetRuCZA"},"textposition":"outside","x":["Missing Response","Never, or less than once a week","Less than 40% of the time","About half (40-60%)","More than 60% of the time","Always"],"xaxis":"x","y":{"dtype":"f8","bdata":"exSuR+F6DkB7FK5H4fpPQLgehetROCBAcT0K16NwI0BSuB6F61EIQLgehetRuCZA"},"yaxis":"y","type":"bar","texttemplate":"%{text:.1f}%"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"},"margin":{"b":0,"l":0,"r":0,"t":30}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":"Telework Ratio"}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Percentage (Weighted)"}},"legend":{"title":{"text":"Survey Year"},"tracegroupgap":0},"title":{"text":"Proportion of Work Days Spent Working From Home by Survey Year"},"barmode":"group"},                        {"responsive": true}                    ).then(function(){
 
-var gd = document.getElementById('4e0c1759-392c-4580-936f-e92a86b0b1ec');
+var gd = document.getElementById('b3d5588d-b9c2-4b71-9b52-bf83f40bf8ce');
 var x = new MutationObserver(function (mutations, observer) {{
         var display = window.getComputedStyle(gd).display;
         if (!display || display === 'none') {{
@@ -1296,6 +1365,107 @@ Figure&nbsp;2: Telework Ratio Distribution (Weighted)
 </div>
 </div>
 </section>
+</section>
+<section id="summary" class="level2">
+<h2 class="anchored" data-anchor-id="summary">Summary</h2>
+<div id="d3bb7930" class="cell" data-execution_count="18">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Define metric categories based on frequency</span></span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>is_5plus <span class="op">=</span> pl.col(<span class="st">"telework_freq_cat"</span>) <span class="op">&gt;</span> FrequencyCategory.FOUR.value</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>is_2plus <span class="op">=</span> pl.col(<span class="st">"telework_freq_cat"</span>) <span class="op">&gt;=</span> FrequencyCategory.TWO_THREE.value</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>is_1orless <span class="op">=</span> (</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>    (pl.col(<span class="st">"telework_freq_cat"</span>) <span class="op">&lt;=</span> FrequencyCategory.ONE.value)</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>    <span class="op">&amp;</span> (pl.col(<span class="st">"telework_freq_cat"</span>) <span class="op">!=</span> FrequencyCategory.MISSING.value)</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Categorize and aggregate in one chain</span></span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>telework_metrics <span class="op">=</span> (</span>
+<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a>    telework_freq_summary</span>
+<span id="cb26-12"><a href="#cb26-12" aria-hidden="true" tabindex="-1"></a>    .with_columns(</span>
+<span id="cb26-13"><a href="#cb26-13" aria-hidden="true" tabindex="-1"></a>        pl.when(is_5plus).then(pl.lit(<span class="st">"5+ days per week"</span>))</span>
+<span id="cb26-14"><a href="#cb26-14" aria-hidden="true" tabindex="-1"></a>        .when(is_2plus).then(pl.lit(<span class="st">"2+ days per week"</span>))</span>
+<span id="cb26-15"><a href="#cb26-15" aria-hidden="true" tabindex="-1"></a>        .when(is_1orless).then(pl.lit(<span class="st">"1 day or less per week"</span>))</span>
+<span id="cb26-16"><a href="#cb26-16" aria-hidden="true" tabindex="-1"></a>        .alias(<span class="st">"Telework Frequency"</span>)</span>
+<span id="cb26-17"><a href="#cb26-17" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb26-18"><a href="#cb26-18" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">filter</span>(pl.col(<span class="st">"Telework Frequency"</span>).is_not_null())</span>
+<span id="cb26-19"><a href="#cb26-19" aria-hidden="true" tabindex="-1"></a>    .group_by(<span class="st">"year"</span>, <span class="st">"Telework Frequency"</span>)</span>
+<span id="cb26-20"><a href="#cb26-20" aria-hidden="true" tabindex="-1"></a>    .agg(pl.col(<span class="st">"% (wtd)"</span>).<span class="bu">sum</span>())</span>
+<span id="cb26-21"><a href="#cb26-21" aria-hidden="true" tabindex="-1"></a>    .pivot(index<span class="op">=</span><span class="st">"Telework Frequency"</span>, on<span class="op">=</span><span class="st">"year"</span>, values<span class="op">=</span><span class="st">"% (wtd)"</span>)</span>
+<span id="cb26-22"><a href="#cb26-22" aria-hidden="true" tabindex="-1"></a>).sort(<span class="st">"Telework Frequency"</span>).select(</span>
+<span id="cb26-23"><a href="#cb26-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Telework Frequency"</span>,</span>
+<span id="cb26-24"><a href="#cb26-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"2019"</span>,</span>
+<span id="cb26-25"><a href="#cb26-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"2023"</span>,</span>
+<span id="cb26-26"><a href="#cb26-26" aria-hidden="true" tabindex="-1"></a>).with_columns(</span>
+<span id="cb26-27"><a href="#cb26-27" aria-hidden="true" tabindex="-1"></a>    pl.col(<span class="st">"2019"</span>).<span class="bu">round</span>(<span class="dv">2</span>).alias(<span class="st">"2019 (%)"</span>),</span>
+<span id="cb26-28"><a href="#cb26-28" aria-hidden="true" tabindex="-1"></a>    pl.col(<span class="st">"2023"</span>).<span class="bu">round</span>(<span class="dv">2</span>).alias(<span class="st">"2023 (%)"</span>),</span>
+<span id="cb26-29"><a href="#cb26-29" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb26-30"><a href="#cb26-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-31"><a href="#cb26-31" aria-hidden="true" tabindex="-1"></a><span class="co"># column sums</span></span>
+<span id="cb26-32"><a href="#cb26-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-33"><a href="#cb26-33" aria-hidden="true" tabindex="-1"></a>telework_metrics</span>
+<span id="cb26-34"><a href="#cb26-34" aria-hidden="true" tabindex="-1"></a><span class="co"># print("Summary of Key Telework Metrics:")</span></span>
+<span id="cb26-35"><a href="#cb26-35" aria-hidden="true" tabindex="-1"></a><span class="co"># print(f"Proportion of employed persons teleworking 5+ days/week:")</span></span>
+<span id="cb26-36"><a href="#cb26-36" aria-hidden="true" tabindex="-1"></a><span class="co"># for year, pct in telework_5plus.items():</span></span>
+<span id="cb26-37"><a href="#cb26-37" aria-hidden="true" tabindex="-1"></a><span class="co">#     print(f"  {year}: {pct:.2f}%")</span></span>
+<span id="cb26-38"><a href="#cb26-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-39"><a href="#cb26-39" aria-hidden="true" tabindex="-1"></a><span class="co"># print(f"Proportion of employed persons teleworking 2+ days/week:")</span></span>
+<span id="cb26-40"><a href="#cb26-40" aria-hidden="true" tabindex="-1"></a><span class="co"># for year, pct in telework_2plus.items():</span></span>
+<span id="cb26-41"><a href="#cb26-41" aria-hidden="true" tabindex="-1"></a><span class="co">#     print(f"  {year}: {pct:.2f}%")</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display" data-execution_count="100">
+<div><style>
+.dataframe > thead > tr,
+.dataframe > tbody > tr {
+  text-align: right;
+  white-space: pre-wrap;
+}
+</style>
+<small>shape: (3, 5)</small>
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Telework Frequency</th>
+<th data-quarto-table-cell-role="th">2019</th>
+<th data-quarto-table-cell-role="th">2023</th>
+<th data-quarto-table-cell-role="th">2019 (%)</th>
+<th data-quarto-table-cell-role="th">2023 (%)</th>
+</tr>
+<tr class="even">
+<td>str</td>
+<td>f64</td>
+<td>f64</td>
+<td>f64</td>
+<td>f64</td>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>"1 day or less per week"</td>
+<td>73.62</td>
+<td>48.59</td>
+<td>73.62</td>
+<td>48.59</td>
+</tr>
+<tr class="even">
+<td>"2+ days per week"</td>
+<td>10.55</td>
+<td>28.89</td>
+<td>10.55</td>
+<td>28.89</td>
+</tr>
+<tr class="odd">
+<td>"5+ days per week"</td>
+<td>13.21</td>
+<td>22.39</td>
+<td>13.21</td>
+<td>22.39</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
 </section>
 </section>
 
