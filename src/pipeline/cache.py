@@ -176,7 +176,16 @@ class PipelineCache:
             elif hasattr(obj, "__len__"):
                 shape = f" (len={len(obj)})"
 
-            load_info.append(f"  - {table_name}: {obj_type}{shape}")
+            # Get file size and format
+            file_ext = ".pkl" if table_type == "pickle" else ".parquet"
+            file_path = cache_path / f"{table_name}{file_ext}"
+            file_size_mb = file_path.stat().st_size / (1024 * 1024)
+            size_str = f" [{file_size_mb:.2f} MB]"
+            format_name = "pickle" if table_type == "pickle" else "parquet"
+
+            load_info.append(
+                f"  ← {table_name} {obj_type}: {format_name}{shape}{size_str}"
+            )
 
         self._stats["hits"] += 1
         logger.info(
@@ -375,29 +384,35 @@ def _save_data(cache_path: Path, name: str, obj: Any) -> tuple[str, str]:  # noq
     obj_path = cache_path / name
     obj_type = type(obj).__name__
 
-    # Handle DataFrames (Polars or GeoPandas)
+    # Determine format and save data
     if isinstance(obj, (pl.DataFrame, gpd.GeoDataFrame)):
         obj_path = obj_path.with_suffix(".parquet")
         if isinstance(obj, pl.DataFrame):
             obj.write_parquet(obj_path)
+            data_type = "polars"
         else:
             obj.to_parquet(obj_path)
-        shape = f"{len(obj)}x{len(obj.columns)}"
-        data_type = (
-            "geopandas" if isinstance(obj, gpd.GeoDataFrame) else "polars"
-        )
-        return data_type, f"  - {name} {obj_type} → parquet ({shape})"
+            data_type = "geopandas"
+        format_name = "parquet"
+        shape = f" ({len(obj)}x{len(obj.columns)})"
+    else:
+        obj_path = obj_path.with_suffix(".pkl")
+        with obj_path.open("wb") as f:
+            pickle.dump(obj, f)
+        data_type = "pickle"
+        format_name = "pickle"
+        # Format shape info
+        if hasattr(obj, "shape"):
+            shape = f" ({obj.shape})"
+        elif hasattr(obj, "__len__"):
+            shape = f" (len={len(obj)})"
+        else:
+            shape = ""
 
-    # Handle other objects with pickle
-    obj_path = obj_path.with_suffix(".pkl")
-    with obj_path.open("wb") as f:
-        pickle.dump(obj, f)
+    # Build info string (common for all types)
+    file_size_mb = obj_path.stat().st_size / (1024 * 1024)
+    info = (
+        f"  → {name} {obj_type}: {format_name}{shape} [{file_size_mb:.2f} MB]"
+    )
 
-    # Format shape info
-    shape = ""
-    if hasattr(obj, "shape"):
-        shape = f" ({obj.shape})"
-    elif hasattr(obj, "__len__"):
-        shape = f" (len={len(obj)})"
-
-    return "pickle", f"{name} {obj_type} → pickle{shape}"
+    return data_type, info

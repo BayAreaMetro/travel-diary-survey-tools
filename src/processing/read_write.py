@@ -67,7 +67,7 @@ def write_data(
             canonical_data.validate(table)
 
     for table, path in output_paths.items():
-        logger.info("Writing %s to %s...", table, path)
+        logger.info("Writing %s to:\n%s...", table, path)
 
         df = getattr(canonical_data, table)
         file_path = Path(path)

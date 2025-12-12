@@ -140,12 +140,12 @@ def clean_2023_bats(
         )
         .mode()
         .first()
-        .fill_null(-1),
+        .fill_null(995),
         pl.col("residence_type")
         .filter(pl.col("residence_type") != ResidenceType.MISSING.value)
         .mode()
         .first()
-        .fill_null(-1),
+        .fill_null(995),
     )
     # Join to households
     households = households.join(hh_attributes, on="hh_id", how="left")
