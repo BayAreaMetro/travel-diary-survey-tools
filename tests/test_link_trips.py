@@ -324,6 +324,7 @@ class TestAggregateLinkedTrips:
         trips = pl.DataFrame(
             {
                 "linked_trip_id": [1, 1],
+                "linked_trip_num": [1, 1],
                 "person_id": [100, 100],
                 "hh_id": [10, 10],
                 "day_id": [10001, 10001],
@@ -387,6 +388,7 @@ class TestAggregateLinkedTrips:
         trips = pl.DataFrame(
             {
                 "linked_trip_id": [1, 1, 1],
+                "linked_trip_num": [1, 1, 1],
                 "person_id": [100, 100, 100],
                 "hh_id": [10, 10, 10],
                 "day_id": [10001, 10001, 10001],
@@ -434,6 +436,7 @@ class TestAggregateLinkedTrips:
         trips = pl.DataFrame(
             {
                 "linked_trip_id": [1, 1],
+                "linked_trip_num": [1, 1],
                 "person_id": [100, 100],
                 "hh_id": [10, 10],
                 "day_id": [10001, 10001],
@@ -479,6 +482,7 @@ class TestAggregateLinkedTrips:
         trips = pl.DataFrame(
             {
                 "linked_trip_id": [1, 1],
+                "linked_trip_num": [1, 1],
                 "person_id": [100, 100],
                 "hh_id": [10, 10],
                 "day_id": [10001, 10001],
@@ -529,6 +533,7 @@ class TestAggregateLinkedTrips:
         trips = pl.DataFrame(
             {
                 "linked_trip_id": [1, 1, 2, 2],
+                "linked_trip_num": [1, 1, 2, 2],
                 "person_id": [100, 100, 100, 100],
                 "hh_id": [10, 10, 10, 10],
                 "day_id": [10001, 10001, 10001, 10001],
@@ -802,6 +807,7 @@ class TestTableLevelUniqueness:
         unlinked_trips = pl.DataFrame(
             {
                 "linked_trip_id": ["1000101", "1000101", "1000102", "1000201"],
+                "linked_trip_num": [1, 1, 2, 1],
                 "person_id": [100, 100, 100, 200],
                 "hh_id": [10, 10, 10, 20],
                 "day_id": [10001, 10001, 10001, 20001],
@@ -865,6 +871,7 @@ class TestTableLevelUniqueness:
         unlinked_trips = pl.DataFrame(
             {
                 "linked_trip_id": ["ABC", "ABC", "ABC", "DEF"],
+                "linked_trip_num": [1, 1, 1, 2],
                 "person_id": [100, 100, 100, 100],
                 "hh_id": [10, 10, 10, 10],
                 "day_id": [10001, 10001, 10001, 10001],
