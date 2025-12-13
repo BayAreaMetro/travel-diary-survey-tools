@@ -34,13 +34,13 @@ def format_tours(
     """
     logger.info("Formatting tour data")
 
-    # Join person_num and day_num to tours for DaySim hhno, pno, day
+    # Join person_num and travel_dow to tours for DaySim hhno, pno, day
     tours_daysim = tours.join(
         persons.select(["hh_id", "person_id", "person_num"]),
         on=["hh_id", "person_id"],
         how="left",
     ).join(
-        days.select(["hh_id", "person_id", "day_id", "day_num"]),
+        days.select(["hh_id", "person_id", "day_id", "travel_dow"]),
         on=["hh_id", "person_id", "day_id"],
         how="left",
     )
@@ -49,7 +49,7 @@ def format_tours(
     tours_daysim = tours_daysim.with_columns(
         hhno=pl.col("hh_id"),
         pno=pl.col("person_num"),
-        day=pl.col("day_num"),
+        day=pl.col("travel_dow"),
         tour=pl.col("tour_num"),
     )
 
