@@ -151,22 +151,27 @@ print()
 # Unique persons
 legacy_persons = legacy_days.select(["hhno", "pno"]).unique()
 new_persons = new_days.select(["hhno", "pno"]).unique()
-missing_persons_count = len(set(zip(legacy_persons["hhno"], legacy_persons["pno"])) -
-                               set(zip(new_persons["hhno"], new_persons["pno"])))
 
 print(f"**Unique persons with days 2-4:**")
 print(f"- Legacy: {len(legacy_persons):,}")
 print(f"- New: {len(new_persons):,}")
 print(f"- Difference: {len(new_persons) - len(legacy_persons):+,}")
-print(f"  (These {missing_persons_count:,} persons actually traveled Monday but legacy reassigned them)")
+print()
+
+# Calculate average days per person
+avg_days_legacy = len(legacy_days) / len(legacy_persons)
+avg_days_new = len(new_days) / len(new_persons)
+print(f"**Average person-days per person:**")
+print(f"- Legacy: {avg_days_legacy:.2f} days/person")
+print(f"- New: {avg_days_new:.2f} days/person")
 ```
 
 **Methodological difference identified:** The legacy pipeline's `03b-assign_day` step creates person-day records based on day completion flags (`tue_complete`, `wed_complete`, `thu_complete`) rather than actual travel days:
 
-- A person who traveled on Monday (day 1) but marked Thursday as complete gets assigned to day 4 in legacy
+- A person who traveled on Monday (day 1) but marked multiple weekdays as complete gets multiple person-day records (one for each completed day)
 - The new pipeline correctly uses the actual `travel_dow` (day of week when travel occurred)
-- **Verified:** ALL persons in legacy days 2-4 but not in new days 2-4 actually traveled on Monday and were artificially reassigned by legacy based on completion flags
-- This explains both the person-day and unique person count differences for days 2-4
+- **Result:** Same unique persons, but legacy has fewer total person-days because it's reassigning Monday travelers to weekdays for the "wt-wkday_3day" weighting scheme
+- Legacy averages **{avg_days_legacy:.2f} days/person** vs New's **{avg_days_new:.2f} days/person** - the new pipeline includes more actual travel days
 
 The legacy "wt-wkday_3day" is a modeling construct for 3-day weekday weighting, not actual survey days. The new pipeline correctly represents actual travel behavior.
 
