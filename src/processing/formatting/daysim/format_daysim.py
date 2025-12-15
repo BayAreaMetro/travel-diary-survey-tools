@@ -84,10 +84,8 @@ def format_daysim(  # noqa: PLR0913
             pl.col("tour_id").is_in(tours["tour_id"].implode())
         )
 
-        # Drop lost days in case of invalid tours
-        days = days.filter(
-            pl.col("day_id").is_in(tours["day_id"].unique().implode())
-        )
+        # NOTE: We keep all days even if their tours are invalid
+        # Days with invalid tours become "no travel" days in the model
 
         logger.info(
             "Dropped %d invalid tours with %d linked trips; "
@@ -108,10 +106,8 @@ def format_daysim(  # noqa: PLR0913
         linked_trips = linked_trips.filter(
             pl.col("tour_id").is_in(tours["tour_id"].implode())
         )
-        # Drop lost days in case of partial tours
-        days = days.filter(
-            pl.col("day_id").is_in(tours["day_id"].unique().implode())
-        )
+        # NOTE: We keep all days even if their tours are partial/incomplete
+        # Days with partial tours become "no travel" days in the model
         logger.info(
             "Dropped %d partial tours with %d linked trips; "
             "%d tours remain and %d linked trips remain",

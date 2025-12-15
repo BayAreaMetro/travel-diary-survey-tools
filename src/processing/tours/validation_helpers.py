@@ -11,6 +11,7 @@ import logging
 import polars as pl
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality, TourType
+from data_canon.codebook.trips import PurposeCategory
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,7 @@ def validate_and_correct_tours(
     - VALID: Properly formed tour with tour_num > 0, multiple trips
     - INDETERMINATE: tour_num == 0 (tour start detection failed, cause unknown)
     - SINGLE_TRIP: Only one trip in tour (always incomplete)
+    - CHANGE_MODE: Change mode as primary purpose (trip linking failure)
     - MISSING_HOME_ANCHOR: Neither origin nor destination at home
 
     Corrects tour_category for definitive cases:
@@ -157,6 +159,8 @@ def validate_and_correct_tours(
     # (trip starts and ends at home)
     # Note: Work-based tours (subtours) don't need home anchors,
     # so we skip that check for them
+    # Note: CHANGE_MODE purpose indicates trip linking failure
+    # (mode changes should be merged with adjacent trips)
     tours = tours.with_columns(
         [
             # Check conditions in order of specificity
@@ -168,6 +172,8 @@ def validate_and_correct_tours(
             .then(pl.lit(TourDataQuality.LOOP_TRIP))
             .when(pl.col("trip_count") == 1)
             .then(pl.lit(TourDataQuality.SINGLE_TRIP))
+            .when(pl.col("tour_purpose") == PurposeCategory.CHANGE_MODE)
+            .then(pl.lit(TourDataQuality.CHANGE_MODE))
             .when(
                 # Only check for home anchor on home-based tours
                 # Work-based tours (subtours) have work as their anchor

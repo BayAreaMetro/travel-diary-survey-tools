@@ -43,3 +43,4 @@ class TourDataQuality(LabeledEnum):
     LOOP_TRIP = (2, "Home-based loop trip")
     MISSING_HOME_ANCHOR = (3, "No home anchor at either end of tour")
     INDETERMINATE = (4, "Invalid tour, cause unknown")
+    CHANGE_MODE = (5, "Change mode as primary purpose (linking failure)")

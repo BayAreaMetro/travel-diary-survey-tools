@@ -1,10 +1,11 @@
 """Household diary comparison functionality.
 
-NOTE: Time field comparison is excluded due to a known encoding difference:
-- Legacy code uses HHMM format (e.g., 1244 for 12:44 PM)
-- New pipeline uses minutes since midnight (e.g., 764 for 12:44 PM)
-This is a logical error in the legacy code. The new pipeline format is
-correct per DaySim specifications.
+NOTE: Time-based matching strategy:
+- Legacy code uses HHMM format (e.g., 1244 for 12:44 PM) - this is a bug
+- New pipeline uses minutes since midnight (e.g., 764 for 12:44 PM) - correct
+- For matching purposes, we convert new pipeline times to HHMM format
+- Match tours by (hhno, pno, day, tlvorig, tardest) for equivalence
+- Day now uses travel_dow in both pipelines (fixed in format_daysim step)
 """
 
 import logging
@@ -36,28 +37,44 @@ TRIP_COLS = [
     "dtaz",
 ]
 
-# Columns to skip in comparison (shown for reference but not matched)
-# due to known encoding differences
-SKIP_COLS = [
-    "tlvorig",
-    "tardest",
-    "tarorig",
-    "tldest",  # Tour times
-    "deptm",
-    "arrtm",  # Trip times
+# Key columns to match tours using time-based approach
+# Match on household, person, day, and tour start/end times
+# Now that day uses travel_dow in both pipelines, we can match on day
+TOUR_MATCH_COLS = [
+    "hhno",
+    "pno",
+    "day",
+    "tlvorig_hhmm",
+    "tardest_hhmm",
+    "tarorig_hhmm",
 ]
 
-# Key columns to match tours (person, tour sequence, purpose, mode)
-# NOTE: Tour numbers are per-day in new pipeline, across-survey in legacy.
-# This makes direct tour-number comparison impossible. We match on what we can.
-TOUR_MATCH_COLS = ["pno", "pdpurp", "mode"]
+
+def _minutes_to_hhmm(minutes: int) -> int:
+    """Convert minutes since midnight to HHMM format.
+
+    Args:
+        minutes: Minutes since midnight (e.g., 764 for 12:44)
+
+    Returns:
+        HHMM format integer (e.g., 1244 for 12:44)
+    """
+    if minutes < 0:
+        return -1
+    hours = minutes // 60
+    mins = minutes % 60
+    return hours * 100 + mins
 
 
 def _compare_tours(
     leg_tours: pl.DataFrame,
     new_tours: pl.DataFrame,
 ) -> dict[str, int]:
-    """Compare tours between legacy and new data.
+    """Compare tours between legacy and new data using time-based matching.
+
+    Converts new pipeline times (minutes since midnight) to HHMM format
+    to match legacy format, then matches tours by household, person, day,
+    and departure/arrival times.
 
     Returns:
         Dictionary with match statistics:
@@ -67,23 +84,39 @@ def _compare_tours(
         - unmatched_legacy: Tours only in legacy
         - unmatched_new: Tours only in new
     """
+    # Convert new pipeline times to HHMM format for matching
+    new_tours_with_hhmm = new_tours.with_columns(
+        [
+            pl.col("tlvorig")
+            .map_elements(_minutes_to_hhmm, return_dtype=pl.Int64)
+            .alias("tlvorig_hhmm"),
+            pl.col("tardest")
+            .map_elements(_minutes_to_hhmm, return_dtype=pl.Int64)
+            .alias("tardest_hhmm"),
+            pl.col("tarorig")
+            .map_elements(_minutes_to_hhmm, return_dtype=pl.Int64)
+            .alias("tarorig_hhmm"),
+        ]
+    )
+
+    # Legacy tours already in HHMM format, just rename for matching
+    leg_tours_with_hhmm = leg_tours.with_columns(
+        [
+            pl.col("tlvorig").alias("tlvorig_hhmm"),
+            pl.col("tardest").alias("tardest_hhmm"),
+            pl.col("tarorig").alias("tarorig_hhmm"),
+        ]
+    )
+
+    # Get totals
     total_leg = len(leg_tours)
     total_new = len(new_tours)
-
-    if total_leg == 0 and total_new == 0:
-        return {
-            "total_legacy": 0,
-            "total_new": 0,
-            "matched": 0,
-            "unmatched_legacy": 0,
-            "unmatched_new": 0,
-        }
 
     # Use available columns for matching
     match_cols = [
         c
         for c in TOUR_MATCH_COLS
-        if c in leg_tours.columns and c in new_tours.columns
+        if c in leg_tours_with_hhmm.columns and c in new_tours_with_hhmm.columns
     ]
 
     if not match_cols or total_leg == 0 or total_new == 0:
@@ -97,8 +130,8 @@ def _compare_tours(
         }
 
     # Create composite keys for matching
-    leg_keys = leg_tours.select(match_cols)
-    new_keys = new_tours.select(match_cols)
+    leg_keys = leg_tours_with_hhmm.select(match_cols)
+    new_keys = new_tours_with_hhmm.select(match_cols)
 
     # Find matches using inner join
     matched = leg_keys.join(new_keys, on=match_cols, how="inner")
@@ -120,8 +153,6 @@ def _format_df(
     max_rows: int | None = None,
 ) -> str:
     """Format dataframe for display."""
-    if len(df) == 0:
-        return ""
     available = [c for c in cols if c in df.columns]
     result = df.select(available).sort(sort_by)
     return str(result.head(max_rows) if max_rows else result)
@@ -134,8 +165,8 @@ def _display_tours(
     """Display tour comparison for a household."""
     output = [
         "\n--- Tours ---",
-        "(Note: Time fields shown but not compared due to legacy "
-        "encoding error)",
+        "(Note: Matching tours by household, person, day, and times "
+        "converted to HHMM format)",
         "",
         f"Legacy Tours (n={len(legacy_hh_tours)}):",
         _format_df(legacy_hh_tours, TOUR_COLS, ["pno", "tour"]),
@@ -196,10 +227,8 @@ def display_household_detail(
         tour_match["unmatched_new"],
     )
 
-    if len(legacy_tours) or len(new_tours):
-        _display_tours(legacy_tours, new_tours)
-    if len(legacy_trips) or len(new_trips):
-        _display_trips(legacy_trips, new_trips)
+    _display_tours(legacy_tours, new_tours)
+    _display_trips(legacy_trips, new_trips)
 
 
 def compare_household_diaries(

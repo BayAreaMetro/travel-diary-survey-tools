@@ -36,7 +36,7 @@ LEGACY_DIR = Path(
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
 # Number of households to sample for detailed comparison
-NUM_SAMPLE_HOUSEHOLDS = 5
+NUM_SAMPLE_HOUSEHOLDS = 1
 
 # ---------------------------------------------------------------------
 # Main Execution
@@ -74,11 +74,7 @@ if __name__ == "__main__":
     legacy_hhnos = set(legacy["hh"]["hhno"].unique().to_list())
     new_hhnos = set(new["hh"]["hhno"].unique().to_list())
     common_hhnos = sorted(legacy_hhnos & new_hhnos)
-    pct_overlap = (
-        len(common_hhnos) / len(legacy_hhnos) * 100
-        if len(legacy_hhnos) > 0
-        else 0
-    )
+    pct_overlap = len(common_hhnos) / len(legacy_hhnos) * 100
 
     msg = (
         f"\n{'=' * 80}\n"
@@ -91,27 +87,24 @@ if __name__ == "__main__":
     logger.info(msg)
 
     # Check common households for mismatches
-    if len(common_hhnos) > 0:
-        failures, stats = compare_household_diaries(
-            common_hhnos, legacy, new, sample_pct=10.0
-        )
+    failures, stats = compare_household_diaries(
+        common_hhnos, legacy, new, sample_pct=10.0
+    )
 
-        # Display detailed comparison for sample of failures
-        if failures:
-            sep = "=" * 80
-            num_to_display = min(NUM_SAMPLE_HOUSEHOLDS, len(failures))
-            logger.info(
-                "\n%s\nDETAILED COMPARISON OF FAILED HOUSEHOLDS "
-                "(showing %d of %d)\n%s",
-                sep,
-                num_to_display,
-                len(failures),
-                sep,
-            )
-            for failure in failures[:num_to_display]:
-                display_household_detail(failure["hhno"], legacy, new)
-    else:
-        logger.info("\nNo common households to compare.")
+    # Display detailed comparison for sample of failures
+    if failures:
+        sep = "=" * 80
+        num_to_display = min(NUM_SAMPLE_HOUSEHOLDS, len(failures))
+        logger.info(
+            "\n%s\nDETAILED COMPARISON OF FAILED HOUSEHOLDS "
+            "(showing %d of %d)\n%s",
+            sep,
+            num_to_display,
+            len(failures),
+            sep,
+        )
+        for failure in failures[:num_to_display]:
+            display_household_detail(failure["hhno"], legacy, new)
 
     # Print summary statistics
     print_summary_statistics(legacy, new)
