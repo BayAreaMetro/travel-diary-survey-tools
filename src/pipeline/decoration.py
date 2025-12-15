@@ -18,7 +18,7 @@ CANONICAL_TABLES = set(CanonicalData.__annotations__.keys())
 
 def step(
     *,
-    validate_input: bool = True,
+    validate_input: bool = False,
     validate_output: bool = False,
     cache: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
