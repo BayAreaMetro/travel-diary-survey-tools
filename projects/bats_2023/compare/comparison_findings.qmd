@@ -113,7 +113,9 @@ for table in ["personday", "tour", "trip"]:
 1. households present in both pipelines, and
 2. persons who report the same days (Tue/Wed/Thu) in both pipelines.
 
-This excludes legacy's artificially reassigned persons who traveled Monday but were assigned to weekdays for the "wt-wkday_3day" weighting scheme.
+This is important because it means it excludes legacycode's reassigned persons who traveled Monday but were assigned to weekdays for the "wt-wkday_3day" weighting scheme.
+
+Also, comparison of tour purposes and modes are only compared on matched tours, so it's slightly inflated but ensures an apples-to-apples comparison and helps rule out methodological differences versus logical errors in the code.
 
 ---
 
@@ -124,15 +126,15 @@ This excludes legacy's artificially reassigned persons who traveled Monday but w
 
 **Description:**
 
-- Legacy uses HHMM format (e.g., 1244 for 12:44 PM)
+- Legacy uses HHMM format (e.g., 1244 for 12:44 PM), which is more human-readable but doesn't align with DaySim specs.
 - New pipeline uses minutes since midnight (e.g., 764 for 12:44 PM = 12×60+44) per DaySim specification
 
-The new pipeline follows the current DaySim standard for time encoding.
+The new pipeline follows the current DaySim standard for time encoding. I stuck with the DaySim specification rather than the human readable HHMM format because it's less prone to mathematical issues with time jumps since its always monotonically increasing (e.g., 0059 to 0100 is +1 minute, but HHMM arithmetic would suggest -59 minutes).
 
 ---
 
 ### 2. **Person-Days Difference** [EXPLAINED BY MONDAY REASSIGNMENT]
-**Status:** ✓ Fixed - New pipeline now includes all completed diary days
+**Status:** Legacy pipeline re-assigned Monday travelers to weekdays for 3-day weighting scheme, new pipeline uses actual travel days.
 
 ```{python}
 #| label: person-days-summary
@@ -173,16 +175,32 @@ print(f"- New: {avg_days_new:.2f} days/person")
 - **Result:** Same unique persons, but legacy has fewer total person-days because it's reassigning Monday travelers to weekdays for the "wt-wkday_3day" weighting scheme
 - Legacy averages **{avg_days_legacy:.2f} days/person** vs New's **{avg_days_new:.2f} days/person** - the new pipeline includes more actual travel days
 
-The legacy "wt-wkday_3day" is a modeling construct for 3-day weekday weighting, not actual survey days. The new pipeline correctly represents actual travel behavior.
+Not sure if this was intentional, but I think it somewhat misrepresents actual travel behavior?
 
 ---
 
-### 3. **Tour Matching Analysis** [SUBSTANTIAL AGREEMENT]
-**Status:** High tour-level agreement between pipelines
+### 3. **Tour Numbering Difference** [EXPLAINED BY METHODOLOGICAL CHANGE]
+**Status:** Different tour numbering conventions between pipelines results in impossible exact matching of tours between pipelines
+
+
+**Description:**
+
+- The legacy pipeline numbers tours sequentially per person across all days (e.g., a person with 2 tours on day 2 and 1 tour on day 3 would have tours numbered 1, 2, and 3).
+- The new pipeline numbers tours sequentially per person per day (e.g., the same person would have tours numbered 1 and 2 on day 2, and tour number 1 on day 3). This technically matches the DaySim specification but makes exact tour matching between pipelines impossible since tour numbers differ.
+
+This does not pose any issues for modeling, but it does complicate direct tour-level comparisons between pipelines. However, direct tour level comparison would be difficult either way since the tour extraction logic has changed in the new pipeline and any difference in tour detection would result in numbering sequence differences.
+
+
+---
+
+### 4. **Tour Matching Analysis** [SUBSTANTIAL AGREEMENT]
+**Status:** Overall strong agreement between pipelines on tours
 
 **Note:** Tours are filtered to common households and common persons who report days 2-4 in both pipelines. This excludes legacy's artificially reassigned persons who traveled Monday.
 
-**Matching Methodology:** Tours are matched between pipelines using household ID, person ID, day, and three tour times: departure from origin (`tlvorig`), arrival at primary destination (`tardest`), and arrival back at origin (`tarorig`). Since legacy uses HHMM time format and new uses minutes since midnight, new pipeline times are converted to HHMM for matching. A tour matches if all six fields are identical between pipelines.
+**Matching Methodology:**
+
+Tours are matched between pipelines using household ID, person ID, day, and three tour times: departure from origin (`tlvorig`), arrival at primary destination (`tardest`), and arrival back at origin (`tarorig`). Since legacy uses HHMM time format and new uses minutes since midnight, new pipeline times are converted to HHMM for matching. A tour matches if all six fields are identical between pipelines.
 
 ```{python}
 #| label: tour-matching-analysis
@@ -292,7 +310,7 @@ These unmatched tours suggest differences in tour extraction algorithms for comp
 
 ---
 
-### 4. **Trip Count Difference** [CONSISTENT WITH TOURS]
+### 5. **Trip Count Difference** [CONSISTENT WITH TOURS]
 
 **Note:** Trips are filtered to common households and common persons who report days 2-4 in both pipelines. This excludes legacy's artificially reassigned persons who traveled Monday.
 
@@ -309,26 +327,25 @@ new_trips = new["trip"].filter(
 print(f"Legacy: {len(legacy_trips):,} trips | New: {len(new_trips):,} trips | Difference: {len(new_trips) - len(legacy_trips):+,}")
 ```
 
-Trip count differences are consistent with tour differences, suggesting different tour extraction logic rather than missing trips.
+Trip count differences are consistent with tour differences, suggesting different tour trip linking logic rather than missing trips.
 
 ---
 
 ## Data Quality Observations
 
-### 5. **Tour Purpose Distribution Differences** [POSSIBLE CODING DIFFERENCE]
-**Status:** Different purpose code mapping between pipelines
+### 6. **Tour Purpose Distribution Differences** [DIFFERENT INTEGER CODES]
+**Status:** Different purpose code integers between pipelines, but semantically equivalent after mapping
 
 **Note:** This comparison is filtered to the common households and persons (those with matching days 2-4 in both pipelines), consistent with the tour and trip comparisons above.
 
-**Legacy uses codes 10 & 11:**
-- Purpose 10 = Change Mode
-- Purpose 11 = Other/Overnight
-- May reflect original survey coding scheme
+**Code Mapping for Apples-to-Apples Comparison:**
 
-**New pipeline uses codes 8 & 9:**
-- Purpose 8 = Change Mode (standard DaySim)
-- Purpose 9 = Other (standard DaySim)
-- Follows current DaySim specification
+- **Legacy DaySim codes:** 10 = change mode, 11 = other ([02a-reformat.py#L503](../../scripts/daysim_old/survey_processing/02a-reformat.py#L503))
+- **New DaySim codes:** 8 = change mode, 9 = other ([daysim.py#L73](../../src/data_canon/codebook/daysim.py#L73))
+- **For comparison:** Legacy codes 10→8 and 11→9 are mapped to match new pipeline's semantic categories
+- **Both pipelines filter change mode tours** from final output, so code 8/10 tours do not appear in distributions below
+
+#### Purpose Distribution
 
 ```{python}
 #| label: purpose-distribution
@@ -410,27 +427,11 @@ from IPython.display import Markdown, display
 display(Markdown(comparison.to_pandas().to_markdown(index=False, floatfmt=".1f")))
 ```
 
-**Analysis:**
-
-**Purpose code mapping differences:**
-
-- Survey code 11 (change mode): Legacy maps to DaySim code 10 ([02a-reformat.py#L503](../../scripts/daysim_old/survey_processing/02a-reformat.py#L503)), New maps to DaySim code 8 ([mappings.py#L169](../../src/processing/formatting/daysim/mappings.py#L169))
-- Survey code 12/13 (overnight/other): Legacy maps to DaySim code 11, New maps to DaySim code 9
-- The comparison above normalizes these codes to compare semantically equivalent purposes (legacy 10→8, legacy 11→9)
-
-Both pipelines handle these purposes correctly; the difference is in which DaySim integer codes they use. The new pipeline follows current DaySim standards (8=change mode, 9=other).
-
-**Change mode tours:**
-Change mode should not exist as a tour purpose - it's an intermediate activity that the trip linker should merge with adjacent trips. The presence of change mode tours indicates the linker failed to connect these trips, typically because:
-
-- Time gap between trips exceeds 120 minutes ([link.py#L86](../../src/processing/link.py#L86)), OR
-- Distance between trip endpoints exceeds 100 meters ([link.py#L87](../../src/processing/link.py#L87))
-
-These tours represent data quality issues (missing trips, incorrect timing/geocoding) or edge cases where someone only traveled to a mode transfer location and back. The new pipeline now flags these as `CHANGE_MODE` in the tour data quality field ([tours.py#L47](../../src/data_canon/codebook/tours.py#L47), [validation_helpers.py#L169](../../src/processing/tours/validation_helpers.py#L169)) and filters them out during DaySim formatting ([format_daysim.py#L79](../../src/processing/formatting/daysim/format_daysim.py#L79)).
+**Analysis:** The table above shows purpose distributions after mapping legacy codes to match new pipeline semantics. Both pipelines produce similar purpose distributions, with differences stemming from tour extraction logic rather than purpose classification. Change mode tours (code 8 in new, code 10 in legacy) do not appear because both pipelines filter them from final output.
 
 ---
 
-### 6. **Mode Distribution Differences** [CLASSIFICATION LOGIC DIFFERENCES]
+### 7. **Mode Distribution Differences** [CLASSIFICATION LOGIC DIFFERENCES]
 **Status:** Different mode inference logic between pipelines
 
 ```{python}
@@ -486,13 +487,8 @@ mode_comparison = (
     .sort("tmodetp")
 )
 
-# Show notable differences
-large_diffs = mode_comparison.filter(pl.col("pct_change").abs() > 30).sort(
-    pl.col("change").abs(), descending=True
-)
 from IPython.display import Markdown, display
-display(Markdown("**Modes with substantial differences (>30% change):**\n"))
-display(Markdown(large_diffs.to_pandas().to_markdown(index=False, floatfmt=".1f")))
+display(Markdown(mode_comparison.to_pandas().to_markdown(index=False, floatfmt=".1f")))
 ```
 
 **Analysis:** Mode distributions differ primarily in:
@@ -504,103 +500,74 @@ Both pipelines use standard DaySim mode codes; differences reflect classificatio
 
 ---
 
-### 7. **Disaggregate Mode-Purpose Matrix** [DETAILED COMPARISON]
-**Status:** Cross-tabulation of tour mode by purpose for both pipelines
-
-This section shows the detailed breakdown of tours by mode and purpose, highlighting where the pipelines differ.
-
-```{python}
-#| label: mode-purpose-matrix
-
-# Map legacy purposes to semantic categories for comparison
-legacy_tours_semantic = legacy_tours.with_columns(
-    pl.col("pdpurp").replace_strict(legacy_to_semantic, default=pl.col("pdpurp")).alias("semantic_purp")
-)
-
-# Create cross-tabulations
-legacy_crosstab = (
-    legacy_tours_semantic.group_by(["tmodetp", "semantic_purp"])
-    .agg(pl.len().alias("count"))
-    .pivot(values="count", index="tmodetp", on="semantic_purp", aggregate_function="sum")
-    .fill_null(0)
-    .sort("tmodetp")
-)
-
-new_crosstab = (
-    new_tours.group_by(["tmodetp", "pdpurp"])
-    .agg(pl.len().alias("count"))
-    .pivot(values="count", index="tmodetp", on="pdpurp", aggregate_function="sum")
-    .fill_null(0)
-    .sort("tmodetp")
-)
-
-# Get all modes and purposes present in either pipeline
-all_modes = sorted(set(legacy_crosstab["tmodetp"].to_list() + new_crosstab["tmodetp"].to_list()))
-all_purposes = sorted(set(
-    [c for c in legacy_crosstab.columns if c != "tmodetp"] +
-    [c for c in new_crosstab.columns if c != "tmodetp"]
-))
-
-# Build full matrices with all combinations
-def build_matrix(df, modes, purposes):
-    matrix = np.zeros((len(modes), len(purposes)))
-    for i, mode in enumerate(modes):
-        row = df.filter(pl.col("tmodetp") == mode)
-        if len(row) > 0:
-            for j, purpose in enumerate(purposes):
-                col_name = str(purpose)
-                if col_name in df.columns:
-                    matrix[i, j] = row[col_name][0]
-    return matrix
-
-legacy_matrix = build_matrix(legacy_crosstab, all_modes, all_purposes)
-new_matrix = build_matrix(new_crosstab, all_modes, all_purposes)
-
-# Calculate difference (new - legacy) and percent difference
-diff_matrix = new_matrix - legacy_matrix
-pct_diff_matrix = np.where(
-    legacy_matrix > 0,
-    (diff_matrix / legacy_matrix) * 100,
-    np.where(new_matrix > 0, 100, 0)  # If legacy=0 but new>0, show +100%
-)
-
-# Mode and purpose labels
-mode_labels = [mode_names.get(m, f"Mode {m}") for m in all_modes]
-purpose_labels = [purpose_names.get(p, f"Purpose {p}") for p in all_purposes]
-
-# Print summary of largest differences
-diffs_list = []
-for i, mode in enumerate(all_modes):
-    for j, purpose in enumerate(all_purposes):
-        diffs_list.append({
-            'mode': mode_names.get(mode, f"Mode {mode}"),
-            'purpose': purpose_names.get(purpose, f"Purpose {purpose}"),
-            'legacy': int(legacy_matrix[i, j]),
-            'new': int(new_matrix[i, j]),
-            'diff': int(diff_matrix[i, j]),
-            'pct_diff': pct_diff_matrix[i, j] if not np.isnan(pct_diff_matrix[i, j]) else 0
-        })
-
-import pandas as pd
-diffs_df = pd.DataFrame(diffs_list)
-top_diffs = diffs_df.nlargest(10, 'diff', keep='all')
-from IPython.display import Markdown, display
-display(Markdown("\n**Top 10 Mode-Purpose Combinations with Largest Absolute Differences:**\n"))
-display(Markdown(top_diffs.to_markdown(index=False, floatfmt=".1f")))
-```
-
-#### Tour Mode and Purpose Comparisons
+### 8. **Tour Mode and Purpose Comparisons**
 
 ```{python}
 #| label: interactive-comparison-views
 
-# Aggregate by mode (sum across all purposes)
-legacy_by_mode = legacy_matrix.sum(axis=1)  # Sum across purposes for each mode
-new_by_mode = new_matrix.sum(axis=1)
+# Get mode and purpose distributions from ALL tours (not just matched)
+# This ensures consistency with the distribution tables above
 
-# Aggregate by purpose (sum across all modes)
-legacy_by_purpose = legacy_matrix.sum(axis=0)  # Sum across modes for each purpose
-new_by_purpose = new_matrix.sum(axis=0)
+# Get mode distributions - ensure all mode codes 0-9 are included
+all_mode_codes = list(range(10))
+mode_labels = [mode_names.get(i, f"Mode {i}") for i in all_mode_codes]
+
+legacy_mode_counts = (
+    legacy_tours.group_by("tmodetp")
+    .agg(pl.len().alias("count"))
+    .sort("tmodetp")
+)
+
+new_mode_counts = (
+    new_tours.group_by("tmodetp")
+    .agg(pl.len().alias("count"))
+    .sort("tmodetp")
+)
+
+# Build arrays with all mode codes, filling missing with 0
+legacy_by_mode = []
+new_by_mode = []
+for mode_code in all_mode_codes:
+    legacy_count = legacy_mode_counts.filter(pl.col("tmodetp") == mode_code)
+    new_count = new_mode_counts.filter(pl.col("tmodetp") == mode_code)
+    legacy_by_mode.append(legacy_count["count"][0] if len(legacy_count) > 0 else 0)
+    new_by_mode.append(new_count["count"][0] if len(new_count) > 0 else 0)
+
+legacy_by_mode = np.array(legacy_by_mode)
+new_by_mode = np.array(new_by_mode)
+
+# Get purpose distributions (with semantic mapping for legacy)
+# Ensure all purpose codes 0-9 are included
+all_purpose_codes = list(range(10))
+purpose_labels = [purpose_names.get(i, f"Purpose {i}") for i in all_purpose_codes]
+
+legacy_tours_semantic = legacy_tours.with_columns(
+    pl.col("pdpurp").replace_strict(legacy_to_semantic, default=pl.col("pdpurp")).alias("semantic_purp")
+)
+
+legacy_purpose_counts = (
+    legacy_tours_semantic.group_by("semantic_purp")
+    .agg(pl.len().alias("count"))
+    .sort("semantic_purp")
+)
+
+new_purpose_counts = (
+    new_tours.group_by("pdpurp")
+    .agg(pl.len().alias("count"))
+    .sort("pdpurp")
+)
+
+# Build arrays with all purpose codes, filling missing with 0
+legacy_by_purpose = []
+new_by_purpose = []
+for purpose_code in all_purpose_codes:
+    legacy_count = legacy_purpose_counts.filter(pl.col("semantic_purp") == purpose_code)
+    new_count = new_purpose_counts.filter(pl.col("pdpurp") == purpose_code)
+    legacy_by_purpose.append(legacy_count["count"][0] if len(legacy_count) > 0 else 0)
+    new_by_purpose.append(new_count["count"][0] if len(new_count) > 0 else 0)
+
+legacy_by_purpose = np.array(legacy_by_purpose)
+new_by_purpose = np.array(new_by_purpose)
 
 from scipy import stats
 
@@ -674,11 +641,11 @@ fig_scatter.add_trace(
     row=1, col=2
 )
 
-# Update axes
+# Update axes with fixed aspect ratio
 fig_scatter.update_xaxes(title_text='Legacy Tour Count', row=1, col=1)
-fig_scatter.update_yaxes(title_text='New Tour Count', row=1, col=1)
+fig_scatter.update_yaxes(title_text='New Tour Count', scaleanchor='x', scaleratio=1, row=1, col=1)
 fig_scatter.update_xaxes(title_text='Legacy Tour Count', row=1, col=2)
-fig_scatter.update_yaxes(title_text='New Tour Count', row=1, col=2)
+fig_scatter.update_yaxes(title_text='New Tour Count', scaleanchor='x2', scaleratio=1, row=1, col=2)
 
 fig_scatter.update_layout(
     height=500,
@@ -813,68 +780,23 @@ fig_sankey.update_layout(
 fig_sankey.show()
 
 # Calculate summary statistics
-total_legacy = int(legacy_matrix.sum())
-total_new = int(new_matrix.sum())
+total_legacy = len(legacy_tours)
+total_new = len(new_tours)
 total_diff = total_new - total_legacy
-mean_abs_diff = float(np.mean(np.abs(diff_matrix)))
-median_abs_diff = float(np.median(np.abs(diff_matrix)))
-max_abs_diff = float(np.max(np.abs(diff_matrix)))
-
-# Calculate Total Variation Distance (TVD) - normalized similarity metric
-legacy_dist = legacy_matrix.flatten() / legacy_matrix.sum()
-new_dist = new_matrix.flatten() / new_matrix.sum()
-tvd = 0.5 * np.sum(np.abs(legacy_dist - new_dist))
-
-# Calculate cosine similarity
-from numpy.linalg import norm
-cosine_sim = np.dot(legacy_matrix.flatten(), new_matrix.flatten()) / (norm(legacy_matrix.flatten()) * norm(new_matrix.flatten()))
 
 from IPython.display import Markdown, display
 display(Markdown(f"""
 **Summary Statistics:**
 
 - **Total Tours:** Legacy = {total_legacy:,} | New = {total_new:,} | Diff = {total_diff:+,}
-- **Mean Absolute Difference:** {mean_abs_diff:.1f} tours per mode-purpose combo
-- **Median Absolute Difference:** {median_abs_diff:.1f} tours
-- **Max Absolute Difference:** {max_abs_diff:.0f} tours
 - **Mode Correlation (R):** {r_mode:.4f} (R² = {r_mode**2:.4f})
 - **Purpose Correlation (R):** {r_purpose:.4f} (R² = {r_purpose**2:.4f})
-- **Total Variation Distance:** {tvd:.4f} (0 = identical, 1 = completely different)
-- **Cosine Similarity:** {cosine_sim:.4f} (1 = identical pattern, 0 = orthogonal)
 """))
 ```
 
-**Analysis:**
+**Analysis:** The visualizations reveal high consistency between pipelines:
 
-The visualizations reveal high consistency between pipelines:
 - **Scatter plots:** Strong correlations (R² ≈ 1.0) show mode and purpose distributions align well
 - **Sankey diagrams:** Thick straight-through flows show classification agreement; thin crossing flows highlight specific differences
-- **Summary metrics:** Low Total Variation Distance and high Cosine Similarity confirm overall pattern consistency
 
 ---
-
-## Recommendations
-
-**Key Findings:**
-1. High tour match rate with excellent attribute consistency (>97%)
-2. New pipeline correctly uses actual travel days; legacy artificially assigns days for weighting
-3. New pipeline follows current DaySim conventions for time encoding and purpose codes
-4. Both pipelines produce similar overall tour patterns
-
-**Further Investigation:**
-1. Analyze unmatched tours to understand tour extraction differences
-2. Review mode classification logic for HOV3+, drive-to-transit, and Other categories
-
----
-
-## Summary
-
-**Pipeline Comparison Results:**
-
-1. **Tour Matching:** High match rate by household, person, day, and times with >97% attribute consistency
-2. **Time Encoding:** Legacy uses HHMM format; new uses minutes since midnight (current DaySim spec)
-3. **Purpose Codes:** Legacy uses codes 10-11; new uses standard DaySim codes 8-9
-4. **Person-Days:** Legacy artificially assigns days based on completion flags for weighting purposes; new uses actual travel days
-5. **Mode Classification:** Differences in HOV3+, drive-to-transit, and other mode inference logic
-
-**Conclusion:** The pipelines produce similar tour patterns. The new pipeline correctly represents actual travel days and follows current DaySim specifications. The legacy "wt-wkday_3day" dataset is a modeling construct that artificially reassigns travel days for weighting purposes.
