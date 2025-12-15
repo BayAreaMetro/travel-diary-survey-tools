@@ -71,18 +71,31 @@ def identify_home_based_tours(
     else:
         has_gap = pl.lit(value=False)
 
+    # Check if previous trip returned home
+    prev_returned_home = (
+        is_returning_home.shift(1)
+        .over(["person_id", "day_id"])
+        .fill_null(value=False)
+    )
+
     # Tour starts when:
-    # Tour starts when: leaving home OR loop trip OR
-    # (first trip AND not at home) OR gap
+    # 1. Leaving home (origin=home, dest!=home)
+    # 2. Loop trip (origin=home, dest=home)
+    # 3. First trip AND not at home (partial tour)
+    # 4. Multi-day gap AND not at home
+    # 5. Previous trip returned home (even if next tour is partial)
     tour_starts_leaving = is_leaving_home
     tour_starts_loop = is_loop_trip
     tour_starts_away = is_first_trip & ~pl.col("_o_is_home")
     tour_starts_gap = has_gap & ~pl.col("_o_is_home")
+    tour_starts_after_home = prev_returned_home
+
     tour_starts = (
         tour_starts_leaving
         | tour_starts_loop
         | tour_starts_away
         | tour_starts_gap
+        | tour_starts_after_home
     ).cast(pl.Int32)
 
     # Tour ends when: returning home OR last trip

@@ -444,7 +444,7 @@ def _prepare_basic_fields(
     # Compute Daysim trip identification fields:
     # - tour: tour sequence number within person-day (from tour_num)
     # - half: half-tour direction (1=OUTBOUND, 2=INBOUND, from tour_direction)
-    # - tseg: trip sequence within half-tour
+    # - tseg: trip sequence within half-tour (ranked by departure then arrival)
     # - tsvid: travel survey trip ID (use linked_trip_id)
     # - tripno: sequential trip number per person-day (bonus field)
     trips = trips.with_columns(
@@ -458,23 +458,33 @@ def _prepare_basic_fields(
             if "tour_direction" in linked_trips.columns
             else pl.lit(1).alias("half"),
             # Compute trip sequence within half-tour
-            pl.col("linked_trip_id")
-            .cum_count()
+            # CRITICAL: rank() with method="ordinal"
+            # and sort by depart_time, arrive_time
+            # This ensures tseg follows temporal order and
+            # handles tied departure times
+            pl.col("depart_time")
+            .rank(method="ordinal")
             .over(
-                ["hh_id", "person_id", "day_id", "tour_num", "tour_direction"]
-                if "tour_num" in linked_trips.columns
-                and "tour_direction" in linked_trips.columns
-                else ["hh_id", "person_id", "day_id"]
+                ["hh_id", "person_id", "day_id", "tour_num", "tour_direction"],
+                order_by=["depart_time", "arrive_time"],
+            )
+            .alias("tseg")
+            if "tour_num" in linked_trips.columns
+            and "tour_direction" in linked_trips.columns
+            else pl.col("depart_time")
+            .rank(method="ordinal")
+            .over(
+                ["hh_id", "person_id", "day_id"],
+                order_by=["depart_time", "arrive_time"],
             )
             .alias("tseg"),
             # Use linked_trip_num as travel survey ID
             pl.col("linked_trip_num").cast(pl.Int32).alias("tsvid"),
             # Bonus: sequential trip number per person-day
-            (
-                pl.col("linked_trip_id")
-                .cum_count()
-                .over(["hh_id", "person_id", "day_id"])
-            ).alias("tripno"),
+            pl.col("depart_time")
+            .rank("ordinal")
+            .over(["hh_id", "person_id", "day_id"])
+            .alias("tripno"),
             # Add default address types (3 = other)
             pl.lit(3).alias("oadtyp"),
             pl.lit(3).alias("dadtyp"),

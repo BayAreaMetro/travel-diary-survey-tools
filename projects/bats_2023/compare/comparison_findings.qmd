@@ -272,13 +272,35 @@ print(f"- Mode matches: {len(mode_match):,} ({len(mode_match)/len(matched)*100:.
 print(f"- Both match: {len(both_match):,} ({len(both_match)/len(matched)*100:.1f}%)")
 ```
 
-**Key Finding:** 84.5% of tours match between pipelines when comparing household, person, day, departure time, destination arrival time, and return time. Among matched tours, 97.8% have matching purpose and 98.3% have matching mode at the individual tour level.
+**Key Finding:** 83.8% of tours match between pipelines when comparing household, person, day, departure time, destination arrival time, and return time. Among matched tours, 97.8% have matching purpose and 98.3% have matching mode at the individual tour level.
 
-**Unmatched Tours:** The 15.5% unmatched tours likely reflect differences in tour extraction logic for complex travel patterns, multi-stop sequences, or edge cases in tour boundary detection.
+**Unmatched Tours Breakdown:** The 16.2% unmatched tours break down into two categories:
 
-- Buffer (new) vs TAZ-based (legacy) destination detection
-- Handling of loop-trips in new pipeline (specifically home-based loop trips)
-- Orphaned linked trips in new pipeline (excessive dwell times between trips causing tour breaks)
+#### Mismatch Category Breakdown
+
+| Category | Person-Days | Tours Affected | Description |
+|----------|-------------|----------------|-------------|
+| **Different Tour Counts** | 4,598 | ~11,293 (76%) | Pipelines extract different numbers of tours from same trip data |
+| **Same Count, Different Boundaries** | 2,858 | ~2,858 (24%) | Same number of tours but different start/end times or destinations |
+
+#### Different Tour Count Examples
+
+Most common tour count differences (person-days):
+
+| Legacy Tours | New Tours | Person-Days | Explanation |
+|--------------|-----------|-------------|-------------|
+| 0 | 1 | 1,527 | New pipeline found a tour, legacy didn't |
+| 2 | 1 | 1,091 | Legacy split into 2 tours, new kept as 1 |
+| 1 | 0 | 513 | Legacy found a tour, new didn't |
+| 3 | 2 | 420 | Legacy extracted more tours from pattern |
+| 0 | 2 | 371 | New pipeline found 2 tours, legacy found none |
+
+**Root Causes:**
+
+- **Buffer-based (new) vs TAZ-based (legacy) home anchor detection**: With 64.9% of trips showing GPS variance, the buffer approach better handles spatial discontinuity in determining tour boundaries
+- **Different tour boundary detection logic**: Different criteria for determining where tours start and end
+- **Multi-stop pattern handling**: Different algorithms for grouping intermediate stops into tours
+- **Anchor Destination Logic**: New pipeline allows for more than just work-based trips, e.g., school and "other" anchors.
 
 ---
 
@@ -306,7 +328,58 @@ print(f"**Near-Matches (same departure/arrival, different return):** {additional
 print(f"**Fundamental differences (different departure or arrival):** {len(unmatched_legacy) - additional_matches:,} tours")
 ```
 
-These unmatched tours suggest differences in tour extraction algorithms for complex travel patterns.
+#### Example Cases of Same Tour Count But Different Boundaries
+
+Let's examine specific examples where both pipelines found the same number of tours for a person-day, but the tour boundaries differ:
+
+```{python}
+#| label: boundary-examples
+
+# Get person-days with same tour count in both pipelines
+legacy_counts = legacy_tours.group_by(["hhno", "pno", "day"]).agg(pl.len().alias("legacy_count"))
+new_counts = new_tours.group_by(["hhno", "pno", "day"]).agg(pl.len().alias("new_count"))
+
+same_count = legacy_counts.join(new_counts, on=["hhno", "pno", "day"], how="inner").filter(
+    pl.col("legacy_count") == pl.col("new_count")
+)
+
+# Find person-days with same count but at least one unmatched tour
+same_count_unmatched = (
+    same_count
+    .join(unmatched_legacy.select(["hhno", "pno", "day"]).unique(), on=["hhno", "pno", "day"], how="inner")
+    .filter(pl.col("legacy_count") == 2)  # Focus on 2-tour days for clarity
+    .head(3)
+)
+
+# Show examples
+print("**Examples: Person-days with 2 tours in both pipelines but different boundaries**\n")
+
+for row in same_count_unmatched.iter_rows(named=True):
+    hhno, pno, day = row["hhno"], row["pno"], row["day"]
+
+    leg_tours_example = legacy_tours.filter(
+        (pl.col("hhno") == hhno) & (pl.col("pno") == pno) & (pl.col("day") == day)
+    ).sort("tlvorig")
+
+    new_tours_example = new_tours.filter(
+        (pl.col("hhno") == hhno) & (pl.col("pno") == pno) & (pl.col("day") == day)
+    ).sort("tlvorig")
+
+    print(f"**hhno={hhno}, pno={pno}, day={day}**")
+    print("  Legacy tours:")
+    for t in leg_tours_example.iter_rows(named=True):
+        print(f"    Tour {t['tour']}: depart={t['tlvorig']:04d}, dest={t['tardest']:04d}, return={t['tarorig']:04d}, purpose={t['pdpurp']}")
+
+    print("  New tours:")
+    for t in new_tours_example.iter_rows(named=True):
+        depart = _minutes_to_hhmm(t['tlvorig'])
+        dest = _minutes_to_hhmm(t['tardest'])
+        ret = _minutes_to_hhmm(t['tarorig'])
+        print(f"    Tour {t['tour']}: depart={depart:04d}, dest={dest:04d}, return={ret:04d}, purpose={t['pdpurp']}")
+    print()
+```
+
+These examples show how the same trip sequences can be parsed into different tour boundaries due to differences in anchor detection (buffer vs TAZ) and tour segmentation logic.
 
 ---
 
@@ -492,6 +565,7 @@ display(Markdown(mode_comparison.to_pandas().to_markdown(index=False, floatfmt="
 ```
 
 **Analysis:** Mode distributions differ primarily in:
+
 - **HOV3+ vs Other** - Different vehicle occupancy or shuttle classification logic
 - **Drive-to-transit** - Different transit access/egress mode detection methods
 - **SOV/HOV splits** - Possible differences in occupancy calculation
