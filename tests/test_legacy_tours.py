@@ -41,9 +41,8 @@ from data_canon.codebook.persons import (
 )
 from data_canon.codebook.tours import TourType
 from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
+from processing import extract_tours, link_trips
 from processing.formatting.daysim.mappings import PURPOSE_MAP
-from processing.link import link_trips
-from processing.tours.extraction import extract_tours
 from tests.fixtures.tour_test_data import ScenarioBuilder
 
 # Import the legacy tour extraction function dynamically

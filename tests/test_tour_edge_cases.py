@@ -19,7 +19,7 @@ from data_canon.codebook.persons import (
     Student,
 )
 from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
-from processing.link import link_trips
+from processing import link_trips
 from processing.tours.extraction import extract_tours
 
 

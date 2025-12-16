@@ -8,6 +8,7 @@ Tools for processing and validating travel diary survey data into standardized f
 - [Overview](#overview)
 - [Architecture](#architecture)
   - [Conceptual Diagram](#conceptual-diagram)
+  - [Pipeline Steps](#pipeline-steps)
 - [Usage](#usage)
   - [Quick Start](#quick-start)
     - [1. Installing UV & Virtual Environment Setup](#1-installing-uv--virtual-environment-setup)
@@ -150,6 +151,29 @@ style ActivitySim fill:#ffe0b2,color:#000
 style DaySim fill:#ffe0b2,color:#000
 style Analysis fill:#ffe0b2,color:#000
 ```
+
+### Pipeline Steps
+
+The data processing pipeline consists of modular steps that transform raw survey data into model-ready formats. Each step has well-defined inputs, outputs, and algorithms:
+
+#### Core Processing Steps
+
+1. **[Load Data](src/processing/read_write/README.md)** - Loads canonical survey tables from CSV, Parquet, or geospatial files into memory
+2. **[Cleaning](src/processing/cleaning/README.md)** - Project-specific data cleaning operations (e.g., fixing time/distance errors, adding missing records)
+3. **Imputation** *(placeholder)* - Imputes missing values for key variables (e.g., mode, purpose, locations)
+4. **[Link Trips](src/processing/link_trips/README.md)** - Aggregates individual trip segments into complete journey records by detecting mode changes and transfers
+5. **[Detect Joint Trips](src/processing/joint_trips/README.md)** - Identifies shared household trips using spatial-temporal similarity matching
+6. **[Extract Tours](src/processing/tours/README.md)** - Builds hierarchical tour structures (home-based tours and work-based subtours) from linked trips
+7. **Weighting** *(placeholder)* - Calculates expansion weights to match survey sample to population targets
+8. **[Format Output](src/processing/formatting/daysim/README.md)** - Transforms canonical data to model-specific formats (DaySim, ActivitySim, etc.)
+9. **[Final Check](src/processing/final_check/README.md)** - Validates complete dataset against canonical schemas before export
+10. **[Write Data](src/processing/read_write/README.md)** - Writes processed tables to output files with optional validation
+
+Each step README provides detailed documentation on:
+- Input/output data requirements
+- Core algorithm and processing logic
+- Configuration parameters
+- Implementation notes
 
 ---
 

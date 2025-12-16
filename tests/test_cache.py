@@ -169,11 +169,17 @@ class TestPipelineCache:
         # Cache miss
         pipeline_cache.load("nonexistent", "nonexistent")
 
+        # Expected stats
+        ex_stats = {
+            "loaded": 1,
+            "missing": 1,
+            "stale": 0,
+            "total": 2,
+            "load_rate": 0.5,
+        }
+
         stats = pipeline_cache.get_stats()
-        assert stats["hits"] == 1
-        assert stats["misses"] == 1
-        assert stats["total"] == 2
-        assert stats["hit_rate"] == 0.5
+        assert stats == ex_stats
 
 
 class TestStepDecoratorCaching:
@@ -241,9 +247,11 @@ class TestStepDecoratorCaching:
         # Results should be identical but both calls execute the function
         assert result1["households"].equals(result2["households"])
 
+        # Expect no cache entries
+
         # Verify no cache was created
         stats = pipeline_cache.get_stats()
-        assert stats["hits"] == 0
+        assert stats["loaded"] == 0
 
     def test_decorator_without_pipeline_cache(
         self, slow_step, sample_dataframe

@@ -8,7 +8,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from processing.link import link_trips
+from processing import link_trips
 
 # Import the legacy function dynamically due to non-standard module name
 spec = importlib.util.spec_from_file_location(
