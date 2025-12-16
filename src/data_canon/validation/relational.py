@@ -100,13 +100,18 @@ def validate_fk_references(
         fk_fields = get_foreign_key_fields(model)
 
         for field_name, (parent_table, parent_column) in fk_fields.items():
-            # Check parent table exists
+            # Check parent table exists - if not, skip validation
+            # (table may be created by a later pipeline step)
             if parent_table not in models:
-                msg = (
-                    f"FK {table_name}.{field_name} references unknown table "
-                    f"'{parent_table}'"
+                logger.debug(
+                    "Skipping FK validation for %s.%s -> %s.%s "
+                    "(parent table not in models yet)",
+                    table_name,
+                    field_name,
+                    parent_table,
+                    parent_column,
                 )
-                raise ValueError(msg)
+                continue
 
             # Check parent column exists in parent model
             parent_model = models[parent_table]
@@ -155,9 +160,19 @@ def check_foreign_keys(
         # Get parent table
         parent_df = get_table_func(parent_table)
         if parent_df is None:
-            logger.warning(
-                "Skipping FK check: parent table '%s' is None",
+            # Skip FK validation when parent table doesn't exist
+            # This can happen when:
+            # 1. Tables validated in isolation during step input validation
+            # 2. Parent table created by a later step in the pipeline
+            # Actual FK constraint validated when tables in same
+            # CanonicalData
+            logger.debug(
+                "Skipping FK validation for %s.%s -> %s.%s: "
+                "parent table not found",
+                table_name,
+                child_col,
                 parent_table,
+                parent_col,
             )
             continue
 

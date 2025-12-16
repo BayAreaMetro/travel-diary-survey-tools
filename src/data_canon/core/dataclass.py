@@ -42,6 +42,7 @@ class CanonicalData:
     unlinked_trips: pl.DataFrame | None = None
     linked_trips: pl.DataFrame | None = None
     tours: pl.DataFrame | None = None
+    joint_trips: pl.DataFrame | None = None
 
     # Daysim-specific tables
     households_daysim: pl.DataFrame | None = None
@@ -59,6 +60,7 @@ class CanonicalData:
             "unlinked_trips": survey_models.UnlinkedTripModel,
             "linked_trips": survey_models.LinkedTripModel,
             "tours": survey_models.TourModel,
+            "joint_trips": survey_models.JointTripModel,
             # Daysim models
             "households_daysim": daysim_models.HouseholdDaysimModel,
             "persons_daysim": daysim_models.PersonDaysimModel,

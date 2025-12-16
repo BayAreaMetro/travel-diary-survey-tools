@@ -10,6 +10,7 @@ import polars as pl
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
 from processing import (
+    detect_joint_trips,
     extract_tours,
     format_daysim,
     link_trips,
@@ -135,6 +136,7 @@ processing_steps = [
     clean_2023_bats,
     custom_add_taz_ids,
     link_trips,
+    detect_joint_trips,
     extract_tours,
     format_daysim,
     write_data,

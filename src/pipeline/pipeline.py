@@ -328,11 +328,19 @@ class Pipeline:
         if self.cache:
             stats = self.cache.get_stats()
             if stats["total"] > 0:
+                parts = []
+                if stats["loaded"] > 0:
+                    parts.append(f"{stats['loaded']} loaded from cache")
+                if stats["missing"] > 0:
+                    parts.append(f"{stats['missing']} re-run (no cache)")
+                if stats["stale"] > 0:
+                    parts.append(f"{stats['stale']} re-run (stale/corrupted)")
+
+                summary = ", ".join(parts)
                 logger.info(
-                    "Cache statistics: %d hits, %d misses (%.1f%% hit rate)",
-                    stats["hits"],
-                    stats["misses"],
-                    stats["hit_rate"] * 100,
+                    "Cache summary: %s (%.1f%% cache hit rate)",
+                    summary,
+                    stats["load_rate"] * 100,
                 )
 
         # Refresh cache status after run

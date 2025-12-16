@@ -193,6 +193,11 @@ class LinkedTripModel(BaseModel):
     hh_id: int = step_field(ge=1, fk_to="households.hh_id")
 
     linked_trip_id: int = step_field(ge=1, unique=True)
+    joint_trip_id: int | None = step_field(
+        ge=1,
+        fk_to="joint_trips.joint_trip_id",
+        default=None,
+    )
     tour_id: int = step_field(
         ge=1, fk_to="tours.tour_id", required_in_steps=["format_daysim"]
     )
@@ -206,7 +211,19 @@ class LinkedTripModel(BaseModel):
     arrive_minute: int = step_field(ge=0, le=59)
     arrive_seconds: int = step_field(ge=0, le=59)
     o_purpose_category: int = step_field()
+    o_lat: float = step_field(
+        ge=-90, le=90, required_in_steps=["detect_joint_trips"]
+    )
+    o_lon: float = step_field(
+        ge=-180, le=180, required_in_steps=["detect_joint_trips"]
+    )
     d_purpose_category: int = step_field(required_in_steps=["extract_tours"])
+    d_lat: float = step_field(
+        ge=-90, le=90, required_in_steps=["detect_joint_trips"]
+    )
+    d_lon: float = step_field(
+        ge=-180, le=180, required_in_steps=["detect_joint_trips"]
+    )
     mode_type: ModeType = step_field(required_in_steps=["extract_tours"])
     driver: Driver = step_field(
         required_in_steps=["link_trips", "format_daysim"]
@@ -221,8 +238,8 @@ class LinkedTripModel(BaseModel):
 
     duration_minutes: float = step_field(ge=0)
     distance_meters: float = step_field(ge=0)
-    depart_time: datetime = step_field()
-    arrive_time: datetime = step_field()
+    depart_time: datetime = step_field(required_in_steps=["detect_joint_trips"])
+    arrive_time: datetime = step_field(required_in_steps=["detect_joint_trips"])
     tour_direction: TourDirection = step_field(
         required_in_steps=["format_daysim"]
     )
@@ -308,3 +325,41 @@ class TourModel(BaseModel):
                 )
                 raise ValueError(msg)
         return self
+
+
+class JointTripModel(BaseModel):
+    """Joint trip group containing multiple linked trips from same household.
+
+    Represents a detected shared trip where multiple household members traveled
+    together. Each joint trip has a unique ID and aggregated spatiotemporal
+    attributes from its member trips.
+    """
+
+    joint_trip_id: int = step_field(ge=1, unique=True)
+    hh_id: int = step_field(ge=1, fk_to="households.hh_id")
+    day_id: int = step_field(ge=1, fk_to="days.day_id")
+    num_joint_travelers: int = step_field(
+        ge=2, description="Number of travelers in this joint trip"
+    )
+    o_lat_mean: float = step_field(
+        ge=-90, le=90, description="Mean origin latitude across member trips"
+    )
+    o_lon_mean: float = step_field(
+        ge=-180, le=180, description="Mean origin longitude across member trips"
+    )
+    d_lat_mean: float = step_field(
+        ge=-90,
+        le=90,
+        description="Mean destination latitude across member trips",
+    )
+    d_lon_mean: float = step_field(
+        ge=-180,
+        le=180,
+        description="Mean destination longitude across member trips",
+    )
+    depart_time_mean: datetime = step_field(
+        description="Mean departure time across member trips"
+    )
+    depart_arrive_mean: datetime = step_field(
+        description="Mean arrival time across member trips"
+    )

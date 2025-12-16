@@ -45,7 +45,11 @@ class PipelineCache:
         """
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._stats = {"hits": 0, "misses": 0}
+        self._stats = {
+            "loaded": 0,  # Loaded from cache
+            "missing": 0,  # No cache found
+            "stale": 0,  # Cache outdated/corrupted
+        }
 
     def get_cache_key(
         self,
@@ -133,12 +137,15 @@ class PipelineCache:
         cache_path = self.cache_dir / step_name / cache_key
 
         if not cache_path.exists():
-            self._stats["misses"] += 1
-            logger.debug("Cache miss for %s (key: %s)", step_name, cache_key)
+            self._stats["missing"] += 1
+            logger.debug(
+                "Cache not found for %s (key: %s)", step_name, cache_key
+            )
             return None
 
         metadata_path = cache_path / "metadata.json"
         if not metadata_path.exists():
+            self._stats["stale"] += 1
             logger.warning(
                 "Cache corrupted: missing metadata for %s", step_name
             )
@@ -149,6 +156,7 @@ class PipelineCache:
             with metadata_path.open() as f:
                 metadata = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
+            self._stats["stale"] += 1
             logger.warning("Failed to read metadata for %s: %s", step_name, e)
             return None
 
@@ -162,6 +170,7 @@ class PipelineCache:
             obj = _load_data(cache_path, table_name, table_type)
 
             if obj is None:
+                self._stats["stale"] += 1
                 return None
 
             outputs[table_name] = obj
@@ -187,9 +196,9 @@ class PipelineCache:
                 f"  ← {table_name} {obj_type}: {format_name}{shape}{size_str}"
             )
 
-        self._stats["hits"] += 1
+        self._stats["loaded"] += 1
         logger.info(
-            "Cache hit for %s (key: %s)\n%s",
+            "Loaded from cache: %s (key: %s)\n%s",
             step_name,
             cache_key,
             "\n".join(load_info),
@@ -318,25 +327,31 @@ class PipelineCache:
 
         return cached_steps
 
-    def get_stats(self) -> dict[str, int]:
-        """Get cache hit/miss statistics.
+    def get_stats(self) -> dict[str, int | float]:
+        """Get cache statistics.
 
         Returns:
-            Dict with 'hits', 'misses', and 'hit_rate' keys
+            Dict with 'loaded', 'missing', 'stale', 'total',
+            and 'load_rate' keys
         """
-        total = self._stats["hits"] + self._stats["misses"]
-        hit_rate = self._stats["hits"] / total if total > 0 else 0.0
+        total = (
+            self._stats["loaded"]
+            + self._stats["missing"]
+            + self._stats["stale"]
+        )
+        load_rate = self._stats["loaded"] / total if total > 0 else 0.0
 
         return {
-            "hits": self._stats["hits"],
-            "misses": self._stats["misses"],
+            "loaded": self._stats["loaded"],
+            "missing": self._stats["missing"],
+            "stale": self._stats["stale"],
             "total": total,
-            "hit_rate": hit_rate,
+            "load_rate": load_rate,
         }
 
     def reset_stats(self) -> None:
         """Reset cache statistics."""
-        self._stats = {"hits": 0, "misses": 0}
+        self._stats = {"loaded": 0, "missing": 0, "stale": 0}
 
 
 def _load_data(cache_path: Path, name: str, data_type: str) -> Any:  # noqa: ANN401
