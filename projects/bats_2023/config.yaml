@@ -5,7 +5,7 @@
 
 # Define directory shorthands
 survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
-output_dir: "C:/bats_processing/outputs"
+output_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/2023_pipeline_output"
 taz_shapefile: "C:/GitHub/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles/tazs_TM2_2_5.shp"
 maz_shapefile: "C:/GitHub/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles/mazs_TM2_2_5.shp"
 

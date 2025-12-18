@@ -66,7 +66,7 @@ def custom_add_taz_ids(
     """Custom step to add TAZ and MAZ IDs based on locations."""
     # Rename source field to TAZ_ID for consistency
     taz_shapefile = taz_shapefile.rename(columns={taz_field_name: "TAZ_ID"})
-    
+
     # Rename MAZ field if MAZ shapefile provided
     if maz_shapefile is not None:
         maz_shapefile = maz_shapefile.rename(columns={maz_field_name: "MAZ_ID"})
@@ -80,7 +80,7 @@ def custom_add_taz_ids(
         zone_col_name: str,
         zone_id_field: str = "TAZ_ID",
     ) -> pl.DataFrame:
-        """Add zone ID (TAZ or MAZ) to dataframe based on lon/lat coordinates."""
+        """Add TAZ/MAZ zone ID to dataframe based on lon/lat coordinates."""
         gdf = gpd.GeoDataFrame(
             df.to_pandas(),
             geometry=gpd.points_from_xy(
@@ -132,7 +132,7 @@ def custom_add_taz_ids(
             ("linked_trips", "o_lon", "o_lat", "o_maz"),
             ("linked_trips", "d_lon", "d_lat", "d_maz"),
         ]
-        
+
         for df_name, lon_col, lat_col, maz_col_name in maz_configs:
             results[df_name] = add_zone_to_dataframe(
                 results[df_name],
