@@ -7,14 +7,12 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "geopandas>=1.1.1",
-    "matplotlib>=3.10.8",
     "networkx>=3.6.1",
     "numpy>=2.3.4",
     "polars>=1.35.1",
     "pyarrow>=22.0.0",
     "pydantic>=2.12.4",
     "scipy>=1.16.3",
-    "tabulate>=0.9.0",
 ]
 
 [dependency-groups]
@@ -23,6 +21,9 @@ test = [
     "pytest-cov>=7.0.0",
 ]
 dev = [
+    "matplotlib>=3.10.8",
+    "tabulate>=0.9.0",
+    "kaleido>=1.2.0",
     "jupyter>=1.1.1",
     "pandas>=2.3.3",
     "plotly>=6.4.0",
