@@ -27,7 +27,7 @@ jobs:
         uses: lewagon/wait-on-check-action@v1.3.4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          check-name: 'All checks passed'
+          check-name: 'PR Information,Lint,Generate Column Matrix,Test (Python 3.11),Test (Python 3.12),Test (Python 3.13),Test (Python 3.14)'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 10
 
