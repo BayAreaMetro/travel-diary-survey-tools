@@ -53,7 +53,7 @@ Identifies shared household trips using similarity matching based on origin-dest
 - Calculate statistical distance using covariance matrix:
   - Accounts for correlated variations in space/time
   - Compares to chi-squared distribution at `confidence_level`
-- More sophisticated, calibrated to actual joint trip patterns
+- More sophisticated, calibrated to actual joint trip patterns and can more flexibly capture joint trips than a fixed threshold (e.g., 3 of 4 metrics are tight matches but one is *slightly* outside threshold, buffer would miss but Mahalanobis may capture)
 
 **Phase 4: Clique Detection**
 1. Build graph where nodes = trips, edges = similar trip pairs

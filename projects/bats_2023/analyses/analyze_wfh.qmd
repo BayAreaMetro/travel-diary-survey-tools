@@ -17,6 +17,38 @@ This report analyzes work-from-home (WFH) patterns among employed persons in the
 -   Telework ratio (proportion of work days spent at home)
 -   Temporal validation (identifying impossible telework/commute combinations)
 
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Setup](#setup)
+3. [Run Pipeline](#run-pipeline)
+4. [Data Preparation](#data-preparation)
+    - [Telework frequency](#telework-frequency)
+    - [Impute commute_freq](#impute-commute_freq)
+    - [Data filtering](#data-filtering)
+    - [Survey Code Reference](#survey-code-reference)
+5. [Analysis](#analysis)
+    - [Temporal Validation](#temporal-validation)
+    - [Classification Rules](#classification-rules)
+    - [Categorize Telework Frequency](#categorize-telework-frequency)
+    - [Categorize Commute Frequency](#categorize-commute-frequency)
+    - [Calculate Telework Ratio](#calculate-telework-ratio)
+6. [Results](#results)
+    - [Telework Frequency Distribution](#telework-frequency-distribution)
+    - [Commute Frequency Distribution](#commute-frequency-distribution)
+    - [Compare Telework frequency with Flavia's analysis](#compare-telework-frequency-with-flavias-analysis)
+    - [Combined Telework and Commute Frequency Distribution](#combined-telework-and-commute-frequency-distribution)
+    - [Telework shift plots](#telework-shift-plots)
+    - [Telework Ratio (Proportion of Work Days at Home)](#telework-ratio-proportion-of-work-days-at-home)
+    - [Telework Summary](#telework-summary)
+7. [Stated vs Observed Commute Frequency Validation](#stated-vs-observed-commute-frequency-validation)
+    - [Classify Weekdays as Commute Days](#classify-weekdays-as-commute-days)
+    - [Calculate Observed Frequencies](#calculate-observed-frequencies)
+    - [Merge with Stated Frequencies](#merge-with-stated-frequencies)
+    - [Observed Frequency Distributions](#observed-frequency-distributions)
+    - [Stated vs Observed Comparison](#stated-vs-observed-comparison)
+
+
 ## Setup
 
 ```{python}
@@ -171,11 +203,11 @@ trips_19 = trips_19.with_columns(
 )
 
 # Load trip and day data for 2023
-trips_23 = pl.read_csv(persons_23_dir / "trip.csv")
-days_23 = pl.read_csv(persons_23_dir / "day.csv")
+trips_23 = pl.read_csv(data_dir_23 / "trip.csv")
+days_23 = pl.read_csv(data_dir_23 / "day.csv")
 
 # Load and apply revised 2023 day weights
-day_weights_23 = pl.read_csv(weights_23_dir / "day_weights.csv")
+day_weights_23 = pl.read_csv(weights_dir_23 / "day_weights.csv")
 days_23 = (
     days_23.drop("day_weight")
     .join(
@@ -367,7 +399,8 @@ logger.info(f"Sum of person weights: {person_weight_sum:.2f}")
 # Filter just employed persons
 employed_persons = persons_clean.filter(
     # Must be employed AND not missing job type
-    pl.col("employment").is_in(EMPLOYED_CODES) & (pl.col("job_type") != 995)
+    # pl.col("employment").is_in(EMPLOYED_CODES) &
+    (pl.col("job_type") != 995)
 ).select(
     "person_id",
     "employment",
@@ -384,33 +417,95 @@ logger.info(f"Weighted employed persons: {employed_persons['person_weight'].sum(
 
 ### Survey Code Reference
 
-**Employment Codes:** - 1: Employed full-time (paid) - 2: Employed part-time (paid) - 3: Self-employed - 5: Not employed and not looking for work - 6: Unemployed and looking for work - 7: Unpaid volunteer or intern - 8: Employed, but not currently working - 995: Missing Response
+**Employment Codes:**
 
-**Telework/Commute Frequency Codes:** - 1: 6-7 days a week - 2: 5 days a week - 3: 4 days a week - 4: 3 days a week - 5: 2 days a week - 6: 1 day a week - 7: 1-3 days a month - 8: Less than monthly - 995: Missing Response - 996: Never
+- 1: Employed full-time (paid)
+- 2: Employed part-time (paid)
+- 3: Self-employed
+- 5: Not employed and not looking for work
+- 6: Unemployed and looking for work
+- 7: Unpaid volunteer or intern
+- 8: Employed, but not currently working
+- 995: Missing Response
 
-**Job Type Codes:** - 1: One work location - 2: Multiple work locations - 3: WFH always - 4: Travel for work - 5: Hybrid - 995: Missing Response
+**Telework/Commute Frequency Codes:**
+
+- 1: 6-7 days a week
+- 2: 5 days a week
+- 3: 4 days a week
+- 4: 3 days a week
+- 5: 2 days a week
+- 6: 1 day a week
+- 7: 1-3 days a month
+- 8: Less than monthly
+- 995: Missing Response
+- 996: Never
+
+**Job Type Codes:**
+
+- 1: One work location
+- 2: Multiple work locations
+- 3: WFH always
+- 4: Travel for work
+- 5: Hybrid
+- 995: Missing Response
 
 ## Analysis
+
+### Temporal Validation
+
+Check for impossible combinations where telework + commute frequency exceeds 7 days/week.
+
+```{python}
+#| label: temporal-violations
+#| output: false
+
+# Check for temporal violations:
+# Bad telework/commute freq combos where sum < 7 days/week
+# ignoring the less than weekly and never categories
+bad_freqs = employed_persons.filter(
+    (pl.col("telework_freq") + pl.col("commute_freq") < 7)
+    & (pl.col("telework_freq") < 8)
+    & (pl.col("commute_freq") < 8)
+)
+
+bad_freqs_summary = pl.DataFrame(
+    {
+        "Count": [len(bad_freqs)],
+        "Weighted count": [round(bad_freqs["person_weight"].sum(), 2)],
+        "% (wtd)": [
+            round(
+                100
+                * bad_freqs["person_weight"].sum()
+                / employed_persons["person_weight"].sum(),
+                2,
+            )
+        ],"% (unwtd)": [
+            round(100 * bad_freqs.shape[0] / employed_persons.shape[0], 2),
+        ],
+    }
+)
+```
+
+So about `{python} bad_freqs_summary['% (unwtd)'].item()`% unweighted and `{python} bad_freqs_summary['% (wtd)'].item()`% weighted count of employed persons have impossible telework/commute frequency combinations. This is a relatively small proportion, but noticeable. The importance of this is that the following telework/commute frequency categories treat these as independent, which means these persons may be double counted in the analysis.
 
 ### Classification Rules
 
 #### Telework / Commute Frequency Categorization
 Simple definition of telework and commute frequency categorization.\
 Mirrored for commute freq using commute_freq instead of telework_freq
-
-| Days per Week Category | Telework Frequency Rules                    | Commute Frequency Rules                                             |
-|------------------------|---------------------------------------------|---------------------------------------------------------------------|
-| Always                 | `job_type` == 3                             | `telework_freq` == 8 AND `job_type` != 3 AND `commute_freq` not in \[8, 995\] |
-| 6-7 days per week      | `telework_freq` == 1 AND `job_type` != 3    | `commute_freq` == 1 AND `telework_freq` != 8 AND `job_type` != 3    |
-| 5 days per week        | `telework_freq` == 2 AND `job_type` != 3    | `commute_freq` == 2 AND `telework_freq` != 8 AND `job_type` != 3    |
-| 4 days per week        | `telework_freq` == 3 AND `job_type` != 3    | `commute_freq` == 3 AND `telework_freq` != 8 AND `job_type` != 3    |
-| 2-3 days per week      | `telework_freq` == 4 AND `job_type` != 3    | `commute_freq` == 4 AND `telework_freq` != 8 AND `job_type` != 3    |
-| 1 day per week         | `telework_freq` == 5 AND `job_type` != 3    | `commute_freq` == 5 AND `telework_freq` != 8 AND `job_type` != 3    |
-| 1-3 days a month       | `telework_freq` == 7 AND `job_type` != 3    | `commute_freq` == 6 AND `telework_freq` != 8 AND `job_type` != 3    |
-| Less than monthly      | `telework_freq` == 6 AND `job_type` != 3    | `commute_freq` == 7 AND `telework_freq` != 8 AND `job_type` != 3    |
-| Never                  | `telework_freq` == 8 AND `job_type` != 3    | `commute_freq` == 8 OR `job_type` == 3                              |
-| Missing Response       | `telework_freq` == 995 AND `job_type` != 3  | `commute_freq` == 995 AND `job_type` != 3                           |
-
+| Days per Week Category | Telework Frequency Rules                                             | Commute Frequency Rules                                                     |
+|------------------------|----------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Always                 | `job_type` == 3                                                      | `telework_freq` == 8 AND `job_type` != 3 AND `commute_freq` not in [8, 995] |
+| 6-7 days per week      | `telework_freq` == 1 AND `job_type` != 3                             | `commute_freq` == 1 AND `telework_freq` != 8 AND `job_type` != 3            |
+| 5 days per week        | `telework_freq` == 2 AND `job_type` != 3                             | `commute_freq` == 2 AND `telework_freq` != 8 AND `job_type` != 3            |
+| 4 days per week        | `telework_freq` == 3 AND `job_type` != 3                             | `commute_freq` == 3 AND `telework_freq` != 8 AND `job_type` != 3            |
+| 2-3 days per week      | `telework_freq` == 4 AND `job_type` != 3                             | `commute_freq` == 4 AND `telework_freq` != 8 AND `job_type` != 3            |
+| 1 day per week         | `telework_freq` == 5 AND `job_type` != 3                             | `commute_freq` == 5 AND `telework_freq` != 8 AND `job_type` != 3            |
+| 1-3 days a month       | `telework_freq` == 6 AND `job_type` != 3                             | `commute_freq` == 6 AND `telework_freq` != 8 AND `job_type` != 3            |
+| Less than monthly      | `telework_freq` == 7 AND `job_type` != 3                             | `commute_freq` == 7 AND `telework_freq` != 8 AND `job_type` != 3            |
+| Never                  | (`telework_freq` == 8 OR `telework_freq` == 995) AND `job_type` != 3 | `commute_freq` == 8 OR `job_type` == 3                                      |
+| Missing Response       | N/A (combined with Never)                                            | `commute_freq` == 995 AND `job_type` != 3                                   |
 
 #### Telework Ratio Categorization
 
@@ -539,44 +634,6 @@ def categorize_frequency(
 
 ```
 
-### Temporal Validation
-
-Check for impossible combinations where telework + commute frequency exceeds 7 days/week.
-
-```{python}
-#| label: temporal-violations
-
-# Check for temporal violations:
-# Bad telework/commute freq combos where sum < 7 days/week
-# ignoring the less than weekly and never categories
-bad_freqs = employed_persons.filter(
-    (pl.col("telework_freq") + pl.col("commute_freq") < 7)
-    & (pl.col("telework_freq") < 8)
-    & (pl.col("commute_freq") < 8)
-)
-
-bad_freqs_summary = pl.DataFrame(
-    {
-        "Count": [len(bad_freqs)],
-        "Weighted count": [round(bad_freqs["person_weight"].sum(), 2)],
-        "% (wtd)": [
-            round(
-                100
-                * bad_freqs["person_weight"].sum()
-                / employed_persons["person_weight"].sum(),
-                2,
-            )
-        ],"% (unwtd)": [
-            round(100 * bad_freqs.shape[0] / employed_persons.shape[0], 2),
-        ],
-    }
-)
-print("Temporal Violations Summary:")
-print(bad_freqs_summary)
-```
-
-So about {python} f"{bad_freqs_summary['% (wtd)'].item():.2f}%" ` of the total weighted count of employed persons have impossible telework/commute frequency combinations. This is a relatively small proportion, but noticeable. The importance of this is that the following telework/commute frequency categories treat these as independent, which means these persons may be double counted in the analysis.
-
 ### Categorize Telework Frequency
 ```{python}
 #| label: categorize-telework
@@ -613,12 +670,16 @@ telework_conditions = {
     ),
     # Never
     FrequencyCategory.NEVER: (
-        (pl.col("telework_freq") == 8) & (pl.col("job_type") != 3)
+        (
+            (pl.col("telework_freq") == 8)
+            | (pl.col("telework_freq") == 995)
+        )
+        & (pl.col("job_type") != 3)
     ),
     # Missing
-    FrequencyCategory.MISSING: (
-        (pl.col("telework_freq") == 995) & (pl.col("job_type") != 3)
-    ),
+    # FrequencyCategory.MISSING: (
+    #     (pl.col("telework_freq") == 995) & (pl.col("job_type") != 3)
+    # ),
 }
 
 # Categorize telework frequency
@@ -806,7 +867,7 @@ ratio_conditions = {
 }
 
 # Categorize telework ratio
-employed_persons = employed_persons_ratio = categorize_frequency(
+employed_persons = categorize_frequency(
     employed_persons,
     prefix="telework_ratio",
     conditions=ratio_conditions,
@@ -913,16 +974,34 @@ flavia_comparison_df = (
         pl.col("% (wtd)").alias("Nick's % (wtd)")
     )
     .filter(pl.col("year") == "2023")
-    .select(["telework_freq_str", "Nick's % (wtd)"])
+    .select(["telework_freq_cat", "telework_freq_str", "Nick's % (wtd)"])
     .join(flavias_df, on="telework_freq_str", how="inner")
     .with_columns(
         (pl.col("Nick's % (wtd)") - pl.col("flavia's % (wtd)")).alias("difference")
     )
+    .sort("telework_freq_cat")
 )
+
+# Add total row
+flavia_comparison_df = flavia_comparison_df.vstack(
+    pl.DataFrame(
+        {
+            "telework_freq_cat": [None],
+            "telework_freq_str": ["Total"],
+            "Nick's % (wtd)": [flavia_comparison_df["Nick's % (wtd)"].sum()],
+            "flavia's % (wtd)": [flavia_comparison_df["flavia's % (wtd)"].sum()],
+            "difference": [
+                round(
+                    flavia_comparison_df["Nick's % (wtd)"].sum()
+                    - flavia_comparison_df["flavia's % (wtd)"].sum()
+                , 2)
+            ],
+        }
+    )
+)
+
 flavia_comparison_df
-
 ```
-
 
 ### Combined Telework and Commute Frequency Distribution
 ```{python}
