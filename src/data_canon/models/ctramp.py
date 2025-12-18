@@ -6,6 +6,14 @@ Based on https://github.com/BayAreaMetro/modeling-website/wiki/DataDictionary
 
 from pydantic import BaseModel, Field
 
+from data_canon.codebook.ctramp import (
+    FreeParkingChoice,
+    MandatoryTourFrequency,
+    PersonType,
+    TourComposition,
+    WalkToTransitSubZone,
+)
+
 
 class HouseholdCTRAMPModel(BaseModel):
     """Household results from Travel Model (CT-RAMP format)."""
@@ -16,9 +24,7 @@ class HouseholdCTRAMPModel(BaseModel):
         le=1454,
         description="Transportation analysis zone of home location",
     )
-    walk_subzone: int = Field(
-        ge=0,
-        le=2,
+    walk_subzone: WalkToTransitSubZone = Field(
         description="Walk to transit sub-zone (0=cannot walk to transit, 1=short-walk, 2=long-walk)",
     )
     income: int = Field(ge=0, description="Annual household income ($2000)")
@@ -105,7 +111,7 @@ class PersonCTRAMPModel(BaseModel):
     )
     age: int = Field(ge=0, description="Person age")
     gender: str = Field(description="Person gender (m=male, f=female)")
-    type: str = Field(
+    type: PersonType = Field(
         description=(
             "Person lifestage/employment type (Full-time worker, Part-time worker, University student, Nonworker, "
             "Retired, Student of non-driving age, Student of driving age, Child too young for school)"
@@ -114,17 +120,13 @@ class PersonCTRAMPModel(BaseModel):
     value_of_time: float = Field(
         ge=0, description="Value of time ($2000 per hour)"
     )
-    fp_choice: int = Field(
-        ge=1,
-        le=2,
+    fp_choice: FreeParkingChoice = Field(
         description="Free parking eligibility choice (1=park for free, 2=pay to park)",
     )
     activity_pattern: str = Field(
         description="Primary daily activity pattern (M=mandatory, N=non-mandatory, H=home)"
     )
-    imf_choice: int = Field(
-        ge=1,
-        le=5,
+    imf_choice: MandatoryTourFrequency = Field(
         description=(
             "Individual mandatory tour frequency (1=one work tour, 2=two work tours, 3=one school tour, "
             "4=two school tours, 5=one work tour and one school tour)"
@@ -147,9 +149,7 @@ class MandatoryLocationCTRAMPModel(BaseModel):
     HomeTAZ: int = Field(
         ge=1, le=1454, description="Home transportation analysis zone"
     )
-    HomeSubZone: int = Field(
-        ge=0,
-        le=2,
+    HomeSubZone: WalkToTransitSubZone = Field(
         description="Walk to transit home sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     Income: int = Field(ge=0, description="Annual household income ($2000)")
@@ -157,9 +157,7 @@ class MandatoryLocationCTRAMPModel(BaseModel):
     PersonNum: int = Field(
         ge=1, description="Person number unique to the household"
     )
-    PersonType: int = Field(
-        ge=1,
-        le=8,
+    PersonType: "PersonType" = Field(
         description=(
             "Person lifestage/employment type (1=Full-time worker; 2=Part-time worker; 3=University student; "
             "4=Nonworker; 5=Retired; 6=Student of non-driving age; 7=Student of driving age; "
@@ -178,9 +176,7 @@ class MandatoryLocationCTRAMPModel(BaseModel):
         le=1454,
         description="Work location transportation analysis zone (1-1454, or 0 if no workplace is selected)",
     )
-    WorkSubZone: int = Field(
-        ge=0,
-        le=2,
+    WorkSubZone: WalkToTransitSubZone = Field(
         description="Walk to transit work sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     SchoolLocation: int = Field(
@@ -188,9 +184,7 @@ class MandatoryLocationCTRAMPModel(BaseModel):
         le=1454,
         description="School location transportation analysis zone (1-1454, or 0 if no school is selected)",
     )
-    SchoolSubZone: int = Field(
-        ge=0,
-        le=2,
+    SchoolSubZone: WalkToTransitSubZone = Field(
         description="Walk to transit school sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
 
@@ -203,9 +197,7 @@ class IndividualTourCTRAMPModel(BaseModel):
     person_num: int = Field(
         ge=1, description="Person number unique to the household"
     )
-    person_type: int = Field(
-        ge=1,
-        le=8,
+    person_type: PersonType = Field(
         description=(
             "Person lifestage/employment type (1=Full-time worker; 2=Part-time worker; 3=University student; "
             "4=Nonworker; 5=Retired; 6=Student of non-driving age; 7=Student of driving age; "
@@ -228,17 +220,13 @@ class IndividualTourCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: int = Field(
-        ge=0,
-        le=2,
+    orig_walk_segment: WalkToTransitSubZone = Field(
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     dest_taz: int = Field(
         ge=1, le=1454, description="Destination transportation analysis zone"
     )
-    dest_walk_segment: int = Field(
-        ge=0,
-        le=2,
+    dest_walk_segment: WalkToTransitSubZone = Field(
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     start_hour: int = Field(
@@ -339,17 +327,13 @@ class IndividualTripCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: int = Field(
-        ge=0,
-        le=2,
+    orig_walk_segment: WalkToTransitSubZone = Field(
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
     )
     dest_taz: int = Field(
         ge=1, le=1454, description="Destination transportation analysis zone"
     )
-    dest_walk_segment: int = Field(
-        ge=0,
-        le=2,
+    dest_walk_segment: WalkToTransitSubZone = Field(
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
     )
     parking_taz: int = Field(
@@ -397,9 +381,7 @@ class JointTourCTRAMPModel(BaseModel):
     tour_purpose: str = Field(
         description='Purpose of the joint tour ("eatout", "othdiscr", "othmaint", "shopping", "social")'
     )
-    tour_composition: int = Field(
-        ge=1,
-        le=3,
+    tour_composition: TourComposition = Field(
         description="Type of tour composition (1=adults only; 2=children only; 3=adults and children)",
     )
     tour_participants: str = Field(
@@ -408,17 +390,13 @@ class JointTourCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: int = Field(
-        ge=0,
-        le=2,
+    orig_walk_segment: WalkToTransitSubZone = Field(
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     dest_taz: int = Field(
         ge=1, le=1454, description="Destination transportation analysis zone"
     )
-    dest_walk_segment: int = Field(
-        ge=0,
-        le=2,
+    dest_walk_segment: WalkToTransitSubZone = Field(
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     start_hour: int = Field(
@@ -470,9 +448,7 @@ class JointTripCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: int = Field(
-        ge=0,
-        le=2,
+    orig_walk_segment: WalkToTransitSubZone = Field(
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     dest_taz: int = Field(
