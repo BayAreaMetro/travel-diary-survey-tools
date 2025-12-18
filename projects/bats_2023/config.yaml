@@ -86,6 +86,10 @@ steps:
       drop_missing_taz: true
       drop_invalid_tours: true
 
+  - name: format_ctramp
+    validate_input: false
+    cache: false
+
   - name: write_data
     validate_input: true
     params:
