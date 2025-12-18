@@ -455,13 +455,13 @@ def main() -> None:
 
     output_path = output_dir / "COLUMN_REQUIREMENTS.md"
     output_path.write_text(markdown, encoding="utf-8")
-    print(f"Generated: {output_path}")  # noqa: T201
+    print(f"Generated: {output_path}")
 
     # Generate CSV in scripts folder
     csv = generate_matrix_csv(models)
     csv_path = output_dir / "column_requirements.csv"
     csv_path.write_text(csv, encoding="utf-8")
-    print(f"Generated: {csv_path}")  # noqa: T201
+    print(f"Generated: {csv_path}")
 
 
 if __name__ == "__main__":
