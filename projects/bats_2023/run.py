@@ -59,10 +59,11 @@ def custom_add_taz_ids(
     persons: pl.DataFrame,
     linked_trips: pl.DataFrame,
     taz_shapefile: gpd.GeoDataFrame,
+    taz_field_name: str = "TAZ1454",
 ) -> dict:
     """Custom step to add TAZ IDs based on locations."""
-    # Rename TAZ1454 to TAZ_ID for clarity
-    taz_shapefile = taz_shapefile.rename(columns={"TAZ1454": "TAZ_ID"})
+    # Rename source field to TAZ_ID for consistency
+    taz_shapefile = taz_shapefile.rename(columns={taz_field_name: "TAZ_ID"})
 
     # Helper function to add TAZ ID based on lon/lat columns
     def add_taz_to_dataframe(

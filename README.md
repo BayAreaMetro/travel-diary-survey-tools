@@ -52,7 +52,7 @@ The usage pattern for the pipeline is a bit different than the typical numbered 
 
 There are three main components:
 * **Setup**
-  * This contains thepoint of entry defined in `project/run.py` and
+  * This contains the point of entry defined in `project/run.py` and
   * Pipeline configuration defined in `project/config.yaml`
 * **Pipeline Execution**
   * The central `Pipeline` class defined in `src/processing/pipeline.py`
@@ -191,13 +191,17 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```powershell
 uv --version
 ```
-3. Create a virtual environment.
+3. Navigate to the project directory:
+```powershell
+cd C:\GitHub\travel-diary-survey-tools
+```
+4. Create a virtual environment and install dependencies:
 ```powershell
 uv sync
 ```
-4. Activate the virtual environment.
+5. Activate the virtual environment:
 ```powershell
-source .venv/Scripts/activate
+.venv\Scripts\Activate.ps1
 ```
 In VSCode you can select the interpreter manually with the GUI.
 
