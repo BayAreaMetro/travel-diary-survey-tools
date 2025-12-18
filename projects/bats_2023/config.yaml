@@ -73,7 +73,6 @@ steps:
     params:
       taz_field_name: "TAZ_NODE"  # Field name in shapefile for TAZ ID
       maz_field_name: "MAZ_NODE"  # Field name in shapefile for MAZ ID
-      maz_shapefile: "{{ maz_shapefile }}"
 
   # - name: final_check
   #   validate_input: true
