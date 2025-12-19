@@ -231,6 +231,7 @@ class TestDataBuilder:
             "num_travelers": num_travelers,
             "driver": driver,
             "trip_weight": 1.0,
+            "joint_trip_id": None,
             **overrides,
         }
 

@@ -196,6 +196,7 @@ class LinkedTripModel(BaseModel):
     joint_trip_id: int | None = step_field(
         ge=1,
         fk_to="joint_trips.joint_trip_id",
+        required_in_steps=["extract_tours"],
         default=None,
     )
     tour_id: int = step_field(
@@ -254,6 +255,7 @@ class TourModel(BaseModel):
     tour_num: int = step_field(ge=1)
     subtour_num: int = step_field(ge=0)
     parent_tour_id: int = step_field(ge=1, fk_to="tours.tour_id")
+    joint_tour_id: int | None = step_field(ge=1, default=None)
 
     tour_purpose: PurposeCategory | None = step_field(default=None)
     tour_category: TourCategory = step_field()

@@ -12,6 +12,7 @@ from pipeline.pipeline import Pipeline
 from processing import (
     detect_joint_trips,
     extract_tours,
+    format_ctramp,
     format_daysim,
     link_trips,
     load_data,
@@ -167,6 +168,7 @@ processing_steps = [
     link_trips,
     detect_joint_trips,
     extract_tours,
+    format_ctramp,
     format_daysim,
     write_data,
 ]
