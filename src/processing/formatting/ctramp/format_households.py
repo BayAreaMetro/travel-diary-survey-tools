@@ -2,11 +2,11 @@
 
 Transforms canonical household data into CT-RAMP model format, including:
 - Income conversion to $2000 midpoint values
-- TAZ and subzone mapping
-- Vehicle counts (standard and autonomous)
+- TAZ mapping
 
-Note: Random number fields (ao_rn, fp_rn, etc.) are excluded as they are
-simulation-specific and not needed for survey data summary/validation.
+Note: Model-output fields (walk_subzone, humanVehicles, autonomousVehicles,
+random number fields, auto_suff) are excluded as they are not derivable from
+survey data.
 """
 
 import logging
@@ -34,7 +34,6 @@ def format_households(
         households: DataFrame with canonical household fields including:
             - hh_id: Household ID
             - home_taz: Home TAZ
-            - home_walk_subzone: Walk-to-transit subzone
             - income_detailed: Detailed income category
             - income_followup: Follow-up income category
             - num_vehicles: Number of vehicles
@@ -46,21 +45,17 @@ def format_households(
         DataFrame with CT-RAMP household fields:
         - hh_id: Household ID
         - taz: Home TAZ
-        - walk_subzone: Walk-to-transit subzone (0/1/2)
         - income: Annual household income ($2000)
         - autos: Number of automobiles
         - size: Number of persons
         - workers: Number of workers
-        - humanVehicles: Human-driven vehicles
-        - autonomousVehicles: Autonomous vehicles (set to 0)
         - jtf_choice: Joint tour frequency (set to -4 = not yet modeled)
 
     Notes:
-        - Random number fields (ao_rn, fp_rn, etc.) are excluded as they
-          are simulation-specific
-        - auto_suff field is excluded (incorrectly coded per documentation)
+        - Model-output fields (walk_subzone, humanVehicles, autonomousVehicles,
+          random number fields, auto_suff) are excluded as they are not
+          derivable from survey data
         - Joint tour frequency (jtf_choice) is set to -4 as a placeholder
-        - Autonomous vehicles are set to 0 (not yet available in survey data)
     """
     logger.info("Formatting household data for CT-RAMP")
 
@@ -69,7 +64,6 @@ def format_households(
         {
             # Keep hh_id as is
             "home_taz": "taz",
-            "home_walk_subzone": "walk_subzone",
             "num_vehicles": "autos",
             "num_people": "size",
             "num_workers": "workers",
@@ -95,20 +89,8 @@ def format_households(
 
     # Add CT-RAMP specific fields
     households_ctramp = households_ctramp.with_columns(
-        # Human-driven vehicles = all vehicles (no autonomous in survey data)
-        humanVehicles=pl.col("autos"),
-        # Autonomous vehicles = 0 (not yet available in survey data)
-        autonomousVehicles=pl.lit(0),
         # Joint tour frequency = -4 (not yet modeled/determined)
         jtf_choice=pl.lit(-4),
-    )
-
-    # Ensure walk_subzone is valid (0/1/2)
-    households_ctramp = households_ctramp.with_columns(
-        pl.when(pl.col("walk_subzone").is_null())
-        .then(pl.lit(0))
-        .otherwise(pl.col("walk_subzone"))
-        .alias("walk_subzone")
     )
 
     # Select final columns in CT-RAMP order
@@ -116,14 +98,11 @@ def format_households(
         [
             "hh_id",
             "taz",
-            "walk_subzone",
             "income",
             "autos",
             "jtf_choice",
             "size",
             "workers",
-            "humanVehicles",
-            "autonomousVehicles",
         ]
     )
 

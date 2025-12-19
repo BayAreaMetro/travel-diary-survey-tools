@@ -5,14 +5,10 @@ transformation from canonical survey data to CT-RAMP model format.
 """
 
 import polars as pl
+import pytest
 
-from data_canon.codebook.ctramp import (
-    FreeParkingChoice,
-    WalkToTransitSubZone,
-)
-from data_canon.codebook.ctramp import (
-    PersonType as CTRAMPPersonType,
-)
+from data_canon.codebook.ctramp import FreeParkingChoice
+from data_canon.codebook.ctramp import PersonType as CTRAMPPersonType
 from data_canon.codebook.households import IncomeDetailed, IncomeFollowup
 from data_canon.codebook.persons import (
     CommuteSubsidy,
@@ -160,7 +156,6 @@ class TestHouseholdFormatting:
                 CTRAMPTestDataBuilder.create_household(
                     hh_id=1,
                     home_taz=100,
-                    home_walk_subzone=WalkToTransitSubZone.SHORT_WALK.value,
                     num_people=2,
                     num_vehicles=1,
                     num_workers=1,
@@ -174,15 +169,10 @@ class TestHouseholdFormatting:
         assert len(result) == 1
         assert result["hh_id"][0] == 1
         assert result["taz"][0] == 100
-        assert (
-            result["walk_subzone"][0] == WalkToTransitSubZone.SHORT_WALK.value
-        )
         assert result["income"][0] == 87500  # Midpoint of 75-100k
         assert result["autos"][0] == 1
         assert result["size"][0] == 2
         assert result["workers"][0] == 1
-        assert result["humanVehicles"][0] == 1
-        assert result["autonomousVehicles"][0] == 0
         assert result["jtf_choice"][0] == -4
 
     def test_income_fallback_logic(self):
@@ -200,20 +190,6 @@ class TestHouseholdFormatting:
         result = format_households(households)
 
         assert result["income"][0] == 62500  # Midpoint of 50-75k from followup
-
-    def test_missing_walk_subzone(self):
-        """Test handling of missing walk subzone."""
-        households = pl.DataFrame(
-            [
-                CTRAMPTestDataBuilder.create_household(
-                    hh_id=1, home_walk_subzone=None
-                )
-            ]
-        )
-
-        result = format_households(households)
-
-        assert result["walk_subzone"][0] == 0  # Default to cannot walk
 
 
 class TestPersonFormatting:
@@ -438,14 +414,11 @@ class TestColumnPresence:
         required_columns = [
             "hh_id",
             "taz",
-            "walk_subzone",
             "income",
             "autos",
             "jtf_choice",
             "size",
             "workers",
-            "humanVehicles",
-            "autonomousVehicles",
         ]
 
         for col in required_columns:
@@ -476,3 +449,147 @@ class TestColumnPresence:
 
         for col in required_columns:
             assert col in result.columns, f"Missing column: {col}"
+
+
+class TestModelOutputFieldExclusion:
+    """Tests to ensure model-output fields are excluded from survey data.
+
+    These tests validate that fields marked as 'Model output only, not
+    derivable from survey data' in the CT-RAMP models are NOT present in
+    formatted survey data. They will fail for unimplemented formatters
+    (tours, trips, mandatory locations) as a reminder to implement them.
+    """
+
+    def test_household_excludes_model_output_fields(self):
+        """Test that household formatter excludes model-output fields."""
+        (
+            households,
+            _,
+        ) = CTRAMPScenarioBuilder.create_single_adult_household()
+        result = format_households(households)
+
+        # Fields that should NOT be present in survey-formatted data
+        excluded_fields = [
+            "walk_subzone",
+            "humanVehicles",
+            "autonomousVehicles",
+            "auto_suff",
+            "ao_rn",
+            "fp_rn",
+            "cdap_rn",
+            "imtf_rn",
+            "imtod_rn",
+            "immc_rn",
+            "jtf_rn",
+            "jtl_rn",
+            "jtod_rn",
+            "jmc_rn",
+            "inmtf_rn",
+            "inmtl_rn",
+            "inmtod_rn",
+            "inmmc_rn",
+            "awf_rn",
+            "awl_rn",
+            "awtod_rn",
+            "awmc_rn",
+            "stf_rn",
+            "stl_rn",
+        ]
+
+        for field in excluded_fields:
+            assert field not in result.columns, (
+                f"Model-output field '{field}' "
+                "should not be in household output"
+            )
+
+    def test_person_excludes_model_output_fields(self):
+        """Test that person formatter excludes model-output fields (if any)."""
+        (
+            _,
+            persons,
+        ) = CTRAMPScenarioBuilder.create_single_adult_household()
+        result = format_persons(persons)
+
+        # PersonCTRAMPModel has no model-output-only optional fields
+        # This test ensures no model-output fields are accidentally added
+        all_columns = result.columns
+
+        # Verify no random number or walk segment fields
+        for col in all_columns:
+            assert not col.endswith("_rn"), (
+                f"Random number field '{col}' should not be in person output"
+            )
+            assert "walk" not in col.lower() or col in ["wfh_choice"], (
+                f"Walk segment field '{col}' should not be in person output"
+            )
+
+    def test_mandatory_location_excludes_model_output_fields(self):
+        """Test mandatory location formatter excludes model-output fields.
+
+        NOTE: This test will fail until mandatory location formatter is
+        implemented.
+        """
+        # This is a placeholder test for TDD - will fail as a reminder
+        # to exclude HomeSubZone, SchoolSubZone, WorkSubZone when implementing
+        pytest.fail(
+            "Mandatory location formatter not yet implemented. "
+            "When implementing, ensure HomeSubZone, SchoolSubZone, "
+            "WorkSubZone are excluded from survey-formatted output."
+        )
+
+    def test_individual_tour_excludes_model_output_fields(self):
+        """Test individual tour formatter excludes model-output fields.
+
+        NOTE: This test will fail until individual tour formatter is
+        implemented.
+        """
+        # This is a placeholder test for TDD - will fail as a reminder
+        # to exclude model-output fields when implementing
+        pytest.fail(
+            "Individual tour formatter not yet implemented. "
+            "When implementing, ensure these fields are excluded from "
+            "survey data: avAvailable, dest_walk_segment, "
+            "orig_walk_segment, dcLogsum, origTaxiWait, destTaxiWait, "
+            "origSingleTNCWait, destSingleTNCWait, origSharedTNCWait, "
+            "destSharedTNCWait. Include sampleRate only if derivable "
+            "from survey weights."
+        )
+
+    def test_individual_trip_excludes_model_output_fields(self):
+        """Test individual trip formatter excludes model-output fields.
+
+        NOTE: This test will fail until individual trip formatter is
+        implemented.
+        """
+        # This is a placeholder test for TDD - will fail as a reminder
+        pytest.fail(
+            "Individual trip formatter not yet implemented. "
+            "When implementing, ensure these fields are excluded from "
+            "survey data: avAvailable, taxiWait, singleTNCWait, "
+            "sharedTNCWait, orig_walk_segment, dest_walk_segment. "
+            "Include sampleRate only if derivable from survey weights."
+        )
+
+    def test_joint_tour_excludes_model_output_fields(self):
+        """Test that joint tour formatter excludes model-output fields.
+
+        NOTE: This test will fail until joint tour formatter is implemented.
+        """
+        # This is a placeholder test for TDD - will fail as a reminder
+        pytest.fail(
+            "Joint tour formatter not yet implemented. "
+            "When implementing, ensure orig_walk_segment and dest_walk_segment "
+            "are excluded from survey-formatted output."
+        )
+
+    def test_joint_trip_excludes_model_output_fields(self):
+        """Test that joint trip formatter excludes model-output fields.
+
+        NOTE: This test will fail until joint trip formatter is implemented.
+        """
+        # This is a placeholder test for TDD - will fail as a reminder
+        pytest.fail(
+            "Joint trip formatter not yet implemented. "
+            "When implementing, ensure orig_walk_segment and dest_walk_segment "
+            "are excluded from survey-formatted output."
+        )

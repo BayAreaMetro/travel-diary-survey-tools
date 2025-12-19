@@ -24,9 +24,6 @@ class HouseholdCTRAMPModel(BaseModel):
         le=1454,
         description="Transportation analysis zone of home location",
     )
-    walk_subzone: WalkToTransitSubZone = Field(
-        description="Walk to transit sub-zone (0=cannot walk to transit, 1=short-walk, 2=long-walk)",
-    )
     income: int = Field(ge=0, description="Annual household income ($2000)")
     autos: int = Field(ge=0, description="Household automobiles")
     jtf_choice: int = Field(
@@ -37,67 +34,77 @@ class HouseholdCTRAMPModel(BaseModel):
         ge=0,
         description="Number of full- or part-time workers in the household",
     )
-    auto_suff: int | None = Field(None, description="Incorrectly coded; ignore")
-    # NOTE: Are these needed for summarizing?
-    ao_rn: int = Field(
-        description="Random number for automobile ownership model"
-    )
-    fp_rn: int = Field(description="Random number for free parking model")
-    cdap_rn: int = Field(
-        description="Random number for coordinated daily activity pattern model"
-    )
-    imtf_rn: int = Field(
-        description="Random number for individual mandatory tour frequency model"
-    )
-    imtod_rn: int = Field(
-        description="Random number for individual mandatory tour time-of-day model"
-    )
-    immc_rn: int = Field(
-        description="Random number for individual mandatory mode choice model"
-    )
-    jtf_rn: int = Field(
-        description="Random number for joint tour frequency model"
-    )
-    jtl_rn: int = Field(
-        description="Random number for joint tour location choice model"
-    )
-    jtod_rn: int = Field(
-        description="Random number for joint tour time-of-day model"
-    )
-    jmc_rn: int = Field(
-        description="Random number for joint tour mode choice model"
-    )
-    inmtf_rn: int = Field(
-        description="Random number for individual non-mandatory tour frequency model"
-    )
-    inmtl_rn: int = Field(
-        description="Random number for individual non-mandatory location choice model"
-    )
-    inmtod_rn: int = Field(
-        description="Random number for individual non-mandatory time-of-day model"
-    )
-    inmmc_rn: int = Field(
-        description="Random number for individual non-mandatory mode choice model"
-    )
-    awf_rn: int = Field(description="Random number for at-work frequency model")
-    awl_rn: int = Field(
-        description="Random number for at-work location choice model"
-    )
-    awtod_rn: int = Field(
-        description="Random number for at-work time-of-day model"
-    )
-    awmc_rn: int = Field(
-        description="Random number for at-work mode choice model"
-    )
-    stf_rn: int = Field(description="Random number for stop frequency model")
-    stl_rn: int = Field(
-        description="Random number for stop location choice model"
-    )
-    humanVehicles: int = Field(
+    # NOTE: Model output only, not derivable from survey data.
+    humanVehicles: int | None = Field(
         ge=0, description="Household automobiles, human-driven (New in TM1.5)"
     )
-    autonomousVehicles: int = Field(
+    autonomousVehicles: int | None = Field(
         ge=0, description="Household automobiles, autonomous (New in TM1.5)"
+    )
+    walk_subzone: WalkToTransitSubZone | None = Field(
+        description="Walk to transit sub-zone (0=cannot walk to transit, 1=short-walk, 2=long-walk)",
+    )
+    auto_suff: int | None = Field(None, description="Incorrectly coded; ignore")
+    # NOTE: Model output only, not derivable from survey data.
+    ao_rn: int | None = Field(
+        description="Random number for automobile ownership model"
+    )
+    fp_rn: int | None = Field(
+        description="Random number for free parking model"
+    )
+    cdap_rn: int | None = Field(
+        description="Random number for coordinated daily activity pattern model"
+    )
+    imtf_rn: int | None = Field(
+        description="Random number for individual mandatory tour frequency model"
+    )
+    imtod_rn: int | None = Field(
+        description="Random number for individual mandatory tour time-of-day model"
+    )
+    immc_rn: int | None = Field(
+        description="Random number for individual mandatory mode choice model"
+    )
+    jtf_rn: int | None = Field(
+        description="Random number for joint tour frequency model"
+    )
+    jtl_rn: int | None = Field(
+        description="Random number for joint tour location choice model"
+    )
+    jtod_rn: int | None = Field(
+        description="Random number for joint tour time-of-day model"
+    )
+    jmc_rn: int | None = Field(
+        description="Random number for joint tour mode choice model"
+    )
+    inmtf_rn: int | None = Field(
+        description="Random number for individual non-mandatory tour frequency model"
+    )
+    inmtl_rn: int | None = Field(
+        description="Random number for individual non-mandatory location choice model"
+    )
+    inmtod_rn: int | None = Field(
+        description="Random number for individual non-mandatory time-of-day model"
+    )
+    inmmc_rn: int | None = Field(
+        description="Random number for individual non-mandatory mode choice model"
+    )
+    awf_rn: int | None = Field(
+        description="Random number for at-work frequency model"
+    )
+    awl_rn: int | None = Field(
+        description="Random number for at-work location choice model"
+    )
+    awtod_rn: int | None = Field(
+        description="Random number for at-work time-of-day model"
+    )
+    awmc_rn: int | None = Field(
+        description="Random number for at-work mode choice model"
+    )
+    stf_rn: int | None = Field(
+        description="Random number for stop frequency model"
+    )
+    stl_rn: int | None = Field(
+        description="Random number for stop location choice model"
     )
 
 
@@ -149,9 +156,6 @@ class MandatoryLocationCTRAMPModel(BaseModel):
     HomeTAZ: int = Field(
         ge=1, le=1454, description="Home transportation analysis zone"
     )
-    HomeSubZone: WalkToTransitSubZone = Field(
-        description="Walk to transit home sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
-    )
     Income: int = Field(ge=0, description="Annual household income ($2000)")
     PersonID: int = Field(description="Unique person ID number")
     PersonNum: int = Field(
@@ -176,16 +180,20 @@ class MandatoryLocationCTRAMPModel(BaseModel):
         le=1454,
         description="Work location transportation analysis zone (1-1454, or 0 if no workplace is selected)",
     )
-    WorkSubZone: WalkToTransitSubZone = Field(
-        description="Walk to transit work sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
-    )
     SchoolLocation: int = Field(
         ge=0,
         le=1454,
         description="School location transportation analysis zone (1-1454, or 0 if no school is selected)",
     )
-    SchoolSubZone: WalkToTransitSubZone = Field(
+    # NOTE: Model output only, not derivable from survey data.
+    HomeSubZone: WalkToTransitSubZone | None = Field(
+        description="Walk to transit home sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+    SchoolSubZone: WalkToTransitSubZone | None = Field(
         description="Walk to transit school sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+    WorkSubZone: WalkToTransitSubZone | None = Field(
+        description="Walk to transit work sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
 
 
@@ -220,14 +228,8 @@ class IndividualTourCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: WalkToTransitSubZone = Field(
-        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
-    )
     dest_taz: int = Field(
         ge=1, le=1454, description="Destination transportation analysis zone"
-    )
-    dest_walk_segment: WalkToTransitSubZone = Field(
-        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     start_hour: int = Field(
         ge=5,
@@ -243,7 +245,8 @@ class IndividualTourCTRAMPModel(BaseModel):
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
     atWork_freq: int = Field(
-        description="Number of at work sub-tours (non-zero only for work tours)"
+        ge=0,
+        description="Number of at work sub-tours (non-zero only for work tours)",
     )
     num_ob_stops: int = Field(
         description="Number of out-bound stops on the tour"
@@ -251,13 +254,21 @@ class IndividualTourCTRAMPModel(BaseModel):
     num_ib_stops: int = Field(
         description="Number of in-bound stops on the tour"
     )
-    avAvailable: int = Field(
-        description="Autonomous vehicle available, added in Travel Model 1.5"
-    )
-    dcLogsum: float | None = Field(
+    # NOTE: Derivable from survey weights when available.
+    sampleRate: float | None = Field(
         None, description="To document, added in Travel Model 1.5"
     )
-    sampleRate: float | None = Field(
+    # NOTE: Model output only, not derivable from survey data.
+    avAvailable: int | None = Field(
+        description="Autonomous vehicle available, added in Travel Model 1.5"
+    )
+    dest_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+    orig_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+    dcLogsum: float | None = Field(
         None, description="To document, added in Travel Model 1.5"
     )
     origTaxiWait: float | None = Field(
@@ -327,14 +338,8 @@ class IndividualTripCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: WalkToTransitSubZone = Field(
-        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
-    )
     dest_taz: int = Field(
         ge=1, le=1454, description="Destination transportation analysis zone"
-    )
-    dest_walk_segment: WalkToTransitSubZone = Field(
-        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
     )
     parking_taz: int = Field(
         ge=0,
@@ -355,16 +360,24 @@ class IndividualTripCTRAMPModel(BaseModel):
     tour_category: str = Field(
         description='The type of tour for which this trip is a part ("AT_WORK", "INDIVIDUAL_NON_MANDATORY", "MANDATORY")'
     )
+    # NOTE: Derivable from survey weights when available.
+    sampleRate: float | None = Field(
+        None, description="This household represents 1/sampleRate households"
+    )
+    # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
         None,
         description="Does the household have an autonomous vehicle available for this tour?",
     )
-    sampleRate: float | None = Field(
-        None, description="This household represents 1/sampleRate households"
-    )
     taxiWait: float | None = Field(None, description="TBD")
     singleTNCWait: float | None = Field(None, description="TBD")
     sharedTNCWait: float | None = Field(None, description="TBD")
+    orig_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
+    )
+    dest_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
+    )
 
 
 class JointTourCTRAMPModel(BaseModel):
@@ -390,14 +403,8 @@ class JointTourCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: WalkToTransitSubZone = Field(
-        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
-    )
     dest_taz: int = Field(
         ge=1, le=1454, description="Destination transportation analysis zone"
-    )
-    dest_walk_segment: WalkToTransitSubZone = Field(
-        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     start_hour: int = Field(
         ge=5,
@@ -417,6 +424,13 @@ class JointTourCTRAMPModel(BaseModel):
     )
     num_ib_stops: int = Field(
         ge=0, description="Number of in-bound (to home) stops on the tour"
+    )
+    # NOTE: Model output only, not derivable from survey data.
+    orig_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+    dest_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
 
 
@@ -448,16 +462,8 @@ class JointTripCTRAMPModel(BaseModel):
     orig_taz: int = Field(
         ge=1, le=1454, description="Origin transportation analysis zone"
     )
-    orig_walk_segment: WalkToTransitSubZone = Field(
-        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
-    )
     dest_taz: int = Field(
         ge=1, le=1454, description="Destination transportation analysis zone"
-    )
-    dest_walk_segment: int = Field(
-        ge=0,
-        le=2,
-        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     parking_taz: int = Field(
         ge=0,
@@ -480,4 +486,11 @@ class JointTripCTRAMPModel(BaseModel):
     )
     tour_category: str = Field(
         description='Tour category ("JOINT_NON_MANDATORY")'
+    )
+    # NOTE: Model output only, not derivable from survey data.
+    orig_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+    dest_walk_segment: WalkToTransitSubZone | None = Field(
+        description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
