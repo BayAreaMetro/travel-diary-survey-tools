@@ -89,6 +89,11 @@ steps:
   - name: format_ctramp
     validate_input: false
     cache: false
+    params:
+      income_low_threshold: 60000
+      income_med_threshold: 150000
+      income_high_threshold: 240000
+      drop_missing_taz: true
 
   - name: write_data
     validate_input: true
