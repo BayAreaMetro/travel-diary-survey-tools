@@ -35,7 +35,17 @@ from processing.formatting.ctramp.format_tours import (
     format_individual_tour,
     format_joint_tour,
 )
-from tests.fixtures.canonical_test_data import CanonicalTestDataBuilder
+from tests.fixtures import (
+    create_family_household,
+    create_household,
+    create_person,
+    create_retired_household,
+    create_single_adult_household,
+    create_tour,
+    create_trip,
+    create_university_student_household,
+    get_tour_schema,
+)
 
 
 @pytest.fixture
@@ -175,7 +185,7 @@ class TestHouseholdFormatting:
         """Test basic household formatting with all required fields."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1,
                     home_taz=100,
                     num_people=2,
@@ -201,7 +211,7 @@ class TestHouseholdFormatting:
         """Test income fallback from detailed to followup."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1,
                     income_detailed=None,
                     income_followup=IncomeFollowup.INCOME_50TO75,
@@ -223,11 +233,11 @@ class TestPersonFormatting:
         """Test basic person formatting with all required fields."""
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    age=35,
+                    age=AgeCategory.AGE_35_TO_44,
                     gender=Gender.MALE,
                     employment=Employment.EMPLOYED_FULLTIME,
                     student=Student.NONSTUDENT,
@@ -242,7 +252,7 @@ class TestPersonFormatting:
         assert result["hh_id"][0] == 1
         assert result["person_id"][0] == 101
         assert result["person_num"][0] == 1
-        assert result["age"][0] == 35
+        assert result["age"][0] == AgeCategory.AGE_35_TO_44.value
         assert result["gender"][0] == "m"
         assert result["type"][0] == CTRAMPPersonType.FULL_TIME_WORKER.value
         assert result["fp_choice"][0] == FreeParkingChoice.PARK_FOR_FREE.value
@@ -255,15 +265,9 @@ class TestPersonFormatting:
         """Test gender mapping to m/f format."""
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, gender=Gender.FEMALE
-                ),
-                CanonicalTestDataBuilder.create_person(
-                    person_id=102, gender=Gender.MALE
-                ),
-                CanonicalTestDataBuilder.create_person(
-                    person_id=103, gender=Gender.OTHER
-                ),
+                create_person(person_id=101, gender=Gender.FEMALE),
+                create_person(person_id=102, gender=Gender.MALE),
+                create_person(person_id=103, gender=Gender.OTHER),
             ]
         )
 
@@ -284,7 +288,7 @@ class TestEndToEndFormatting:
         (
             households,
             persons,
-        ) = CanonicalTestDataBuilder.create_single_adult_household()
+        ) = create_single_adult_household()
 
         result = format_ctramp(
             persons,
@@ -311,7 +315,7 @@ class TestEndToEndFormatting:
 
     def test_family_household(self, standard_config):
         """Test formatting of family household with multiple person types."""
-        households, persons = CanonicalTestDataBuilder.create_family_household()
+        households, persons = create_family_household()
 
         result = format_ctramp(
             persons,
@@ -341,9 +345,7 @@ class TestEndToEndFormatting:
 
     def test_retired_household(self, standard_config):
         """Test formatting of retired household."""
-        households, persons = (
-            CanonicalTestDataBuilder.create_retired_household()
-        )
+        households, persons = create_retired_household()
 
         result = format_ctramp(
             persons,
@@ -371,7 +373,7 @@ class TestEndToEndFormatting:
         (
             households,
             persons,
-        ) = CanonicalTestDataBuilder.create_university_student_household()
+        ) = create_university_student_household()
 
         result = format_ctramp(
             persons,
@@ -398,21 +400,17 @@ class TestEndToEndFormatting:
         """Test filtering households without valid TAZ."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
-                    hh_id=1, home_taz=100
-                ),
-                CanonicalTestDataBuilder.create_household(
-                    hh_id=2, home_taz=None
-                ),
-                CanonicalTestDataBuilder.create_household(hh_id=3, home_taz=-1),
+                create_household(hh_id=1, home_taz=100),
+                create_household(hh_id=2, home_taz=None),
+                create_household(hh_id=3, home_taz=-1),
             ]
         )
 
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1),
-                CanonicalTestDataBuilder.create_person(person_id=201, hh_id=2),
-                CanonicalTestDataBuilder.create_person(person_id=301, hh_id=3),
+                create_person(person_id=101, hh_id=1),
+                create_person(person_id=201, hh_id=2),
+                create_person(person_id=301, hh_id=3),
             ]
         )
 
@@ -443,19 +441,15 @@ class TestEndToEndFormatting:
         """Test keeping households without TAZ when filtering is disabled."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
-                    hh_id=1, home_taz=100
-                ),
-                CanonicalTestDataBuilder.create_household(
-                    hh_id=2, home_taz=None
-                ),
+                create_household(hh_id=1, home_taz=100),
+                create_household(hh_id=2, home_taz=None),
             ]
         )
 
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1),
-                CanonicalTestDataBuilder.create_person(person_id=201, hh_id=2),
+                create_person(person_id=101, hh_id=1),
+                create_person(person_id=201, hh_id=2),
             ]
         )
 
@@ -489,7 +483,7 @@ class TestColumnPresence:
         (
             households,
             _,
-        ) = CanonicalTestDataBuilder.create_single_adult_household()
+        ) = create_single_adult_household()
         result = format_households(households, standard_config)
 
         required_columns = [
@@ -510,7 +504,7 @@ class TestColumnPresence:
         (
             _,
             persons,
-        ) = CanonicalTestDataBuilder.create_single_adult_household()
+        ) = create_single_adult_household()
         result = format_persons(persons, pl.DataFrame(), standard_config)
 
         required_columns = [
@@ -540,14 +534,14 @@ class TestIndividualTourFormatting:
         # Create canonical data
         households_canonical = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1, income_detailed=IncomeDetailed.INCOME_100TO150
                 )
             ]
         )
         persons_canonical = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     employment=Employment.EMPLOYED_FULLTIME,
@@ -556,7 +550,7 @@ class TestIndividualTourFormatting:
         )
         tours_canonical = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
@@ -573,7 +567,7 @@ class TestIndividualTourFormatting:
                     student_category="Not student",
                 )
             ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            schema=get_tour_schema(),
         )
 
         # Format to CTRAMP (tours formatter needs formatted households/persons)
@@ -586,14 +580,14 @@ class TestIndividualTourFormatting:
         tours = tours_canonical
         trips_canonical = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
@@ -624,38 +618,30 @@ class TestIndividualTourFormatting:
 
     def test_stop_counting_multiple_stops(self, standard_config):
         """Test stop counting with multiple outbound and inbound stops."""
-        households = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_household(hh_id=1)]
-        )
-        persons = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_tour(
-                    tour_id=1001, person_id=101, hh_id=1
-                )
-            ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            [create_tour(tour_id=1001, person_id=101, hh_id=1)],
+            schema=get_tour_schema(),
         )
         trips = pl.DataFrame(
             [
                 # 3 outbound trips
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10003,
                     tour_id=1001,
                     person_id=101,
@@ -663,14 +649,14 @@ class TestIndividualTourFormatting:
                     tour_direction=TourDirection.OUTBOUND,
                 ),
                 # 2 inbound trips
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10004,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.INBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10005,
                     tour_id=1001,
                     person_id=101,
@@ -699,23 +685,19 @@ class TestIndividualTourFormatting:
 
     def test_subtour_counting(self, standard_config):
         """Test at-work tour frequency counting."""
-        households = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_household(hh_id=1)]
-        )
-        persons = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
             [
                 # Primary work tour
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_purpose=Purpose.PRIMARY_WORKPLACE,
                 ),
                 # At-work subtour 1
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1002,
                     person_id=101,
                     hh_id=1,
@@ -723,7 +705,7 @@ class TestIndividualTourFormatting:
                     tour_purpose=Purpose.WORK_ACTIVITY,
                 ),
                 # At-work subtour 2
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1003,
                     person_id=101,
                     hh_id=1,
@@ -731,44 +713,44 @@ class TestIndividualTourFormatting:
                     tour_purpose=Purpose.DINING,
                 ),
             ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            schema=get_tour_schema(),
         )
         trips = pl.DataFrame(
             [
                 # Primary tour trips
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.INBOUND,
                 ),
                 # Subtour 1 trips
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10003,
                     tour_id=1002,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10004,
                     tour_id=1002,
                     person_id=101,
                     tour_direction=TourDirection.INBOUND,
                 ),
                 # Subtour 2 trips
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10005,
                     tour_id=1003,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10006,
                     tour_id=1003,
                     person_id=101,
@@ -803,19 +785,11 @@ class TestIndividualTourFormatting:
 
     def test_zero_trip_tour_validation(self, standard_config):
         """Test that tours with zero trips raise validation error."""
-        households = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_household(hh_id=1)]
-        )
-        persons = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_tour(
-                    tour_id=1001, person_id=101, hh_id=1
-                )
-            ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            [create_tour(tour_id=1001, person_id=101, hh_id=1)],
+            schema=get_tour_schema(),
         )
         trips = pl.DataFrame([])  # No trips!
 
@@ -836,52 +810,48 @@ class TestIndividualTourFormatting:
 
     def test_joint_tour_exclusion(self, standard_config):
         """Test that joint tours are excluded from individual tours."""
-        households = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_household(hh_id=1)]
-        )
-        persons = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
             [
                 # Individual tour
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     joint_tour_id=None,
                 ),
                 # Joint tour (should be excluded)
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1002,
                     person_id=101,
                     hh_id=1,
                     joint_tour_id=9001,
                 ),
             ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            schema=get_tour_schema(),
         )
         trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.INBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10003,
                     tour_id=1002,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10004,
                     tour_id=1002,
                     person_id=101,
@@ -914,35 +884,33 @@ class TestJointTourFormatting:
 
     def test_basic_joint_tour(self, standard_config):
         """Test formatting of a basic joint tour."""
-        households = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_household(hh_id=1)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    age=AgeCategory.AGE_35_TO_44.value,
+                    age=AgeCategory.AGE_35_TO_44,
                 ),
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=102,
                     hh_id=1,
                     person_num=2,
-                    age=AgeCategory.AGE_5_TO_15.value,
+                    age=AgeCategory.AGE_5_TO_15,
                 ),
             ]
         )
         tours = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     joint_tour_id=9001,
                     num_travelers=2,
                 ),
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1002,
                     person_id=102,
                     hh_id=1,
@@ -950,18 +918,18 @@ class TestJointTourFormatting:
                     num_travelers=2,
                 ),
             ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            schema=get_tour_schema(),
         )
         trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                     joint_tour_id=9001,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
@@ -995,50 +963,46 @@ class TestJointTourFormatting:
 
     def test_individual_tour_exclusion_joint_formatter(self, standard_config):
         """Test that individual tours are excluded from joint tours."""
-        households = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_household(hh_id=1)]
-        )
-        persons = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
             [
                 # Individual tour (should be excluded)
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     joint_tour_id=None,
                 ),
                 # Joint tour
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1002,
                     person_id=101,
                     hh_id=1,
                     joint_tour_id=9001,
                 ),
             ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            schema=get_tour_schema(),
         )
         trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10001,
                     tour_id=1001,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10002,
                     tour_id=1001,
                     tour_direction=TourDirection.INBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10003,
                     tour_id=1002,
                     tour_direction=TourDirection.OUTBOUND,
                     joint_tour_id=9001,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10004,
                     tour_id=1002,
                     tour_direction=TourDirection.INBOUND,
@@ -1067,32 +1031,28 @@ class TestJointTourFormatting:
 
     def test_empty_joint_tours(self, standard_config):
         """Test that formatter handles no joint tours gracefully."""
-        households = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_household(hh_id=1)]
-        )
-        persons = pl.DataFrame(
-            [CanonicalTestDataBuilder.create_person(person_id=101, hh_id=1)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
             [
                 # Only individual tours
-                CanonicalTestDataBuilder.create_tour(
+                create_tour(
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     joint_tour_id=None,
                 )
             ],
-            schema=CanonicalTestDataBuilder.get_tour_schema(),
+            schema=get_tour_schema(),
         )
         trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10001,
                     tour_id=1001,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                CanonicalTestDataBuilder.create_trip(
+                create_trip(
                     trip_id=10002,
                     tour_id=1001,
                     tour_direction=TourDirection.INBOUND,

@@ -4,6 +4,9 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.ctramp import EmploymentCategory, StudentCategory
+from data_canon.codebook.persons import Employment, Student
+
 from .ctramp_config import CTRAMPConfig
 
 logger = logging.getLogger(__name__)
@@ -63,6 +66,38 @@ def format_mandatory_location(
         households.select(["hh_id", "home_taz", "income"]),
         on="hh_id",
         how="left",
+    )
+
+    # Compute employment_category from employment
+    mandatory_loc = mandatory_loc.with_columns(
+        pl.when(
+            pl.col("employment").is_in(
+                [
+                    Employment.EMPLOYED_FULLTIME.value,
+                    Employment.EMPLOYED_PARTTIME.value,
+                ]
+            )
+        )
+        .then(pl.lit(EmploymentCategory.EMPLOYED.value))
+        .otherwise(pl.lit(EmploymentCategory.NOT_EMPLOYED.value))
+        .alias("employment_category")
+    )
+
+    # Compute student_category from student
+    mandatory_loc = mandatory_loc.with_columns(
+        pl.when(
+            pl.col("student").is_in(
+                [
+                    Student.FULLTIME_INPERSON.value,
+                    Student.PARTTIME_INPERSON.value,
+                    Student.FULLTIME_ONLINE.value,
+                    Student.PARTTIME_ONLINE.value,
+                ]
+            )
+        )
+        .then(pl.lit(StudentCategory.STUDENT.value))
+        .otherwise(pl.lit(StudentCategory.NOT_STUDENT.value))
+        .alias("student_category")
     )
 
     # Filter to only persons with work or school locations

@@ -52,6 +52,20 @@ class PersonType(LabeledEnum):
     CHILD_TOO_YOUNG = 8, "Child too young for school"
 
 
+class EmploymentCategory(LabeledEnum):
+    """Enumeration for employment category."""
+
+    EMPLOYED = 1, "Employed"
+    NOT_EMPLOYED = 2, "Not employed"
+
+
+class StudentCategory(LabeledEnum):
+    """Enumeration for student category."""
+
+    STUDENT = 1, "Student"
+    NOT_STUDENT = 2, "Not a student"
+
+
 class CTRAMPMode(LabeledEnum):
     """CTRAMP travel mode codes.
 

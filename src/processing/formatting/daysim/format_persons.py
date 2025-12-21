@@ -170,8 +170,8 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         pstyp=pl.col("student")
         .replace(STUDENT_MAP)
         .fill_null(DaysimStudentType.NOT_STUDENT.value),
-        # Map work parking
-        ppaidprk=pl.col("work_park").replace_strict(WORK_PARK_MAP),
+        # Map work parking (use work_parking from canonical data)
+        ppaidprk=pl.col("work_parking").replace_strict(WORK_PARK_MAP),
     )
 
     # Derive person type (pptyp) using cascading logic
@@ -321,8 +321,8 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         pwaudist=pl.lit(-1),  # auto distance to work (not available)
         psautime=pl.lit(-1),  # auto time to school (not available)
         psaudist=pl.lit(-1),  # auto distance to school (not available)
-        # Map work_mode: Mode --> ModeType --> DaysimMode
-        puwmode=pl.col("work_mode")
+        # Map usual_work_mode: Mode --> ModeType --> DaysimMode
+        puwmode=pl.col("usual_work_mode")
         .replace_strict(MODE_TO_MODE_TYPE_MAP)
         .replace_strict(MODE_TYPE_MAP),
         puwarrp=pl.lit(-1),  # usual work arrival period (not available)

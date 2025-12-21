@@ -46,7 +46,15 @@ from processing.formatting.daysim.format_tours import format_tours
 from processing.formatting.daysim.format_trips import format_linked_trips
 from processing.link_trips.link import link_trips
 from processing.tours.extraction import extract_tours
-from tests.fixtures.canonical_test_data import CanonicalTestDataBuilder
+from tests.fixtures import (
+    create_day,
+    create_household,
+    create_multi_person_household_processed,
+    create_person,
+    create_simple_work_tour_processed,
+    create_transit_commute_processed,
+    create_unlinked_trip,
+)
 
 
 class TestDayCompleteness:
@@ -56,7 +64,7 @@ class TestDayCompleteness:
         """Test day completeness for single person with one complete weekday."""
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=101,
                     hh_id=1,
@@ -85,7 +93,7 @@ class TestDayCompleteness:
         """Test day completeness for person with complete week."""
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=i,
                     person_id=201,
                     hh_id=2,
@@ -113,7 +121,7 @@ class TestDayCompleteness:
         """Test day completeness with some incomplete days."""
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=301,
                     hh_id=3,
@@ -122,7 +130,7 @@ class TestDayCompleteness:
                     travel_dow=TravelDow.TUESDAY,
                     is_complete=True,
                 ),
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=2,
                     person_id=301,
                     hh_id=3,
@@ -131,7 +139,7 @@ class TestDayCompleteness:
                     travel_dow=TravelDow.WEDNESDAY,
                     is_complete=False,
                 ),
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=3,
                     person_id=301,
                     hh_id=3,
@@ -155,7 +163,7 @@ class TestDayCompleteness:
         """Test day completeness with multiple persons."""
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=101,
                     hh_id=1,
@@ -163,7 +171,7 @@ class TestDayCompleteness:
                     travel_dow=TravelDow.MONDAY,
                     is_complete=True,
                 ),
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=2,
                     person_id=102,
                     hh_id=1,
@@ -188,26 +196,23 @@ class TestPersonFormatting:
         """Test person formatting for full-time worker."""
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    person_type=PersonType.FULL_TIME_WORKER,
                     employment=Employment.EMPLOYED_FULLTIME,
                     age=AgeCategory.AGE_35_TO_44,
-                    age_years=40,
-                    work_mode=Mode.HOUSEHOLD_VEHICLE_1,
+                    usual_work_mode=Mode.HOUSEHOLD_VEHICLE_1,
                     work_taz=200,
                     work_maz=2000,
-                    is_proxy=False,
-                    num_days_complete=1,
+                    days=[{"day_id": 1, "person_id": 101, "is_complete": True}],
                 )
             ]
         )
 
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=101,
                     hh_id=1,
@@ -226,7 +231,7 @@ class TestPersonFormatting:
         assert result["pno"][0] == 1
         assert result["pptyp"][0] == PersonType.FULL_TIME_WORKER.value
         assert result["pwtyp"][0] == 1  # Full-time worker
-        assert result["pagey"][0] == 40  # Age in years
+        assert result["pagey"][0] == 40  # Midpoint of AGE_35_TO_44
         assert result["pwtaz"][0] == 200
         assert result["pwpcl"][0] == 2000
 
@@ -234,14 +239,13 @@ class TestPersonFormatting:
         """Test person formatting for part-time worker."""
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     person_num=1,
                     person_type=PersonType.PART_TIME_WORKER,
                     employment=Employment.EMPLOYED_PARTTIME,
                     age=AgeCategory.AGE_25_TO_34,
-                    age_years=30,
                     work_taz=200,
                     work_maz=2000,
                     work_mode=Mode.HOUSEHOLD_VEHICLE_1,
@@ -253,7 +257,7 @@ class TestPersonFormatting:
 
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=101,
                     hh_id=1,
@@ -274,7 +278,7 @@ class TestPersonFormatting:
         """Test person formatting for university student."""
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -282,7 +286,6 @@ class TestPersonFormatting:
                     employment=Employment.UNEMPLOYED_NOT_LOOKING,
                     student=Student.FULLTIME_INPERSON,
                     age=AgeCategory.AGE_18_TO_24,
-                    age_years=21,
                     work_lat=None,
                     work_lon=None,
                     work_taz=None,
@@ -299,7 +302,7 @@ class TestPersonFormatting:
 
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=101,
                     hh_id=1,
@@ -322,7 +325,7 @@ class TestPersonFormatting:
         """Test person formatting for high school student."""
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -330,7 +333,6 @@ class TestPersonFormatting:
                     employment=Employment.UNEMPLOYED_NOT_LOOKING,
                     student=Student.FULLTIME_INPERSON,
                     age=AgeCategory.AGE_16_TO_17,
-                    age_years=16,
                     work_lat=None,
                     work_lon=None,
                     work_taz=None,
@@ -347,7 +349,7 @@ class TestPersonFormatting:
 
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=101,
                     hh_id=1,
@@ -369,7 +371,7 @@ class TestPersonFormatting:
         """Test person formatting for retiree."""
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_person(
+                create_person(
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -377,7 +379,6 @@ class TestPersonFormatting:
                     employment=Employment.UNEMPLOYED_NOT_LOOKING,
                     student=Student.NONSTUDENT,
                     age=AgeCategory.AGE_65_TO_74,
-                    age_years=70,
                     work_lat=None,
                     work_lon=None,
                     work_taz=None,
@@ -391,7 +392,7 @@ class TestPersonFormatting:
 
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
+                create_day(
                     day_id=1,
                     person_id=101,
                     hh_id=1,
@@ -411,7 +412,7 @@ class TestPersonFormatting:
     def test_format_persons_non_working_adult(self):
         """Test person formatting for non-working adult."""
         days_list = [
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=1,
                 person_id=101,
                 hh_id=1,
@@ -423,15 +424,13 @@ class TestPersonFormatting:
         ]
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.prepare_person_for_daysim(
-                    CanonicalTestDataBuilder.create_person(
-                        person_id=101,
-                        hh_id=1,
-                        person_num=1,
-                        age=AgeCategory.AGE_25_TO_34,
-                        employment=Employment.UNEMPLOYED_NOT_LOOKING,
-                        student=Student.NONSTUDENT,
-                    ),
+                create_person(
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    age=AgeCategory.AGE_25_TO_34,
+                    employment=Employment.UNEMPLOYED_NOT_LOOKING,
+                    student=Student.NONSTUDENT,
                     days=days_list,
                 )
             ]
@@ -446,7 +445,7 @@ class TestPersonFormatting:
     def test_format_persons_child_5_15(self):
         """Test person formatting for child aged 5-15."""
         days_list = [
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=1,
                 person_id=101,
                 hh_id=1,
@@ -458,15 +457,13 @@ class TestPersonFormatting:
         ]
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.prepare_person_for_daysim(
-                    CanonicalTestDataBuilder.create_person(
-                        person_id=101,
-                        hh_id=1,
-                        person_num=1,
-                        age=AgeCategory.AGE_5_TO_15,
-                        employment=Employment.UNEMPLOYED_NOT_LOOKING,
-                        student=Student.NONSTUDENT,
-                    ),
+                create_person(
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    age=AgeCategory.AGE_5_TO_15,
+                    employment=Employment.UNEMPLOYED_NOT_LOOKING,
+                    student=Student.NONSTUDENT,
                     days=days_list,
                 )
             ]
@@ -482,7 +479,7 @@ class TestPersonFormatting:
     def test_format_persons_child_under_5(self):
         """Test person formatting for child under 5."""
         days_list = [
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=1,
                 person_id=101,
                 hh_id=1,
@@ -494,15 +491,13 @@ class TestPersonFormatting:
         ]
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.prepare_person_for_daysim(
-                    CanonicalTestDataBuilder.create_person(
-                        person_id=101,
-                        hh_id=1,
-                        person_num=1,
-                        age=AgeCategory.AGE_UNDER_5,
-                        employment=Employment.UNEMPLOYED_NOT_LOOKING,
-                        student=Student.NONSTUDENT,
-                    ),
+                create_person(
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    age=AgeCategory.AGE_UNDER_5,
+                    employment=Employment.UNEMPLOYED_NOT_LOOKING,
+                    student=Student.NONSTUDENT,
                     days=days_list,
                 )
             ]
@@ -518,7 +513,7 @@ class TestPersonFormatting:
     def test_format_persons_with_day_completeness(self):
         """Test person formatting with day completeness indicators."""
         days_list = [
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=1,
                 person_id=101,
                 hh_id=1,
@@ -527,7 +522,7 @@ class TestPersonFormatting:
                 travel_dow=TravelDow.MONDAY,
                 is_complete=True,
             ),
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=2,
                 person_id=101,
                 hh_id=1,
@@ -536,7 +531,7 @@ class TestPersonFormatting:
                 travel_dow=TravelDow.TUESDAY,
                 is_complete=True,
             ),
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=3,
                 person_id=101,
                 hh_id=1,
@@ -545,7 +540,7 @@ class TestPersonFormatting:
                 travel_dow=TravelDow.WEDNESDAY,
                 is_complete=True,
             ),
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=4,
                 person_id=101,
                 hh_id=1,
@@ -554,7 +549,7 @@ class TestPersonFormatting:
                 travel_dow=TravelDow.THURSDAY,
                 is_complete=False,
             ),
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=5,
                 person_id=101,
                 hh_id=1,
@@ -566,14 +561,12 @@ class TestPersonFormatting:
         ]
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.prepare_person_for_daysim(
-                    CanonicalTestDataBuilder.create_person(
-                        person_id=101,
-                        hh_id=1,
-                        person_num=1,
-                        age=AgeCategory.AGE_35_TO_44,
-                        employment=Employment.EMPLOYED_FULLTIME,
-                    ),
+                create_person(
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    age=AgeCategory.AGE_35_TO_44,
+                    employment=Employment.EMPLOYED_FULLTIME,
                     days=days_list,
                 )
             ]
@@ -597,7 +590,7 @@ class TestPersonFormatting:
     def test_format_persons_gender_mapping(self):
         """Test gender code mapping."""
         days_list = [
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=1,
                 person_id=101,
                 hh_id=1,
@@ -606,7 +599,7 @@ class TestPersonFormatting:
                 travel_dow=TravelDow.MONDAY,
                 is_complete=True,
             ),
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=2,
                 person_id=102,
                 hh_id=1,
@@ -618,26 +611,22 @@ class TestPersonFormatting:
         ]
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.prepare_person_for_daysim(
-                    CanonicalTestDataBuilder.create_person(
-                        person_id=101,
-                        hh_id=1,
-                        person_num=1,
-                        age=AgeCategory.AGE_35_TO_44,
-                        employment=Employment.EMPLOYED_FULLTIME,
-                        gender=Gender.MALE,
-                    ),
+                create_person(
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    age=AgeCategory.AGE_35_TO_44,
+                    employment=Employment.EMPLOYED_FULLTIME,
+                    gender=Gender.MALE,
                     days=[d for d in days_list if d["person_id"] == 101],
                 ),
-                CanonicalTestDataBuilder.prepare_person_for_daysim(
-                    CanonicalTestDataBuilder.create_person(
-                        person_id=102,
-                        hh_id=1,
-                        person_num=2,
-                        age=AgeCategory.AGE_35_TO_44,
-                        employment=Employment.EMPLOYED_FULLTIME,
-                        gender=Gender.FEMALE,
-                    ),
+                create_person(
+                    person_id=102,
+                    hh_id=1,
+                    person_num=2,
+                    age=AgeCategory.AGE_35_TO_44,
+                    employment=Employment.EMPLOYED_FULLTIME,
+                    gender=Gender.FEMALE,
                     days=[d for d in days_list if d["person_id"] == 102],
                 ),
             ]
@@ -658,7 +647,7 @@ class TestHouseholdFormatting:
         """Test household formatting with single person."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1,
                     home_taz=100,
                     home_maz=1000,
@@ -673,7 +662,7 @@ class TestHouseholdFormatting:
 
         # Create persons table, then format to get persons_daysim
         days_list = [
-            CanonicalTestDataBuilder.create_day(
+            create_day(
                 day_id=1,
                 person_id=101,
                 hh_id=1,
@@ -685,13 +674,11 @@ class TestHouseholdFormatting:
         ]
         persons = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.prepare_person_for_daysim(
-                    CanonicalTestDataBuilder.create_person(
-                        person_id=101,
-                        hh_id=1,
-                        person_num=1,
-                        person_type=PersonType.FULL_TIME_WORKER,
-                    ),
+                create_person(
+                    person_id=101,
+                    hh_id=1,
+                    person_num=1,
+                    person_type=PersonType.FULL_TIME_WORKER,
                     days=days_list,
                 )
             ]
@@ -715,7 +702,7 @@ class TestHouseholdFormatting:
         """Test household composition with multiple person types."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1,
                     home_taz=100,
                     home_maz=1000,
@@ -768,7 +755,7 @@ class TestHouseholdFormatting:
         """Test income mapping from detailed income field."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1,
                     home_maz=1000,
                     income_detailed=IncomeDetailed.INCOME_50TO75,
@@ -793,7 +780,7 @@ class TestHouseholdFormatting:
         """Test income mapping from followup income field."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1,
                     home_maz=1000,
                     income_detailed=None,
@@ -817,14 +804,14 @@ class TestHouseholdFormatting:
         """Test formatting multiple households."""
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=1,
                     home_taz=100,
                     home_maz=1000,
                     residence_rent_own=ResidenceRentOwn.OWN,
                     residence_type=ResidenceType.SFH,
                 ),
-                CanonicalTestDataBuilder.create_household(
+                create_household(
                     hh_id=2,
                     home_taz=200,
                     home_maz=2000,
@@ -854,17 +841,13 @@ class TestTripFormatting:
     def test_format_linked_trips_sov(self):
         """Test trip formatting for drive alone (SOV)."""
         persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, hh_id=1, person_num=1
-                )
-            ]
+            [create_person(person_id=101, hh_id=1, person_num=1)]
         )
 
         # Create a simple single-trip journey (direct trip, no mode changes)
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -902,16 +885,12 @@ class TestTripFormatting:
     def test_format_linked_trips_hov2(self):
         """Test trip formatting for HOV2."""
         persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, hh_id=1, person_num=1
-                )
-            ]
+            [create_person(person_id=101, hh_id=1, person_num=1)]
         )
 
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -945,16 +924,12 @@ class TestTripFormatting:
     def test_format_linked_trips_hov3(self):
         """Test trip formatting for HOV3+."""
         persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, hh_id=1, person_num=1
-                )
-            ]
+            [create_person(person_id=101, hh_id=1, person_num=1)]
         )
 
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -988,16 +963,12 @@ class TestTripFormatting:
     def test_format_linked_trips_walk(self):
         """Test trip formatting for walk."""
         persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, hh_id=1, person_num=1
-                )
-            ]
+            [create_person(person_id=101, hh_id=1, person_num=1)]
         )
 
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -1032,16 +1003,12 @@ class TestTripFormatting:
     def test_format_linked_trips_bike(self):
         """Test trip formatting for bike."""
         persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, hh_id=1, person_num=1
-                )
-            ]
+            [create_person(person_id=101, hh_id=1, person_num=1)]
         )
 
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -1075,16 +1042,12 @@ class TestTripFormatting:
     def test_format_linked_trips_purpose_mapping(self):
         """Test purpose code mapping."""
         persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, hh_id=1, person_num=1
-                )
-            ]
+            [create_person(person_id=101, hh_id=1, person_num=1)]
         )
 
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -1115,16 +1078,12 @@ class TestTripFormatting:
     def test_format_linked_trips_time_conversion(self):
         """Test time conversion to minutes after midnight."""
         persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.create_person(
-                    person_id=101, hh_id=1, person_num=1
-                )
-            ]
+            [create_person(person_id=101, hh_id=1, person_num=1)]
         )
 
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -1160,7 +1119,7 @@ class TestTourFormatting:
 
     def test_format_tours_basic(self):
         """Test basic tour formatting."""
-        data = CanonicalTestDataBuilder.create_simple_work_tour_processed()
+        data = create_simple_work_tour_processed()
 
         result = format_tours(
             data["persons"], data["days"], data["linked_trips"], data["tours"]
@@ -1172,7 +1131,7 @@ class TestTourFormatting:
 
     def test_format_tours_purpose_mapping(self):
         """Test tour purpose mapping."""
-        data = CanonicalTestDataBuilder.create_simple_work_tour_processed()
+        data = create_simple_work_tour_processed()
 
         result = format_tours(
             data["persons"], data["days"], data["linked_trips"], data["tours"]
@@ -1182,7 +1141,7 @@ class TestTourFormatting:
 
     def test_format_tours_time_conversion(self):
         """Test tour time conversion to minutes after midnight."""
-        data = CanonicalTestDataBuilder.create_simple_work_tour_processed()
+        data = create_simple_work_tour_processed()
 
         result = format_tours(
             data["persons"], data["days"], data["linked_trips"], data["tours"]
@@ -1198,7 +1157,7 @@ class TestEndToEndDaysimFormatting:
 
     def test_format_daysim_simple_work_tour(self):
         """Test end-to-end formatting with simple work tour scenario."""
-        data = CanonicalTestDataBuilder.create_simple_work_tour_processed()
+        data = create_simple_work_tour_processed()
 
         result = format_daysim(
             data["persons"],
@@ -1223,7 +1182,7 @@ class TestEndToEndDaysimFormatting:
 
     def test_format_daysim_transit_commute(self):
         """Test end-to-end formatting with transit commute scenario."""
-        data = CanonicalTestDataBuilder.create_transit_commute_processed()
+        data = create_transit_commute_processed()
 
         result = format_daysim(
             data["persons"],
@@ -1244,9 +1203,7 @@ class TestEndToEndDaysimFormatting:
 
     def test_format_daysim_multi_person_household(self):
         """Test end-to-end formatting with multi-person household."""
-        data = (
-            CanonicalTestDataBuilder.create_multi_person_household_processed()
-        )
+        data = create_multi_person_household_processed()
 
         result = format_daysim(
             data["persons"],
@@ -1269,47 +1226,46 @@ class TestEndToEndDaysimFormatting:
     def test_format_daysim_filters_null_taz(self):
         """Test that households without TAZ are filtered out."""
         households_raw = [
-            CanonicalTestDataBuilder.create_household(hh_id=1, home_taz=100),
-            CanonicalTestDataBuilder.create_household(hh_id=2, home_taz=None),
+            create_household(hh_id=1, home_taz=100),
+            create_household(hh_id=2, home_taz=None),
         ]
 
         households = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.prepare_household_for_daysim(hh)
-                for hh in households_raw
+                create_household(hh_id=1, home_taz=100),
+                create_household(hh_id=2, home_taz=None),
             ]
         )
 
         persons_raw = [
-            CanonicalTestDataBuilder.create_person(
-                person_id=101, hh_id=1, person_num=1
+            create_person(
+                person_id=101,
+                hh_id=1,
+                person_num=1,
+                home_lat=households_raw[0]["home_lat"],
+                home_lon=households_raw[0]["home_lon"],
             ),
-            CanonicalTestDataBuilder.create_person(
-                person_id=201, hh_id=2, person_num=1
+            create_person(
+                person_id=201,
+                hh_id=2,
+                person_num=1,
+                home_lat=households_raw[1]["home_lat"],
+                home_lon=households_raw[1]["home_lon"],
             ),
         ]
 
-        persons = pl.DataFrame(
-            [
-                CanonicalTestDataBuilder.prepare_person_for_daysim(p)
-                for p in persons_raw
-            ]
-        )
+        persons = pl.DataFrame(persons_raw)
 
         days = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_day(
-                    day_id=1, person_id=101, hh_id=1, person_num=1
-                ),
-                CanonicalTestDataBuilder.create_day(
-                    day_id=2, person_id=201, hh_id=2, person_num=1
-                ),
+                create_day(day_id=1, person_id=101, hh_id=1, person_num=1),
+                create_day(day_id=2, person_id=201, hh_id=2, person_num=1),
             ]
         )
 
         unlinked_trips = pl.DataFrame(
             [
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=1,
                     person_id=101,
                     hh_id=1,
@@ -1317,7 +1273,7 @@ class TestEndToEndDaysimFormatting:
                     o_purpose_category=PurposeCategory.HOME,
                     d_purpose_category=PurposeCategory.WORK,
                 ),
-                CanonicalTestDataBuilder.create_unlinked_trip(
+                create_unlinked_trip(
                     trip_id=2,
                     person_id=201,
                     hh_id=2,
@@ -1361,7 +1317,7 @@ class TestEndToEndDaysimFormatting:
 
     def test_format_daysim_output_schema(self):
         """Test that output DataFrames have expected DaySim columns."""
-        data = CanonicalTestDataBuilder.create_simple_work_tour_processed()
+        data = create_simple_work_tour_processed()
 
         result = format_daysim(
             data["persons"],
