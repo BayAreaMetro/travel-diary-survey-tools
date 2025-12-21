@@ -231,7 +231,7 @@ def create_linked_trip(
     person_id: int = 101,
     hh_id: int = 1,
     person_num: int = 1,
-    day_id: int | None = None,
+    day_id: int = 1,
     day_num: int = 1,
     travel_dow: TravelDow = TravelDow.MONDAY,
     linked_trip_num: int = 1,
@@ -332,6 +332,7 @@ def create_linked_trip(
         "tour_direction": tour_direction.value,
         "access_mode": access_mode.value if access_mode else None,
         "egress_mode": egress_mode.value if egress_mode else None,
+        "joint_trip_id": None,  # Required for extract_tours step
     }
 
     # Add optional fields

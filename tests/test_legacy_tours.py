@@ -43,7 +43,11 @@ from data_canon.codebook.tours import TourType
 from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
 from processing import extract_tours, link_trips
 from processing.formatting.daysim.mappings import PURPOSE_MAP
-from tests.fixtures.tour_test_data import ScenarioBuilder
+from tests.fixtures.scenario_builders import (
+    multi_stop_tour,
+    multi_tour_day,
+    simple_work_tour,
+)
 
 # Import the legacy tour extraction function dynamically
 # Using the refactored version with _tour_extract_week_core
@@ -219,7 +223,7 @@ def to_legacy_format(
         trip_dict = {
             "hhno": row["hh_id"],
             "pno": row["person_id"],
-            "dow": row["day_id"],
+            "dow": row["travel_dow"],
             "tripno": row["linked_trip_id"],  # Legacy code expects this
             "lintripno": row["linked_trip_id"],
             "opurp": opurp_legacy,
@@ -253,12 +257,23 @@ def simple_work_tour_data():
 
     Expected: 1 home-based work tour, 0 work-based subtours.
     """
-    households, persons, trips = ScenarioBuilder.simple_work_tour()
+    households, persons, days, unlinked_trips = simple_work_tour()
+    # Link trips for legacy format
+    result = link_trips(
+        unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value, ModeType.FERRY.value],
+    )
+    unlinked_trips_with_ids = result["unlinked_trips"]
+    # Sort because legacy code expects trips in depart_time order
+    linked_trips = result["linked_trips"].sort("depart_time")
 
     return {
         "households": households,
         "persons": persons,
-        "trips": trips,
+        "days": days,
+        "unlinked_trips": unlinked_trips_with_ids,
+        "linked_trips": linked_trips,
         "expected": {
             "num_tours": 1,
             "num_hb_tours": 1,
@@ -275,12 +290,23 @@ def work_tour_with_subtour_data():
 
     Expected: 1 home-based work tour, 1 work-based subtour.
     """
-    households, persons, trips = ScenarioBuilder.work_tour_with_subtour()
+    households, persons, days, unlinked_trips = multi_stop_tour()
+    # Link trips for legacy format
+    result = link_trips(
+        unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value, ModeType.FERRY.value],
+    )
+    unlinked_trips_with_ids = result["unlinked_trips"]
+    # Sort because legacy code expects trips in depart_time order
+    linked_trips = result["linked_trips"].sort("depart_time")
 
     return {
         "households": households,
         "persons": persons,
-        "trips": trips,
+        "days": days,
+        "unlinked_trips": unlinked_trips_with_ids,
+        "linked_trips": linked_trips,
         "expected": {
             "num_tours": 2,  # 1 HB tour + 1 WB subtour
             "num_hb_tours": 1,
@@ -299,12 +325,23 @@ def multiple_tours_data():
 
     Expected: 2 home-based tours (work, shop), 0 work-based subtours.
     """
-    households, persons, trips = ScenarioBuilder.multiple_tours_same_day()
+    households, persons, days, unlinked_trips = multi_tour_day()
+    # Link trips for legacy format
+    result = link_trips(
+        unlinked_trips,
+        change_mode_code=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_codes=[ModeType.TRANSIT.value, ModeType.FERRY.value],
+    )
+    unlinked_trips_with_ids = result["unlinked_trips"]
+    # Sort because legacy code expects trips in depart_time order
+    linked_trips = result["linked_trips"].sort("depart_time")
 
     return {
         "households": households,
         "persons": persons,
-        "trips": trips,
+        "days": days,
+        "unlinked_trips": unlinked_trips_with_ids,
+        "linked_trips": linked_trips,
         "expected": {
             "num_tours": 2,
             "num_hb_tours": 2,
@@ -389,7 +426,7 @@ def mode_hierarchy_data():
 
     return {
         "persons": persons,
-        "trips": trips,
+        "linked_trips": trips,
         "expected": {
             "num_tours": 1,
             # Should pick transit over drive
@@ -406,11 +443,14 @@ def mode_hierarchy_data():
 def test_simple_work_tour(simple_work_tour_data):
     """Test basic work tour identification comparing new vs legacy."""
     persons = simple_work_tour_data["persons"]
-    trips = simple_work_tour_data["trips"]
+    unlinked_trips = simple_work_tour_data["unlinked_trips"]
+    linked_trips = simple_work_tour_data["linked_trips"]
     expected = simple_work_tour_data["expected"]
 
     # Convert to legacy format
-    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(
+        persons, linked_trips
+    )
 
     # Run legacy implementation
     _, _, _, tours_legacy, _ = tour_extract_legacy(
@@ -420,19 +460,8 @@ def test_simple_work_tour(simple_work_tour_data):
     # Run new implementation
     households = create_households_from_persons(persons)
 
-    # Link trips first
-    link_result = link_trips(
-        unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
-    )
-    unlinked_trips_with_ids = link_result["unlinked_trips"]
-    linked_trips = link_result["linked_trips"]
-
     # Extract tours using both unlinked and linked trips
-    result = extract_tours(
-        persons, households, unlinked_trips_with_ids, linked_trips
-    )
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_new = result["tours"]
 
     # Compare tour counts
@@ -471,11 +500,14 @@ def test_simple_work_tour(simple_work_tour_data):
 def test_work_tour_with_subtour(work_tour_with_subtour_data):
     """Test work-based subtour detection comparing new vs legacy."""
     persons = work_tour_with_subtour_data["persons"]
-    trips = work_tour_with_subtour_data["trips"]
+    unlinked_trips = work_tour_with_subtour_data["unlinked_trips"]
+    linked_trips = work_tour_with_subtour_data["linked_trips"]
     expected = work_tour_with_subtour_data["expected"]
 
     # Convert to legacy format
-    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(
+        persons, linked_trips
+    )
 
     # Run legacy implementation
     _, _, _, tours_legacy, _ = tour_extract_legacy(
@@ -485,19 +517,8 @@ def test_work_tour_with_subtour(work_tour_with_subtour_data):
     # Run new implementation
     households = create_households_from_persons(persons)
 
-    # Link trips first
-    link_result = link_trips(
-        unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
-    )
-    unlinked_trips_with_ids = link_result["unlinked_trips"]
-    linked_trips = link_result["linked_trips"]
-
     # Extract tours using both unlinked and linked trips
-    result = extract_tours(
-        persons, households, unlinked_trips_with_ids, linked_trips
-    )
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_new = result["tours"]
 
     # Compare tour counts
@@ -552,11 +573,14 @@ def test_work_tour_with_subtour(work_tour_with_subtour_data):
 def test_multiple_tours_same_day(multiple_tours_data):
     """Test multiple home-based tours comparing new vs legacy."""
     persons = multiple_tours_data["persons"]
-    trips = multiple_tours_data["trips"]
+    unlinked_trips = multiple_tours_data["unlinked_trips"]
+    linked_trips = multiple_tours_data["linked_trips"]
     expected = multiple_tours_data["expected"]
 
     # Convert to legacy format
-    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(
+        persons, linked_trips
+    )
 
     # Run legacy implementation
     _, _, _, tours_legacy, _ = tour_extract_legacy(
@@ -566,19 +590,8 @@ def test_multiple_tours_same_day(multiple_tours_data):
     # Run new implementation
     households = create_households_from_persons(persons)
 
-    # Link trips first
-    link_result = link_trips(
-        unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
-    )
-    unlinked_trips_with_ids = link_result["unlinked_trips"]
-    linked_trips = link_result["linked_trips"]
-
     # Extract tours using both unlinked and linked trips
-    result = extract_tours(
-        persons, households, unlinked_trips_with_ids, linked_trips
-    )
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
     tours = result["tours"]
 
     # Compare tour counts
@@ -613,11 +626,13 @@ def test_multiple_tours_same_day(multiple_tours_data):
 def test_mode_hierarchy(mode_hierarchy_data):
     """Test tour mode reflects mode hierarchy comparing new vs legacy."""
     persons = mode_hierarchy_data["persons"]
-    trips = mode_hierarchy_data["trips"]
+    linked_trips = mode_hierarchy_data["linked_trips"]
     expected = mode_hierarchy_data["expected"]
 
     # Convert to legacy format
-    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(persons, trips)
+    hh_legacy, persons_legacy, trips_legacy = to_legacy_format(
+        persons, linked_trips
+    )
 
     # Run legacy implementation
     _, _, _, tours_legacy, _ = tour_extract_legacy(
@@ -627,19 +642,12 @@ def test_mode_hierarchy(mode_hierarchy_data):
     # Run new implementation
     households = create_households_from_persons(persons)
 
-    # Link trips first
-    link_result = link_trips(
-        unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
-    )
-    unlinked_trips_with_ids = link_result["unlinked_trips"]
-    linked_trips = link_result["linked_trips"]
+    # Create dummy unlinked_trips from linked_trips for extract_tours
+    # (mode_hierarchy_data fixture provides linked trips directly)
+    unlinked_trips = linked_trips.with_columns(trip_id=pl.col("linked_trip_id"))
 
     # Extract tours using both unlinked and linked trips
-    result = extract_tours(
-        persons, households, unlinked_trips_with_ids, linked_trips
-    )
+    result = extract_tours(persons, households, unlinked_trips, linked_trips)
     tours = result["tours"]
 
     # Compare tour counts

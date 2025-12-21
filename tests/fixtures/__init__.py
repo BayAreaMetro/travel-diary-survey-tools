@@ -41,6 +41,7 @@ from .scenario_builders import (
     multi_tour_day,
     simple_work_tour,
     transit_commute,
+    work_tour_no_usual_location,
 )
 
 # Re-export tour builders
@@ -80,4 +81,5 @@ __all__ = [
     "simple_work_tour",
     "simple_work_tour_processed",
     "transit_commute",
+    "work_tour_no_usual_location",
 ]
