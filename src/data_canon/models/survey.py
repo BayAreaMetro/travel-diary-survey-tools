@@ -47,6 +47,12 @@ class HouseholdModel(BaseModel):
     home_lon: float = step_field(
         ge=-180, le=180, required_in_steps=["extract_tours"]
     )
+    home_taz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim", "format_ctramp"]
+    )
+    home_maz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim", "format_ctramp"]
+    )
     residence_rent_own: ResidenceRentOwn = step_field(
         required_in_steps=["format_daysim"]
     )
@@ -79,6 +85,18 @@ class PersonModel(BaseModel):
     )
     school_lon: float | None = step_field(
         ge=-180, le=180, required_in_steps=["extract_tours"]
+    )
+    work_taz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim", "format_ctramp"]
+    )
+    school_taz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim", "format_ctramp"]
+    )
+    work_maz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim", "format_ctramp"]
+    )
+    school_maz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim", "format_ctramp"]
     )
     person_type: PersonType = step_field(required_in_steps=[])
     employment: Employment = step_field(required_in_steps=["extract_tours"])

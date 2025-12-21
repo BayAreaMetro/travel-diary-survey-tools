@@ -20,12 +20,9 @@ from pipeline.decoration import step
 
 from .ctramp_config import CTRAMPConfig
 from .format_households import format_households
+from .format_mandatory_location import format_mandatory_location
 from .format_persons import format_persons
-from .format_tours import (
-    format_individual_tour,
-    format_joint_tour,
-    format_mandatory_location,
-)
+from .format_tours import format_individual_tour, format_joint_tour
 from .format_trips import format_individual_trip, format_joint_trip
 
 logger = logging.getLogger(__name__)
@@ -35,13 +32,15 @@ logger = logging.getLogger(__name__)
 def format_ctramp(  # noqa: D417, PLR0913
     persons: pl.DataFrame,
     households: pl.DataFrame,
-    linked_trips: pl.DataFrame | None = None,
-    tours: pl.DataFrame | None = None,
-    joint_trips: pl.DataFrame | None = None,
+    linked_trips: pl.DataFrame,
+    tours: pl.DataFrame,
+    joint_trips: pl.DataFrame,
+    income_low_threshold: int,
+    income_med_threshold: int,
+    income_high_threshold: int,
+    income_base_year_dollars: int,
+    income_under_minimum: int,
     drop_missing_taz: bool = True,
-    income_low_threshold: int | None = None,
-    income_med_threshold: int | None = None,
-    income_high_threshold: int | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -60,9 +59,9 @@ def format_ctramp(  # noqa: D417, PLR0913
     Args:
         persons: Canonical person data with demographic fields
         households: Canonical household data with income and dwelling fields
-        linked_trips: Canonical linked trip data (optional)
-        tours: Canonical tour data (optional)
-        joint_trips: Aggregated joint trip data (optional)
+        linked_trips: Canonical linked trip data (required)
+        tours: Canonical tour data (required)
+        joint_trips: Aggregated joint trip data (required)
         drop_missing_taz: If True, remove households without valid TAZ IDs
 
     Returns:
@@ -86,6 +85,8 @@ def format_ctramp(  # noqa: D417, PLR0913
         income_low_threshold=income_low_threshold,
         income_med_threshold=income_med_threshold,
         income_high_threshold=income_high_threshold,
+        income_base_year_dollars=income_base_year_dollars,
+        income_under_minimum=income_under_minimum,
         drop_missing_taz=drop_missing_taz,
     )
 
@@ -104,16 +105,16 @@ def format_ctramp(  # noqa: D417, PLR0913
             pl.col("hh_id").is_in(households["hh_id"].implode())
         )
 
-        # Also filter tours and trips if provided
-        if tours is not None:
+        # Filter tours and trips (skip if empty to avoid errors)
+        if len(tours) > 0:
             tours = tours.filter(
                 pl.col("hh_id").is_in(households["hh_id"].implode())
             )
-        if linked_trips is not None:
+        if len(linked_trips) > 0:
             linked_trips = linked_trips.filter(
                 pl.col("hh_id").is_in(households["hh_id"].implode())
             )
-        if joint_trips is not None:
+        if len(joint_trips) > 0:
             joint_trips = joint_trips.filter(
                 pl.col("hh_id").is_in(households["hh_id"].implode())
             )
@@ -128,43 +129,73 @@ def format_ctramp(  # noqa: D417, PLR0913
         )
 
     # Format each table
-    households_ctramp = format_households(households)
-    persons_ctramp = format_persons(persons)
+    households_ctramp = format_households(households, config)
+
+    # Format persons to get person types (needed for tour formatting)
+    # Pass empty tours with schema so _aggregate_tour_stats works
+    if len(tours) == 0:
+        # Create empty tours with schema for tour stats aggregation
+        # This allows persons to have activity_pattern = 'H' (home/no tours)
+        empty_formatted_tours = pl.DataFrame(
+            schema={
+                "person_id": pl.Int64,
+                "tour_purpose": pl.String,  # Formatted tour field name
+            }
+        )
+        persons_ctramp = format_persons(persons, empty_formatted_tours, config)
+        individual_tour_ctramp = pl.DataFrame()  # No tours to format
+    else:
+        # First, format persons WITHOUT tour stats to get person types
+        empty_formatted_tours = pl.DataFrame(
+            schema={
+                "person_id": pl.Int64,
+                "tour_purpose": pl.String,
+            }
+        )
+        persons_ctramp_temp = format_persons(
+            persons, empty_formatted_tours, config
+        )
+
+        # Format tours using persons with "type" column
+        individual_tour_ctramp = format_individual_tour(
+            tours, linked_trips, persons_ctramp_temp, households_ctramp, config
+        )
+
+        # Re-format persons with actual tour statistics
+        persons_ctramp = format_persons(persons, individual_tour_ctramp, config)
 
     result = {
         "households_ctramp": households_ctramp,
         "persons_ctramp": persons_ctramp,
     }
 
-    # Format mandatory locations
-    mandatory_location_ctramp = format_mandatory_location(persons, households)
+    # Format mandatory locations - needs canonical households (home_taz)
+    # but we need income from formatted households, so rejoin home_taz
+    households_with_taz = households_ctramp.join(
+        households.select(["hh_id", "home_taz"]), on="hh_id", how="left"
+    )
+    mandatory_location_ctramp = format_mandatory_location(
+        persons, households_with_taz, config
+    )
     result["mandatory_location_ctramp"] = mandatory_location_ctramp
 
-    # Format tours and trips if data provided
-    if tours is not None:
-        individual_tour_ctramp = format_individual_tour(
-            tours, persons, households, config=config
-        )
-        result["individual_tour_ctramp"] = individual_tour_ctramp
+    # Add formatted tours to results
+    result["individual_tour_ctramp"] = individual_tour_ctramp
 
-        joint_tour_ctramp = format_joint_tour(
-            tours, persons, households, config=config
-        )
-        if len(joint_tour_ctramp) > 0:
-            result["joint_tour_ctramp"] = joint_tour_ctramp
+    joint_tour_ctramp = format_joint_tour(
+        tours, linked_trips, persons_ctramp, households_ctramp, config
+    )
+    result["joint_tour_ctramp"] = joint_tour_ctramp
 
-    if linked_trips is not None and tours is not None:
-        individual_trip_ctramp = format_individual_trip(
-            linked_trips, tours, persons, households, config=config
-        )
-        result["individual_trip_ctramp"] = individual_trip_ctramp
+    individual_trip_ctramp = format_individual_trip(
+        linked_trips, tours, persons_ctramp, households_ctramp, config=config
+    )
+    result["individual_trip_ctramp"] = individual_trip_ctramp
 
-    if joint_trips is not None and tours is not None:
-        joint_trip_ctramp = format_joint_trip(
-            joint_trips, tours, households, config=config
-        )
-        if len(joint_trip_ctramp) > 0:
-            result["joint_trip_ctramp"] = joint_trip_ctramp
+    joint_trip_ctramp = format_joint_trip(
+        joint_trips, tours, households_ctramp, config=config
+    )
+    result["joint_trip_ctramp"] = joint_trip_ctramp
 
     logger.info("CT-RAMP formatting complete")
 

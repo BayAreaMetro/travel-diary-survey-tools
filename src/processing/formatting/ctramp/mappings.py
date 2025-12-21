@@ -4,15 +4,91 @@ This module contains lookup tables and mappings to transform canonical
 survey data into CT-RAMP model format. Mappings include:
 - Income category to midpoint value conversions
 - Person type classification logic
-- Age thresholds for categorization
 - Activity pattern codes
 """
 
 from data_canon.codebook.households import IncomeDetailed, IncomeFollowup
 from data_canon.codebook.persons import Employment, Gender, SchoolType, Student
+from utils.helpers import get_income_midpoint
 
-# Income category to midpoint mapping (in $2000)
-# CT-RAMP uses income in year 2000 dollars
+from .ctramp_config import CTRAMPConfig
+
+
+def get_income_detailed_midpoint(config: CTRAMPConfig) -> dict[int, int]:
+    """Get income detailed midpoint mapping using config parameters.
+
+    Args:
+        config: CT-RAMP configuration with income edge case values
+
+    Returns:
+        Dictionary mapping IncomeDetailed enum values to midpoint dollars
+    """
+    midpoint_map = {}
+    for income_cat in IncomeDetailed:
+        try:
+            midpoint = get_income_midpoint(
+                income_cat,
+                config.income_under_minimum,
+                config.income_top_category,
+            )
+            midpoint_map[income_cat.value] = midpoint
+        except ValueError:
+            # PNTA and other special cases
+            midpoint_map[income_cat.value] = -1
+
+    # Handle missing/unknown
+    midpoint_map[-1] = -1
+    return midpoint_map
+
+
+def get_income_followup_midpoint(config: CTRAMPConfig) -> dict[int, int]:
+    """Get income followup midpoint mapping using config parameters.
+
+    Args:
+        config: CT-RAMP configuration with income edge case values
+
+    Returns:
+        Dictionary mapping IncomeFollowup enum values to midpoint dollars
+    """
+    midpoint_map = {}
+    for income_cat in IncomeFollowup:
+        try:
+            midpoint = get_income_midpoint(
+                income_cat,
+                config.income_under_minimum,
+                config.income_top_category,
+            )
+            midpoint_map[income_cat.value] = midpoint
+        except ValueError:
+            # PNTA, Missing, and other special cases
+            midpoint_map[income_cat.value] = -1
+
+    # Handle missing/unknown
+    midpoint_map[-1] = -1
+    return midpoint_map
+
+
+def get_gender_map(config: CTRAMPConfig) -> dict[int, str]:
+    """Get gender mapping using config parameter for missing/non-binary.
+
+    Args:
+        config: CT-RAMP configuration with gender_default_for_missing
+
+    Returns:
+        Dictionary mapping Gender enum values to CTRAMP gender strings
+    """
+    default_gender = config.gender_default_for_missing
+    return {
+        Gender.MALE.value: "m",
+        Gender.FEMALE.value: "f",
+        Gender.NON_BINARY.value: default_gender,
+        Gender.OTHER.value: default_gender,
+        Gender.PNTA.value: default_gender,
+        -1: default_gender,  # Missing
+    }
+
+
+# Deprecated: Use get_income_detailed_midpoint(config) instead
 INCOME_DETAILED_TO_MIDPOINT = {
     IncomeDetailed.INCOME_UNDER15.value: 10000,
     IncomeDetailed.INCOME_15TO25.value: 20000,
@@ -24,10 +100,11 @@ INCOME_DETAILED_TO_MIDPOINT = {
     IncomeDetailed.INCOME_150TO200.value: 175000,
     IncomeDetailed.INCOME_200TO250.value: 225000,
     IncomeDetailed.INCOME_250_OR_MORE.value: 300000,
-    IncomeDetailed.PNTA.value: -1,  # Prefer not to answer
-    -1: -1,  # Missing/unknown
+    IncomeDetailed.PNTA.value: -1,
+    -1: -1,
 }
 
+# Deprecated: Use get_income_followup_midpoint(config) instead
 INCOME_FOLLOWUP_TO_MIDPOINT = {
     IncomeFollowup.INCOME_UNDER25.value: 12500,
     IncomeFollowup.INCOME_25TO50.value: 37500,
@@ -40,26 +117,15 @@ INCOME_FOLLOWUP_TO_MIDPOINT = {
     -1: -1,
 }
 
-# Gender mapping: canonical -> CTRAMP (m/f)
+# Deprecated: Use get_gender_map(config) instead
 GENDER_MAP = {
     Gender.MALE.value: "m",
     Gender.FEMALE.value: "f",
-    # NOTE: Need to fix this!!! default to female if non-binary/other
     Gender.NON_BINARY.value: "f",
     Gender.OTHER.value: "f",
     Gender.PNTA.value: "f",
-    -1: "f",  # Default to female for missing
+    -1: "f",
 }
-
-
-# Age thresholds for person type classification
-class AgeThreshold:
-    """Age thresholds for CT-RAMP person type classification."""
-
-    PRESCHOOL = 5  # Under 5 = too young for school
-    ELEMENTARY = 16  # 5-15 = elementary/middle school age
-    DRIVING_AGE = 18  # 16-17 = driving age students
-    RETIREMENT = 65  # 65+ with no employment = retired
 
 
 # Employment to person type component

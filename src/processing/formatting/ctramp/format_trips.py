@@ -44,6 +44,11 @@ def format_individual_trip(
     """
     logger.info("Formatting individual trip data for CT-RAMP")
 
+    # Handle empty input DataFrames
+    if len(tours) == 0 or len(linked_trips) == 0:
+        logger.info("No tours or trips provided")
+        return pl.DataFrame()
+
     # Filter to trips on individual tours only
     individual_tour_ids = tours.filter(
         pl.col("joint_tour_id").is_null()

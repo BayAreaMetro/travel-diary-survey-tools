@@ -13,13 +13,18 @@ import logging
 
 import polars as pl
 
-from .mappings import INCOME_DETAILED_TO_MIDPOINT, INCOME_FOLLOWUP_TO_MIDPOINT
+from .ctramp_config import CTRAMPConfig
+from .mappings import (
+    get_income_detailed_midpoint,
+    get_income_followup_midpoint,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def format_households(
     households: pl.DataFrame,
+    config: CTRAMPConfig,
 ) -> pl.DataFrame:
     """Format household data to CT-RAMP specification.
 
@@ -40,12 +45,13 @@ def format_households(
             - num_people: Household size
             - num_workers: Number of workers
             - hh_weight: Household expansion factor
+        config: CT-RAMP configuration with income parameters
 
     Returns:
         DataFrame with CT-RAMP household fields:
         - hh_id: Household ID
         - taz: Home TAZ
-        - income: Annual household income ($2000)
+        - income: Annual household income (midpoint value)
         - autos: Number of automobiles
         - size: Number of persons
         - workers: Number of workers
@@ -70,14 +76,17 @@ def format_households(
         }
     )
 
-    # Map income categories to midpoint values ($2000)
+    # Map income categories to midpoint values
+    income_detailed_map = get_income_detailed_midpoint(config)
+    income_followup_map = get_income_followup_midpoint(config)
+
     households_ctramp = households_ctramp.with_columns(
         pl.col("income_detailed")
         .fill_null(-1)
-        .replace_strict(INCOME_DETAILED_TO_MIDPOINT),
+        .replace_strict(income_detailed_map),
         pl.col("income_followup")
         .fill_null(-1)
-        .replace_strict(INCOME_FOLLOWUP_TO_MIDPOINT),
+        .replace_strict(income_followup_map),
     )
 
     # Use income_detailed if available, otherwise income_followup

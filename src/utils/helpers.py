@@ -1,11 +1,77 @@
-"""Utility functions for trip linking."""
+"""Utility functions for trip linking and data processing."""
 
 import logging
+import re
 
 import polars as pl
 
+from data_canon.core.labeled_enum import LabeledEnum
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def get_income_midpoint(
+    income_enum: LabeledEnum,
+    income_under_minimum: int,
+    income_top_category: int,
+) -> int:
+    """Calculate the midpoint dollar value for an income category enum.
+
+    Parses the income range from the enum label and returns the midpoint.
+    For "Under" categories, uses the provided minimum.
+    For "or more" categories, uses the provided top category value.
+
+    Args:
+        income_enum: Income category enum (IncomeDetailed or IncomeFollowup)
+        income_under_minimum: Dollar value to use for "Under X" categories
+        income_top_category: Dollar value to use for "X or more" categories
+
+    Returns:
+        Midpoint dollar value for the income bracket
+
+    Raises:
+        ValueError: If the label format cannot be parsed or is PNTA/Missing
+
+    Example:
+        >>> from data_canon.codebook.households import IncomeDetailed
+        >>> midpoint = get_income_midpoint(
+        ...     IncomeDetailed.INCOME_50TO75, 10000, 300000
+        ... )
+        >>> midpoint
+        62500
+    """
+    label = income_enum.label
+
+    # Handle special cases
+    if "Prefer not to answer" in label or "Missing" in label:
+        msg = f"Cannot calculate midpoint for {income_enum.name}: {label}"
+        raise ValueError(msg)
+
+    # Handle "Under $X" format
+    if label.startswith("Under"):
+        match = re.search(r"\$[\d,]+", label)
+        if match:
+            upper = int(match.group().replace("$", "").replace(",", ""))
+            return (income_under_minimum + upper) // 2
+
+    # Handle "$X or more" format
+    if "or more" in label:
+        match = re.search(r"\$[\d,]+", label)
+        if match:
+            lower = int(match.group().replace("$", "").replace(",", ""))
+            return (lower + income_top_category) // 2
+
+    # Handle "$X-$Y" range format
+    matches = re.findall(r"\$[\d,]+", label)
+    if len(matches) == 2:  # noqa: PLR2004
+        lower = int(matches[0].replace("$", "").replace(",", ""))
+        upper = int(matches[1].replace("$", "").replace(",", ""))
+        return (lower + upper) // 2
+
+    # If we can't parse it, raise an error
+    msg = f"Cannot parse income range from label: {label}"
+    raise ValueError(msg)
 
 
 def datetime_from_parts(

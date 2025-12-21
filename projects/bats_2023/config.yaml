@@ -90,10 +90,23 @@ steps:
     validate_input: false
     cache: false
     params:
-      income_low_threshold: 60000
-      income_med_threshold: 150000
-      income_high_threshold: 240000
-      drop_missing_taz: true
+      # Income thresholds (in absolute dollars)
+      income_low_threshold: 60000  # $60k - below this is 'work_low'
+      income_med_threshold: 150000  # $150k - below this is 'work_med'
+      income_high_threshold: 240000  # $240k - below this is 'work_high', above is 'work_very high'
+
+      # Income conversion parameters
+      income_base_year_dollars: 2023  # Base year for income dollar units
+      income_under_minimum: 10000  # Minimum income for "Under $X" categories
+      income_top_category: 300000  # Top income for "$X or more" categories
+
+      # Age thresholds
+      age_adult: 4  # AgeCategory.AGE_18_TO_24 - Adult threshold for joint tour composition
+
+      # Other parameters
+      # This is not optimal, but model requires a binary gender
+      gender_default_for_missing: "f"
+      drop_missing_taz: true  # Drop households without valid TAZ
 
   - name: write_data
     validate_input: true
