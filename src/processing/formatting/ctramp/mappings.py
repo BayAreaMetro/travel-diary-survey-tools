@@ -88,46 +88,6 @@ def get_gender_map(config: CTRAMPConfig) -> dict[int, str]:
     }
 
 
-# Deprecated: Use get_income_detailed_midpoint(config) instead
-INCOME_DETAILED_TO_MIDPOINT = {
-    IncomeDetailed.INCOME_UNDER15.value: 10000,
-    IncomeDetailed.INCOME_15TO25.value: 20000,
-    IncomeDetailed.INCOME_25TO35.value: 30000,
-    IncomeDetailed.INCOME_35TO50.value: 42500,
-    IncomeDetailed.INCOME_50TO75.value: 62500,
-    IncomeDetailed.INCOME_75TO100.value: 87500,
-    IncomeDetailed.INCOME_100TO150.value: 125000,
-    IncomeDetailed.INCOME_150TO200.value: 175000,
-    IncomeDetailed.INCOME_200TO250.value: 225000,
-    IncomeDetailed.INCOME_250_OR_MORE.value: 300000,
-    IncomeDetailed.PNTA.value: -1,
-    -1: -1,
-}
-
-# Deprecated: Use get_income_followup_midpoint(config) instead
-INCOME_FOLLOWUP_TO_MIDPOINT = {
-    IncomeFollowup.INCOME_UNDER25.value: 12500,
-    IncomeFollowup.INCOME_25TO50.value: 37500,
-    IncomeFollowup.INCOME_50TO75.value: 62500,
-    IncomeFollowup.INCOME_75TO100.value: 87500,
-    IncomeFollowup.INCOME_100TO200.value: 150000,
-    IncomeFollowup.INCOME_200_OR_MORE.value: 300000,
-    IncomeFollowup.MISSING.value: -1,
-    IncomeFollowup.PNTA.value: -1,
-    -1: -1,
-}
-
-# Deprecated: Use get_gender_map(config) instead
-GENDER_MAP = {
-    Gender.MALE.value: "m",
-    Gender.FEMALE.value: "f",
-    Gender.NON_BINARY.value: "f",
-    Gender.OTHER.value: "f",
-    Gender.PNTA.value: "f",
-    -1: "f",
-}
-
-
 # Employment to person type component
 EMPLOYMENT_MAP = {
     Employment.EMPLOYED_FULLTIME.value: "full_time",

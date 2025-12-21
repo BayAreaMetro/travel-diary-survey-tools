@@ -49,7 +49,6 @@ from .tour_records import create_tour, get_tour_schema
 # Re-export trip builders
 from .trip_records import (
     create_linked_trip,
-    create_trip,
     create_unlinked_trip,
 )
 
@@ -69,7 +68,6 @@ __all__ = [
     "create_single_adult_household",
     "create_tour",
     "create_transit_commute_processed",
-    "create_trip",
     "create_university_student_household",
     "create_unlinked_trip",
     "get_tour_schema",

@@ -38,11 +38,11 @@ from processing.formatting.ctramp.format_tours import (
 from tests.fixtures import (
     create_family_household,
     create_household,
+    create_linked_trip,
     create_person,
     create_retired_household,
     create_single_adult_household,
     create_tour,
-    create_trip,
     create_university_student_household,
     get_tour_schema,
 )
@@ -580,14 +580,14 @@ class TestIndividualTourFormatting:
         tours = tours_canonical
         trips_canonical = pl.DataFrame(
             [
-                create_trip(
+                create_linked_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
@@ -627,21 +627,21 @@ class TestIndividualTourFormatting:
         trips = pl.DataFrame(
             [
                 # 3 outbound trips
-                create_trip(
+                create_linked_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10003,
                     tour_id=1001,
                     person_id=101,
@@ -649,14 +649,14 @@ class TestIndividualTourFormatting:
                     tour_direction=TourDirection.OUTBOUND,
                 ),
                 # 2 inbound trips
-                create_trip(
+                create_linked_trip(
                     trip_id=10004,
                     tour_id=1001,
                     person_id=101,
                     hh_id=1,
                     tour_direction=TourDirection.INBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10005,
                     tour_id=1001,
                     person_id=101,
@@ -718,39 +718,39 @@ class TestIndividualTourFormatting:
         trips = pl.DataFrame(
             [
                 # Primary tour trips
-                create_trip(
+                create_linked_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.INBOUND,
                 ),
                 # Subtour 1 trips
-                create_trip(
+                create_linked_trip(
                     trip_id=10003,
                     tour_id=1002,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10004,
                     tour_id=1002,
                     person_id=101,
                     tour_direction=TourDirection.INBOUND,
                 ),
                 # Subtour 2 trips
-                create_trip(
+                create_linked_trip(
                     trip_id=10005,
                     tour_id=1003,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10006,
                     tour_id=1003,
                     person_id=101,
@@ -833,25 +833,25 @@ class TestIndividualTourFormatting:
         )
         trips = pl.DataFrame(
             [
-                create_trip(
+                create_linked_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.INBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10003,
                     tour_id=1002,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10004,
                     tour_id=1002,
                     person_id=101,
@@ -922,14 +922,14 @@ class TestJointTourFormatting:
         )
         trips = pl.DataFrame(
             [
-                create_trip(
+                create_linked_trip(
                     trip_id=10001,
                     tour_id=1001,
                     person_id=101,
                     tour_direction=TourDirection.OUTBOUND,
                     joint_tour_id=9001,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10002,
                     tour_id=1001,
                     person_id=101,
@@ -986,23 +986,23 @@ class TestJointTourFormatting:
         )
         trips = pl.DataFrame(
             [
-                create_trip(
+                create_linked_trip(
                     trip_id=10001,
                     tour_id=1001,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10002,
                     tour_id=1001,
                     tour_direction=TourDirection.INBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10003,
                     tour_id=1002,
                     tour_direction=TourDirection.OUTBOUND,
                     joint_tour_id=9001,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10004,
                     tour_id=1002,
                     tour_direction=TourDirection.INBOUND,
@@ -1047,12 +1047,12 @@ class TestJointTourFormatting:
         )
         trips = pl.DataFrame(
             [
-                create_trip(
+                create_linked_trip(
                     trip_id=10001,
                     tour_id=1001,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
-                create_trip(
+                create_linked_trip(
                     trip_id=10002,
                     tour_id=1001,
                     tour_direction=TourDirection.INBOUND,

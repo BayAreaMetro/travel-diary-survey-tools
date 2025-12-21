@@ -94,7 +94,7 @@ def _create_trips_from_spec(
             d_lon=d_lon,
             o_purpose_category=spec["o_purpose_category"],
             d_purpose_category=spec["d_purpose_category"],
-            mode=spec["mode"],
+            mode_1=spec["mode"],
             mode_type=spec["mode_type"],
             depart_time=depart_time,
             arrive_time=arrive_time,

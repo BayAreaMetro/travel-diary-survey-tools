@@ -7,7 +7,6 @@ Uses field_utils for simplified purpose field resolution.
 from datetime import UTC, datetime, time, timedelta
 
 from data_canon.codebook.days import TravelDow
-from data_canon.codebook.generic import LocationType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import (
     AccessEgressMode,
@@ -59,8 +58,11 @@ def create_unlinked_trip(
     transit_access: int = 0,
     transit_egress: int = 0,
     travel_dow: TravelDow = TravelDow.MONDAY,
-    mode: Mode = Mode.HOUSEHOLD_VEHICLE,
     mode_type: ModeType = ModeType.CAR,
+    mode_1: Mode | None = None,
+    mode_2: Mode | None = None,
+    mode_3: Mode | None = None,
+    mode_4: Mode | None = None,
     o_purpose: Purpose | None = None,
     o_purpose_category: PurposeCategory | None = None,
     d_purpose: Purpose | None = None,
@@ -104,14 +106,17 @@ def create_unlinked_trip(
         transit_access: Transit access flag
         transit_egress: Transit egress flag
         travel_dow: Day of week enum
-        mode: Specific mode enum
         mode_type: Mode type enum (car/transit/walk/bike)
-        o_purpose: Origin purpose enum (deprecated, use o_purpose_category)
+        mode_1: First trip segment mode (optional, for multi-segment trips)
+        mode_2: Second trip segment mode (optional, for multi-segment trips)
+        mode_3: Third trip segment mode (optional, for multi-segment trips)
+        mode_4: Fourth trip segment mode (optional, for multi-segment trips)
         o_purpose_category: Origin purpose category enum (for link_trips)
-        d_purpose: Destination purpose enum (deprecated)
         d_purpose_category: Destination purpose category enum (for link_trips)
-        purpose: Legacy purpose field enum (backward compatibility)
-        purpose_category: Legacy purpose category enum (backward compat)
+        purpose_category: Optional purpose category for fallback
+        o_purpose: Optional origin purpose for fallback
+        d_purpose: Optional destination purpose for fallback
+        purpose: Optional purpose for fallback
         driver: Driver status enum
         access_mode: Access mode enum for transit (optional)
         egress_mode: Egress mode enum for transit (optional)
@@ -153,8 +158,11 @@ def create_unlinked_trip(
         "transit_access": transit_access,
         "transit_egress": transit_egress,
         "travel_dow": travel_dow.value,
-        "mode": mode.value,
         "mode_type": mode_type.value,
+        "mode_1": mode_1.value if mode_1 else None,
+        "mode_2": mode_2.value if mode_2 else None,
+        "mode_3": mode_3.value if mode_3 else None,
+        "mode_4": mode_4.value if mode_4 else None,
         "driver": driver.value,
         "num_travelers": num_travelers,
         "change_mode": change_mode,
@@ -192,7 +200,6 @@ def create_unlinked_trip(
         ),
     }
 
-    # Legacy fields for backward compatibility
     if purpose is not None:
         purpose_fields["purpose"] = purpose.value
     if purpose_category is not None:
@@ -231,24 +238,22 @@ def create_linked_trip(
     tour_id: int = 1,
     depart_time: datetime | None = None,
     arrive_time: datetime | None = None,
-    origin_lat: float = 37.70,
-    origin_lon: float = -122.40,
-    origin_taz: int = 100,
-    origin_maz: int = 1000,
-    origin_purpose: PurposeCategory = PurposeCategory.HOME,
-    dest_lat: float = 37.75,
-    dest_lon: float = -122.45,
-    dest_taz: int = 200,
-    dest_maz: int = 2000,
-    dest_purpose: PurposeCategory = PurposeCategory.WORK,
-    mode: Mode = Mode.HOUSEHOLD_VEHICLE_1,
+    o_lat: float = 37.70,
+    o_lon: float = -122.40,
+    o_taz: int | None = 100,
+    o_maz: int | None = None,
+    o_purpose: PurposeCategory = PurposeCategory.HOME,
+    d_lat: float = 37.75,
+    d_lon: float = -122.45,
+    d_taz: int | None = 200,
+    d_maz: int | None = None,
+    d_purpose: PurposeCategory = PurposeCategory.WORK,
     mode_type: ModeType = ModeType.CAR,
     driver: Driver = Driver.DRIVER,
     num_travelers: int = 1,
     distance_meters: float = 8046.72,
-    distance_miles: float | None = None,
     num_unlinked_trips: int = 1,
-    tour_direction: int = 1,  # 1=OUTBOUND, 2=INBOUND
+    tour_direction: TourDirection = TourDirection.OUTBOUND,
     access_mode: AccessEgressMode | None = None,
     egress_mode: AccessEgressMode | None = None,
     **overrides,
@@ -267,24 +272,22 @@ def create_linked_trip(
         tour_id: Parent tour ID
         depart_time: Departure datetime
         arrive_time: Arrival datetime
-        origin_lat: Origin latitude
-        origin_lon: Origin longitude
-        origin_taz: Origin TAZ
-        origin_maz: Origin MAZ
-        origin_purpose: Origin purpose enum
-        dest_lat: Destination latitude
-        dest_lon: Destination longitude
-        dest_taz: Destination TAZ
-        dest_maz: Destination MAZ
-        dest_purpose: Destination purpose enum
-        mode: Aggregated mode enum
-        mode_type: Aggregated mode type enum
+        o_lat: Origin latitude
+        o_lon: Origin longitude
+        o_taz: Origin TAZ (optional, added via spatial join)
+        o_maz: Origin MAZ (optional, added via spatial join)
+        o_purpose: Origin purpose category enum
+        d_lat: Destination latitude
+        d_lon: Destination longitude
+        d_taz: Destination TAZ (optional, added via spatial join)
+        d_maz: Destination MAZ (optional, added via spatial join)
+        d_purpose: Destination purpose category enum
+        mode_type: Mode type enum (car/transit/walk/bike)
         driver: Driver status enum
         num_travelers: Number of travelers
         distance_meters: Trip distance in meters
-        distance_miles: Trip distance in miles (optional)
         num_unlinked_trips: Number of component unlinked trips
-        tour_direction: Tour direction (1=OUTBOUND, 2=INBOUND)
+        tour_direction: Tour direction enum (OUTBOUND/INBOUND)
         access_mode: Transit access mode enum (for transit trips)
         egress_mode: Transit egress mode enum (for transit trips)
         **overrides: Override any default values
@@ -296,10 +299,6 @@ def create_linked_trip(
     depart_time, arrive_time = _default_times(
         depart_time, arrive_time, default_depart_hour=8, travel_minutes=30
     )
-
-    # Calculate distance_miles if not provided
-    if distance_miles is None:
-        distance_miles = distance_meters / 1609.34
 
     record = {
         "linked_trip_id": linked_trip_id,
@@ -315,134 +314,27 @@ def create_linked_trip(
         "duration_minutes": int(
             (arrive_time - depart_time).total_seconds() / 60
         ),
-        "o_lat": origin_lat,
-        "o_lon": origin_lon,
-        "o_taz": origin_taz,
-        "o_maz": origin_maz,
-        "o_purpose_category": origin_purpose.value,
-        "d_lat": dest_lat,
-        "d_lon": dest_lon,
-        "d_taz": dest_taz,
-        "d_maz": dest_maz,
-        "d_purpose_category": dest_purpose.value,
-        "mode": mode.value,
+        "o_lat": o_lat,
+        "o_lon": o_lon,
+        "o_taz": o_taz,
+        "o_maz": o_maz,
+        "o_purpose_category": o_purpose.value,
+        "d_lat": d_lat,
+        "d_lon": d_lon,
+        "d_taz": d_taz,
+        "d_maz": d_maz,
+        "d_purpose_category": d_purpose.value,
         "mode_type": mode_type.value,
         "driver": driver.value,
         "num_travelers": num_travelers,
         "distance_meters": distance_meters,
-        "distance_miles": distance_miles,
         "num_unlinked_trips": num_unlinked_trips,
-        "tour_direction": tour_direction,
-        "linked_trip_weight": 1.0,
-        # Always include access/egress mode fields (formatter expects them)
+        "tour_direction": tour_direction.value,
         "access_mode": access_mode.value if access_mode else None,
         "egress_mode": egress_mode.value if egress_mode else None,
     }
 
     # Add optional fields
     add_optional_fields_batch(record, day_id=day_id)
-
-    return {**record, **overrides}
-
-
-def create_trip(
-    trip_id: int = 10001,
-    tour_id: int = 1001,
-    person_id: int = 101,
-    hh_id: int = 1,
-    trip_num: int = 1,
-    tour_direction: TourDirection = TourDirection.OUTBOUND,
-    o_taz: int = 100,
-    d_taz: int = 200,
-    o_maz: int | None = None,
-    d_maz: int | None = None,
-    o_location_type: LocationType = LocationType.HOME,
-    d_location_type: LocationType = LocationType.WORK,
-    depart_time: datetime | None = None,
-    arrive_time: datetime | None = None,
-    travel_time: int = 30,
-    travel_dow: TravelDow = TravelDow.MONDAY,
-    mode: Mode = Mode.MISSING,
-    mode_type: ModeType = ModeType.CAR,
-    purpose: Purpose = Purpose.PRIMARY_WORKPLACE,
-    purpose_category: PurposeCategory = PurposeCategory.WORK,
-    driver: Driver = Driver.DRIVER,
-    access_mode: AccessEgressMode | None = None,
-    egress_mode: AccessEgressMode | None = None,
-    num_travelers: int = 1,
-    **overrides,
-) -> dict:
-    """Create a complete canonical trip record.
-
-    Args:
-        trip_id: Trip ID
-        tour_id: Parent tour ID
-        person_id: Person ID
-        hh_id: Household ID
-        trip_num: Trip number within tour
-        tour_direction: Outbound/inbound/subtour enum
-        o_taz: Origin TAZ
-        d_taz: Destination TAZ
-        o_maz: Origin MAZ (optional, for Daysim)
-        d_maz: Destination MAZ (optional, for Daysim)
-        o_location_type: Origin location type enum
-        d_location_type: Destination location type enum
-        depart_time: Departure time (defaults to 8 AM)
-        arrive_time: Arrival time (defaults to 8:30 AM)
-        travel_time: Travel time in minutes
-        travel_dow: Day of week enum
-        mode: Specific mode enum
-        mode_type: Mode type enum (car/transit/walk/bike)
-        purpose: Trip purpose enum
-        purpose_category: Purpose category enum
-        driver: Driver status enum
-        access_mode: Access mode enum for transit (optional)
-        egress_mode: Egress mode enum for transit (optional)
-        num_travelers: Number of travelers
-        **overrides: Override any default values
-
-    Returns:
-        Complete trip record dict
-    """
-    # Default times if not provided
-    depart_time, arrive_time = _default_times(
-        depart_time,
-        arrive_time,
-        default_depart_hour=8,
-        travel_minutes=travel_time,
-    )
-
-    record = {
-        "trip_id": trip_id,
-        "tour_id": tour_id,
-        "person_id": person_id,
-        "hh_id": hh_id,
-        "trip_num": trip_num,
-        "tour_direction": tour_direction.value,
-        "o_taz": o_taz,
-        "d_taz": d_taz,
-        "o_location_type": o_location_type.value,
-        "d_location_type": d_location_type.value,
-        "depart_time": depart_time,
-        "arrive_time": arrive_time,
-        "travel_time": travel_time,
-        "travel_dow": travel_dow.value,
-        "mode": mode.value,
-        "mode_type": mode_type.value,
-        "purpose": purpose.value,
-        "purpose_category": purpose_category.value,
-        "driver": driver.value,
-        "num_travelers": num_travelers,
-    }
-
-    # Add optional MAZ fields
-    add_optional_fields_batch(record, o_maz=o_maz, d_maz=d_maz)
-
-    # Add optional transit fields
-    add_optional_fields_batch(
-        record,
-        access_mode=access_mode.value if access_mode else None,
-        egress_mode=egress_mode.value if egress_mode else None,
-    )
 
     return {**record, **overrides}

@@ -243,6 +243,22 @@ class LinkedTripModel(BaseModel):
     d_lon: float = step_field(
         ge=-180, le=180, required_in_steps=["detect_joint_trips"]
     )
+    o_taz: int | None = step_field(
+        ge=1,
+        required_in_steps=["format_ctramp", "format_daysim"],
+        default=None,
+    )
+    d_taz: int | None = step_field(
+        ge=1,
+        required_in_steps=["format_ctramp", "format_daysim"],
+        default=None,
+    )
+    o_maz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim"], default=None
+    )
+    d_maz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim"], default=None
+    )
     mode_type: ModeType = step_field(required_in_steps=["extract_tours"])
     driver: Driver = step_field(
         required_in_steps=["link_trips", "format_daysim"]
@@ -303,6 +319,22 @@ class TourModel(BaseModel):
     o_lon: float = step_field(ge=-180, le=180)
     d_lat: float = step_field(ge=-90, le=90)
     d_lon: float = step_field(ge=-180, le=180)
+    o_taz: int | None = step_field(
+        ge=1,
+        required_in_steps=["format_ctramp", "format_daysim"],
+        default=None,
+    )
+    d_taz: int | None = step_field(
+        ge=1,
+        required_in_steps=["format_ctramp", "format_daysim"],
+        default=None,
+    )
+    o_maz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim"], default=None
+    )
+    d_maz: int | None = step_field(
+        ge=1, required_in_steps=["format_daysim"], default=None
+    )
     o_location_type: LocationType = step_field()
     d_location_type: LocationType = step_field()
 
