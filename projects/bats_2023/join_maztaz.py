@@ -16,6 +16,10 @@ def join_zone_from_latlon(
     zone_id_field: str = "TAZ_ID",
 ) -> pl.DataFrame:
     """Add TAZ/MAZ zone ID to dataframe based on lon/lat coordinates."""
+    # Drop the zone_col_name if it already exists
+    if zone_col_name in df.columns:
+        df = df.drop(zone_col_name)
+
     # Convert Polars DataFrame to GeoDataFrame
     gdf = gpd.GeoDataFrame(
         df.to_pandas(),

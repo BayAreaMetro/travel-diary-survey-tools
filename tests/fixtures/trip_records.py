@@ -15,9 +15,10 @@ from data_canon.codebook.trips import (
     ModeType,
     Purpose,
     PurposeCategory,
+    PurposeToCategoryMap,
 )
 
-from .field_utils import add_optional_fields_batch, resolve_field_with_fallback
+from .field_utils import add_optional_fields_batch
 
 
 def _default_times(
@@ -63,9 +64,9 @@ def create_unlinked_trip(
     mode_2: Mode | None = None,
     mode_3: Mode | None = None,
     mode_4: Mode | None = None,
-    o_purpose: Purpose | None = None,
+    o_purpose: Purpose = Purpose.HOME,
     o_purpose_category: PurposeCategory | None = None,
-    d_purpose: Purpose | None = None,
+    d_purpose: Purpose = Purpose.OTHER,
     d_purpose_category: PurposeCategory | None = None,
     purpose: Purpose | None = None,
     purpose_category: PurposeCategory | None = None,
@@ -168,36 +169,18 @@ def create_unlinked_trip(
         "change_mode": change_mode,
     }
 
-    # Add purpose fields using fallback resolution (simplified!)
+    # Add purpose fields - derive category from detailed purpose
+    # Simple one-way flow: Purpose → PurposeCategory
+    if o_purpose_category is None:
+        o_purpose_category = PurposeToCategoryMap.get_category(o_purpose)
+    if d_purpose_category is None:
+        d_purpose_category = PurposeToCategoryMap.get_category(d_purpose)
+
     purpose_fields = {
-        "o_purpose_category": resolve_field_with_fallback(
-            ["o_purpose_category", "purpose_category"],
-            o_purpose_category=(
-                o_purpose_category.value if o_purpose_category else None
-            ),
-            purpose_category=(
-                purpose_category.value if purpose_category else None
-            ),
-        ),
-        "d_purpose_category": resolve_field_with_fallback(
-            ["d_purpose_category", "purpose_category"],
-            d_purpose_category=(
-                d_purpose_category.value if d_purpose_category else None
-            ),
-            purpose_category=(
-                purpose_category.value if purpose_category else None
-            ),
-        ),
-        "o_purpose": resolve_field_with_fallback(
-            ["o_purpose", "purpose"],
-            o_purpose=o_purpose.value if o_purpose else None,
-            purpose=purpose.value if purpose else None,
-        ),
-        "d_purpose": resolve_field_with_fallback(
-            ["d_purpose", "purpose"],
-            d_purpose=d_purpose.value if d_purpose else None,
-            purpose=purpose.value if purpose else None,
-        ),
+        "o_purpose": o_purpose.value,
+        "o_purpose_category": o_purpose_category.value,
+        "d_purpose": d_purpose.value,
+        "d_purpose_category": d_purpose_category.value,
     }
 
     if purpose is not None:

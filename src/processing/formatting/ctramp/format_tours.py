@@ -1,4 +1,4 @@
-"""Tour formatting for CT-RAMP output.
+"""Tour formatting for CT-RAMP.
 
 Transforms canonical tour data into CT-RAMP model format, including:
 - Individual tours (non-joint tours)
@@ -14,7 +14,9 @@ from data_canon.codebook.ctramp import (
     map_mode_to_ctramp,
     map_purpose_to_ctramp,
 )
+from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
+from processing.formatting.ctramp.mappings import PERSON_TYPE_TO_CTRAMP
 
 from .ctramp_config import CTRAMPConfig
 
@@ -43,10 +45,9 @@ def format_individual_tour(
             - parent_tour_id (for subtour counting)
         trips: DataFrame with canonical trip fields including:
             - tour_id, tour_direction (1=outbound, 2=inbound, 3=subtour)
-        persons: DataFrame with person_type for joining
+        persons: Canonical persons DataFrame with person_type and school_type
         households: DataFrame with income for purpose mapping
         config: CT-RAMP configuration with income thresholds
-            - joint_tour_id (for filtering)
             - parent_tour_id (for subtour counting)
         persons: DataFrame with person_type for joining
         households: DataFrame with income for purpose mapping
@@ -69,21 +70,25 @@ def format_individual_tour(
     logger.info("Formatting individual tour data for CT-RAMP")
 
     # Filter to individual tours only (not joint)
-    # Handle empty tours DataFrame
-    if len(tours) == 0:
-        individual_tours = tours
-    else:
-        individual_tours = tours.filter(pl.col("joint_tour_id").is_null())
+    individual_tours = tours.filter(pl.col("joint_tour_id").is_null())
 
-    # Join with persons to get person type and with households for income
+    # Join with persons for person_type and school_type,
+    # and households for income
     individual_tours = individual_tours.join(
-        persons.select(["person_id", "type"]),
+        persons.select(
+            ["person_id", "person_num", "person_type", "school_type"]
+        ),
         on="person_id",
         how="left",
     ).join(
         households.select(["hh_id", "income"]),
         on="hh_id",
         how="left",
+    )
+
+    # Remap person_type to CTRAMP format
+    individual_tours = individual_tours.with_columns(
+        pl.col("person_type").replace(PERSON_TYPE_TO_CTRAMP).alias("type")
     )
 
     # Calculate subtour count (at-work tours)
@@ -105,7 +110,7 @@ def format_individual_tour(
         map_purpose_to_ctramp(
             pl.col("tour_purpose"),
             pl.col("income"),
-            pl.col("student_category").fill_null("Not student"),
+            pl.col("school_type"),
             config.income_low_threshold,
             config.income_med_threshold,
             config.income_high_threshold,
@@ -115,8 +120,8 @@ def format_individual_tour(
     # Convert times to hour integers (5am-11pm = 5-23)
     individual_tours = individual_tours.with_columns(
         [
-            pl.col("depart_time").dt.hour().alias("start_hour"),
-            pl.col("arrive_time").dt.hour().alias("end_hour"),
+            pl.col("origin_depart_time").dt.hour().alias("start_hour"),
+            pl.col("origin_arrive_time").dt.hour().alias("end_hour"),
         ]
     )
 
@@ -124,39 +129,23 @@ def format_individual_tour(
     individual_tours = individual_tours.with_columns(
         map_mode_to_ctramp(
             pl.col("tour_mode"),
-            pl.col("num_travelers").fill_null(1),
+            pl.lit(1),  # Assume single traveler for individual tours
         ).alias("tour_mode_ctramp")
     )
 
     # Calculate number of outbound and inbound stops from trips
     # Count trips by tour_direction
-    # Note: For subtours, they get their own tour_id and count stops
-    # Handle empty trips DataFrame
-    if len(trips) == 0:
-        outbound_stops = pl.DataFrame(
-            {"tour_id": [], "num_ob_stops": []},
-            schema={"tour_id": pl.Int32, "num_ob_stops": pl.UInt32},
-        )
-        inbound_stops = pl.DataFrame(
-            {"tour_id": [], "num_ib_stops": []},
-            schema={"tour_id": pl.Int32, "num_ib_stops": pl.UInt32},
-        )
-    else:
-        outbound_stops = (
-            trips.filter(
-                pl.col("tour_direction") == TourDirection.OUTBOUND.value
-            )
-            .group_by("tour_id")
-            .agg(pl.len().alias("num_ob_stops"))
-        )
+    outbound_stops = (
+        trips.filter(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
+        .group_by("tour_id")
+        .agg(pl.len().alias("num_ob_stops"))
+    )
 
-        inbound_stops = (
-            trips.filter(
-                pl.col("tour_direction") == TourDirection.INBOUND.value
-            )
-            .group_by("tour_id")
-            .agg(pl.len().alias("num_ib_stops"))
-        )
+    inbound_stops = (
+        trips.filter(pl.col("tour_direction") == TourDirection.INBOUND.value)
+        .group_by("tour_id")
+        .agg(pl.len().alias("num_ib_stops"))
+    )
 
     # Join stop counts to tours
     individual_tours = (
@@ -172,8 +161,12 @@ def format_individual_tour(
 
     # Validate that no tours have zero trips
     zero_trip_tours = individual_tours.filter(
-        (pl.col("num_ob_stops") == 0) & (pl.col("num_ib_stops") == 0)
+        ((pl.col("num_ob_stops") == 0) & (pl.col("num_ib_stops") == 0))
+        &
+        # Exclude subtours from this check
+        (pl.col("subtour_num") == 0)
     )
+
     if len(zero_trip_tours) > 0:
         tour_ids = zero_trip_tours["tour_id"].to_list()
         msg = (
@@ -188,7 +181,7 @@ def format_individual_tour(
             pl.col("hh_id"),
             pl.col("person_id"),
             pl.col("person_num"),
-            pl.col("type").alias("person_type"),
+            pl.col("type"),
             pl.col("tour_id"),
             pl.col("tour_category"),
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
@@ -315,7 +308,7 @@ def format_joint_tour(
             map_purpose_to_ctramp(
                 pl.col("tour_purpose"),
                 pl.col("income"),
-                pl.lit("Not student"),  # Joint tours typically not for school
+                pl.lit(SchoolType.MISSING.value),  # Joint tours not for school
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,

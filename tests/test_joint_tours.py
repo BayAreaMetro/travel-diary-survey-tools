@@ -21,7 +21,7 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
+from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.joint_trips import detect_joint_trips
 from processing.tours.extraction import extract_tours
@@ -152,6 +152,18 @@ class TestFullyJointTour:
                     PurposeCategory.SHOP.value,
                     PurposeCategory.HOME.value,
                 ],
+                "o_purpose": [
+                    Purpose.HOME.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                    Purpose.GROCERY.value,
+                ],
+                "d_purpose": [
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                ],
                 "mode_type": [ModeType.CAR.value] * 4,
                 "o_lat": [37.8, 37.82, 37.8, 37.82],
                 "o_lon": [-122.4, -122.42, -122.4, -122.42],
@@ -243,6 +255,8 @@ class TestFullyJointTour:
                     PurposeCategory.HOME.value,
                 ]
                 * 3,
+                "o_purpose": [Purpose.HOME.value, Purpose.DINING.value] * 3,
+                "d_purpose": [Purpose.DINING.value, Purpose.HOME.value] * 3,
                 "mode_type": [ModeType.CAR.value] * 6,
                 "o_lat": [37.8, 37.83] * 3,
                 "o_lon": [-122.4, -122.43] * 3,
@@ -347,6 +361,22 @@ class TestPartialJointTour:
                     PurposeCategory.SHOP.value,
                     PurposeCategory.HOME.value,
                     PurposeCategory.SHOP.value,
+                ],
+                "o_purpose": [
+                    Purpose.HOME.value,
+                    Purpose.GROCERY.value,
+                    Purpose.DINING.value,
+                    Purpose.HOME.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                ],
+                "d_purpose": [
+                    Purpose.GROCERY.value,
+                    Purpose.DINING.value,
+                    Purpose.HOME.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                    Purpose.GROCERY.value,
                 ],
                 "mode_type": [ModeType.CAR.value] * 6,
                 "o_lat": [37.8, 37.82, 37.83, 37.8, 37.82, 37.8],
@@ -462,6 +492,28 @@ class TestPartialDropoff:
                     PurposeCategory.SCHOOL.value,
                     PurposeCategory.HOME.value,
                 ],
+                "o_purpose": [
+                    Purpose.HOME.value,
+                    Purpose.K12_SCHOOL.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                    Purpose.K12_SCHOOL.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                    Purpose.K12_SCHOOL.value,
+                    Purpose.K12_SCHOOL.value,
+                ],
+                "d_purpose": [
+                    Purpose.K12_SCHOOL.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                    Purpose.K12_SCHOOL.value,
+                    Purpose.GROCERY.value,
+                    Purpose.HOME.value,
+                    Purpose.K12_SCHOOL.value,
+                    Purpose.K12_SCHOOL.value,
+                    Purpose.HOME.value,
+                ],
                 "mode_type": [ModeType.CAR.value] * 9,
                 "o_lat": [37.8, 37.81, 37.82] * 3,
                 "o_lon": [-122.4, -122.43, -122.42] * 3,
@@ -575,6 +627,16 @@ class TestNoJointTours:
                 "d_purpose_category": [
                     PurposeCategory.WORK.value,
                     PurposeCategory.HOME.value,
+                ]
+                * 2,
+                "o_purpose": [
+                    Purpose.HOME.value,
+                    Purpose.PRIMARY_WORKPLACE.value,
+                ]
+                * 2,
+                "d_purpose": [
+                    Purpose.PRIMARY_WORKPLACE.value,
+                    Purpose.HOME.value,
                 ]
                 * 2,
                 "mode_type": [ModeType.CAR.value] * 4,

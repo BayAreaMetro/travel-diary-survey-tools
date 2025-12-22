@@ -40,7 +40,7 @@ from data_canon.codebook.persons import (
     Student,
 )
 from data_canon.codebook.tours import TourType
-from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
+from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import extract_tours, link_trips
 from processing.formatting.daysim.mappings import PURPOSE_MAP
 from tests.fixtures.scenario_builders import (
@@ -768,6 +768,18 @@ def test_tour_timing():
                 PURPOSE_MAP_NEW["work"],
                 PURPOSE_MAP_NEW["home"],
             ],
+            "o_purpose": [
+                Purpose.HOME.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.DINING.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+            ],
+            "d_purpose": [
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.DINING.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.HOME.value,
+            ],
             "mode_type": [
                 MODE_MAP_NEW["drive"],
                 MODE_MAP_NEW["walk"],
@@ -947,6 +959,18 @@ def test_tour_trip_counts():
                 PURPOSE_MAP_NEW["work"],
                 PURPOSE_MAP_NEW["home"],
             ],
+            "o_purpose": [
+                Purpose.HOME.value,
+                Purpose.GROCERY.value,
+                Purpose.SOCIAL.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+            ],
+            "d_purpose": [
+                Purpose.GROCERY.value,
+                Purpose.SOCIAL.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.HOME.value,
+            ],
             "mode_type": [MODE_MAP_NEW["drive"]] * 4,
             "o_lat": [home_coords[0], 37.71, 37.72, work_coords[0]],
             "o_lon": [home_coords[1], -122.41, -122.42, work_coords[1]],
@@ -1056,6 +1080,16 @@ def test_incomplete_tour_at_end_of_day():
                 PURPOSE_MAP_NEW["home"],
                 PURPOSE_MAP_NEW["work"],
             ],
+            "o_purpose": [
+                Purpose.HOME.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.HOME.value,
+            ],
+            "d_purpose": [
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.HOME.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+            ],
             "mode_type": [
                 MODE_MAP_NEW["drive"],
                 MODE_MAP_NEW["drive"],
@@ -1160,6 +1194,14 @@ def test_no_work_location():
             "d_purpose_category": [
                 PURPOSE_MAP_NEW["work"],
                 PURPOSE_MAP_NEW["home"],
+            ],
+            "o_purpose": [
+                Purpose.HOME.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+            ],
+            "d_purpose": [
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.HOME.value,
             ],
             "mode_type": [MODE_MAP_NEW["drive"], MODE_MAP_NEW["drive"]],
             "o_lat": [home_coords[0], work_coords[0]],

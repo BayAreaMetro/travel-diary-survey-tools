@@ -5,6 +5,8 @@ from datetime import datetime
 import polars as pl
 import pytest
 
+from data_canon.codebook.persons import Gender
+from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
 from data_canon.core.dataclass import CanonicalData
 from data_canon.core.exceptions import DataValidationError
 
@@ -69,7 +71,7 @@ class TestForeignKeys:
                 "person_id": [101, 102],
                 "hh_id": [1, 2],
                 "age": [6, 8],
-                "gender": ["male", "female"],
+                "gender": [Gender.MALE.value, Gender.FEMALE.value],
                 "worker": [True, True],
                 "student": [False, False],
             }
@@ -210,11 +212,31 @@ class TestCustomValidators:
                 "o_lat": [37.7749, 37.7749, 37.7749],
                 "d_lon": [-122.4094, -122.4094, -122.4094],
                 "d_lat": [37.7849, 37.7849, 37.7849],
-                "o_purpose": [1, 2, 1],  # HOME, WORK, HOME
-                "d_purpose": [2, 1, 1],  # WORK, HOME, HOME
-                "o_purpose_category": [1, 2, 1],  # HOME, WORK, HOME
-                "d_purpose_category": [2, 1, 1],  # WORK, HOME, HOME
-                "mode_type": [1, 2, 1],  # WALK, BIKE, WALK
+                "o_purpose": [
+                    Purpose.HOME.value,
+                    Purpose.PRIMARY_WORKPLACE.value,
+                    Purpose.HOME.value,
+                ],
+                "d_purpose": [
+                    Purpose.PRIMARY_WORKPLACE.value,
+                    Purpose.HOME.value,
+                    Purpose.HOME.value,
+                ],
+                "o_purpose_category": [
+                    PurposeCategory.HOME.value,
+                    PurposeCategory.WORK.value,
+                    PurposeCategory.HOME.value,
+                ],
+                "d_purpose_category": [
+                    PurposeCategory.WORK.value,
+                    PurposeCategory.HOME.value,
+                    PurposeCategory.HOME.value,
+                ],
+                "mode_type": [
+                    ModeType.WALK.value,
+                    ModeType.BIKE.value,
+                    ModeType.WALK.value,
+                ],
                 "duration_minutes": [
                     30.0,
                     30.0,
@@ -229,9 +251,7 @@ class TestCustomValidators:
                 "arrive_time": [
                     datetime(2024, 1, 15, 10, 30, 0),
                     datetime(2024, 1, 15, 11, 30, 0),
-                    datetime(
-                        2024, 1, 15, 18, 0, 0
-                    ),  # 10 hours later - too long!
+                    datetime(2024, 1, 15, 18, 0, 0),  # 10 hours later!
                 ],
             }
         )
@@ -271,7 +291,7 @@ class TestCustomValidators:
                 "person_id": [101, 102],
                 "hh_id": [1, 2],
                 "age": [6, 8],
-                "gender": ["male", "female"],
+                "gender": [Gender.MALE.value, Gender.FEMALE.value],
                 "worker": [True, True],
                 "student": [False, False],
             }

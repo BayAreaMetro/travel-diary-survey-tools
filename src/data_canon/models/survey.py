@@ -12,11 +12,12 @@ from datetime import datetime
 from pydantic import BaseModel, model_validator
 
 from data_canon.codebook.days import TravelDow
-from data_canon.codebook.generic import LocationType
+from data_canon.codebook.generic import BooleanYesNo, LocationType
 from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
+    Gender,
     PersonType,
     SchoolType,
     Student,
@@ -72,7 +73,11 @@ class PersonModel(BaseModel):
         fk_to="households.hh_id",
         required_child=True,
     )
+    person_num: int = step_field(
+        ge=1, required_in_steps=["format_ctramp", "format_daysim"]
+    )
     age: AgeCategory = step_field(required_in_steps=["extract_tours"])
+    gender: Gender = step_field(required_in_steps=["format_ctramp"])
     # These fields can be None if person is not employed or in school
     work_lat: float | None = step_field(
         ge=-90, le=90, required_in_steps=["extract_tours"]
@@ -109,6 +114,12 @@ class PersonModel(BaseModel):
     )
     work_mode: Mode | None = step_field(
         required_in_steps=["format_daysim"],
+    )
+    commute_subsidy_use_3: BooleanYesNo | None = step_field(
+        required_in_steps=["format_ctramp"],
+    )
+    commute_subsidy_use_4: BooleanYesNo | None = step_field(
+        required_in_steps=["format_ctramp"],
     )
     is_proxy: bool = step_field(required_in_steps=["format_daysim"])
     num_days_complete: int = step_field(ge=0, default=0)
@@ -178,6 +189,7 @@ class UnlinkedTripModel(BaseModel):
     arrive_time: datetime | None = step_field(
         required_in_steps=["link_trips", "extract_tours"]
     )
+    num_travelers: int = step_field(ge=1)
 
     # You can add custom row-level validators here
     # Don't confuse with the constom DataFrame-level validators elsewhere
@@ -229,6 +241,7 @@ class LinkedTripModel(BaseModel):
     arrive_hour: int = step_field(ge=0, le=23)
     arrive_minute: int = step_field(ge=0, le=59)
     arrive_seconds: int = step_field(ge=0, le=59)
+    o_purpose: Purpose = step_field(required_in_steps=["format_ctramp"])
     o_purpose_category: int = step_field()
     o_lat: float = step_field(
         ge=-90, le=90, required_in_steps=["detect_joint_trips"]
@@ -236,6 +249,7 @@ class LinkedTripModel(BaseModel):
     o_lon: float = step_field(
         ge=-180, le=180, required_in_steps=["detect_joint_trips"]
     )
+    d_purpose: Purpose = step_field(required_in_steps=["format_ctramp"])
     d_purpose_category: int = step_field(required_in_steps=["extract_tours"])
     d_lat: float = step_field(
         ge=-90, le=90, required_in_steps=["detect_joint_trips"]
@@ -342,6 +356,9 @@ class TourModel(BaseModel):
     tour_mode: ModeType = step_field()
     outbound_mode: ModeType | None = step_field()
     inbound_mode: ModeType | None = step_field()
+    num_travelers: int = step_field(
+        ge=1, required_in_steps=["format_ctramp"], default=1
+    )
 
     @model_validator(mode="after")
     def validate_complete_tours(self) -> "TourModel":

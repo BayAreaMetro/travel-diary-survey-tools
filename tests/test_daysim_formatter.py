@@ -442,7 +442,7 @@ class TestPersonFormatting:
 
         assert result["pptyp"][0] == PersonType.NON_WORKER.value
 
-    def test_format_persons_child_5_15(self):
+    def test_format_persons_child_non_driving(self):
         """Test person formatting for child aged 5-15."""
         days_list = [
             create_day(
@@ -473,7 +473,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.CHILD_5_15.value
+        assert result["pptyp"][0] == PersonType.CHILD_NON_DRIVING_AGE.value
         assert result["pagey"][0] == 10
 
     def test_format_persons_child_under_5(self):
@@ -731,13 +731,13 @@ class TestHouseholdFormatting:
                 {
                     "hhno": 1,
                     "pno": 3,
-                    "pptyp": PersonType.HIGH_SCHOOL_STUDENT.value,
+                    "pptyp": PersonType.CHILD_DRIVING_AGE.value,
                     "pwtyp": 0,
                 },
                 {
                     "hhno": 1,
                     "pno": 4,
-                    "pptyp": PersonType.CHILD_5_15.value,
+                    "pptyp": PersonType.CHILD_NON_DRIVING_AGE.value,
                     "pwtyp": 0,
                 },
             ]

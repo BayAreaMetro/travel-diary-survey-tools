@@ -11,7 +11,6 @@ import polars as pl
 from data_canon.codebook.households import IncomeDetailed
 from data_canon.codebook.persons import (
     AgeCategory,
-    CommuteSubsidy,
     Employment,
     Gender,
     SchoolType,
@@ -866,7 +865,6 @@ def create_single_adult_household():
         gender=Gender.MALE,
         employment=Employment.EMPLOYED_FULLTIME,
         student=Student.NONSTUDENT,
-        commute_subsidy=CommuteSubsidy.FREE_PARK,
     )
 
     return pl.DataFrame([household]), pl.DataFrame([person])

@@ -416,7 +416,7 @@ For more details, see:
   - [ ] Implement bespoke output formats
     - [x] Implement Daysim output format
     - [ ] Implement ActivitySim output format
-    - [ ] Implement CT-RAMP output format
+    - [ ] Implement CT-RAMP format
 
 **The primary goal is to establish a solid foundation with the core data models, validation, and basic pipeline functionality, then build upon that iteratively based on stakeholder feedback and evolving needs.**
 

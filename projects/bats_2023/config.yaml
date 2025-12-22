@@ -80,15 +80,6 @@ steps:
   # - name: final_check
   #   validate_input: true
 
-  # This prepares a new set of files formatted for DaySim
-  - name: format_daysim
-    validate_input: false
-    cache: false
-    params:
-      drop_partial_tours: true
-      drop_missing_taz: true
-      drop_invalid_tours: true
-
   - name: format_ctramp
     validate_input: false
     cache: false
@@ -108,6 +99,15 @@ steps:
       # This is not optimal, but model requires a binary gender
       gender_default_for_missing: "f"
       drop_missing_taz: true  # Drop households without valid TAZ
+
+  # This prepares a new set of files formatted for DaySim
+  - name: format_daysim
+    validate_input: false
+    cache: false
+    params:
+      drop_partial_tours: true
+      drop_missing_taz: true
+      drop_invalid_tours: true
 
   - name: write_data
     validate_input: true

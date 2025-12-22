@@ -12,10 +12,10 @@ import pytest
 
 from data_canon.codebook.ctramp import FreeParkingChoice
 from data_canon.codebook.ctramp import PersonType as CTRAMPPersonType
+from data_canon.codebook.generic import BooleanYesNo
 from data_canon.codebook.households import IncomeDetailed, IncomeFollowup
 from data_canon.codebook.persons import (
     AgeCategory,
-    CommuteSubsidy,
     Employment,
     Gender,
     SchoolType,
@@ -28,7 +28,6 @@ from processing.formatting.ctramp.format_ctramp import format_ctramp
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_persons import (
     classify_person_type,
-    determine_free_parking_eligibility,
     format_persons,
 )
 from processing.formatting.ctramp.format_tours import (
@@ -111,7 +110,7 @@ class TestPersonTypeClassification:
             student=Student.NONSTUDENT.value,
             school_type=SchoolType.MISSING.value,
         )
-        assert person_type == CTRAMPPersonType.NONWORKER.value
+        assert person_type == CTRAMPPersonType.NON_WORKER.value
 
     def test_driving_age_student(self):
         """Test classification of driving age student."""
@@ -121,7 +120,7 @@ class TestPersonTypeClassification:
             student=Student.FULLTIME_INPERSON.value,
             school_type=SchoolType.HIGH_SCHOOL.value,
         )
-        assert person_type == CTRAMPPersonType.STUDENT_DRIVING_AGE.value
+        assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value
 
     def test_non_driving_age_student(self):
         """Test classification of non-driving age student."""
@@ -131,7 +130,7 @@ class TestPersonTypeClassification:
             student=Student.FULLTIME_INPERSON.value,
             school_type=SchoolType.ELEMENTARY.value,
         )
-        assert person_type == CTRAMPPersonType.STUDENT_NON_DRIVING_AGE.value
+        assert person_type == CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value
 
     def test_child_too_young(self):
         """Test classification of child too young for school."""
@@ -141,39 +140,76 @@ class TestPersonTypeClassification:
             student=Student.NONSTUDENT.value,
             school_type=SchoolType.PRESCHOOL.value,
         )
-        assert person_type == CTRAMPPersonType.CHILD_TOO_YOUNG.value
+        assert person_type == CTRAMPPersonType.CHILD_UNDER_5.value
 
 
-class TestFreeParkingEligibility:
-    """Tests for free parking eligibility determination."""
+class TestFreeParkingChoice:
+    """Tests for free parking choice in person formatting."""
 
-    def test_free_parking_subsidy(self):
-        """Test free parking with subsidy."""
-        fp_choice = determine_free_parking_eligibility(
-            CommuteSubsidy.FREE_PARK.value
+    def test_free_parking_used(self, standard_config):
+        """Test free parking choice when free parking is used."""
+        persons = pl.DataFrame(
+            [
+                create_person(
+                    commute_subsidy_use_3=BooleanYesNo.YES,
+                    commute_subsidy_use_4=BooleanYesNo.NO,
+                )
+            ]
         )
-        assert fp_choice == FreeParkingChoice.PARK_FOR_FREE.value
+        result = format_persons(persons, pl.DataFrame(), standard_config)
+        assert result["fp_choice"][0] == FreeParkingChoice.PARK_FOR_FREE.value
 
-    def test_discount_parking_subsidy(self):
-        """Test discounted parking subsidy."""
-        fp_choice = determine_free_parking_eligibility(
-            CommuteSubsidy.DISCOUNT_PARKING.value
+    def test_discount_parking_used(self, standard_config):
+        """Test free parking choice when discounted parking is used."""
+        persons = pl.DataFrame(
+            [
+                create_person(
+                    commute_subsidy_use_3=BooleanYesNo.NO,
+                    commute_subsidy_use_4=BooleanYesNo.YES,
+                )
+            ]
         )
-        assert fp_choice == FreeParkingChoice.PARK_FOR_FREE.value
+        result = format_persons(persons, pl.DataFrame(), standard_config)
+        assert result["fp_choice"][0] == FreeParkingChoice.PARK_FOR_FREE.value
 
-    def test_no_parking_subsidy(self):
-        """Test no parking subsidy."""
-        fp_choice = determine_free_parking_eligibility(
-            CommuteSubsidy.NONE.value
+    def test_both_parking_subsidies_used(self, standard_config):
+        """Test free parking choice when both parking subsidies are used."""
+        persons = pl.DataFrame(
+            [
+                create_person(
+                    commute_subsidy_use_3=BooleanYesNo.YES,
+                    commute_subsidy_use_4=BooleanYesNo.YES,
+                )
+            ]
         )
-        assert fp_choice == FreeParkingChoice.PAY_TO_PARK.value
+        result = format_persons(persons, pl.DataFrame(), standard_config)
+        assert result["fp_choice"][0] == FreeParkingChoice.PARK_FOR_FREE.value
 
-    def test_other_subsidy_types(self):
-        """Test other subsidy types (transit, etc.)."""
-        fp_choice = determine_free_parking_eligibility(
-            CommuteSubsidy.TRANSIT.value
+    def test_no_parking_subsidy_used(self, standard_config):
+        """Test no parking subsidy used."""
+        persons = pl.DataFrame(
+            [
+                create_person(
+                    commute_subsidy_use_3=BooleanYesNo.NO,
+                    commute_subsidy_use_4=BooleanYesNo.NO,
+                )
+            ]
         )
-        assert fp_choice == FreeParkingChoice.PAY_TO_PARK.value
+        result = format_persons(persons, pl.DataFrame(), standard_config)
+        assert result["fp_choice"][0] == FreeParkingChoice.PAY_TO_PARK.value
+
+    def test_missing_values_treated_as_no_subsidy(self, standard_config):
+        """Test that missing (995) values are treated as no subsidy."""
+        persons = pl.DataFrame(
+            [
+                create_person(
+                    commute_subsidy_use_3=BooleanYesNo.MISSING,
+                    commute_subsidy_use_4=BooleanYesNo.MISSING,
+                )
+            ]
+        )
+        result = format_persons(persons, pl.DataFrame(), standard_config)
+        assert result["fp_choice"][0] == FreeParkingChoice.PAY_TO_PARK.value
 
 
 class TestHouseholdFormatting:
@@ -194,13 +230,27 @@ class TestHouseholdFormatting:
             ]
         )
 
-        result = format_households(households)
+        persons = pl.DataFrame(
+            [
+                {
+                    "hh_id": 1,
+                    "person_id": 1,
+                    "employment": Employment.EMPLOYED_FULLTIME.value,
+                },
+                {
+                    "hh_id": 1,
+                    "person_id": 2,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                },
+            ]
+        )
+        result = format_households(households, persons)
 
         assert len(result) == 1
         assert result["hh_id"][0] == 1
         assert result["taz"][0] == 100
         assert result["income"][0] == 87000  # Midpoint rounded to $1000
-        assert result["autos"][0] == 1
+        assert result["autos"][0] == 0  # Placeholder value
         assert result["size"][0] == 2
         assert result["workers"][0] == 1
         assert result["jtf_choice"][0] == -4
@@ -217,7 +267,11 @@ class TestHouseholdFormatting:
             ]
         )
 
-        result = format_households(households)
+        persons = pl.DataFrame(
+            {"hh_id": [], "employment": []},
+            schema={"hh_id": pl.Int64, "employment": pl.Int64},
+        )
+        result = format_households(households, persons)
 
         assert (
             result["income"][0] == 62000
@@ -239,7 +293,7 @@ class TestPersonFormatting:
                     gender=Gender.MALE,
                     employment=Employment.EMPLOYED_FULLTIME,
                     student=Student.NONSTUDENT,
-                    commute_subsidy=CommuteSubsidy.FREE_PARK,
+                    commute_subsidy_use_3=BooleanYesNo.YES,
                 )
             ]
         )
@@ -474,9 +528,9 @@ class TestColumnPresence:
         """Test that all required household columns are present."""
         (
             households,
-            _,
+            persons,
         ) = create_single_adult_household()
-        result = format_households(households)
+        result = format_households(households, persons)
 
         required_columns = [
             "hh_id",
@@ -563,11 +617,8 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP (tours formatter needs formatted households/persons)
-        households = format_households(households_canonical)
-        # Pass empty tours - testing tour formatting, not person stats
-        persons = format_persons(
-            persons_canonical, pl.DataFrame(), standard_config
-        )
+        households = format_households(households_canonical, persons_canonical)
+        # Pass canonical persons for person_type and school_type
 
         tours = tours_canonical
         trips_canonical = pl.DataFrame(
@@ -591,7 +642,7 @@ class TestIndividualTourFormatting:
         trips = trips_canonical
 
         result = format_individual_tour(
-            tours, trips, persons, households, standard_config
+            tours, trips, persons_canonical, households, standard_config
         )
 
         assert len(result) == 1
@@ -659,15 +710,12 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP first
-        households_formatted = format_households(households)
-        persons_formatted = format_persons(
-            persons, pl.DataFrame(), standard_config
-        )
+        households_formatted = format_households(households, persons)
 
         result = format_individual_tour(
             tours,
             trips,
-            persons_formatted,
+            persons,
             households_formatted,
             standard_config,
         )
@@ -752,15 +800,12 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households)
-        persons_formatted = format_persons(
-            persons, pl.DataFrame(), standard_config
-        )
+        households_formatted = format_households(households, persons)
 
         result = format_individual_tour(
             tours,
             trips,
-            persons_formatted,
+            persons,
             households_formatted,
             standard_config,
         )
@@ -786,16 +831,13 @@ class TestIndividualTourFormatting:
         trips = pl.DataFrame([])  # No trips!
 
         # Format to CTRAMP
-        households_formatted = format_households(households)
-        persons_formatted = format_persons(
-            persons, pl.DataFrame(), standard_config
-        )
+        households_formatted = format_households(households, persons)
 
         with pytest.raises(ValueError, match="Found 1 tours with zero trips"):
             format_individual_tour(
                 tours,
                 trips,
-                persons_formatted,
+                persons,
                 households_formatted,
                 standard_config,
             )
@@ -853,15 +895,13 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households)
-        persons_formatted = format_persons(
-            persons, pl.DataFrame(), standard_config
-        )
+        households_formatted = format_households(households, persons)
+        format_persons(persons, pl.DataFrame(), standard_config)
 
         result = format_individual_tour(
             tours,
             trips,
-            persons_formatted,
+            persons,
             households_formatted,
             standard_config,
         )
@@ -932,7 +972,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households)
+        households_formatted = format_households(households, persons)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -1004,7 +1044,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households)
+        households_formatted = format_households(households, persons)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -1053,7 +1093,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households)
+        households_formatted = format_households(households, persons)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )

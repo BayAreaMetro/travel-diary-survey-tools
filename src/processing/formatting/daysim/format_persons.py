@@ -179,7 +179,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         pptyp=pl.when(pl.col("pagey") < AgeThreshold.CHILD_PRESCHOOL)
         .then(pl.lit(DaysimPersonType.CHILD_UNDER_5.value))
         .when(pl.col("pagey") < AgeThreshold.CHILD_SCHOOL)
-        .then(pl.lit(DaysimPersonType.CHILD_5_15.value))
+        .then(pl.lit(DaysimPersonType.CHILD_NON_DRIVING_AGE.value))
         # Age >= 16:
         .when(
             pl.col("employment").is_in(

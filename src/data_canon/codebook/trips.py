@@ -1,5 +1,7 @@
 """Codebook enumerations for trip table."""
 
+from typing import ClassVar
+
 from data_canon.core.labeled_enum import LabeledEnum
 
 
@@ -96,7 +98,56 @@ class PurposeCategory(LabeledEnum):
 class PurposeToCategoryMap:
     """Mapping from detailed purpose codes to purpose categories."""
 
-    # Need to populate this...
+    PURPOSE_TO_CATEGORY: ClassVar[dict] = {
+        Purpose.HOME: PurposeCategory.HOME,
+        Purpose.PRIMARY_WORKPLACE: PurposeCategory.WORK,
+        Purpose.WORK_ACTIVITY: PurposeCategory.WORK_RELATED,
+        Purpose.VOLUNTEERING: PurposeCategory.WORK_RELATED,
+        Purpose.OTHER_WORK: PurposeCategory.WORK_RELATED,
+        Purpose.WORK_VOLUNTEER: PurposeCategory.WORK_RELATED,
+        Purpose.K12_SCHOOL: PurposeCategory.SCHOOL,
+        Purpose.COLLEGE: PurposeCategory.SCHOOL,
+        Purpose.DAYCARE: PurposeCategory.SCHOOL,
+        Purpose.VOCATIONAL: PurposeCategory.SCHOOL,
+        Purpose.OTHER_CLASS: PurposeCategory.SCHOOL_RELATED,
+        Purpose.OTHER_EDUCATION: PurposeCategory.SCHOOL_RELATED,
+        Purpose.SCHOOL: PurposeCategory.SCHOOL,
+        Purpose.PICK_UP: PurposeCategory.ESCORT,
+        Purpose.DROP_OFF: PurposeCategory.ESCORT,
+        Purpose.ACCOMPANY: PurposeCategory.ESCORT,
+        Purpose.PICK_UP_AND_DROP_OFF: PurposeCategory.ESCORT,
+        Purpose.ESCORT: PurposeCategory.ESCORT,
+        Purpose.GROCERY: PurposeCategory.SHOP,
+        Purpose.ROUTINE_SHOPPING: PurposeCategory.SHOP,
+        Purpose.MAJOR_SHOPPING: PurposeCategory.SHOP,
+        Purpose.SHOPPING_ERRANDS: PurposeCategory.SHOP,
+        Purpose.DINING: PurposeCategory.MEAL,
+        Purpose.EXERCISE: PurposeCategory.SOCIALREC,
+        Purpose.SOCIAL: PurposeCategory.SOCIALREC,
+        Purpose.ENTERTAINMENT: PurposeCategory.SOCIALREC,
+        Purpose.RELIGIOUS_CIVIC: PurposeCategory.SOCIALREC,
+        Purpose.FAMILY_ACTIVITY: PurposeCategory.SOCIALREC,
+        Purpose.SOCIAL_LEISURE: PurposeCategory.SOCIALREC,
+        Purpose.OTHER_SOCIAL: PurposeCategory.SOCIALREC,
+        Purpose.GAS: PurposeCategory.ERRAND,
+        Purpose.ERRAND_NO_APPT: PurposeCategory.ERRAND,
+        Purpose.MEDICAL: PurposeCategory.ERRAND,
+        Purpose.ERRAND_WITH_APPT: PurposeCategory.ERRAND,
+        Purpose.OTHER_ACTIVITY: PurposeCategory.ERRAND,
+        Purpose.OTHER_ERRAND: PurposeCategory.ERRAND,
+        Purpose.MODE_CHANGE: PurposeCategory.CHANGE_MODE,
+        Purpose.OTHER_RESIDENCE: PurposeCategory.OVERNIGHT,
+        Purpose.TEMP_LODGING: PurposeCategory.OVERNIGHT,
+        Purpose.OTHER: PurposeCategory.OTHER,
+        Purpose.MISSING: PurposeCategory.MISSING,
+        Purpose.PNTA: PurposeCategory.PNTA,
+        Purpose.NOT_IMPUTABLE: PurposeCategory.NOT_IMPUTABLE,
+    }
+
+    @classmethod
+    def get_category(cls, purpose: Purpose) -> PurposeCategory:
+        """Get the category for a given purpose code."""
+        return cls.PURPOSE_TO_CATEGORY.get(purpose, PurposeCategory.OTHER)
 
 
 class Driver(LabeledEnum):

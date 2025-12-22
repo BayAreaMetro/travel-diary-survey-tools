@@ -1,4 +1,4 @@
-"""Person formatting for CT-RAMP output.
+"""Person formatting for CT-RAMP.
 
 Transforms canonical person data into CT-RAMP model format, including:
 - Person type classification based on age, employment, and student status
@@ -21,7 +21,8 @@ from data_canon.codebook.ctramp import (
 from data_canon.codebook.ctramp import (
     PersonType as CTRAMPPersonType,
 )
-from data_canon.codebook.persons import AgeCategory, CommuteSubsidy
+from data_canon.codebook.generic import BooleanYesNo
+from data_canon.codebook.persons import AgeCategory
 
 from .ctramp_config import CTRAMPConfig
 from .mappings import (
@@ -153,49 +154,32 @@ def classify_person_type(
 
     # Classification based on AgeCategory enum
     if age == AgeCategory.AGE_UNDER_5.value:
-        person_type = CTRAMPPersonType.CHILD_TOO_YOUNG.value
+        person_type = CTRAMPPersonType.CHILD_UNDER_5.value
     elif age == AgeCategory.AGE_5_TO_15.value:
         person_type = (
-            CTRAMPPersonType.STUDENT_NON_DRIVING_AGE.value
+            CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value
             if is_student
-            else CTRAMPPersonType.NONWORKER.value
+            else CTRAMPPersonType.NON_WORKER.value
         )
     elif age == AgeCategory.AGE_16_TO_17.value:
         if is_student:
-            person_type = CTRAMPPersonType.STUDENT_DRIVING_AGE.value
+            person_type = CTRAMPPersonType.CHILD_DRIVING_AGE.value
         else:
-            person_type = CTRAMPPersonType.NONWORKER.value
+            person_type = CTRAMPPersonType.NON_WORKER.value
     elif emp_status == "full_time":
         person_type = CTRAMPPersonType.FULL_TIME_WORKER.value
     elif emp_status == "part_time":
         person_type = CTRAMPPersonType.PART_TIME_WORKER.value
     elif is_student and school_cat in ("elementary", "high_school"):
-        person_type = CTRAMPPersonType.STUDENT_DRIVING_AGE.value
+        person_type = CTRAMPPersonType.CHILD_DRIVING_AGE.value
     elif age >= AgeCategory.AGE_65_TO_74.value:  # Retired
         person_type = CTRAMPPersonType.RETIRED.value
     elif school_cat == "college":
         person_type = CTRAMPPersonType.UNIVERSITY_STUDENT.value
     else:
-        person_type = CTRAMPPersonType.NONWORKER.value
+        person_type = CTRAMPPersonType.NON_WORKER.value
 
     return person_type
-
-
-def determine_free_parking_eligibility(commute_subsidy: int) -> int:
-    """Determine free parking eligibility from commute subsidy.
-
-    Args:
-        commute_subsidy: Commute subsidy code
-
-    Returns:
-        Free parking choice code (1=free, 2=pay)
-    """
-    if commute_subsidy in [
-        CommuteSubsidy.FREE_PARK.value,
-        CommuteSubsidy.DISCOUNT_PARKING.value,
-    ]:
-        return FreeParkingChoice.PARK_FOR_FREE.value
-    return FreeParkingChoice.PAY_TO_PARK.value
 
 
 def format_persons(
@@ -222,7 +206,8 @@ def format_persons(
             - employment: Employment status
             - student: Student status
             - school_type: Type of school attending
-            - commute_subsidy: Commute subsidy type
+            - commute_subsidy_use_3: Free parking used (BooleanYesNo)
+            - commute_subsidy_use_4: Discounted parking used (BooleanYesNo)
             - value_of_time: Value of time ($/hour)
         tours: DataFrame with formatted tour data including tour_purpose_ctramp
         config: CT-RAMP configuration with age thresholds
@@ -274,13 +259,15 @@ def format_persons(
     )
 
     # Determine free parking eligibility
+    # Person can park for free if they use free or discounted parking
+    # (commute_subsidy_use_3 or commute_subsidy_use_4 == 1)
     persons_ctramp = persons_ctramp.with_columns(
-        pl.col("commute_subsidy")
-        .fill_null(-1)
-        .map_elements(
-            determine_free_parking_eligibility,
-            return_dtype=pl.Int64,
+        pl.when(
+            (pl.col("commute_subsidy_use_3") == BooleanYesNo.YES.value)
+            | (pl.col("commute_subsidy_use_4") == BooleanYesNo.YES.value)
         )
+        .then(pl.lit(FreeParkingChoice.PARK_FOR_FREE.value))
+        .otherwise(pl.lit(FreeParkingChoice.PAY_TO_PARK.value))
         .alias("fp_choice")
     )
 
@@ -319,11 +306,11 @@ def format_persons(
 
     # if value_of_time is not in input, drop
     if "value_of_time" not in persons_ctramp.columns:
-        output_cols.pop("value_of_time")
+        output_cols.remove("value_of_time")
 
     # Select final columns in CT-RAMP order
     persons_ctramp = persons_ctramp.select(output_cols)
 
-    logger.info("Formatted %d persons for CT-RAMP output", len(persons_ctramp))
+    logger.info("Formatted %d persons for CT-RAMP", len(persons_ctramp))
 
     return persons_ctramp

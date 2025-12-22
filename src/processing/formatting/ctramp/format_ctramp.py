@@ -127,41 +127,28 @@ def format_ctramp(  # noqa: D417, PLR0913
         )
 
     # Format each table
-    households_ctramp = format_households(households)
+    households_ctramp = format_households(households, persons)
 
-    # Format persons to get person types (needed for tour formatting)
-    # Pass empty tours with schema so _aggregate_tour_stats works
+    # Create empty tours DataFrame for tour stats aggregation
+    empty_formatted_tours = pl.DataFrame(
+        schema={
+            "person_id": pl.Int64,
+            "tour_purpose": pl.String,
+        }
+    )
+
     if len(tours) == 0:
-        # Create empty tours with schema for tour stats aggregation
-        # This allows persons to have activity_pattern = 'H' (home/no tours)
-        empty_formatted_tours = pl.DataFrame(
-            schema={
-                "person_id": pl.Int64,
-                "tour_purpose": pl.String,  # Formatted tour field name
-            }
-        )
+        individual_tour_ctramp = pl.DataFrame()
         persons_ctramp = format_persons(persons, empty_formatted_tours, config)
-        individual_tour_ctramp = pl.DataFrame()  # No tours to format
     else:
-        # First, format persons WITHOUT tour stats to get person types
-        empty_formatted_tours = pl.DataFrame(
-            schema={
-                "person_id": pl.Int64,
-                "tour_purpose": pl.String,
-            }
-        )
-        persons_ctramp_temp = format_persons(
-            persons, empty_formatted_tours, config
-        )
-
-        # Format tours using persons with "type" column
+        # Format tours using canonical persons for person_type and school_type
         individual_tour_ctramp = format_individual_tour(
-            tours, linked_trips, persons_ctramp_temp, households_ctramp, config
+            tours, linked_trips, persons, households_ctramp, config
         )
-
         # Re-format persons with actual tour statistics
         persons_ctramp = format_persons(persons, individual_tour_ctramp, config)
 
+    # Prepare result dictionary, to be additionally populated with tours/trips
     result = {
         "households_ctramp": households_ctramp,
         "persons_ctramp": persons_ctramp,

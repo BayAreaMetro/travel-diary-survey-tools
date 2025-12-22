@@ -19,7 +19,6 @@ from data_canon.codebook.households import (
 )
 from data_canon.codebook.persons import (
     AgeCategory,
-    CommuteSubsidy,
     Employment,
     Gender,
     SchoolType,
@@ -107,7 +106,8 @@ def create_person(
     employment: Employment = Employment.EMPLOYED_FULLTIME,
     student: Student = Student.NONSTUDENT,
     school_type: SchoolType = SchoolType.MISSING,
-    commute_subsidy: CommuteSubsidy = CommuteSubsidy.NONE,
+    commute_subsidy_use_3: BooleanYesNo = BooleanYesNo.NO,
+    commute_subsidy_use_4: BooleanYesNo = BooleanYesNo.NO,
     value_of_time: float = 15.0,
     # Optional location fields
     home_lat: float | None = None,
@@ -143,7 +143,8 @@ def create_person(
         employment: Employment status enum
         student: Student status enum
         school_type: Type of school enum (if student)
-        commute_subsidy: Commute subsidy availability enum
+        commute_subsidy_use_3: Free parking used (BooleanYesNo)
+        commute_subsidy_use_4: Discounted parking used (BooleanYesNo)
         value_of_time: Value of time in $/hour
         home_lat: Home latitude (optional)
         home_lon: Home longitude (optional)
@@ -175,7 +176,8 @@ def create_person(
         "employment": employment.value,
         "student": student.value,
         "school_type": school_type.value,
-        "commute_subsidy": commute_subsidy.value,
+        "commute_subsidy_use_3": commute_subsidy_use_3.value,
+        "commute_subsidy_use_4": commute_subsidy_use_4.value,
         "value_of_time": value_of_time,
     }
 

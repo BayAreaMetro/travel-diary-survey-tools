@@ -301,6 +301,7 @@ def aggregate_linked_trips(
                 # pl.first("depart_minute"),
                 # pl.first("depart_seconds"),
                 pl.first("depart_time"),
+                pl.first("o_purpose"),
                 pl.first("o_purpose_category"),
                 pl.first("o_taz")
                 if "o_taz" in unlinked_trips.columns
@@ -316,6 +317,7 @@ def aggregate_linked_trips(
                 # pl.last("arrive_minute"),
                 # pl.last("arrive_seconds"),
                 pl.last("arrive_time"),
+                pl.last("d_purpose"),
                 pl.last("d_purpose_category"),
                 pl.last("d_taz")
                 if "d_taz" in unlinked_trips.columns

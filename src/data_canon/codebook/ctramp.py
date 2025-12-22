@@ -2,6 +2,7 @@
 
 import polars as pl
 
+from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.trips import ModeType, Purpose
 from data_canon.core.labeled_enum import LabeledEnum
 
@@ -39,17 +40,19 @@ class WalkToTransitSubZone(LabeledEnum):
     LONG_WALK = 2, "long-walk"
 
 
+# NOTE: This is basically a re-map of the canonical PersonType enum
+# Can we just use that directly instead of redefining here?
 class PersonType(LabeledEnum):
     """Enumeration for person type categories."""
 
     FULL_TIME_WORKER = 1, "Full-time worker"
     PART_TIME_WORKER = 2, "Part-time worker"
     UNIVERSITY_STUDENT = 3, "University student"
-    NONWORKER = 4, "Nonworker"
+    NON_WORKER = 4, "Nonworker"
     RETIRED = 5, "Retired"
-    STUDENT_NON_DRIVING_AGE = 6, "Student of non-driving age"
-    STUDENT_DRIVING_AGE = 7, "Student of driving age"
-    CHILD_TOO_YOUNG = 8, "Child too young for school"
+    CHILD_NON_DRIVING_AGE = 6, "Child of non-driving age"
+    CHILD_DRIVING_AGE = 7, "Child of driving age"
+    CHILD_UNDER_5 = 8, "Child too young for school"
 
 
 class EmploymentCategory(LabeledEnum):
@@ -86,10 +89,10 @@ class CTRAMPMode(LabeledEnum):
 def map_purpose_to_ctramp(
     purpose: pl.Expr,
     income: pl.Expr,
-    student_category: pl.Expr,
-    income_low_threshold: int = 60000,
-    income_med_threshold: int = 150000,
-    income_high_threshold: int = 240000,
+    school_type: pl.Expr,
+    income_low_threshold: int,
+    income_med_threshold: int,
+    income_high_threshold: int,
 ) -> pl.Expr:
     """Map canonical trip purpose to CTRAMP purpose string.
 
@@ -100,18 +103,45 @@ def map_purpose_to_ctramp(
         purpose: Polars expression for canonical purpose
             (from trips.Purpose enum)
         income: Polars expression for household income (absolute dollars)
-        student_category: Polars expression for student category string
-            ("College or higher", "Grade or high school", "Not student")
+        school_type: Polars expression for school type
+            (from persons.SchoolType enum):
+              - K12: 5-7
+              - College/Grad: 11-13
+              - Not student/Missing: other values
         income_low_threshold: Income threshold for low bracket
-            (default: 60000 = $60k)
         income_med_threshold: Income threshold for med bracket
-            (default: 150000 = $150k)
         income_high_threshold: Income threshold for high bracket
-            (default: 240000 = $240k)
 
     Returns:
         Polars expression resolving to CTRAMP purpose string
     """
+    # Compute student category from student and school_type enums
+    # College/grad -> "College or higher"
+    # K-12 -> "Grade or high school"
+    # Not student or missing -> "Not student"
+    student_category = (
+        pl.when(
+            school_type.is_in(
+                [
+                    SchoolType.COLLEGE_2YEAR.value,
+                    SchoolType.COLLEGE_4YEAR.value,
+                    SchoolType.GRADUATE_SCHOOL.value,
+                ]
+            )
+        )
+        .then(pl.lit("College or higher"))
+        .when(
+            school_type.is_in(
+                [
+                    SchoolType.ELEMENTARY.value,
+                    SchoolType.MIDDLE_SCHOOL.value,
+                    SchoolType.HIGH_SCHOOL.value,
+                ]
+            )
+        )
+        .then(pl.lit("Grade or high school"))
+        .otherwise(pl.lit("Not student"))
+    )
     # Home purpose
     home_expr = pl.when(purpose == Purpose.HOME.value).then(pl.lit("Home"))
 
@@ -135,7 +165,7 @@ def map_purpose_to_ctramp(
 
     # School purposes - segmented by student type
     k12_purposes = [Purpose.K12_SCHOOL.value, Purpose.DAYCARE.value]
-    school_segmentation = (
+    school_segmentation_expr = (
         pl.when(student_category == "College or higher")
         .then(pl.lit("university"))
         .when(student_category == "Grade or high school")
@@ -143,7 +173,7 @@ def map_purpose_to_ctramp(
         .otherwise(pl.lit("school_grade"))
     )
     school_expr = work_expr.when(purpose.is_in(k12_purposes)).then(
-        school_segmentation
+        school_segmentation_expr
     )
     university_expr = school_expr.when(purpose == Purpose.COLLEGE.value).then(
         pl.lit("university")
@@ -163,7 +193,7 @@ def map_purpose_to_ctramp(
         Purpose.PICK_UP.value,
         Purpose.ACCOMPANY.value,
     ]
-    escort_segmentation = (
+    escort_segmentation_expr = (
         pl.when(
             student_category.is_in(
                 ["College or higher", "Grade or high school"]
@@ -173,7 +203,7 @@ def map_purpose_to_ctramp(
         .otherwise(pl.lit("escort_no kids"))
     )
     escort_expr = eatout_expr.when(purpose.is_in(escort_purposes)).then(
-        escort_segmentation
+        escort_segmentation_expr
     )
 
     # Shopping

@@ -1,4 +1,4 @@
-"""Trip formatting for CT-RAMP output.
+"""Trip formatting for CT-RAMP.
 
 Transforms canonical trip data into CT-RAMP model format, including:
 - Individual trips (trips on individual tours)
@@ -10,6 +10,8 @@ import logging
 import polars as pl
 
 from data_canon.codebook.ctramp import map_mode_to_ctramp, map_purpose_to_ctramp
+from data_canon.codebook.persons import SchoolType, Student
+from data_canon.codebook.tours import TourDirection
 
 from .ctramp_config import CTRAMPConfig
 
@@ -66,7 +68,7 @@ def format_individual_trip(
 
     # Join with persons and households
     individual_trips = individual_trips.join(
-        persons.select(["person_id", "person_type"]),
+        persons.select(["person_id", "person_type", "student", "school_type"]),
         on="person_id",
         how="left",
     ).join(
@@ -75,21 +77,31 @@ def format_individual_trip(
         how="left",
     )
 
-    # Create stop_id: sequence number within each half-tour (outbound/inbound)
-    # Starting at 1 for each half-tour
-    individual_trips = individual_trips.sort(
-        ["tour_id", "half_tour", "depart_time"]
-    ).with_columns(
-        pl.col("depart_time")
-        .rank("dense")
-        .over(["tour_id", "half_tour"])
-        .cast(pl.Int64)
-        .alias("stop_id")
+    # Create stop_id: sequence number within each tour direction
+    # (outbound/inbound). Starting at 1 for each direction
+    # Map tour_direction enum to string for easier handling
+    individual_trips = (
+        individual_trips.with_columns(
+            pl.when(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
+            .then(pl.lit("outbound"))
+            .when(pl.col("tour_direction") == TourDirection.INBOUND.value)
+            .then(pl.lit("inbound"))
+            .otherwise(pl.lit("subtour"))
+            .alias("tour_direction_str")
+        )
+        .sort(["tour_id", "tour_direction_str", "depart_time"])
+        .with_columns(
+            pl.col("depart_time")
+            .rank("dense")
+            .over(["tour_id", "tour_direction_str"])
+            .cast(pl.Int64)
+            .alias("stop_id")
+        )
     )
 
     # Map inbound flag (0=outbound, 1=inbound)
     individual_trips = individual_trips.with_columns(
-        pl.when(pl.col("half_tour") == "inbound")
+        pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
         .then(pl.lit(1))
         .otherwise(pl.lit(0))
         .alias("inbound")
@@ -101,7 +113,8 @@ def format_individual_trip(
             map_purpose_to_ctramp(
                 pl.col("o_purpose"),
                 pl.col("income"),
-                pl.col("student_category").fill_null("Not student"),
+                pl.col("student"),
+                pl.col("school_type"),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -109,7 +122,8 @@ def format_individual_trip(
             map_purpose_to_ctramp(
                 pl.col("d_purpose"),
                 pl.col("income"),
-                pl.col("student_category").fill_null("Not student"),
+                pl.col("student"),
+                pl.col("school_type"),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -221,7 +235,8 @@ def format_joint_trip(
             map_purpose_to_ctramp(
                 pl.col("o_purpose"),
                 pl.col("income"),
-                pl.lit("Not student"),
+                pl.lit(Student.NONSTUDENT.value),
+                pl.lit(SchoolType.MISSING.value),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -229,7 +244,8 @@ def format_joint_trip(
             map_purpose_to_ctramp(
                 pl.col("d_purpose"),
                 pl.col("income"),
-                pl.lit("Not student"),
+                pl.lit(Student.NONSTUDENT.value),
+                pl.lit(SchoolType.MISSING.value),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
