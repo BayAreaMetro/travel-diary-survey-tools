@@ -121,9 +121,9 @@ def create_person(
     school_taz: int | None = None,
     school_maz: int | None = None,
     # Optional Daysim-specific fields
-    work_parking: WorkParking | None = None,
+    work_park: WorkParking | None = None,
     transit_pass: bool | None = None,
-    usual_work_mode: Mode | None = None,
+    work_mode: Mode | None = None,
     is_proxy: bool | None = None,
     num_complete_days: int = 0,
     days: list[dict] | None = None,
@@ -155,9 +155,9 @@ def create_person(
         school_lon: School longitude (optional)
         school_taz: School TAZ (optional)
         school_maz: School MAZ (optional, for Daysim)
-        work_parking: Work parking type enum (optional, for Daysim)
+        work_park: Work parking type enum (optional, for Daysim)
         transit_pass: Has transit pass (optional, for Daysim)
-        usual_work_mode: Usual work mode enum (optional, for Daysim)
+        work_mode: Usual work mode enum (optional, for Daysim)
         is_proxy: Is proxy interview (optional, for Daysim)
         num_complete_days: Number of complete days (default 0, for Daysim)
         days: Day records to compute num_complete_days from (optional)
@@ -201,13 +201,13 @@ def create_person(
     # Always include DaySim-specific fields with sensible defaults
 
     # Work parking
-    if work_parking is None:
-        work_parking = (
+    if work_park is None:
+        work_park = (
             WorkParking.FREE
             if work_taz is not None
             else WorkParking.NOT_APPLICABLE
         )
-    record["work_parking"] = work_parking.value
+    record["work_park"] = work_park.value
 
     # Transit pass
     if transit_pass is None:
@@ -219,9 +219,9 @@ def create_person(
     record["transit_pass"] = transit_pass
 
     # Usual work mode
-    if usual_work_mode is None:
-        usual_work_mode = Mode.MISSING
-    record["usual_work_mode"] = usual_work_mode.value
+    if work_mode is None:
+        work_mode = Mode.MISSING
+    record["work_mode"] = work_mode.value
 
     # Proxy interview
     if is_proxy is None:

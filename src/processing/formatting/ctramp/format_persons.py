@@ -26,9 +26,9 @@ from data_canon.codebook.persons import AgeCategory, CommuteSubsidy
 from .ctramp_config import CTRAMPConfig
 from .mappings import (
     EMPLOYMENT_MAP,
+    GENDER_MAP,
     SCHOOL_TYPE_MAP,
     STUDENT_MAP,
-    get_gender_map,
 )
 
 logger = logging.getLogger(__name__)
@@ -266,11 +266,10 @@ def format_persons(
     )
 
     # Map gender (convert int enum to string "m"/"f")
-    gender_map = get_gender_map(config)
     persons_ctramp = persons_ctramp.with_columns(
         pl.col("gender")
         .fill_null(-1)
-        .replace_strict(gender_map)
+        .replace_strict(GENDER_MAP, default=config.gender_default_for_missing)
         .alias("gender")
     )
 

@@ -202,7 +202,7 @@ class TestPersonFormatting:
                     person_num=1,
                     employment=Employment.EMPLOYED_FULLTIME,
                     age=AgeCategory.AGE_35_TO_44,
-                    usual_work_mode=Mode.HOUSEHOLD_VEHICLE_1,
+                    work_mode=Mode.HOUSEHOLD_VEHICLE_1,
                     work_taz=200,
                     work_maz=2000,
                     days=[{"day_id": 1, "person_id": 101, "is_complete": True}],
