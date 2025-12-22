@@ -1,122 +1,99 @@
+
 # CT-RAMP Formatting
 
 This module transforms canonical survey data into CT-RAMP (Coordinated Travel - Regional Activity Modeling Platform) format for use with activity-based travel demand models.
 
 ## Current Implementation
 
-The current implementation includes formatting for:
+The module provides full formatting for:
 
-### Households (`format_households.py`)
-- Income conversion to $2000 midpoint values
-- TAZ and walk-to-transit subzone mapping
-- Vehicle counts (human-driven and autonomous)
-- **Excludes**: Random number fields (ao_rn, fp_rn, cdap_rn, etc.) as they are simulation-specific
+- **Households** (`format_households.py`):
+   - Income conversion to $2000 midpoint values (configurable)
+   - TAZ and walk-to-transit subzone mapping
+   - Vehicle counts (human-driven and autonomous)
+   - Excludes random number fields (simulation-specific)
 
-### Persons (`format_persons.py`)
-- Person type classification based on age, employment, and student status
-- Gender mapping to m/f format
-- Free parking eligibility from commute subsidies
-- Value of time calculation
-- **Placeholder values** for:
-  - `activity_pattern`: Set to 'H' (home)
-  - `imf_choice`: Set to 0 (no mandatory tours)
-  - `inmf_choice`: Set to 1 (minimum valid)
-  - `wfh_choice`: Set to 0 (no work from home)
+- **Persons** (`format_persons.py`):
+   - Person type classification based on age, employment, and student status
+   - Gender mapping to m/f format
+   - Free parking eligibility from commute subsidies
+   - Value of time calculation
+   - Activity pattern, tour frequency, and work-from-home fields are derived from tour data if provided; otherwise, sensible placeholders are used
 
-## Future Work Required
+- **Mandatory Locations** (`format_mandatory_location.py`):
+   - Work and school location records for eligible persons
 
-### Joint Tours
-CT-RAMP has a fundamentally different tour structure than DaySim:
-- **Joint tours**: Tours taken by multiple household members together
-- **Tour composition**: Adults only, children only, or mixed
-- Requires modifications to the tour extraction algorithm to identify and link joint tours
+- **Individual Tours** (`format_tours.py`):
+   - Formats all non-joint tours with purpose, mode, time-of-day, and destination fields
 
-### Individual Tours (`IndividualTourCTRAMPModel`)
-Will need to create `format_individual_tours.py` to handle:
-- Tour purpose (work, school, escort, shop, maint, eat, visit, discr, atwork)
-- Tour mode and category
-- Outbound/inbound stops
-- Time-of-day fields (start/end times)
-- Destination TAZ and subzone
-- Linking tours to persons
+- **Joint Tours** (`format_tours.py`):
+   - Detects and formats tours taken by multiple household members, including composition and participant list
 
-### Joint Tours (`JointTourCTRAMPModel`)
-Will need to create `format_joint_tours.py` to handle:
-- Identifying tours taken by multiple household members
-- Tour composition (adults/children/mixed)
-- Participant list
-- Similar tour attributes as individual tours
+- **Individual Trips** (`format_trips.py`):
+   - Formats trips for individual tours, including stop-level details
 
-### Trips/Stops
-CT-RAMP refers to intermediate stops rather than individual trips:
-- **Stops**: Intermediate destinations within a tour
-- Will need to aggregate/transform linked trips into stops
-- Stop purpose, location, time-of-day
-- Mode to/from stop
+- **Joint Trips** (`format_trips.py`):
+   - Formats trips for joint tours
 
-### Tour Extraction Algorithm Changes
+All outputs conform to the CT-RAMP model specifications. See [src/data_canon/models/ctramp.py](../../data_canon/models/ctramp.py) for data model details.
 
-The current `extract_tours` algorithm needs modifications:
-1. **Joint tour detection**: Identify when multiple household members travel together
-   - Same origin/destination
-   - Overlapping time windows
-   - Same mode (potentially)
-2. **Tour linking**: Link persons to joint tours
-3. **Stop extraction**: Different from trip extraction
-   - Stops are tour-relative, not independent trips
-4. **Activity pattern derivation**: Determine M/N/H patterns from tours
-5. **Tour frequency calculation**: Count mandatory/non-mandatory tours per person
+## Usage
 
-## Implementation Strategy
+```python
+from processing.formatting.ctramp import format_ctramp
 
-### Phase 1: Complete (Households & Persons)
-- [x] Basic household and person formatting
-- [x] Person type classification
-- [x] Income and demographic mapping
+result = format_ctramp(
+      persons=canonical_persons,
+      households=canonical_households,
+      linked_trips=canonical_linked_trips,
+      tours=canonical_tours,
+      joint_trips=canonical_joint_trips,
+      income_low_threshold=60000,         # Example: $60k
+      income_med_threshold=150000,        # Example: $150k
+      income_high_threshold=250000,       # Example: $250k
+      income_base_year_dollars=2000,      # Example: $2000 base year
+      income_under_minimum=5000,          # Example: $5k for under-minimum
+      drop_missing_taz=True
+)
 
-### Phase 2: Individual Tours (Future)
-- [ ] Modify tour extraction to identify individual vs joint tours
-- [ ] Create `format_individual_tours.py`
-- [ ] Derive activity patterns from tours
-- [ ] Calculate tour frequencies (imf_choice, inmf_choice)
-- [ ] Map tour purposes and modes
+households_ctramp = result["households_ctramp"]
+persons_ctramp = result["persons_ctramp"]
+mandatory_location_ctramp = result["mandatory_location_ctramp"]
+individual_tour_ctramp = result["individual_tour_ctramp"]
+joint_tour_ctramp = result["joint_tour_ctramp"]
+individual_trip_ctramp = result["individual_trip_ctramp"]
+joint_trip_ctramp = result["joint_trip_ctramp"]
+```
 
-### Phase 3: Joint Tours (Future)
-- [ ] Implement joint tour detection logic
-- [ ] Create `format_joint_tours.py`
-- [ ] Handle tour composition classification
-- [ ] Link multiple persons to joint tours
+### Configuration Options
 
-### Phase 4: Stops/Trips (Future)
-- [ ] Transform linked trips to stops
-- [ ] Create stop location and timing fields
-- [ ] Handle stop purpose mapping
+The following configuration parameters are required by `format_ctramp`:
+
+- `income_low_threshold`, `income_med_threshold`, `income_high_threshold`: Dollar thresholds for income brackets
+- `income_base_year_dollars`: Base year for income values
+- `income_under_minimum`: Value for "under minimum" income categories
+- `drop_missing_taz`: If True, households without valid TAZ are dropped
 
 ## Field Decisions
+
 
 ### Excluded Fields
 
 **Random Number Fields**: The following fields are excluded as they are simulation-specific and not meaningful for survey data:
-- `ao_rn`: Auto ownership model
-- `fp_rn`: Free parking model
-- `cdap_rn`: Coordinated daily activity pattern
-- `imtf_rn`, `imtod_rn`, `immc_rn`: Individual mandatory tour frequency/TOD/mode
-- `jtf_rn`, `jtl_rn`, `jtod_rn`, `jmc_rn`: Joint tour frequency/location/TOD/mode
-- `inmtf_rn`, `inmtl_rn`, `inmtod_rn`, `inmmc_rn`: Individual non-mandatory
-- `awf_rn`, `awl_rn`, `awtod_rn`, `awmc_rn`: At-work subtour
-- `stf_rn`, `stl_rn`: Stop frequency/location
+- `ao_rn`, `fp_rn`, `cdap_rn`, `imtf_rn`, `imtod_rn`, `immc_rn`, `jtf_rn`, `jtl_rn`, `jtod_rn`, `jmc_rn`, `inmtf_rn`, `inmtl_rn`, `inmtod_rn`, `inmmc_rn`, `awf_rn`, `awl_rn`, `awtod_rn`, `awmc_rn`, `stf_rn`, `stl_rn`
 
 **Other Excluded Fields**:
 - `auto_suff`: Incorrectly coded per CT-RAMP documentation
 
 ### Placeholder Fields
 
-These fields require tour data and are currently set to placeholder values:
-- `activity_pattern`: Requires analyzing tour purposes → currently 'H' (home)
-- `imf_choice`: Requires counting mandatory tours → currently 0
-- `inmf_choice`: Requires counting non-mandatory tours → currently 1
-- `wfh_choice`: Requires analyzing work tours → currently 0
-- `jtf_choice`: Requires joint tour analysis → currently -4
+If tour data is not provided, the following fields are set to placeholder values:
+- `activity_pattern`: 'H' (home)
+- `imf_choice`: 0 (no mandatory tours)
+- `inmf_choice`: 1 (minimum valid)
+- `wfh_choice`: 0 (no work from home)
+- `jtf_choice`: -4 (joint tour analysis not available)
+
 
 ## Data Models Reference
 
@@ -128,21 +105,6 @@ See [src/data_canon/models/ctramp.py](../../data_canon/models/ctramp.py) for com
 - `JointTourCTRAMPModel`
 - `IndividualTripCTRAMPModel`
 - `JointTripCTRAMPModel`
-
-## Usage
-
-```python
-from processing.formatting.ctramp import format_ctramp
-
-result = format_ctramp(
-    persons=canonical_persons,
-    households=canonical_households,
-    drop_missing_taz=True
-)
-
-households_ctramp = result["households_ctramp"]
-persons_ctramp = result["persons_ctramp"]
-```
 
 ## See Also
 
