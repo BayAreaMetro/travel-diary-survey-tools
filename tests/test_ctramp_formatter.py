@@ -56,8 +56,6 @@ def standard_config():
         income_med_threshold=150000,  # $150k
         income_high_threshold=240000,  # $240k
         income_base_year_dollars=2023,
-        income_under_minimum=10000,
-        income_top_category=300000,
         age_adult=4,  # AgeCategory.AGE_18_TO_24.value
     )
 
@@ -181,7 +179,7 @@ class TestFreeParkingEligibility:
 class TestHouseholdFormatting:
     """Tests for household formatting."""
 
-    def test_basic_household_formatting(self, standard_config):
+    def test_basic_household_formatting(self):
         """Test basic household formatting with all required fields."""
         households = pl.DataFrame(
             [
@@ -196,18 +194,18 @@ class TestHouseholdFormatting:
             ]
         )
 
-        result = format_households(households, standard_config)
+        result = format_households(households)
 
         assert len(result) == 1
         assert result["hh_id"][0] == 1
         assert result["taz"][0] == 100
-        assert result["income"][0] == 87499  # Midpoint of 75-100k (rounded)
+        assert result["income"][0] == 87000  # Midpoint rounded to $1000
         assert result["autos"][0] == 1
         assert result["size"][0] == 2
         assert result["workers"][0] == 1
         assert result["jtf_choice"][0] == -4
 
-    def test_income_fallback_logic(self, standard_config):
+    def test_income_fallback_logic(self):
         """Test income fallback from detailed to followup."""
         households = pl.DataFrame(
             [
@@ -219,11 +217,11 @@ class TestHouseholdFormatting:
             ]
         )
 
-        result = format_households(households, standard_config)
+        result = format_households(households)
 
         assert (
-            result["income"][0] == 62499
-        )  # Midpoint of 50-75k from followup (rounded)
+            result["income"][0] == 62000
+        )  # Midpoint of 50-75k from followup rounded to $1000
 
 
 class TestPersonFormatting:
@@ -300,7 +298,6 @@ class TestEndToEndFormatting:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_base_year_dollars=standard_config.income_base_year_dollars,
-            income_under_minimum=standard_config.income_under_minimum,
         )
 
         households_ctramp = result["households_ctramp"]
@@ -327,7 +324,6 @@ class TestEndToEndFormatting:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_base_year_dollars=standard_config.income_base_year_dollars,
-            income_under_minimum=standard_config.income_under_minimum,
         )
 
         households_ctramp = result["households_ctramp"]
@@ -357,7 +353,6 @@ class TestEndToEndFormatting:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_base_year_dollars=standard_config.income_base_year_dollars,
-            income_under_minimum=standard_config.income_under_minimum,
         )
 
         persons_ctramp = result["persons_ctramp"]
@@ -385,7 +380,6 @@ class TestEndToEndFormatting:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_base_year_dollars=standard_config.income_base_year_dollars,
-            income_under_minimum=standard_config.income_under_minimum,
         )
 
         persons_ctramp = result["persons_ctramp"]
@@ -424,7 +418,6 @@ class TestEndToEndFormatting:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_base_year_dollars=standard_config.income_base_year_dollars,
-            income_under_minimum=standard_config.income_under_minimum,
             drop_missing_taz=True,
         )
 
@@ -463,7 +456,6 @@ class TestEndToEndFormatting:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_base_year_dollars=standard_config.income_base_year_dollars,
-            income_under_minimum=standard_config.income_under_minimum,
             drop_missing_taz=False,
         )
 
@@ -478,13 +470,13 @@ class TestEndToEndFormatting:
 class TestColumnPresence:
     """Tests to ensure all required CT-RAMP columns are present."""
 
-    def test_household_columns(self, standard_config):
+    def test_household_columns(self):
         """Test that all required household columns are present."""
         (
             households,
             _,
         ) = create_single_adult_household()
-        result = format_households(households, standard_config)
+        result = format_households(households)
 
         required_columns = [
             "hh_id",
@@ -571,7 +563,7 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP (tours formatter needs formatted households/persons)
-        households = format_households(households_canonical, standard_config)
+        households = format_households(households_canonical)
         # Pass empty tours - testing tour formatting, not person stats
         persons = format_persons(
             persons_canonical, pl.DataFrame(), standard_config
@@ -667,7 +659,7 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP first
-        households_formatted = format_households(households, standard_config)
+        households_formatted = format_households(households)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -760,7 +752,7 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, standard_config)
+        households_formatted = format_households(households)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -794,7 +786,7 @@ class TestIndividualTourFormatting:
         trips = pl.DataFrame([])  # No trips!
 
         # Format to CTRAMP
-        households_formatted = format_households(households, standard_config)
+        households_formatted = format_households(households)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -861,7 +853,7 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, standard_config)
+        households_formatted = format_households(households)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -940,7 +932,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, standard_config)
+        households_formatted = format_households(households)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -1012,7 +1004,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, standard_config)
+        households_formatted = format_households(households)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )
@@ -1061,7 +1053,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, standard_config)
+        households_formatted = format_households(households)
         persons_formatted = format_persons(
             persons, pl.DataFrame(), standard_config
         )

@@ -39,7 +39,6 @@ def format_ctramp(  # noqa: D417, PLR0913
     income_med_threshold: int,
     income_high_threshold: int,
     income_base_year_dollars: int,
-    income_under_minimum: int,
     drop_missing_taz: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
@@ -86,7 +85,6 @@ def format_ctramp(  # noqa: D417, PLR0913
         income_med_threshold=income_med_threshold,
         income_high_threshold=income_high_threshold,
         income_base_year_dollars=income_base_year_dollars,
-        income_under_minimum=income_under_minimum,
         drop_missing_taz=drop_missing_taz,
     )
 
@@ -129,7 +127,7 @@ def format_ctramp(  # noqa: D417, PLR0913
         )
 
     # Format each table
-    households_ctramp = format_households(households, config)
+    households_ctramp = format_households(households)
 
     # Format persons to get person types (needed for tour formatting)
     # Pass empty tours with schema so _aggregate_tour_stats works

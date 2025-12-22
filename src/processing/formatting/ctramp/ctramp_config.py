@@ -13,8 +13,6 @@ class CTRAMPConfig(BaseModel):
         drop_missing_taz: If True, remove households without valid TAZ IDs
         age_adult: Age threshold for adult vs child in joint tour composition
         income_base_year_dollars: Base year for income dollar units
-        income_under_minimum: Dollar value for "Under X" income categories
-        income_top_category: Dollar value for "X or more" income categories
         gender_default_for_missing: Default gender for missing/non-binary
     """
 
@@ -69,23 +67,6 @@ class CTRAMPConfig(BaseModel):
         description=(
             "Base year for income dollar units (e.g., 2023 for $2023). "
             "Used for converting income to CT-RAMP format."
-        ),
-    )
-
-    income_under_minimum: int = Field(
-        ge=0,
-        description=(
-            "Dollar value to use for midpoint calculation of 'Under $X' "
-            "income categories."
-        ),
-    )
-
-    income_top_category: int = Field(
-        default=300000,
-        ge=100000,
-        description=(
-            "Dollar value to use for midpoint calculation of '$X or more' "
-            "income categories. Default: 300000"
         ),
     )
 

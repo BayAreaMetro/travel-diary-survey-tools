@@ -100,8 +100,6 @@ steps:
 
       # Income conversion parameters
       income_base_year_dollars: 2023  # Base year for income dollar units
-      income_under_minimum: 10000  # Minimum income for "Under $X" categories
-      income_top_category: 300000  # Top income for "$X or more" categories
 
       # Age thresholds
       age_adult: 4  # AgeCategory.AGE_18_TO_24 - Adult threshold for joint tour composition

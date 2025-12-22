@@ -11,21 +11,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def get_income_midpoint(
-    income_enum: LabeledEnum,
-    income_under_minimum: int,
-    income_top_category: int,
-) -> int:
+def get_income_midpoint(income_enum: LabeledEnum) -> int:
     """Calculate the midpoint dollar value for an income category enum.
 
     Parses the income range from the enum label and returns the midpoint.
-    For "Under" categories, uses the provided minimum.
-    For "or more" categories, uses the provided top category value.
+    For "Under" categories, uses $0 as the lower bound.
+    For "or more" categories, uses 1.25x multiplier to estimate upper bound.
 
     Args:
         income_enum: Income category enum (IncomeDetailed or IncomeFollowup)
-        income_under_minimum: Dollar value to use for "Under X" categories
-        income_top_category: Dollar value to use for "X or more" categories
 
     Returns:
         Midpoint dollar value for the income bracket
@@ -35,9 +29,7 @@ def get_income_midpoint(
 
     Example:
         >>> from data_canon.codebook.households import IncomeDetailed
-        >>> midpoint = get_income_midpoint(
-        ...     IncomeDetailed.INCOME_50TO75, 10000, 300000
-        ... )
+        >>> midpoint = get_income_midpoint(IncomeDetailed.INCOME_50TO75)
         >>> midpoint
         62500
     """
@@ -48,26 +40,29 @@ def get_income_midpoint(
         msg = f"Cannot calculate midpoint for {income_enum.name}: {label}"
         raise ValueError(msg)
 
-    # Handle "Under $X" format
+    # Handle "Under $X" format - use $0 as lower bound
     if label.startswith("Under"):
         match = re.search(r"\$[\d,]+", label)
         if match:
             upper = int(match.group().replace("$", "").replace(",", ""))
-            return (income_under_minimum + upper) // 2
+            return round(upper / 2, -3)  # Round to nearest $1000
 
-    # Handle "$X or more" format
+    # Handle "$X or more" format - use 1.25x multiplier
     if "or more" in label:
         match = re.search(r"\$[\d,]+", label)
         if match:
             lower = int(match.group().replace("$", "").replace(",", ""))
-            return (lower + income_top_category) // 2
+            # Use 1.25x multiplier to estimate upper bound
+            estimated_upper = int(lower * 1.25)
+            # Round to nearest $1000
+            return round((lower + estimated_upper) / 2, -3)
 
     # Handle "$X-$Y" range format
     matches = re.findall(r"\$[\d,]+", label)
     if len(matches) == 2:  # noqa: PLR2004
         lower = int(matches[0].replace("$", "").replace(",", ""))
         upper = int(matches[1].replace("$", "").replace(",", ""))
-        return (lower + upper) // 2
+        return round((lower + upper) / 2, -3)  # Round to nearest $1000
 
     # If we can't parse it, raise an error
     msg = f"Cannot parse income range from label: {label}"
