@@ -67,6 +67,9 @@ steps:
   #   validate_input: true
   #   cache: true
 
+  # We add TAZ/MAZ data after it has been processed, right before formatting
+  # This avoids having to carry around extra fields through all prior steps,
+  # keeping the code and data leaner. Its just a simple join operation at this point.
   - name: custom_add_taz_ids
     validate_input: false
     cache: true
@@ -126,3 +129,4 @@ steps:
         days_daysim: "{{ output_dir }}/day_daysim.csv"
         linked_trips_daysim: "{{ output_dir }}/linked_trip_daysim.csv"
         tours_daysim: "{{ output_dir }}/tour_daysim.csv"
+        # CTRAMP Formats
