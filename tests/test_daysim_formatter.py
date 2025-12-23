@@ -47,6 +47,7 @@ from processing.formatting.daysim.format_trips import format_linked_trips
 from processing.link_trips.link import link_trips
 from processing.tours.extraction import extract_tours
 from tests.fixtures import (
+    add_test_taz_maz_ids,
     create_day,
     create_household,
     create_multi_person_household_processed,
@@ -874,6 +875,15 @@ class TestTripFormatting:
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
         linked_trips = result_dict["linked_trips"]
 
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_trips_with_ids, linked_trips, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=unlinked_trips_with_ids,
+            linked_trips=linked_trips,
+            tours=None,
+            persons=persons,
+            households=None,
+        )
+
         result = format_linked_trips(
             persons, unlinked_trips_with_ids, linked_trips
         )
@@ -915,6 +925,15 @@ class TestTripFormatting:
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
         linked_trips = result_dict["linked_trips"]
 
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_trips_with_ids, linked_trips, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=unlinked_trips_with_ids,
+            linked_trips=linked_trips,
+            tours=None,
+            persons=persons,
+            households=None,
+        )
+
         result = format_linked_trips(
             persons, unlinked_trips_with_ids, linked_trips
         )
@@ -954,6 +973,15 @@ class TestTripFormatting:
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
         linked_trips = result_dict["linked_trips"]
 
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_trips_with_ids, linked_trips, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=unlinked_trips_with_ids,
+            linked_trips=linked_trips,
+            tours=None,
+            persons=persons,
+            households=None,
+        )
+
         result = format_linked_trips(
             persons, unlinked_trips_with_ids, linked_trips
         )
@@ -992,6 +1020,15 @@ class TestTripFormatting:
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
         linked_trips = result_dict["linked_trips"]
+
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_trips_with_ids, linked_trips, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=unlinked_trips_with_ids,
+            linked_trips=linked_trips,
+            tours=None,
+            persons=persons,
+            households=None,
+        )
 
         result = format_linked_trips(
             persons, unlinked_trips_with_ids, linked_trips
@@ -1033,6 +1070,15 @@ class TestTripFormatting:
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
         linked_trips = result_dict["linked_trips"]
 
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_trips_with_ids, linked_trips, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=unlinked_trips_with_ids,
+            linked_trips=linked_trips,
+            tours=None,
+            persons=persons,
+            households=None,
+        )
+
         result = format_linked_trips(
             persons, unlinked_trips_with_ids, linked_trips
         )
@@ -1067,6 +1113,15 @@ class TestTripFormatting:
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
         linked_trips = result_dict["linked_trips"]
+
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_trips_with_ids, linked_trips, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=unlinked_trips_with_ids,
+            linked_trips=linked_trips,
+            tours=None,
+            persons=persons,
+            households=None,
+        )
 
         result = format_linked_trips(
             persons, unlinked_trips_with_ids, linked_trips
@@ -1105,6 +1160,15 @@ class TestTripFormatting:
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
         linked_trips = result_dict["linked_trips"]
+
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_trips_with_ids, linked_trips, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=unlinked_trips_with_ids,
+            linked_trips=linked_trips,
+            tours=None,
+            persons=persons,
+            households=None,
+        )
 
         result = format_linked_trips(
             persons, unlinked_trips_with_ids, linked_trips
@@ -1290,20 +1354,38 @@ class TestEndToEndDaysimFormatting:
             transit_mode_codes=[Mode.BART.value],
         )
 
+        # Add TAZ/MAZ via mock spatial join
+        unlinked_with_zones, linked_with_zones, _, _ = add_test_taz_maz_ids(
+            unlinked_trips=link_result["unlinked_trips"],
+            linked_trips=link_result["linked_trips"],
+            tours=None,
+            persons=persons,
+            households=households,
+        )
+
         tour_result = extract_tours(
             persons=persons,
             households=households,
-            unlinked_trips=link_result["unlinked_trips"],
-            linked_trips=link_result["linked_trips"],
+            unlinked_trips=unlinked_with_zones,
+            linked_trips=linked_with_zones,
             joint_trips=None,
+        )
+
+        # Add TAZ/MAZ to tours as well
+        _, _, tours_with_zones, _ = add_test_taz_maz_ids(
+            unlinked_trips=None,
+            linked_trips=None,
+            tours=tour_result["tours"],
+            persons=persons,
+            households=households,
         )
 
         result = format_daysim(
             persons,
             households,
-            link_result["unlinked_trips"],
+            unlinked_with_zones,
             tour_result["linked_trips"],
-            tour_result["tours"],
+            tours_with_zones,
             days,
         )
 

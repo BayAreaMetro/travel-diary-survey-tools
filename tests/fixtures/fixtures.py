@@ -13,6 +13,7 @@ from processing.link_trips import link_trips
 from processing.tours import extract_tours
 
 from .base_records import create_day
+from .locations import lookup_location
 from .scenario_builders import (
     DEFAULT_TRANSIT_MODE_CODES,
     multi_person_household,
@@ -92,7 +93,12 @@ def create_multi_person_household_processed(
         )
 
         # Create simple home->work->home trips for workers
-        if person.get("work_taz"):
+        if (
+            person.get("work_lat") is not None
+            and person.get("work_lon") is not None
+        ):
+            home_lat = households["home_lat"][0]
+            home_lon = households["home_lon"][0]
             unlinked_trips_list.extend(
                 [
                     create_unlinked_trip(
@@ -103,8 +109,10 @@ def create_multi_person_household_processed(
                         person_num=person_num,
                         o_purpose_category=PurposeCategory.HOME,
                         d_purpose_category=PurposeCategory.WORK,
-                        o_taz=households["home_taz"][0],
-                        d_taz=person["work_taz"],
+                        o_lat=home_lat,
+                        o_lon=home_lon,
+                        d_lat=person["work_lat"],
+                        d_lon=person["work_lon"],
                     ),
                     create_unlinked_trip(
                         trip_id=trip_id + 1,
@@ -114,8 +122,10 @@ def create_multi_person_household_processed(
                         person_num=person_num,
                         o_purpose_category=PurposeCategory.WORK,
                         d_purpose_category=PurposeCategory.HOME,
-                        o_taz=person["work_taz"],
-                        d_taz=households["home_taz"][0],
+                        o_lat=person["work_lat"],
+                        o_lon=person["work_lon"],
+                        d_lat=home_lat,
+                        d_lon=home_lon,
                     ),
                 ]
             )
@@ -145,6 +155,113 @@ def create_multi_person_household_processed(
 # ==============================================================================
 # Pipeline Processing Helper
 # ==============================================================================
+
+
+def add_test_taz_maz_ids(
+    households: pl.DataFrame | None = None,
+    persons: pl.DataFrame | None = None,
+    unlinked_trips: pl.DataFrame | None = None,
+    linked_trips: pl.DataFrame | None = None,
+    tours: pl.DataFrame | None = None,
+) -> tuple[
+    pl.DataFrame | None,
+    pl.DataFrame | None,
+    pl.DataFrame | None,
+    pl.DataFrame | None,
+]:
+    """Add TAZ/MAZ IDs to dataframes using mock spatial join.
+
+    Simulates project-specific spatial join step that assigns TAZ/MAZ IDs
+    based on lat/lon coordinates. Uses simple dictionary lookup from
+    locations.py for test scenarios.
+
+    Args:
+        households: Households DataFrame (optional)
+        persons: Persons DataFrame (optional)
+        unlinked_trips: Unlinked trips DataFrame (optional)
+        linked_trips: Linked trips DataFrame (optional)
+        tours: Tours DataFrame (optional)
+
+    Returns:
+        Tuple of (unlinked_trips, linked_trips, tours, households) with TAZ/MAZ
+    """
+
+    def assign_zone_ids(
+        df: pl.DataFrame, lat_col: str, lon_col: str, taz_col: str, maz_col: str
+    ) -> pl.DataFrame:
+        """Assign TAZ/MAZ to a dataframe based on lat/lon columns."""
+        if df.is_empty():
+            # Just add the columns if empty
+            return df.with_columns(
+                [
+                    pl.lit(None, dtype=pl.Int64).alias(taz_col),
+                    pl.lit(None, dtype=pl.Int64).alias(maz_col),
+                ]
+            )
+
+        # Build lookup lists
+        taz_list = []
+        maz_list = []
+
+        for row in df.iter_rows(named=True):
+            lat = row.get(lat_col)
+            lon = row.get(lon_col)
+            location = lookup_location(lat, lon)
+
+            if location:
+                taz_list.append(location.taz)
+                maz_list.append(location.maz)
+            else:
+                taz_list.append(None)
+                maz_list.append(None)
+
+        # Add TAZ/MAZ columns
+        return df.with_columns(
+            [
+                pl.Series(taz_col, taz_list, dtype=pl.Int64),
+                pl.Series(maz_col, maz_list, dtype=pl.Int64),
+            ]
+        )
+
+    # Assign TAZ/MAZ to households (home location) if provided
+    if households is not None:
+        households = assign_zone_ids(
+            households, "home_lat", "home_lon", "home_taz", "home_maz"
+        )
+
+    # Assign TAZ/MAZ to persons (work and school locations) if provided
+    if persons is not None:
+        persons = assign_zone_ids(
+            persons, "work_lat", "work_lon", "work_taz", "work_maz"
+        )
+        persons = assign_zone_ids(
+            persons, "school_lat", "school_lon", "school_taz", "school_maz"
+        )
+
+    # Assign TAZ/MAZ to unlinked trips (origin and destination) if provided
+    if unlinked_trips is not None:
+        unlinked_trips = assign_zone_ids(
+            unlinked_trips, "o_lat", "o_lon", "o_taz", "o_maz"
+        )
+        unlinked_trips = assign_zone_ids(
+            unlinked_trips, "d_lat", "d_lon", "d_taz", "d_maz"
+        )
+
+    # Assign TAZ/MAZ to linked trips (origin and destination) if provided
+    if linked_trips is not None:
+        linked_trips = assign_zone_ids(
+            linked_trips, "o_lat", "o_lon", "o_taz", "o_maz"
+        )
+        linked_trips = assign_zone_ids(
+            linked_trips, "d_lat", "d_lon", "d_taz", "d_maz"
+        )
+
+    # Assign TAZ/MAZ to tours (origin and destination) if provided
+    if tours is not None:
+        tours = assign_zone_ids(tours, "o_lat", "o_lon", "o_taz", "o_maz")
+        tours = assign_zone_ids(tours, "d_lat", "d_lon", "d_taz", "d_maz")
+
+    return unlinked_trips, linked_trips, tours, households
 
 
 def process_scenario_through_pipeline(
@@ -189,13 +306,27 @@ def process_scenario_through_pipeline(
         linked_trips=linked_trips,
     )
 
+    # Add TAZ/MAZ IDs via mock spatial join (simulates project-specific step)
+    (
+        unlinked_with_zones,
+        linked_with_zones,
+        tours_with_zones,
+        households_with_zones,
+    ) = add_test_taz_maz_ids(
+        households=households,
+        persons=persons,
+        unlinked_trips=tour_result["unlinked_trips"],
+        linked_trips=tour_result["linked_trips"],
+        tours=tour_result["tours"],
+    )
+
     return {
-        "households": households,
+        "households": households_with_zones,
         "persons": persons,
         "days": days,
-        "unlinked_trips": tour_result["unlinked_trips"],
-        "linked_trips": tour_result["linked_trips"],
-        "tours": tour_result["tours"],
+        "unlinked_trips": unlinked_with_zones,
+        "linked_trips": linked_with_zones,
+        "tours": tours_with_zones,
     }
 
 

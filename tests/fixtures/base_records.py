@@ -33,7 +33,7 @@ def create_household(
     hh_id: int = 1,
     home_lat: float | None = 37.70,
     home_lon: float | None = -122.40,
-    home_taz: int = 100,
+    home_taz: int | None = None,
     home_maz: int | None = None,
     home_walk_subzone: int | None = None,
     num_people: int = 1,
@@ -56,7 +56,7 @@ def create_household(
         hh_id: Household ID
         home_lat: Home latitude (optional, for MAZ-based models)
         home_lon: Home longitude (optional, for MAZ-based models)
-        home_taz: Home TAZ (required for most models)
+        home_taz: Home TAZ (required - assigned via spatial join in tests)
         home_maz: Home MAZ (optional, for Daysim)
         home_walk_subzone: Walk-to-transit subzone 0/1/2 (CTRAMP)
         num_people: Household size
@@ -150,11 +150,11 @@ def create_person(
         home_lon: Home longitude (optional)
         work_lat: Work latitude (optional)
         work_lon: Work longitude (optional)
-        work_taz: Work TAZ (optional)
+        work_taz: Work TAZ (optional - assigned via spatial join in tests)
         work_maz: Work MAZ (optional, for Daysim)
         school_lat: School latitude (optional)
         school_lon: School longitude (optional)
-        school_taz: School TAZ (optional)
+        school_taz: School TAZ (optional - assigned via spatial join in tests)
         school_maz: School MAZ (optional, for Daysim)
         work_park: Work parking type enum (optional, for Daysim)
         transit_pass: Has transit pass (optional, for Daysim)

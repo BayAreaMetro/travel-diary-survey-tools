@@ -42,10 +42,6 @@ def create_unlinked_trip(
     day_id: int = 1,
     person_num: int = 1,
     day_num: int = 1,
-    o_taz: int = 100,
-    d_taz: int = 200,
-    o_maz: int | None = None,
-    d_maz: int | None = None,
     o_lat: float | None = None,
     o_lon: float | None = None,
     d_lat: float | None = None,
@@ -90,10 +86,6 @@ def create_unlinked_trip(
         day_id: Day ID (links trip to a specific day)
         person_num: Person number within household
         day_num: Day number in survey period
-        o_taz: Origin TAZ
-        d_taz: Destination TAZ
-        o_maz: Origin MAZ (optional, for Daysim)
-        d_maz: Destination MAZ (optional, for Daysim)
         o_lat: Origin latitude (optional)
         o_lon: Origin longitude (optional)
         d_lat: Destination latitude (optional)
@@ -144,8 +136,6 @@ def create_unlinked_trip(
         "day_id": day_id,
         "person_num": person_num,
         "day_num": day_num,
-        "o_taz": o_taz,
-        "d_taz": d_taz,
         "depart_time": depart_time,
         "arrive_time": arrive_time,
         "travel_time": travel_time,
@@ -189,9 +179,6 @@ def create_unlinked_trip(
         purpose_fields["purpose_category"] = purpose_category.value
 
     add_optional_fields_batch(record, **purpose_fields)
-
-    # Add optional MAZ fields
-    add_optional_fields_batch(record, o_maz=o_maz, d_maz=d_maz)
 
     # Always include lat/lon fields (link_trips requires them even if None)
     record["o_lat"] = o_lat

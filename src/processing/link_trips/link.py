@@ -303,12 +303,6 @@ def aggregate_linked_trips(
                 pl.first("depart_time"),
                 pl.first("o_purpose"),
                 pl.first("o_purpose_category"),
-                pl.first("o_taz")
-                if "o_taz" in unlinked_trips.columns
-                else pl.lit(None).alias("o_taz"),
-                pl.first("o_maz")
-                if "o_maz" in unlinked_trips.columns
-                else pl.lit(None).alias("o_maz"),
                 pl.first("o_lat"),
                 pl.first("o_lon"),
                 # Arrival information (from last trip segment)
@@ -319,12 +313,6 @@ def aggregate_linked_trips(
                 pl.last("arrive_time"),
                 pl.last("d_purpose"),
                 pl.last("d_purpose_category"),
-                pl.last("d_taz")
-                if "d_taz" in unlinked_trips.columns
-                else pl.lit(None).alias("d_taz"),
-                pl.last("d_maz")
-                if "d_maz" in unlinked_trips.columns
-                else pl.lit(None).alias("d_maz"),
                 pl.last("d_lat"),
                 pl.last("d_lon"),
                 # Trip distance (sum of segment distances)

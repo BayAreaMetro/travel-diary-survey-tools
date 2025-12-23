@@ -19,6 +19,7 @@ from .base_records import create_day, create_household, create_person
 
 # Re-export fixtures and pipeline processing
 from .fixtures import (
+    add_test_taz_maz_ids,
     create_multi_person_household_processed,
     create_simple_work_tour_processed,
     create_transit_commute_processed,
@@ -27,10 +28,26 @@ from .fixtures import (
     process_scenario_through_pipeline,
     simple_work_tour_processed,
 )
+from .locations import (
+    BART_HOME_LOCATION,
+    BART_WORK_LOCATION,
+    HOME_2_LOCATION,
+    HOME_3_LOCATION,
+    HOME_LOCATION,
+    LOCATIONS,
+    RESTAURANT_LOCATION,
+    SCHOOL_COLLEGE_LOCATION,
+    SCHOOL_HIGH_LOCATION,
+    SHOPPING_LOCATION,
+    WORK_2_LOCATION,
+    WORK_3_LOCATION,
+    WORK_LOCATION,
+    Location,
+    lookup_location,
+)
 
 # Re-export scenario builders
 from .scenario_builders import (
-    DEFAULT_COORDS,
     DEFAULT_TRANSIT_MODE_CODES,
     create_family_household,
     create_retired_household,
@@ -54,10 +71,25 @@ from .trip_records import (
 )
 
 __all__ = [
+    "BART_HOME_LOCATION",
+    "BART_WORK_LOCATION",
     # Constants
-    "DEFAULT_COORDS",
     "DEFAULT_TRANSIT_MODE_CODES",
+    "HOME_2_LOCATION",
+    "HOME_3_LOCATION",
+    "HOME_LOCATION",
+    "LOCATIONS",
+    "RESTAURANT_LOCATION",
+    "SCHOOL_COLLEGE_LOCATION",
+    "SCHOOL_HIGH_LOCATION",
+    "SHOPPING_LOCATION",
+    "WORK_2_LOCATION",
+    "WORK_3_LOCATION",
+    "WORK_LOCATION",
+    # Location constants
+    "Location",
     # Base records
+    "add_test_taz_maz_ids",
     "create_day",
     "create_family_household",
     "create_household",
@@ -72,6 +104,7 @@ __all__ = [
     "create_university_student_household",
     "create_unlinked_trip",
     "get_tour_schema",
+    "lookup_location",
     "multi_person_household",
     "multi_stop_tour",
     "multi_stop_tour_processed",
