@@ -76,10 +76,10 @@ jobs:
       - name: Aggregate results
         run: |
           if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ]; then
-            echo "❌ One or more checks failed."
+            echo "One or more checks failed."
             exit 1
           fi
-          echo "✅ All checks passed successfully!"
+          echo "All checks passed successfully!"
 
   column_matrix:
     name: Generate Column Matrix
@@ -118,7 +118,7 @@ jobs:
       - name: Verify file is up-to-date (PR only)
         if: steps.verify_diff.outputs.changed == 'true' && github.event_name == 'pull_request'
         run: |
-          echo "❌ COLUMN_REQUIREMENTS.md is out of date!"
+          echo "COLUMN_REQUIREMENTS.md is out of date!"
           echo "Please run 'python scripts/generate_column_matrix.py' locally and commit the changes."
           echo "Or ensure pre-commit hooks are installed: 'pre-commit install'"
           exit 1
