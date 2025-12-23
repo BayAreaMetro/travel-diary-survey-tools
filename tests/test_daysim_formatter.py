@@ -329,7 +329,7 @@ class TestPersonFormatting:
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    person_type=PersonType.HIGH_SCHOOL_STUDENT,
+                    person_type=PersonType.CHILD_DRIVING_AGE,
                     employment=Employment.UNEMPLOYED_NOT_LOOKING,
                     student=Student.FULLTIME_INPERSON,
                     age=AgeCategory.AGE_16_TO_17,
@@ -363,7 +363,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.HIGH_SCHOOL_STUDENT.value
+        assert result["pptyp"][0] == PersonType.CHILD_DRIVING_AGE.value
         assert result["pstaz"][0] == 150
         assert result["pspcl"][0] == 1500
 

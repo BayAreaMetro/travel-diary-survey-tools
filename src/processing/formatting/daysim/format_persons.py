@@ -206,7 +206,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
                 )
             )
         )
-        .then(pl.lit(DaysimPersonType.HIGH_SCHOOL_STUDENT.value))
+        .then(pl.lit(DaysimPersonType.CHILD_DRIVING_AGE.value))
         .when(
             (pl.col("pagey") < AgeThreshold.ADULT)  # 18-24
             & (
@@ -228,7 +228,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
                 )
             )
         )
-        .then(pl.lit(DaysimPersonType.HIGH_SCHOOL_STUDENT.value))
+        .then(pl.lit(DaysimPersonType.CHILD_DRIVING_AGE.value))
         # Age >= 18:
         .when(
             pl.col("student").is_in(
@@ -271,7 +271,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
             pl.col("pptyp").is_in(
                 [
                     DaysimPersonType.UNIVERSITY_STUDENT.value,
-                    DaysimPersonType.HIGH_SCHOOL_STUDENT.value,
+                    DaysimPersonType.CHILD_DRIVING_AGE.value,
                 ]
             )
             & pl.col("employment").is_in(

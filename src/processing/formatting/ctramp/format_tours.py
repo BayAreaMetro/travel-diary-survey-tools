@@ -39,7 +39,7 @@ def format_individual_tour(
             - tour_id, hh_id, person_id, person_num
             - tour_category, tour_purpose
             - o_taz, d_taz
-            - depart_time, arrive_time
+            - origin_depart_time, origin_arrive_time
             - tour_mode
             - joint_tour_id (for filtering)
             - parent_tour_id (for subtour counting)
@@ -135,17 +135,32 @@ def format_individual_tour(
 
     # Calculate number of outbound and inbound stops from trips
     # Count trips by tour_direction
-    outbound_stops = (
-        trips.filter(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
-        .group_by("tour_id")
-        .agg(pl.len().alias("num_ob_stops"))
-    )
+    if len(trips) > 0:
+        outbound_stops = (
+            trips.filter(
+                pl.col("tour_direction") == TourDirection.OUTBOUND.value
+            )
+            .group_by("tour_id")
+            .agg(pl.len().alias("num_ob_stops"))
+        )
 
-    inbound_stops = (
-        trips.filter(pl.col("tour_direction") == TourDirection.INBOUND.value)
-        .group_by("tour_id")
-        .agg(pl.len().alias("num_ib_stops"))
-    )
+        inbound_stops = (
+            trips.filter(
+                pl.col("tour_direction") == TourDirection.INBOUND.value
+            )
+            .group_by("tour_id")
+            .agg(pl.len().alias("num_ib_stops"))
+        )
+    else:
+        # Handle empty trips DataFrame - create empty aggregation results
+        outbound_stops = pl.DataFrame(
+            {"tour_id": [], "num_ob_stops": []},
+            schema={"tour_id": pl.Int64, "num_ob_stops": pl.UInt32},
+        )
+        inbound_stops = pl.DataFrame(
+            {"tour_id": [], "num_ib_stops": []},
+            schema={"tour_id": pl.Int64, "num_ib_stops": pl.UInt32},
+        )
 
     # Join stop counts to tours
     individual_tours = (
@@ -256,8 +271,8 @@ def format_joint_tour(
             pl.col("tour_purpose").first(),
             pl.col("o_taz").first(),
             pl.col("d_taz").first(),
-            pl.col("depart_time").first(),
-            pl.col("arrive_time").first(),
+            pl.col("origin_depart_time").first(),
+            pl.col("origin_arrive_time").first(),
             pl.col("tour_mode").first(),
             pl.col("num_travelers").first(),
         ]
@@ -325,8 +340,8 @@ def format_joint_tour(
     # Convert times
     joint_tours_formatted = joint_tours_formatted.with_columns(
         [
-            pl.col("depart_time").dt.hour().alias("StartHour"),
-            pl.col("arrive_time").dt.hour().alias("EndHour"),
+            pl.col("origin_depart_time").dt.hour().alias("StartHour"),
+            pl.col("origin_arrive_time").dt.hour().alias("EndHour"),
         ]
     )
 

@@ -128,8 +128,8 @@ def classify_person_type(
     3. University student
     4. Nonworker
     5. Retired
-    6. Student of non-driving age
-    7. Student of driving age
+    6. Child of non-driving age
+    7. Child of driving age
     8. Child too young for school
 
     Args:

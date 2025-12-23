@@ -390,8 +390,8 @@ class TestEndToEndFormatting:
         person_types = persons_ctramp["type"].to_list()
         assert CTRAMPPersonType.FULL_TIME_WORKER.value in person_types
         assert CTRAMPPersonType.PART_TIME_WORKER.value in person_types
-        assert CTRAMPPersonType.STUDENT_DRIVING_AGE.value in person_types
-        assert CTRAMPPersonType.STUDENT_NON_DRIVING_AGE.value in person_types
+        assert CTRAMPPersonType.CHILD_DRIVING_AGE.value in person_types
+        assert CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value in person_types
 
     def test_retired_household(self, standard_config):
         """Test formatting of retired household."""
@@ -604,10 +604,10 @@ class TestIndividualTourFormatting:
                     tour_purpose=Purpose.PRIMARY_WORKPLACE,
                     o_taz=100,
                     d_taz=200,
-                    depart_time=datetime.combine(
+                    origin_depart_time=datetime.combine(
                         datetime(2024, 1, 1), time(8, 0)
                     ),
-                    arrive_time=datetime.combine(
+                    origin_arrive_time=datetime.combine(
                         datetime(2024, 1, 1), time(17, 0)
                     ),
                     student_category="Not student",

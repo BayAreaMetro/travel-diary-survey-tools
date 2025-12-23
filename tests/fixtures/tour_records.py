@@ -34,8 +34,6 @@ def create_tour(
     d_lon: float | None = None,
     o_location_type: int = 0,
     d_location_type: int = 0,
-    depart_time: datetime | None = None,
-    arrive_time: datetime | None = None,
     origin_depart_time: datetime | None = None,
     origin_arrive_time: datetime | None = None,
     dest_depart_time: datetime | None = None,
@@ -48,6 +46,7 @@ def create_tour(
     data_quality: TourDataQuality = TourDataQuality.VALID,
     joint_tour_id: int | None = None,
     parent_tour_id: int | None = None,
+    subtour_num: int = 0,
     **overrides,
 ) -> dict:
     """Create a complete canonical tour record.
@@ -72,10 +71,8 @@ def create_tour(
         d_lon: Destination longitude (optional)
         o_location_type: Origin location type
         d_location_type: Destination location type
-        depart_time: Departure time (defaults to 8 AM today)
-        arrive_time: Arrival time (defaults to 5 PM today)
-        origin_depart_time: Origin departure time
-        origin_arrive_time: Origin arrival time
+        origin_depart_time: Origin departure time (defaults to 8 AM)
+        origin_arrive_time: Origin arrival time (defaults to 5 PM)
         dest_depart_time: Destination departure time
         dest_arrive_time: Destination arrival time
         travel_dow: Day of week enum
@@ -86,24 +83,28 @@ def create_tour(
         data_quality: Data quality flag enum
         joint_tour_id: Joint tour ID (None for individual tours)
         parent_tour_id: Parent tour (None for primary tours)
+        subtour_num: Subtour number (0 for primary tours)
         **overrides: Override any default values
 
     Returns:
         Complete tour record dict
     """
-    # Default times if not provided
-    if depart_time is None:
-        depart_time = datetime.combine(datetime.now(tz=UTC).date(), time(8, 0))
-    if arrive_time is None:
-        arrive_time = datetime.combine(datetime.now(tz=UTC).date(), time(17, 0))
+    # Default times if not provided - use defaults from canonical schema
+    default_depart = datetime.combine(datetime.now(tz=UTC).date(), time(8, 0))
+    default_arrive = datetime.combine(datetime.now(tz=UTC).date(), time(17, 0))
+
     if origin_depart_time is None:
-        origin_depart_time = depart_time
+        origin_depart_time = default_depart
     if origin_arrive_time is None:
-        origin_arrive_time = depart_time + (arrive_time - depart_time) / 2
+        origin_arrive_time = default_arrive
     if dest_depart_time is None:
-        dest_depart_time = depart_time + (arrive_time - depart_time) / 2
+        dest_depart_time = (
+            origin_depart_time + (origin_arrive_time - origin_depart_time) / 2
+        )
     if dest_arrive_time is None:
-        dest_arrive_time = arrive_time
+        dest_arrive_time = (
+            origin_depart_time + (origin_arrive_time - origin_depart_time) / 2
+        )
 
     record = {
         "tour_id": tour_id,
@@ -123,8 +124,6 @@ def create_tour(
         "d_lon": d_lon,
         "o_location_type": o_location_type,
         "d_location_type": d_location_type,
-        "depart_time": depart_time,
-        "arrive_time": arrive_time,
         "origin_depart_time": origin_depart_time,
         "origin_arrive_time": origin_arrive_time,
         "dest_depart_time": dest_depart_time,
@@ -137,6 +136,7 @@ def create_tour(
         "data_quality": data_quality.value,
         "joint_tour_id": joint_tour_id,
         "parent_tour_id": parent_tour_id,
+        "subtour_num": subtour_num,
     }
 
     # Add optional MAZ fields
@@ -162,12 +162,17 @@ def get_tour_schema() -> dict[str, type]:
         "person_id": pl.Int64,
         "hh_id": pl.Int64,
         "person_num": pl.Int64,
+        "day_id": pl.Int64,
+        "day_num": pl.Int64,
+        "tour_num": pl.Int64,
         "tour_purpose": pl.Int64,
         "tour_category": pl.Int64,
         "o_taz": pl.Int64,
         "d_taz": pl.Int64,
-        "depart_time": pl.Datetime,
-        "arrive_time": pl.Datetime,
+        "origin_depart_time": pl.Datetime,
+        "origin_arrive_time": pl.Datetime,
+        "dest_depart_time": pl.Datetime,
+        "dest_arrive_time": pl.Datetime,
         "travel_dow": pl.Int64,
         "num_trips": pl.Int64,
         "num_travelers": pl.Int64,
@@ -176,4 +181,5 @@ def get_tour_schema() -> dict[str, type]:
         "data_quality": pl.Int64,
         "joint_tour_id": pl.Int64,
         "parent_tour_id": pl.Int64,
+        "subtour_num": pl.Int64,
     }
