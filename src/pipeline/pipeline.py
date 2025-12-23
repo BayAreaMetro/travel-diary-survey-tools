@@ -20,11 +20,11 @@ class Pipeline:
 
     data: CanonicalData
     steps: dict[str, Callable]
-    cache: PipelineCache
+    cache: PipelineCache | None
 
     def __init__(
         self,
-        config_path: str,
+        config_path: str | Path,
         steps: list[Callable] | None = None,
         caching: bool | Path | str | None = None,
     ) -> None:
@@ -47,7 +47,10 @@ class Pipeline:
             self.cache = None
             logger.info("Pipeline caching disabled")
         else:
-            cache_dir = Path(caching) if caching is not True else Path(".cache")
+            if caching not in (True, None):
+                cache_dir = Path(caching)
+            else:
+                cache_dir = Path(".cache")
             self.cache = PipelineCache(cache_dir=cache_dir)
             logger.info("Pipeline cache initialized at: %s", cache_dir)
 
@@ -305,6 +308,9 @@ class Pipeline:
                 raise ValueError(msg)
 
             step_obj = self.steps.get(step_name)
+            if step_obj is None:
+                msg = f"Step '{step_name}' not found in pipeline steps."
+                raise ValueError(msg)
 
             logger.info("")
             logger.info("=" * 70)
@@ -400,6 +406,10 @@ class Pipeline:
         Raises:
             ValueError: If step has no cache or table not in step.
         """
+        if not self.cache:
+            msg = "Caching is disabled. Cannot load data from cache."
+            raise ValueError(msg)
+
         status_info = self._step_status.get(step_name)
         if not status_info or not status_info.get("has_cache"):
             msg = f"Step '{step_name}' has no cached data."
