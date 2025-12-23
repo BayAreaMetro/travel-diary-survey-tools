@@ -257,6 +257,13 @@ def format_joint_tour(
         logger.info("No joint tours found")
         return pl.DataFrame()
 
+    # Join person_num for sorting participants
+    joint_tours = joint_tours.join(
+        persons.select(["person_id", "person_num", "age"]),
+        on="person_id",
+        how="left",
+    )
+
     # Group by joint_tour_id to aggregate participants
     # This assumes tours table has person_num for each participant
     participants_agg = joint_tours.group_by("joint_tour_id").agg(
@@ -274,7 +281,7 @@ def format_joint_tour(
             pl.col("origin_depart_time").first(),
             pl.col("origin_arrive_time").first(),
             pl.col("tour_mode").first(),
-            pl.col("num_travelers").first(),
+            pl.col("subtour_num").first(),
         ]
     )
 
@@ -317,6 +324,55 @@ def format_joint_tour(
         how="left",
     )
 
+    # Calculate all trip-based metrics in a single aggregation
+    if len(trips) > 0:
+        joint_trip_stats = (
+            trips.filter(pl.col("joint_tour_id").is_not_null())
+            .group_by("joint_tour_id")
+            .agg(
+                [
+                    pl.col("person_id").n_unique().alias("num_travelers"),
+                    pl.when(
+                        pl.col("tour_direction") == TourDirection.OUTBOUND.value
+                    )
+                    .then(1)
+                    .sum()
+                    .alias("NumObStops"),
+                    pl.when(
+                        pl.col("tour_direction") == TourDirection.INBOUND.value
+                    )
+                    .then(1)
+                    .sum()
+                    .alias("NumIbStops"),
+                    pl.when(
+                        pl.col("tour_direction") == TourDirection.SUBTOUR.value
+                    )
+                    .then(1)
+                    .sum()
+                    .alias("NumSubtourStops"),
+                ]
+            )
+        )
+
+        joint_tours_formatted = joint_tours_formatted.join(
+            joint_trip_stats, on="joint_tour_id", how="left"
+        ).with_columns(
+            [
+                pl.col("NumObStops").fill_null(0),
+                pl.col("NumIbStops").fill_null(0),
+                pl.col("NumSubtourStops").fill_null(0),
+            ]
+        )
+    else:
+        joint_tours_formatted = joint_tours_formatted.with_columns(
+            [
+                pl.lit(None).cast(pl.Int64).alias("num_travelers"),
+                pl.lit(0).alias("NumObStops"),
+                pl.lit(0).alias("NumIbStops"),
+                pl.lit(0).alias("NumSubtourStops"),
+            ]
+        )
+
     # Map purpose and mode
     joint_tours_formatted = joint_tours_formatted.with_columns(
         [
@@ -345,55 +401,14 @@ def format_joint_tour(
         ]
     )
 
-    # Calculate number of outbound and inbound stops from trips
-    # For joint tours, we need to match on joint_tour_id
-    # Note: joint_tour_id should exist in canonical data (may be null)
-    if len(trips) == 0:
-        outbound_stops = pl.DataFrame(
-            {"joint_tour_id": [], "NumObStops": []},
-            schema={"joint_tour_id": pl.Int32, "NumObStops": pl.UInt32},
-        )
-        inbound_stops = pl.DataFrame(
-            {"joint_tour_id": [], "NumIbStops": []},
-            schema={"joint_tour_id": pl.Int32, "NumIbStops": pl.UInt32},
-        )
-    else:
-        outbound_stops = (
-            trips.filter(
-                pl.col("joint_tour_id").is_not_null()
-                & (pl.col("tour_direction") == TourDirection.OUTBOUND.value)
-            )
-            .group_by("joint_tour_id")
-            .agg(pl.len().alias("NumObStops"))
-        )
-
-        inbound_stops = (
-            trips.filter(
-                pl.col("joint_tour_id").is_not_null()
-                & (pl.col("tour_direction") == TourDirection.INBOUND.value)
-            )
-            .group_by("joint_tour_id")
-            .agg(pl.len().alias("NumIbStops"))
-        )
-
-    # Join stop counts to joint tours
-    joint_tours_formatted = (
-        joint_tours_formatted.join(
-            outbound_stops, on="joint_tour_id", how="left"
-        )
-        .join(inbound_stops, on="joint_tour_id", how="left")
-        .with_columns(
-            [
-                pl.col("NumObStops").fill_null(0),
-                pl.col("NumIbStops").fill_null(0),
-            ]
-        )
-    )
-
     # Validate that no joint tours have zero trips
     if len(trips) > 0:
         zero_trip_tours = joint_tours_formatted.filter(
-            (pl.col("NumObStops") == 0) & (pl.col("NumIbStops") == 0)
+            pl.when(pl.col("subtour_num") == 0)
+            # Regular tours need outbound/inbound trips
+            .then((pl.col("NumObStops") == 0) & (pl.col("NumIbStops") == 0))
+            # Subtours need subtour trips
+            .otherwise(pl.col("NumSubtourStops") == 0)
         )
         if len(zero_trip_tours) > 0:
             tour_ids = zero_trip_tours["joint_tour_id"].to_list()

@@ -173,12 +173,12 @@ def format_ctramp(  # noqa: D417, PLR0913
     result["joint_tour_ctramp"] = joint_tour_ctramp
 
     individual_trip_ctramp = format_individual_trip(
-        linked_trips, tours, persons_ctramp, households_ctramp, config=config
+        linked_trips, tours, persons, households_ctramp, config=config
     )
     result["individual_trip_ctramp"] = individual_trip_ctramp
 
     joint_trip_ctramp = format_joint_trip(
-        joint_trips, tours, households_ctramp, config=config
+        joint_trips, linked_trips, tours, households_ctramp, config=config
     )
     result["joint_trip_ctramp"] = joint_trip_ctramp
 

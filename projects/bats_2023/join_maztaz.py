@@ -20,11 +20,14 @@ def join_zone_from_latlon(
     if zone_col_name in df.columns:
         df = df.drop(zone_col_name)
 
-    # Convert Polars DataFrame to GeoDataFrame
+    # Extract just the coordinates for spatial join to avoid type corruption
+    coords_df = df.select([lon_col, lat_col])
+
+    # Convert only coordinates to GeoDataFrame
     gdf = gpd.GeoDataFrame(
-        df.to_pandas(),
+        coords_df.to_pandas(),
         geometry=gpd.points_from_xy(
-            df[lon_col].to_list(), df[lat_col].to_list()
+            coords_df[lon_col].to_list(), coords_df[lat_col].to_list()
         ),
         crs="EPSG:4326",
     )
@@ -34,10 +37,16 @@ def join_zone_from_latlon(
 
     # Spatial join to find zone containing each point
     gdf_joined = gpd.sjoin(gdf, shp, how="left", predicate="within")
-    gdf_joined = gdf_joined.rename(columns={zone_id_field: zone_col_name})
-    gdf_joined = gdf_joined.drop(columns="geometry")
 
-    return pl.from_pandas(gdf_joined)
+    # Extract just the zone ID column
+    zone_series = pl.from_pandas(
+        gdf_joined[[zone_id_field]].reset_index(drop=True)
+    )
+
+    # Add the zone column to the original dataframe
+    result = df.with_columns(zone_series[zone_id_field].alias(zone_col_name))
+
+    return result
 
 
 # Optional: project-specific custom step functions
@@ -71,6 +80,8 @@ def custom_add_taz_ids(  # noqa: PLR0913
         ("unlinked_trips", "d_lon", "d_lat", "d_taz"),
         ("linked_trips", "o_lon", "o_lat", "o_taz"),
         ("linked_trips", "d_lon", "d_lat", "d_taz"),
+        ("tours", "o_lon", "o_lat", "o_taz"),
+        ("tours", "d_lon", "d_lat", "d_taz"),
     ]
     results = {
         "households": households,
@@ -98,6 +109,8 @@ def custom_add_taz_ids(  # noqa: PLR0913
             ("persons", "school_lon", "school_lat", "school_maz"),
             ("linked_trips", "o_lon", "o_lat", "o_maz"),
             ("linked_trips", "d_lon", "d_lat", "d_maz"),
+            ("tours", "o_lon", "o_lat", "o_maz"),
+            ("tours", "d_lon", "d_lat", "d_maz"),
         ]
 
         for df_name, lon_col, lat_col, maz_col_name in maz_configs:
@@ -122,5 +135,8 @@ def custom_add_taz_ids(  # noqa: PLR0913
             pl.col("o_taz").alias("o_maz"),
             pl.col("d_taz").alias("d_maz"),
         )
-
+        results["tours"] = results["tours"].with_columns(
+            pl.col("o_taz").alias("o_maz"),
+            pl.col("d_taz").alias("d_maz"),
+        )
     return results

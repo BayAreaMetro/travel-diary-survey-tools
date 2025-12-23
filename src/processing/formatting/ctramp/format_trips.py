@@ -10,7 +10,7 @@ import logging
 import polars as pl
 
 from data_canon.codebook.ctramp import map_mode_to_ctramp, map_purpose_to_ctramp
-from data_canon.codebook.persons import SchoolType, Student
+from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 
 from .ctramp_config import CTRAMPConfig
@@ -32,7 +32,7 @@ def format_individual_trip(
     Args:
         linked_trips: DataFrame with canonical linked trip fields
         tours: DataFrame with tour context (purpose, mode, category)
-        persons: DataFrame with person_type
+        persons: Canonical DataFrame with student and school_type fields
         households: DataFrame with income
         config: CT-RAMP configuration with income thresholds
 
@@ -52,9 +52,9 @@ def format_individual_trip(
         return pl.DataFrame()
 
     # Filter to trips on individual tours only
-    individual_tour_ids = tours.filter(
-        pl.col("joint_tour_id").is_null()
-    ).select("tour_id")
+    individual_tour_ids = tours.filter(pl.col("joint_tour_id").is_null())[
+        "tour_id"
+    ]
     individual_trips = linked_trips.filter(
         pl.col("tour_id").is_in(individual_tour_ids)
     )
@@ -68,7 +68,7 @@ def format_individual_trip(
 
     # Join with persons and households
     individual_trips = individual_trips.join(
-        persons.select(["person_id", "person_type", "student", "school_type"]),
+        persons.select(["person_id", "person_num", "school_type"]),
         on="person_id",
         how="left",
     ).join(
@@ -113,7 +113,6 @@ def format_individual_trip(
             map_purpose_to_ctramp(
                 pl.col("o_purpose"),
                 pl.col("income"),
-                pl.col("student"),
                 pl.col("school_type"),
                 config.income_low_threshold,
                 config.income_med_threshold,
@@ -122,7 +121,6 @@ def format_individual_trip(
             map_purpose_to_ctramp(
                 pl.col("d_purpose"),
                 pl.col("income"),
-                pl.col("student"),
                 pl.col("school_type"),
                 config.income_low_threshold,
                 config.income_med_threshold,
@@ -135,7 +133,7 @@ def format_individual_trip(
     individual_trips = individual_trips.with_columns(
         map_mode_to_ctramp(
             pl.col("mode_type"),
-            pl.col("num_travelers").fill_null(1),
+            pl.lit(1),  # Individual trips are single traveler
         ).alias("trip_mode")
     )
 
@@ -181,6 +179,7 @@ def format_individual_trip(
 
 def format_joint_trip(
     joint_trips: pl.DataFrame,
+    linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
     households: pl.DataFrame,
     config: CTRAMPConfig,
@@ -191,6 +190,7 @@ def format_joint_trip(
 
     Args:
         joint_trips: DataFrame with aggregated joint trip data (mean locations)
+        linked_trips: DataFrame to bridge joint_trip_id to tour_id
         tours: DataFrame with tour context
         households: DataFrame with income
         config: CT-RAMP configuration with income thresholds
@@ -208,8 +208,34 @@ def format_joint_trip(
         logger.info("No joint trips found")
         return pl.DataFrame()
 
-    # Join with tour context
+    # Join to linked_trips to get tour_id and other trip context
+    # Filter to only joint trips first to maintain proper schema
+    joint_trip_context = (
+        linked_trips.filter(pl.col("joint_trip_id").is_not_null())
+        .group_by("joint_trip_id")
+        .agg(
+            [
+                pl.col("tour_id").first(),
+                pl.col("o_purpose").first(),
+                pl.col("d_purpose").first(),
+                pl.col("mode_type").first(),
+                pl.col("depart_time").first(),
+                pl.col("arrive_time").first(),
+                pl.col("num_travelers").first(),
+                pl.col("o_taz").first(),
+                pl.col("d_taz").first(),
+            ]
+        )
+    )
+
     joint_trips_formatted = joint_trips.join(
+        joint_trip_context,
+        on="joint_trip_id",
+        how="left",
+    )
+
+    # Join with tour context
+    joint_trips_formatted = joint_trips_formatted.join(
         tours.select(
             ["tour_id", "joint_tour_id", "tour_purpose", "tour_category"]
         ),
@@ -235,7 +261,6 @@ def format_joint_trip(
             map_purpose_to_ctramp(
                 pl.col("o_purpose"),
                 pl.col("income"),
-                pl.lit(Student.NONSTUDENT.value),
                 pl.lit(SchoolType.MISSING.value),
                 config.income_low_threshold,
                 config.income_med_threshold,
@@ -244,7 +269,6 @@ def format_joint_trip(
             map_purpose_to_ctramp(
                 pl.col("d_purpose"),
                 pl.col("income"),
-                pl.lit(Student.NONSTUDENT.value),
                 pl.lit(SchoolType.MISSING.value),
                 config.income_low_threshold,
                 config.income_med_threshold,
@@ -252,7 +276,7 @@ def format_joint_trip(
             ).alias("DestPurpose"),
             map_mode_to_ctramp(
                 pl.col("mode_type"),
-                pl.col("num_participants").fill_null(2),
+                pl.col("num_travelers").fill_null(2),
             ).alias("TripMode"),
         ]
     )
@@ -281,12 +305,14 @@ def format_joint_trip(
             pl.col("tour_purpose").alias("TourPurpose"),
             pl.col("OrigPurpose"),
             pl.col("DestPurpose"),
-            pl.col("o_taz_mean").cast(pl.Int64).alias("OrigTAZ"),
-            pl.col("d_taz_mean").cast(pl.Int64).alias("DestTAZ"),
+            pl.col("o_taz").cast(pl.Int64).alias("OrigTAZ"),
+            pl.col("d_taz").cast(pl.Int64).alias("DestTAZ"),
             pl.col("TripMode"),
             pl.col("DepartMinutes").cast(pl.Int64),
             pl.col("ArriveMinutes").cast(pl.Int64),
-            pl.col("num_participants").cast(pl.Int64).alias("NumParticipants"),
+            pl.col("num_joint_travelers")
+            .cast(pl.Int64)
+            .alias("NumParticipants"),
         ]
     )
 
