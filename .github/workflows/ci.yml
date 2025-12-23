@@ -115,8 +115,16 @@ jobs:
         run: |
           git diff --quiet docs/COLUMN_REQUIREMENTS.md || echo "changed=true" >> $GITHUB_OUTPUT
 
-      - name: Commit and push if changed
-        if: steps.verify_diff.outputs.changed == 'true'
+      - name: Verify file is up-to-date (PR only)
+        if: steps.verify_diff.outputs.changed == 'true' && github.event_name == 'pull_request'
+        run: |
+          echo "❌ COLUMN_REQUIREMENTS.md is out of date!"
+          echo "Please run 'python scripts/generate_column_matrix.py' locally and commit the changes."
+          echo "Or ensure pre-commit hooks are installed: 'pre-commit install'"
+          exit 1
+
+      - name: Commit and push if changed (push only)
+        if: steps.verify_diff.outputs.changed == 'true' && github.event_name == 'push'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
