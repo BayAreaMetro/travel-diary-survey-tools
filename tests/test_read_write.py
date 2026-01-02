@@ -186,7 +186,9 @@ class TestWriteData:
         output_paths = {"households": str(output_path)}
 
         # Will raise OS error for missing directory
-        with pytest.raises(OSError, match=r"The system cannot find the path specified."):
+        with pytest.raises(
+            OSError, match=r"No such file or directory|cannot find the path specified"
+        ):
             write_data(
                 output_paths=output_paths,
                 canonical_data=canonical_data,
