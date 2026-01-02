@@ -37,23 +37,20 @@ class PipelineCache:
     This ensures cache invalidation when inputs or configuration change.
     """
 
-    def __init__(self, cache_dir: Path | str | None = Path(".cache")) -> None:
+    def __init__(self, cache_dir: Path | str = Path(".cache")) -> None:
         """Initialize pipeline cache.
 
         Args:
             cache_dir: Root directory for cache storage
         """
-        if cache_dir is None:
-            logger.info("Pipeline caching disabled")
-        else:
-            self.cache_dir = Path(cache_dir)
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self._stats = {
-                "loaded": 0,  # Loaded from cache
-                "missing": 0,  # No cache found
-                "stale": 0,  # Cache outdated/corrupted
-            }
-            logger.info("Pipeline cache initialized at: %s", cache_dir)
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._stats = {
+            "loaded": 0,  # Loaded from cache
+            "missing": 0,  # No cache found
+            "stale": 0,  # Cache outdated/corrupted
+        }
+        logger.info("Pipeline cache initialized at: %s", cache_dir)
 
     def get_cache_key(
         self,

@@ -32,17 +32,33 @@ def setup_logging(
     console_handler.setLevel(console_level)
     console_handler.setFormatter(formatter)
 
-    # Configure root logger
+    # Configure root logger (idempotent - preserves existing handlers like pytest's caplog)
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
-    root_logger.setLevel(logging.DEBUG)
-    root_logger.addHandler(console_handler)
+
+    # Check if we've already added our console handler
+    has_our_console = any(
+        isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.FileHandler)
+        and h.level == console_level
+        for h in root_logger.handlers
+    )
+
+    if not has_our_console:
+        root_logger.setLevel(logging.DEBUG)
+        root_logger.addHandler(console_handler)
 
     # File handler
     if log_file is not None:
-        file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-        file_handler.setLevel(file_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
+        # Check if we've already added this file handler
+        resolved_path = str(Path(log_file).resolve())
+        has_our_file = any(
+            isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == resolved_path
+            for h in root_logger.handlers
+        )
+        if not has_our_file:
+            file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+            file_handler.setLevel(file_level)
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
 
     return root_logger

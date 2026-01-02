@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 import polars as pl
 from pydantic import BaseModel
 
-from data_canon.models import daysim as daysim_models
 from data_canon.models import survey as survey_models
 from data_canon.validation.column import (
     check_unique_constraints,
@@ -61,12 +60,6 @@ class CanonicalData:
             "linked_trips": survey_models.LinkedTripModel,
             "tours": survey_models.TourModel,
             "joint_trips": survey_models.JointTripModel,
-            # Daysim models
-            "households_daysim": daysim_models.HouseholdDaysimModel,
-            "persons_daysim": daysim_models.PersonDaysimModel,
-            "days_daysim": daysim_models.PersonDayDaysimModel,
-            "linked_trips_daysim": daysim_models.LinkedTripDaysimModel,
-            "tours_daysim": daysim_models.TourDaysimModel,
         }
     )
 
@@ -81,6 +74,19 @@ class CanonicalData:
     def __post_init__(self) -> None:
         """Validate FK references point to unique fields."""
         validate_fk_references(self._models)
+
+    def add_models(self, new_models: dict[str, type[BaseModel]]) -> None:
+        """Add or override data models for validation.
+
+        Also adds the new tables as canonical data attributes.
+
+        Args:
+            new_models: Dictionary of table name to Pydantic model class
+        """
+        for table_name, model in new_models.items():
+            self._models[table_name] = model
+            if not hasattr(self, table_name):
+                setattr(self, table_name, None)
 
     def validate(self, table_name: str, step: str | None = None) -> None:
         """Validate a table through all validation layers.

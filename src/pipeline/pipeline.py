@@ -21,7 +21,7 @@ class Pipeline:
 
     data: CanonicalData
     steps: dict[str, Callable]
-    cache: PipelineCache
+    cache: PipelineCache | None
 
     def __init__(
         self,
@@ -63,13 +63,12 @@ class Pipeline:
 
         # Initialize cache based on caching parameter
         if caching is False:
-            cache_dir = None
+            self.cache = None
+            logger.info("Pipeline caching disabled")
         elif caching is True:
-            cache_dir = Path(".cache")
+            self.cache = PipelineCache(cache_dir=Path(".cache"))
         else:
-            cache_dir = Path(caching)
-
-        self.cache = PipelineCache(cache_dir=cache_dir)
+            self.cache = PipelineCache(cache_dir=Path(caching))
 
         # Initialize step status tracking
         self._step_status: dict[str, dict[str, Any]] = {}
@@ -117,41 +116,32 @@ class Pipeline:
         For each step in the config, checks if cache exists and reads
         metadata from the newest cache key directory.
         """
-        if not self.cache:
-            # No caching enabled, mark all steps as no cache
-            for step_cfg in self.config.get("steps", []):
-                step_name = step_cfg["name"]
-                self._step_status[step_name] = {
-                    "has_cache": False,
-                    "cache_key": None,
-                    "tables": [],
-                    "cache_enabled": False,
-                }
-            return
-
         for step_cfg in self.config.get("steps", []):
             step_name = step_cfg["name"]
             cache_enabled = step_cfg.get("cache", False)
-            step_cache_dir = self.cache.cache_dir / step_name
 
+            # Default status
+            status = {
+                "has_cache": False,
+                "cache_key": None,
+                "tables": [],
+                "cache_enabled": cache_enabled,
+            }
+
+            if not self.cache:
+                self._step_status[step_name] = status
+                self._step_status[step_name].update({"cache_enabled": False})
+                continue
+
+            step_cache_dir = self.cache.cache_dir / step_name
             if not step_cache_dir.exists() or not cache_enabled:
-                self._step_status[step_name] = {
-                    "has_cache": False,
-                    "cache_key": None,
-                    "tables": [],
-                    "cache_enabled": cache_enabled,
-                }
+                self._step_status[step_name] = status
                 continue
 
             # Find newest cache key directory by modification time
             cache_key_dirs = [d for d in step_cache_dir.iterdir() if d.is_dir()]
             if not cache_key_dirs:
-                self._step_status[step_name] = {
-                    "has_cache": False,
-                    "cache_key": None,
-                    "tables": [],
-                    "cache_enabled": cache_enabled,
-                }
+                self._step_status[step_name] = status
                 continue
 
             # Get newest cache directory
@@ -160,6 +150,7 @@ class Pipeline:
 
             # Read metadata
             metadata_path = newest_cache_dir / "metadata.json"
+            tables = []
             if metadata_path.exists():
                 try:
                     with metadata_path.open() as f:
@@ -171,16 +162,17 @@ class Pipeline:
                         step_name,
                         cache_key,
                     )
-                    tables = []
-            else:
-                tables = []
 
-            self._step_status[step_name] = {
-                "has_cache": True,
-                "cache_key": cache_key,
-                "tables": tables,
-                "cache_enabled": cache_enabled,
-            }
+            # Update status with cache information
+            status.update(
+                {
+                    "has_cache": True,
+                    "cache_key": cache_key,
+                    "tables": tables,
+                }
+            )
+
+            self._step_status[step_name] = status
 
     def report_status(self) -> None:
         """Report the current pipeline status with ASCII flow diagram.
@@ -421,7 +413,8 @@ class Pipeline:
             )
             raise ValueError(msg)
 
-        cached_data = self.cache.load(step_name, cache_key)
+        # Load cached data
+        cached_data = self.cache.load(step_name, cache_key) if self.cache else None
         if not cached_data or table_name not in cached_data:
             msg = f"Failed to load '{table_name}' from cache for step '{step_name}'."
             raise ValueError(msg)
@@ -442,7 +435,7 @@ class Pipeline:
         table_name: str,
         step: str | None = None,
     ) -> Any:  # noqa: ANN401
-        """Fetch a table from cached pipeline data.
+        """Fetch a table from cached pipeline data. If no cache, just return latest.
 
         Args:
             table_name: Name of the table to fetch (e.g., 'households', 'trips')
@@ -464,8 +457,13 @@ class Pipeline:
             >>> trips = pipeline.get_data("linked_trips", step="link_trips")
         """
         if not self.cache:
-            msg = "Caching is disabled. Cannot fetch cached data."
-            raise ValueError(msg)
+            msg = "Caching is disabled. Just returning latest data."
+            data = getattr(self.data, table_name, None)
+            if data is None:
+                msg = f"Table '{table_name}' not found in canonical data."
+                raise ValueError(msg)
+            logger.info(msg)
+            return data
 
         # If step specified, load from that specific step
         if step:

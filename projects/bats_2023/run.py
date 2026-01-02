@@ -7,6 +7,9 @@ from pathlib import Path
 
 import polars as pl
 
+from data_canon.models import (
+    daysim as daysim_models,
+)
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
 from processing import (
@@ -84,6 +87,16 @@ processing_steps = [
 ]
 
 
+new_models = {
+    # Daysim models
+    "households_daysim": daysim_models.HouseholdDaysimModel,
+    "persons_daysim": daysim_models.PersonDaysimModel,
+    "days_daysim": daysim_models.PersonDayDaysimModel,
+    "linked_trips_daysim": daysim_models.LinkedTripDaysimModel,
+    "tours_daysim": daysim_models.TourDaysimModel,
+    # CT-RAMP models
+}
+
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     # Parse command-line arguments
@@ -105,7 +118,7 @@ if __name__ == "__main__":
     )
 
     # Clear cache if requested
-    if args.clear_cache and cache_dir.exists():
+    if args.clear_cache and pipeline.cache:
         pipeline.cache.clear()
         logger.info("Cleared pipeline cache at %s", cache_dir)
 
