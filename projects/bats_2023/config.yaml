@@ -128,3 +128,10 @@ steps:
         linked_trips_daysim: "{{ output_dir }}/linked_trip_daysim.csv"
         tours_daysim: "{{ output_dir }}/tour_daysim.csv"
         # CTRAMP Formats
+        households_ctramp: "{{ output_dir }}/HouseholdData.csv"
+        persons_ctramp: "{{ output_dir }}/PersonData.csv"
+        mandatory_location_ctramp: "{{ output_dir }}/MandatoryLocationData.csv"
+        individual_tour_ctramp: "{{ output_dir }}/IndividualTourData.csv"
+        individual_trip_ctramp: "{{ output_dir }}/IndividualTripData.csv"
+        joint_tour_ctramp: "{{ output_dir }}/JointTourData.csv"
+        joint_trip_ctramp: "{{ output_dir }}/JointTripData.csv"
