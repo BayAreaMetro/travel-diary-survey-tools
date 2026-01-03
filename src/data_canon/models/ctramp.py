@@ -26,9 +26,7 @@ class HouseholdCTRAMPModel(BaseModel):
     )
     income: int = Field(ge=0, description="Annual household income ($2000)")
     autos: int = Field(ge=0, description="Household automobiles")
-    jtf_choice: int = Field(
-        ge=-4, le=21, description="Number and type of household joint tours"
-    )
+    jtf_choice: int = Field(ge=-4, le=21, description="Number and type of household joint tours")
     size: int = Field(ge=1, description="Number of persons in the household")
     workers: int = Field(
         ge=0,
@@ -46,12 +44,8 @@ class HouseholdCTRAMPModel(BaseModel):
     )
     auto_suff: int | None = Field(None, description="Incorrectly coded; ignore")
     # NOTE: Model output only, not derivable from survey data.
-    ao_rn: int | None = Field(
-        description="Random number for automobile ownership model"
-    )
-    fp_rn: int | None = Field(
-        description="Random number for free parking model"
-    )
+    ao_rn: int | None = Field(description="Random number for automobile ownership model")
+    fp_rn: int | None = Field(description="Random number for free parking model")
     cdap_rn: int | None = Field(
         description="Random number for coordinated daily activity pattern model"
     )
@@ -64,18 +58,10 @@ class HouseholdCTRAMPModel(BaseModel):
     immc_rn: int | None = Field(
         description="Random number for individual mandatory mode choice model"
     )
-    jtf_rn: int | None = Field(
-        description="Random number for joint tour frequency model"
-    )
-    jtl_rn: int | None = Field(
-        description="Random number for joint tour location choice model"
-    )
-    jtod_rn: int | None = Field(
-        description="Random number for joint tour time-of-day model"
-    )
-    jmc_rn: int | None = Field(
-        description="Random number for joint tour mode choice model"
-    )
+    jtf_rn: int | None = Field(description="Random number for joint tour frequency model")
+    jtl_rn: int | None = Field(description="Random number for joint tour location choice model")
+    jtod_rn: int | None = Field(description="Random number for joint tour time-of-day model")
+    jmc_rn: int | None = Field(description="Random number for joint tour mode choice model")
     inmtf_rn: int | None = Field(
         description="Random number for individual non-mandatory tour frequency model"
     )
@@ -88,24 +74,12 @@ class HouseholdCTRAMPModel(BaseModel):
     inmmc_rn: int | None = Field(
         description="Random number for individual non-mandatory mode choice model"
     )
-    awf_rn: int | None = Field(
-        description="Random number for at-work frequency model"
-    )
-    awl_rn: int | None = Field(
-        description="Random number for at-work location choice model"
-    )
-    awtod_rn: int | None = Field(
-        description="Random number for at-work time-of-day model"
-    )
-    awmc_rn: int | None = Field(
-        description="Random number for at-work mode choice model"
-    )
-    stf_rn: int | None = Field(
-        description="Random number for stop frequency model"
-    )
-    stl_rn: int | None = Field(
-        description="Random number for stop location choice model"
-    )
+    awf_rn: int | None = Field(description="Random number for at-work frequency model")
+    awl_rn: int | None = Field(description="Random number for at-work location choice model")
+    awtod_rn: int | None = Field(description="Random number for at-work time-of-day model")
+    awmc_rn: int | None = Field(description="Random number for at-work mode choice model")
+    stf_rn: int | None = Field(description="Random number for stop frequency model")
+    stl_rn: int | None = Field(description="Random number for stop location choice model")
 
 
 class PersonCTRAMPModel(BaseModel):
@@ -113,9 +87,7 @@ class PersonCTRAMPModel(BaseModel):
 
     hh_id: int = Field(description="Unique household ID number")
     person_id: int = Field(description="Unique person ID number")
-    person_num: int = Field(
-        ge=1, description="Person number unique to the household"
-    )
+    person_num: int = Field(ge=1, description="Person number unique to the household")
     age: int = Field(ge=0, description="Person age")
     gender: str = Field(description="Person gender (m=male, f=female)")
     type: PersonType = Field(
@@ -124,9 +96,7 @@ class PersonCTRAMPModel(BaseModel):
             "Retired, Student of non-driving age, Student of driving age, Child too young for school)"
         )
     )
-    value_of_time: float = Field(
-        ge=0, description="Value of time ($2000 per hour)"
-    )
+    value_of_time: float = Field(ge=0, description="Value of time ($2000 per hour)")
     fp_choice: FreeParkingChoice = Field(
         description="Free parking eligibility choice (1=park for free, 2=pay to park)",
     )
@@ -139,9 +109,7 @@ class PersonCTRAMPModel(BaseModel):
             "4=two school tours, 5=one work tour and one school tour)"
         ),
     )
-    inmf_choice: int = Field(
-        ge=1, le=96, description="Individual non-mandatory tour frequency"
-    )
+    inmf_choice: int = Field(ge=1, le=96, description="Individual non-mandatory tour frequency")
     wfh_choice: int = Field(
         ge=0,
         le=1,
@@ -153,14 +121,10 @@ class MandatoryLocationCTRAMPModel(BaseModel):
     """Mandatory tour locations from Travel Model (CT-RAMP format)."""
 
     HHID: int = Field(description="Unique household ID number")
-    HomeTAZ: int = Field(
-        ge=1, le=1454, description="Home transportation analysis zone"
-    )
+    HomeTAZ: int = Field(ge=1, le=1454, description="Home transportation analysis zone")
     Income: int = Field(ge=0, description="Annual household income ($2000)")
     PersonID: int = Field(description="Unique person ID number")
-    PersonNum: int = Field(
-        ge=1, description="Person number unique to the household"
-    )
+    PersonNum: int = Field(ge=1, description="Person number unique to the household")
     PersonType: "PersonType" = Field(
         description=(
             "Person lifestage/employment type (1=Full-time worker; 2=Part-time worker; 3=University student; "
@@ -202,9 +166,7 @@ class IndividualTourCTRAMPModel(BaseModel):
 
     hh_id: int = Field(description="Unique household ID number")
     person_id: int = Field(description="Unique person ID number")
-    person_num: int = Field(
-        ge=1, description="Person number unique to the household"
-    )
+    person_num: int = Field(ge=1, description="Person number unique to the household")
     person_type: PersonType = Field(
         description=(
             "Person lifestage/employment type (1=Full-time worker; 2=Part-time worker; 3=University student; "
@@ -212,9 +174,7 @@ class IndividualTourCTRAMPModel(BaseModel):
             "8=Child too young for school)"
         ),
     )
-    tour_id: int = Field(
-        ge=0, le=4, description="Individual tour number unique to the person"
-    )
+    tour_id: int = Field(ge=0, le=4, description="Individual tour number unique to the person")
     tour_category: str = Field(
         description='Type of tour ("MANDATORY", "INDIVIDUAL_NON_MANDATORY", "AT_WORK")'
     )
@@ -225,12 +185,8 @@ class IndividualTourCTRAMPModel(BaseModel):
             '"eatout", "escort_kids", "escort_no kids", "othdiscr", "othmaint", "shopping", "social")'
         )
     )
-    orig_taz: int = Field(
-        ge=1, le=1454, description="Origin transportation analysis zone"
-    )
-    dest_taz: int = Field(
-        ge=1, le=1454, description="Destination transportation analysis zone"
-    )
+    orig_taz: int = Field(ge=1, le=1454, description="Origin transportation analysis zone")
+    dest_taz: int = Field(ge=1, le=1454, description="Destination transportation analysis zone")
     start_hour: int = Field(
         ge=5,
         le=23,
@@ -248,16 +204,10 @@ class IndividualTourCTRAMPModel(BaseModel):
         ge=0,
         description="Number of at work sub-tours (non-zero only for work tours)",
     )
-    num_ob_stops: int = Field(
-        description="Number of out-bound stops on the tour"
-    )
-    num_ib_stops: int = Field(
-        description="Number of in-bound stops on the tour"
-    )
+    num_ob_stops: int = Field(description="Number of out-bound stops on the tour")
+    num_ib_stops: int = Field(description="Number of in-bound stops on the tour")
     # NOTE: Derivable from survey weights when available.
-    sampleRate: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
-    )
+    sampleRate: float | None = Field(None, description="To document, added in Travel Model 1.5")
     # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
         description="Autonomous vehicle available, added in Travel Model 1.5"
@@ -268,15 +218,9 @@ class IndividualTourCTRAMPModel(BaseModel):
     orig_walk_segment: WalkToTransitSubZone | None = Field(
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
-    dcLogsum: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
-    )
-    origTaxiWait: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
-    )
-    destTaxiWait: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
-    )
+    dcLogsum: float | None = Field(None, description="To document, added in Travel Model 1.5")
+    origTaxiWait: float | None = Field(None, description="To document, added in Travel Model 1.5")
+    destTaxiWait: float | None = Field(None, description="To document, added in Travel Model 1.5")
     origSingleTNCWait: float | None = Field(
         None, description="To document, added in Travel Model 1.5"
     )
@@ -296,9 +240,7 @@ class IndividualTripCTRAMPModel(BaseModel):
 
     hh_id: int = Field(description="Unique household ID number")
     person_id: int = Field(description="Unique person ID number")
-    person_num: int = Field(
-        ge=1, description="Person number unique to the household"
-    )
+    person_num: int = Field(ge=1, description="Person number unique to the household")
     tour_id: int = Field(
         description=(
             "Individual tour number unique to the person. "
@@ -335,12 +277,8 @@ class IndividualTripCTRAMPModel(BaseModel):
             '"eatout", "escort_kids", "escort_no kids", "othdiscr", "othmaint", "shopping", "social")'
         )
     )
-    orig_taz: int = Field(
-        ge=1, le=1454, description="Origin transportation analysis zone"
-    )
-    dest_taz: int = Field(
-        ge=1, le=1454, description="Destination transportation analysis zone"
-    )
+    orig_taz: int = Field(ge=1, le=1454, description="Origin transportation analysis zone")
+    dest_taz: int = Field(ge=1, le=1454, description="Destination transportation analysis zone")
     parking_taz: int = Field(
         ge=0,
         le=1454,
@@ -388,9 +326,7 @@ class JointTourCTRAMPModel(BaseModel):
         ge=0,
         description="Joint tour number unique to the household (0=first joint tour, 1=second, etc.)",
     )
-    tour_category: str = Field(
-        description='Type of joint tour ("JOINT_NON_MANDATORY")'
-    )
+    tour_category: str = Field(description='Type of joint tour ("JOINT_NON_MANDATORY")')
     tour_purpose: str = Field(
         description='Purpose of the joint tour ("eatout", "othdiscr", "othmaint", "shopping", "social")'
     )
@@ -400,12 +336,8 @@ class JointTourCTRAMPModel(BaseModel):
     tour_participants: str = Field(
         description="Household members participating in the tour (space-separated person_num values)"
     )
-    orig_taz: int = Field(
-        ge=1, le=1454, description="Origin transportation analysis zone"
-    )
-    dest_taz: int = Field(
-        ge=1, le=1454, description="Destination transportation analysis zone"
-    )
+    orig_taz: int = Field(ge=1, le=1454, description="Origin transportation analysis zone")
+    dest_taz: int = Field(ge=1, le=1454, description="Destination transportation analysis zone")
     start_hour: int = Field(
         ge=5,
         le=23,
@@ -419,12 +351,8 @@ class JointTourCTRAMPModel(BaseModel):
     tour_mode: int = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
-    num_ob_stops: int = Field(
-        ge=0, description="Number of out-bound (from home) stops on the tour"
-    )
-    num_ib_stops: int = Field(
-        ge=0, description="Number of in-bound (to home) stops on the tour"
-    )
+    num_ob_stops: int = Field(ge=0, description="Number of out-bound (from home) stops on the tour")
+    num_ib_stops: int = Field(ge=0, description="Number of in-bound (to home) stops on the tour")
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
@@ -459,12 +387,8 @@ class JointTripCTRAMPModel(BaseModel):
     dest_purpose: str = Field(
         description='Purpose at the destination end of the trip ("Home", "eatout", "othdiscr", "othmaint", "shopping", "social")'
     )
-    orig_taz: int = Field(
-        ge=1, le=1454, description="Origin transportation analysis zone"
-    )
-    dest_taz: int = Field(
-        ge=1, le=1454, description="Destination transportation analysis zone"
-    )
+    orig_taz: int = Field(ge=1, le=1454, description="Origin transportation analysis zone")
+    dest_taz: int = Field(ge=1, le=1454, description="Destination transportation analysis zone")
     parking_taz: int = Field(
         ge=0,
         le=1454,
@@ -478,15 +402,11 @@ class JointTripCTRAMPModel(BaseModel):
     trip_mode: int = Field(
         description="Travel mode for the trip (see TravelModes#tour-and-trip-modes)"
     )
-    num_participants: int = Field(
-        ge=2, description="Number of participants on the tour"
-    )
+    num_participants: int = Field(ge=2, description="Number of participants on the tour")
     tour_mode: int = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
-    tour_category: str = Field(
-        description='Tour category ("JOINT_NON_MANDATORY")'
-    )
+    tour_category: str = Field(description='Tour category ("JOINT_NON_MANDATORY")')
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",

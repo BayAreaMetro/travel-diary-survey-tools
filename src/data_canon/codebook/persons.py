@@ -47,8 +47,7 @@ class Employment(LabeledEnum):
     EMPLOYED_SELF = (3, "Self-employed")
     UNEMPLOYED_NOT_LOOKING = (
         5,
-        "Not employed and not looking for work "
-        "(e.g., retired, stay-at-home parent, student)",
+        "Not employed and not looking for work (e.g., retired, stay-at-home parent, student)",
     )
     UNEMPLOYED_LOOKING = (6, "Unemployed and looking for work")
     EMPLOYED_UNPAID = (7, "Unpaid volunteer or intern")
@@ -111,8 +110,7 @@ class Industry(LabeledEnum):
     MANAGEMENT = (13, "Management of Companies and Enteprises")
     ADMINISTRATIVE = (
         14,
-        "Administrative and Support and Waste Management "
-        "and Remediation Services",
+        "Administrative and Support and Waste Management and Remediation Services",
     )
     EDUCATIONAL = (15, "Educational Services")
     HEALTH_AND_SOCIAL = (16, "Health Care and Social Assistance")
@@ -193,9 +191,7 @@ class Relationship(LabeledEnum):
     """relationship value labels."""
 
     canonical_field_name = "relationship"
-    field_description = (
-        "Indicates the relationship of the person to the primary respondent"
-    )
+    field_description = "Indicates the relationship of the person to the primary respondent"
 
     SELF = (0, "Self")
     SPOUSE_PARTNER = (1, "Spouse, partner")
@@ -318,9 +314,7 @@ class PersonType(LabeledEnum):
     """Derived person type from employment status, student status, and age."""
 
     canonical_field_name = "person_type"
-    field_description = (
-        "Person type derived from employment, student status, and age"
-    )
+    field_description = "Person type derived from employment, student status, and age"
 
     FULL_TIME_WORKER = (1, "Full-time worker")
     PART_TIME_WORKER = (2, "Part-time worker")

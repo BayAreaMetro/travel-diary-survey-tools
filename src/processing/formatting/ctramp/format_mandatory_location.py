@@ -48,10 +48,7 @@ def format_mandatory_location(
 
     # Check if persons has work/school location columns
     # If not, return empty DataFrame (no mandatory locations)
-    if (
-        "work_taz" not in persons.columns
-        and "school_taz" not in persons.columns
-    ):
+    if "work_taz" not in persons.columns and "school_taz" not in persons.columns:
         return pl.DataFrame(
             schema={
                 "person_id": pl.Int64,
@@ -103,13 +100,9 @@ def format_mandatory_location(
     # Filter to only persons with work or school locations
     # Add columns as null if they don't exist
     if "work_taz" not in mandatory_loc.columns:
-        mandatory_loc = mandatory_loc.with_columns(
-            pl.lit(None).cast(pl.Int64).alias("work_taz")
-        )
+        mandatory_loc = mandatory_loc.with_columns(pl.lit(None).cast(pl.Int64).alias("work_taz"))
     if "school_taz" not in mandatory_loc.columns:
-        mandatory_loc = mandatory_loc.with_columns(
-            pl.lit(None).cast(pl.Int64).alias("school_taz")
-        )
+        mandatory_loc = mandatory_loc.with_columns(pl.lit(None).cast(pl.Int64).alias("school_taz"))
 
     mandatory_loc = mandatory_loc.filter(
         (pl.col("work_taz").is_not_null() & (pl.col("work_taz") > 0))
@@ -121,23 +114,15 @@ def format_mandatory_location(
         [
             pl.col("hh_id").alias("HHID"),
             pl.col("home_taz").cast(pl.Int64).alias("HomeTAZ"),
-            (pl.col("income") / config.income_base_year_dollars)
-            .cast(pl.Int64)
-            .alias("Income"),
+            (pl.col("income") / config.income_base_year_dollars).cast(pl.Int64).alias("Income"),
             pl.col("person_id").alias("PersonID"),
             pl.col("person_num").alias("PersonNum"),
             pl.col("person_type").alias("PersonType"),
             pl.col("age").alias("PersonAge"),
             pl.col("employment_category").alias("EmploymentCategory"),
             pl.col("student_category").alias("StudentCategory"),
-            pl.col("work_taz")
-            .fill_null(0)
-            .cast(pl.Int64)
-            .alias("WorkLocation"),
-            pl.col("school_taz")
-            .fill_null(0)
-            .cast(pl.Int64)
-            .alias("SchoolLocation"),
+            pl.col("work_taz").fill_null(0).cast(pl.Int64).alias("WorkLocation"),
+            pl.col("school_taz").fill_null(0).cast(pl.Int64).alias("SchoolLocation"),
         ]
     )
 

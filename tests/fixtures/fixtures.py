@@ -41,12 +41,8 @@ def create_simple_work_tour_processed(
         Dict with keys: households, persons, days, unlinked_trips,
                        linked_trips, tours
     """
-    households, persons, days, unlinked_trips = simple_work_tour(
-        hh_id, person_id
-    )
-    return process_scenario_through_pipeline(
-        households, persons, days, unlinked_trips
-    )
+    households, persons, days, unlinked_trips = simple_work_tour(hh_id, person_id)
+    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
 
 
 def create_transit_commute_processed() -> dict[str, pl.DataFrame]:
@@ -57,9 +53,7 @@ def create_transit_commute_processed() -> dict[str, pl.DataFrame]:
                        linked_trips, tours
     """
     households, persons, days, unlinked_trips = transit_commute()
-    return process_scenario_through_pipeline(
-        households, persons, days, unlinked_trips
-    )
+    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
 
 
 def create_multi_person_household_processed(
@@ -93,10 +87,7 @@ def create_multi_person_household_processed(
         )
 
         # Create simple home->work->home trips for workers
-        if (
-            person.get("work_lat") is not None
-            and person.get("work_lon") is not None
-        ):
+        if person.get("work_lat") is not None and person.get("work_lon") is not None:
             home_lat = households["home_lat"][0]
             home_lon = households["home_lon"][0]
             unlinked_trips_list.extend(
@@ -132,16 +123,10 @@ def create_multi_person_household_processed(
             trip_id += 2
 
     days = pl.DataFrame(days_list)
-    unlinked_trips = (
-        pl.DataFrame(unlinked_trips_list)
-        if unlinked_trips_list
-        else pl.DataFrame()
-    )
+    unlinked_trips = pl.DataFrame(unlinked_trips_list) if unlinked_trips_list else pl.DataFrame()
 
     if not unlinked_trips.is_empty():
-        return process_scenario_through_pipeline(
-            households, persons, days, unlinked_trips
-        )
+        return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
     return {
         "households": households,
         "persons": persons,
@@ -225,36 +210,22 @@ def add_test_taz_maz_ids(
 
     # Assign TAZ/MAZ to households (home location) if provided
     if households is not None:
-        households = assign_zone_ids(
-            households, "home_lat", "home_lon", "home_taz", "home_maz"
-        )
+        households = assign_zone_ids(households, "home_lat", "home_lon", "home_taz", "home_maz")
 
     # Assign TAZ/MAZ to persons (work and school locations) if provided
     if persons is not None:
-        persons = assign_zone_ids(
-            persons, "work_lat", "work_lon", "work_taz", "work_maz"
-        )
-        persons = assign_zone_ids(
-            persons, "school_lat", "school_lon", "school_taz", "school_maz"
-        )
+        persons = assign_zone_ids(persons, "work_lat", "work_lon", "work_taz", "work_maz")
+        persons = assign_zone_ids(persons, "school_lat", "school_lon", "school_taz", "school_maz")
 
     # Assign TAZ/MAZ to unlinked trips (origin and destination) if provided
     if unlinked_trips is not None:
-        unlinked_trips = assign_zone_ids(
-            unlinked_trips, "o_lat", "o_lon", "o_taz", "o_maz"
-        )
-        unlinked_trips = assign_zone_ids(
-            unlinked_trips, "d_lat", "d_lon", "d_taz", "d_maz"
-        )
+        unlinked_trips = assign_zone_ids(unlinked_trips, "o_lat", "o_lon", "o_taz", "o_maz")
+        unlinked_trips = assign_zone_ids(unlinked_trips, "d_lat", "d_lon", "d_taz", "d_maz")
 
     # Assign TAZ/MAZ to linked trips (origin and destination) if provided
     if linked_trips is not None:
-        linked_trips = assign_zone_ids(
-            linked_trips, "o_lat", "o_lon", "o_taz", "o_maz"
-        )
-        linked_trips = assign_zone_ids(
-            linked_trips, "d_lat", "d_lon", "d_taz", "d_maz"
-        )
+        linked_trips = assign_zone_ids(linked_trips, "o_lat", "o_lon", "o_taz", "o_maz")
+        linked_trips = assign_zone_ids(linked_trips, "d_lat", "d_lon", "d_taz", "d_maz")
 
     # Assign TAZ/MAZ to tours (origin and destination) if provided
     if tours is not None:
@@ -294,9 +265,7 @@ def process_scenario_through_pipeline(
         dwell_buffer_distance=100,  # in meters
     )
     linked_trips = link_result["linked_trips"]
-    unlinked_trips = link_result[
-        "unlinked_trips"
-    ]  # Use updated unlinked trips with linked_trip_id
+    unlinked_trips = link_result["unlinked_trips"]  # Use updated unlinked trips with linked_trip_id
 
     # Extract tours (using config.yaml defaults)
     tour_result = extract_tours(
@@ -355,9 +324,7 @@ def multi_stop_tour_processed():
                         linked_trips, tours
     """
     households, persons, days, unlinked_trips = multi_stop_tour()
-    return process_scenario_through_pipeline(
-        households, persons, days, unlinked_trips
-    )
+    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
 
 
 @pytest.fixture(scope="module")
@@ -369,6 +336,4 @@ def multi_tour_day_processed():
                         linked_trips, tours
     """
     households, persons, days, unlinked_trips = multi_tour_day()
-    return process_scenario_through_pipeline(
-        households, persons, days, unlinked_trips
-    )
+    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)

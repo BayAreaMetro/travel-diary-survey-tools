@@ -75,9 +75,7 @@ def format_individual_tour(
     # Join with persons for person_type and school_type,
     # and households for income
     individual_tours = individual_tours.join(
-        persons.select(
-            ["person_id", "person_num", "person_type", "school_type"]
-        ),
+        persons.select(["person_id", "person_num", "person_type", "school_type"]),
         on="person_id",
         how="left",
     ).join(
@@ -137,17 +135,13 @@ def format_individual_tour(
     # Count trips by tour_direction
     if len(trips) > 0:
         outbound_stops = (
-            trips.filter(
-                pl.col("tour_direction") == TourDirection.OUTBOUND.value
-            )
+            trips.filter(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
             .group_by("tour_id")
             .agg(pl.len().alias("num_ob_stops"))
         )
 
         inbound_stops = (
-            trips.filter(
-                pl.col("tour_direction") == TourDirection.INBOUND.value
-            )
+            trips.filter(pl.col("tour_direction") == TourDirection.INBOUND.value)
             .group_by("tour_id")
             .agg(pl.len().alias("num_ib_stops"))
         )
@@ -211,9 +205,7 @@ def format_individual_tour(
         ]
     )
 
-    logger.info(
-        "Formatted %d individual tour records", len(individual_tours_ctramp)
-    )
+    logger.info("Formatted %d individual tour records", len(individual_tours_ctramp))
     return individual_tours_ctramp
 
 
@@ -269,11 +261,7 @@ def format_joint_tour(
     participants_agg = joint_tours.group_by("joint_tour_id").agg(
         [
             pl.col("hh_id").first(),
-            pl.col("person_num")
-            .sort()
-            .cast(pl.Utf8)
-            .str.join(" ")
-            .alias("Participants"),
+            pl.col("person_num").sort().cast(pl.Utf8).str.join(" ").alias("Participants"),
             pl.col("tour_category").first(),
             pl.col("tour_purpose").first(),
             pl.col("o_taz").first(),
@@ -332,21 +320,15 @@ def format_joint_tour(
             .agg(
                 [
                     pl.col("person_id").n_unique().alias("num_travelers"),
-                    pl.when(
-                        pl.col("tour_direction") == TourDirection.OUTBOUND.value
-                    )
+                    pl.when(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
                     .then(1)
                     .sum()
                     .alias("NumObStops"),
-                    pl.when(
-                        pl.col("tour_direction") == TourDirection.INBOUND.value
-                    )
+                    pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
                     .then(1)
                     .sum()
                     .alias("NumIbStops"),
-                    pl.when(
-                        pl.col("tour_direction") == TourDirection.SUBTOUR.value
-                    )
+                    pl.when(pl.col("tour_direction") == TourDirection.SUBTOUR.value)
                     .then(1)
                     .sum()
                     .alias("NumSubtourStops"),
@@ -386,9 +368,7 @@ def format_joint_tour(
             ).alias("TourPurpose"),
             map_mode_to_ctramp(
                 pl.col("tour_mode"),
-                pl.col("num_travelers").fill_null(
-                    config.default_joint_tour_travelers
-                ),
+                pl.col("num_travelers").fill_null(config.default_joint_tour_travelers),
             ).alias("TourMode"),
         ]
     )

@@ -90,9 +90,7 @@ def create_household(
     record["home_maz"] = home_maz
     record["home_walk_subzone"] = home_walk_subzone
     record["residence_type"] = residence_type.value if residence_type else None
-    record["residence_rent_own"] = (
-        residence_rent_own.value if residence_rent_own else None
-    )
+    record["residence_rent_own"] = residence_rent_own.value if residence_rent_own else None
 
     return {**record, **overrides}
 
@@ -196,28 +194,20 @@ def create_person(
 
     # Compute num_days_complete from days if provided
     if days is not None:
-        num_complete_days = sum(
-            1 for day in days if day.get("is_complete", False)
-        )
+        num_complete_days = sum(1 for day in days if day.get("is_complete", False))
 
     # Always include DaySim-specific fields with sensible defaults
 
     # Work parking
     if work_park is None:
-        work_park = (
-            WorkParking.FREE
-            if work_taz is not None
-            else WorkParking.NOT_APPLICABLE
-        )
+        work_park = WorkParking.FREE if work_taz is not None else WorkParking.NOT_APPLICABLE
     record["work_park"] = work_park.value
 
     # Transit pass
     if transit_pass is None:
         transit_pass = BooleanYesNo.NO.value
     elif isinstance(transit_pass, bool):
-        transit_pass = (
-            BooleanYesNo.YES.value if transit_pass else BooleanYesNo.NO.value
-        )
+        transit_pass = BooleanYesNo.YES.value if transit_pass else BooleanYesNo.NO.value
     record["transit_pass"] = transit_pass
 
     # Usual work mode

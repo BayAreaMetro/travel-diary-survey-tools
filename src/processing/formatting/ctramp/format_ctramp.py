@@ -96,26 +96,17 @@ def format_ctramp(  # noqa: D417, PLR0913
         n_og_persons = len(persons)
 
         households = households.filter(
-            households["home_taz"].is_not_null()
-            & (households["home_taz"] != -1)
+            households["home_taz"].is_not_null() & (households["home_taz"] != -1)
         )
-        persons = persons.filter(
-            pl.col("hh_id").is_in(households["hh_id"].implode())
-        )
+        persons = persons.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
 
         # Filter tours and trips (skip if empty to avoid errors)
         if len(tours) > 0:
-            tours = tours.filter(
-                pl.col("hh_id").is_in(households["hh_id"].implode())
-            )
+            tours = tours.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
         if len(linked_trips) > 0:
-            linked_trips = linked_trips.filter(
-                pl.col("hh_id").is_in(households["hh_id"].implode())
-            )
+            linked_trips = linked_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
         if len(joint_trips) > 0:
-            joint_trips = joint_trips.filter(
-                pl.col("hh_id").is_in(households["hh_id"].implode())
-            )
+            joint_trips = joint_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
 
         logger.info(
             "Dropped %d households without TAZ with %d persons; "
@@ -159,9 +150,7 @@ def format_ctramp(  # noqa: D417, PLR0913
     households_with_taz = households_ctramp.join(
         households.select(["hh_id", "home_taz"]), on="hh_id", how="left"
     )
-    mandatory_location_ctramp = format_mandatory_location(
-        persons, households_with_taz, config
-    )
+    mandatory_location_ctramp = format_mandatory_location(persons, households_with_taz, config)
     result["mandatory_location_ctramp"] = mandatory_location_ctramp
 
     # Add formatted tours to results

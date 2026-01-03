@@ -84,8 +84,7 @@ class CTRAMPConfig(BaseModel):
         default=2,
         ge=1,
         description=(
-            "Default number of travelers for joint tours when num_travelers "
-            "is missing. Default: 2"
+            "Default number of travelers for joint tours when num_travelers is missing. Default: 2"
         ),
     )
 

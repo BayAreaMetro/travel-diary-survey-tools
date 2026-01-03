@@ -70,8 +70,7 @@ def _filter_multi_person_households(
     )
     num_excluded = len(linked_trips) - len(candidate_trips)
     logger.info(
-        "Pre-filter: %d trips in multi-person households "
-        "(%d single-person trips excluded)",
+        "Pre-filter: %d trips in multi-person households (%d single-person trips excluded)",
         len(candidate_trips),
         num_excluded,
     )
@@ -158,16 +157,11 @@ def _assign_joint_trip_ids(
         )
 
     # Group by clique_id to get household and create enumerators
-    clique_to_hh = cliques_with_hh.group_by("clique_id").agg(
-        [pl.col("hh_id").first()]
-    )
+    clique_to_hh = cliques_with_hh.group_by("clique_id").agg([pl.col("hh_id").first()])
 
     # Create household-scoped enumerators
     clique_to_hh = clique_to_hh.with_columns(
-        pl.col("clique_id")
-        .rank(method="dense")
-        .over("hh_id")
-        .alias("joint_trip_num")
+        pl.col("clique_id").rank(method="dense").over("hh_id").alias("joint_trip_num")
     )
 
     # Create standardized joint_trip_id: <hh_id> + <3 digit enumerator>
@@ -248,8 +242,7 @@ def detect_joint_trips(
 
     if len(candidate_trips) == 0:
         logger.warning(
-            "No multi-person households found. "
-            "No joint trips possible, returning empty results."
+            "No multi-person households found. No joint trips possible, returning empty results."
         )
         return _create_empty_results(linked_trips)
 
@@ -305,9 +298,7 @@ def detect_joint_trips(
                 logger.debug("Flagged clique %d: trips %s", i, clique)
 
     # Convert clique_id to standardized joint_trip_id
-    joint_trip_assignments = _assign_joint_trip_ids(
-        clique_assignments, linked_trips
-    )
+    joint_trip_assignments = _assign_joint_trip_ids(clique_assignments, linked_trips)
 
     # Join assignments back to linked_trips
     linked_trips_with_joints = linked_trips.join(
@@ -315,9 +306,7 @@ def detect_joint_trips(
     )
 
     # Build joint_trips aggregation table
-    joint_trips_table = build_joint_trips_table(
-        linked_trips_with_joints, joint_trip_assignments
-    )
+    joint_trips_table = build_joint_trips_table(linked_trips_with_joints, joint_trip_assignments)
 
     # Validate against num_travelers (optional logging)
     validate_against_num_travelers(
@@ -333,13 +322,9 @@ def detect_joint_trips(
         "depart_diff_min",
         "arrive_diff_min",
     }
-    existing_cols_to_drop = [
-        c for c in cols_to_drop if c in linked_trips_with_joints.columns
-    ]
+    existing_cols_to_drop = [c for c in cols_to_drop if c in linked_trips_with_joints.columns]
     if existing_cols_to_drop:
-        linked_trips_with_joints = linked_trips_with_joints.drop(
-            existing_cols_to_drop
-        )
+        linked_trips_with_joints = linked_trips_with_joints.drop(existing_cols_to_drop)
 
     logger.info(
         "Joint trip detection completed: %d joint trip groups detected",

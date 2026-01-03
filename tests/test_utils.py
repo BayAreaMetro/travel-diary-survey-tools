@@ -94,11 +94,7 @@ def test_expr_haversine() -> None:
 
     # Distance should be roughly 1.4 km (1400 meters)
     distance = result["distance"][0]
-    assert (
-        EXPECTED_SAN_JOSE_DISTANCE_MIN
-        < distance
-        < EXPECTED_SAN_JOSE_DISTANCE_MAX
-    )
+    assert EXPECTED_SAN_JOSE_DISTANCE_MIN < distance < EXPECTED_SAN_JOSE_DISTANCE_MAX
 
 
 def test_expr_haversine_same_location() -> None:
@@ -151,11 +147,7 @@ def test_expr_haversine_known_distance() -> None:
 
     # Distance should be roughly 13 km (13000 meters)
     distance = result["distance"][0]
-    assert (
-        EXPECTED_SF_OAKLAND_DISTANCE_MIN
-        < distance
-        < EXPECTED_SF_OAKLAND_DISTANCE_MAX
-    )
+    assert EXPECTED_SF_OAKLAND_DISTANCE_MIN < distance < EXPECTED_SF_OAKLAND_DISTANCE_MAX
 
 
 # Income Midpoint Tests --------------------------------------------------------

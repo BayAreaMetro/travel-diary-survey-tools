@@ -85,9 +85,7 @@ class TestDayCompleteness:
         assert result["mon_complete"][0] == 1
         assert result["tue_complete"][0] == 0
         assert result["num_days_complete_3dayweekday"][0] == 0  # Tue+Wed+Thu
-        assert (
-            result["num_days_complete_4dayweekday"][0] == 1
-        )  # Mon+Tue+Wed+Thu
+        assert result["num_days_complete_4dayweekday"][0] == 1  # Mon+Tue+Wed+Thu
         assert result["num_days_complete_5dayweekday"][0] == 1  # Mon-Fri
 
     def test_compute_day_completeness_full_week(self):
@@ -767,9 +765,7 @@ class TestHouseholdFormatting:
             ]
         )
 
-        persons_daysim = pl.DataFrame(
-            [{"hhno": 1, "pno": 1, "pptyp": 1, "pwtyp": 1}]
-        )
+        persons_daysim = pl.DataFrame([{"hhno": 1, "pno": 1, "pptyp": 1, "pwtyp": 1}])
 
         result = format_households(households, persons_daysim)
 
@@ -792,9 +788,7 @@ class TestHouseholdFormatting:
             ]
         )
 
-        persons_daysim = pl.DataFrame(
-            [{"hhno": 1, "pno": 1, "pptyp": 1, "pwtyp": 1}]
-        )
+        persons_daysim = pl.DataFrame([{"hhno": 1, "pno": 1, "pptyp": 1, "pwtyp": 1}])
 
         result = format_households(households, persons_daysim)
 
@@ -841,9 +835,7 @@ class TestTripFormatting:
 
     def test_format_linked_trips_sov(self):
         """Test trip formatting for drive alone (SOV)."""
-        persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1)]
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
 
         # Create a simple single-trip journey (direct trip, no mode changes)
         unlinked_trips = pl.DataFrame(
@@ -884,9 +876,7 @@ class TestTripFormatting:
             households=None,
         )
 
-        result = format_linked_trips(
-            persons, unlinked_trips_with_ids, linked_trips
-        )
+        result = format_linked_trips(persons, unlinked_trips_with_ids, linked_trips)
 
         assert len(result) == 1
         assert result["mode"][0] == DaysimMode.SOV.value
@@ -894,9 +884,7 @@ class TestTripFormatting:
 
     def test_format_linked_trips_hov2(self):
         """Test trip formatting for HOV2."""
-        persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1)]
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
 
         unlinked_trips = pl.DataFrame(
             [
@@ -934,17 +922,13 @@ class TestTripFormatting:
             households=None,
         )
 
-        result = format_linked_trips(
-            persons, unlinked_trips_with_ids, linked_trips
-        )
+        result = format_linked_trips(persons, unlinked_trips_with_ids, linked_trips)
 
         assert result["mode"][0] == DaysimMode.HOV2.value
 
     def test_format_linked_trips_hov3(self):
         """Test trip formatting for HOV3+."""
-        persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1)]
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
 
         unlinked_trips = pl.DataFrame(
             [
@@ -982,17 +966,13 @@ class TestTripFormatting:
             households=None,
         )
 
-        result = format_linked_trips(
-            persons, unlinked_trips_with_ids, linked_trips
-        )
+        result = format_linked_trips(persons, unlinked_trips_with_ids, linked_trips)
 
         assert result["mode"][0] == DaysimMode.HOV3.value
 
     def test_format_linked_trips_walk(self):
         """Test trip formatting for walk."""
-        persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1)]
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
 
         unlinked_trips = pl.DataFrame(
             [
@@ -1030,18 +1010,14 @@ class TestTripFormatting:
             households=None,
         )
 
-        result = format_linked_trips(
-            persons, unlinked_trips_with_ids, linked_trips
-        )
+        result = format_linked_trips(persons, unlinked_trips_with_ids, linked_trips)
 
         assert result["mode"][0] == DaysimMode.WALK.value
         assert result["dorp"][0] == DaysimDriverPassenger.NA.value
 
     def test_format_linked_trips_bike(self):
         """Test trip formatting for bike."""
-        persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1)]
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
 
         unlinked_trips = pl.DataFrame(
             [
@@ -1079,17 +1055,13 @@ class TestTripFormatting:
             households=None,
         )
 
-        result = format_linked_trips(
-            persons, unlinked_trips_with_ids, linked_trips
-        )
+        result = format_linked_trips(persons, unlinked_trips_with_ids, linked_trips)
 
         assert result["mode"][0] == DaysimMode.BIKE.value
 
     def test_format_linked_trips_purpose_mapping(self):
         """Test purpose code mapping."""
-        persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1)]
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
 
         unlinked_trips = pl.DataFrame(
             [
@@ -1123,18 +1095,14 @@ class TestTripFormatting:
             households=None,
         )
 
-        result = format_linked_trips(
-            persons, unlinked_trips_with_ids, linked_trips
-        )
+        result = format_linked_trips(persons, unlinked_trips_with_ids, linked_trips)
 
         assert result["opurp"][0] == DaysimPurpose.HOME.value
         assert result["dpurp"][0] == DaysimPurpose.WORK.value
 
     def test_format_linked_trips_time_conversion(self):
         """Test time conversion to minutes after midnight."""
-        persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1)]
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
 
         unlinked_trips = pl.DataFrame(
             [
@@ -1170,9 +1138,7 @@ class TestTripFormatting:
             households=None,
         )
 
-        result = format_linked_trips(
-            persons, unlinked_trips_with_ids, linked_trips
-        )
+        result = format_linked_trips(persons, unlinked_trips_with_ids, linked_trips)
 
         assert result["deptm"][0] == 8 * 60 + 30  # 510 minutes
         assert result["arrtm"][0] == 9 * 60 + 15  # 555 minutes
@@ -1185,9 +1151,7 @@ class TestTourFormatting:
         """Test basic tour formatting."""
         data = create_simple_work_tour_processed()
 
-        result = format_tours(
-            data["persons"], data["days"], data["linked_trips"], data["tours"]
-        )
+        result = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
 
         assert len(result) >= 1
         assert result["hhno"][0] == 1
@@ -1197,9 +1161,7 @@ class TestTourFormatting:
         """Test tour purpose mapping."""
         data = create_simple_work_tour_processed()
 
-        result = format_tours(
-            data["persons"], data["days"], data["linked_trips"], data["tours"]
-        )
+        result = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
 
         assert result["pdpurp"][0] == DaysimPurpose.WORK.value
 
@@ -1207,9 +1169,7 @@ class TestTourFormatting:
         """Test tour time conversion to minutes after midnight."""
         data = create_simple_work_tour_processed()
 
-        result = format_tours(
-            data["persons"], data["days"], data["linked_trips"], data["tours"]
-        )
+        result = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
 
         # Verify time fields exist and are in expected range
         assert "tlvorig" in result.columns

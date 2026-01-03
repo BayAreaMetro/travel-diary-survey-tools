@@ -21,14 +21,10 @@ from data_canon.codebook.trips import (
 from .field_utils import add_optional_fields_batch
 
 
-def _default_times(
-    depart_time, arrive_time, default_depart_hour=8, travel_minutes=30
-):
+def _default_times(depart_time, arrive_time, default_depart_hour=8, travel_minutes=30):
     """Set default departure and arrival times if not provided."""
     if depart_time is None:
-        depart_time = datetime.combine(
-            datetime.now(tz=UTC).date(), time(default_depart_hour, 0)
-        )
+        depart_time = datetime.combine(datetime.now(tz=UTC).date(), time(default_depart_hour, 0))
     if arrive_time is None:
         arrive_time = depart_time + timedelta(minutes=travel_minutes)
     return depart_time, arrive_time
@@ -140,9 +136,7 @@ def create_unlinked_trip(
         "arrive_time": arrive_time,
         "travel_time": travel_time,
         "duration_minutes": (
-            duration_minutes
-            if duration_minutes is not None
-            else float(travel_time)
+            duration_minutes if duration_minutes is not None else float(travel_time)
         ),
         "distance_meters": distance_meters,
         "trip_weight": trip_weight,
@@ -281,9 +275,7 @@ def create_linked_trip(
         "tour_id": tour_id,
         "depart_time": depart_time,
         "arrive_time": arrive_time,
-        "duration_minutes": int(
-            (arrive_time - depart_time).total_seconds() / 60
-        ),
+        "duration_minutes": int((arrive_time - depart_time).total_seconds() / 60),
         "o_lat": o_lat,
         "o_lon": o_lon,
         "o_taz": o_taz,

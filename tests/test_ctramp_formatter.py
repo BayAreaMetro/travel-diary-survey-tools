@@ -273,9 +273,7 @@ class TestHouseholdFormatting:
         )
         result = format_households(households, persons)
 
-        assert (
-            result["income"][0] == 62000
-        )  # Midpoint of 50-75k from followup rounded to $1000
+        assert result["income"][0] == 62000  # Midpoint of 50-75k from followup rounded to $1000
 
 
 class TestPersonFormatting:
@@ -360,9 +358,7 @@ class TestEndToEndFormatting:
         assert len(households_ctramp) == 1
         assert len(persons_ctramp) == 1
         assert households_ctramp["hh_id"][0] == 1
-        assert (
-            persons_ctramp["type"][0] == CTRAMPPersonType.FULL_TIME_WORKER.value
-        )
+        assert persons_ctramp["type"][0] == CTRAMPPersonType.FULL_TIME_WORKER.value
 
     def test_family_household(self, standard_config):
         """Test formatting of family household with multiple person types."""
@@ -412,10 +408,7 @@ class TestEndToEndFormatting:
         persons_ctramp = result["persons_ctramp"]
 
         assert len(persons_ctramp) == 2
-        assert all(
-            pt == CTRAMPPersonType.RETIRED.value
-            for pt in persons_ctramp["type"].to_list()
-        )
+        assert all(pt == CTRAMPPersonType.RETIRED.value for pt in persons_ctramp["type"].to_list())
 
     def test_university_student_household(self, standard_config):
         """Test formatting of university student household."""
@@ -439,10 +432,7 @@ class TestEndToEndFormatting:
         persons_ctramp = result["persons_ctramp"]
 
         assert len(persons_ctramp) == 1
-        assert (
-            persons_ctramp["type"][0]
-            == CTRAMPPersonType.UNIVERSITY_STUDENT.value
-        )
+        assert persons_ctramp["type"][0] == CTRAMPPersonType.UNIVERSITY_STUDENT.value
 
     def test_drop_missing_taz(self, standard_config):
         """Test filtering households without valid TAZ."""
@@ -579,11 +569,7 @@ class TestIndividualTourFormatting:
         """Test formatting of a basic work tour with outbound/inbound trips."""
         # Create canonical data
         households_canonical = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1, income_detailed=IncomeDetailed.INCOME_100TO150
-                )
-            ]
+            [create_household(hh_id=1, income_detailed=IncomeDetailed.INCOME_100TO150)]
         )
         persons_canonical = pl.DataFrame(
             [
@@ -604,12 +590,8 @@ class TestIndividualTourFormatting:
                     tour_purpose=Purpose.PRIMARY_WORKPLACE,
                     o_taz=100,
                     d_taz=200,
-                    origin_depart_time=datetime.combine(
-                        datetime(2024, 1, 1), time(8, 0)
-                    ),
-                    origin_arrive_time=datetime.combine(
-                        datetime(2024, 1, 1), time(17, 0)
-                    ),
+                    origin_depart_time=datetime.combine(datetime(2024, 1, 1), time(8, 0)),
+                    origin_arrive_time=datetime.combine(datetime(2024, 1, 1), time(17, 0)),
                     student_category="Not student",
                 )
             ],
@@ -973,9 +955,7 @@ class TestJointTourFormatting:
 
         # Format to CTRAMP
         households_formatted = format_households(households, persons)
-        persons_formatted = format_persons(
-            persons, pl.DataFrame(), standard_config
-        )
+        persons_formatted = format_persons(persons, pl.DataFrame(), standard_config)
 
         result = format_joint_tour(
             tours,
@@ -1045,9 +1025,7 @@ class TestJointTourFormatting:
 
         # Format to CTRAMP
         households_formatted = format_households(households, persons)
-        persons_formatted = format_persons(
-            persons, pl.DataFrame(), standard_config
-        )
+        persons_formatted = format_persons(persons, pl.DataFrame(), standard_config)
 
         result = format_joint_tour(
             tours,
@@ -1094,9 +1072,7 @@ class TestJointTourFormatting:
 
         # Format to CTRAMP
         households_formatted = format_households(households, persons)
-        persons_formatted = format_persons(
-            persons, pl.DataFrame(), standard_config
-        )
+        persons_formatted = format_persons(persons, pl.DataFrame(), standard_config)
 
         result = format_joint_tour(
             tours,

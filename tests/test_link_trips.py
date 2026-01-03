@@ -424,9 +424,7 @@ class TestAggregateLinkedTrips:
             }
         )
 
-        result = aggregate_linked_trips(
-            trips, transit_mode_codes=[ModeType.TRANSIT.value]
-        )
+        result = aggregate_linked_trips(trips, transit_mode_codes=[ModeType.TRANSIT.value])
 
         # Should have one aggregated trip
         assert len(result) == 1
@@ -507,9 +505,7 @@ class TestAggregateLinkedTrips:
             }
         )
 
-        result = aggregate_linked_trips(
-            trips, transit_mode_codes=[ModeType.TRANSIT.value]
-        )
+        result = aggregate_linked_trips(trips, transit_mode_codes=[ModeType.TRANSIT.value])
 
         # Should select transit mode
         assert result["mode_type"][0] == ModeType.TRANSIT.value
@@ -563,9 +559,7 @@ class TestAggregateLinkedTrips:
             }
         )
 
-        result = aggregate_linked_trips(
-            trips, transit_mode_codes=[ModeType.TRANSIT.value]
-        )
+        result = aggregate_linked_trips(trips, transit_mode_codes=[ModeType.TRANSIT.value])
 
         # Should select drive (mode 3) as longest duration
         assert result["mode_type"][0] == ModeType.CAR.value
@@ -616,9 +610,7 @@ class TestAggregateLinkedTrips:
             }
         )
 
-        result = aggregate_linked_trips(
-            trips, transit_mode_codes=[ModeType.TRANSIT.value]
-        )
+        result = aggregate_linked_trips(trips, transit_mode_codes=[ModeType.TRANSIT.value])
 
         row = result.row(0, named=True)
         # Total duration: 8:00 to 8:45 = 45 min
@@ -690,9 +682,7 @@ class TestAggregateLinkedTrips:
             }
         )
 
-        result = aggregate_linked_trips(
-            trips, transit_mode_codes=[ModeType.TRANSIT.value]
-        )
+        result = aggregate_linked_trips(trips, transit_mode_codes=[ModeType.TRANSIT.value])
 
         # Should have two aggregated trips
         assert len(result) == 2
@@ -1232,6 +1222,4 @@ class TestTableLevelUniqueness:
         # Each linked_trip_id should appear exactly once
         for trip_id in linked_trips["linked_trip_id"]:
             count = (linked_trips["linked_trip_id"] == trip_id).sum()
-            assert count == 1, (
-                f"linked_trip_id {trip_id} appears {count} times, should be 1"
-            )
+            assert count == 1, f"linked_trip_id {trip_id} appears {count} times, should be 1"

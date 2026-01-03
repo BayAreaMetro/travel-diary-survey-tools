@@ -12,6 +12,10 @@ from typing import Optional
 class LabeledEnumMeta(EnumType):
     """Metaclass for LabeledEnum that reserves canonical_field_name."""
 
+    # Declare canonical_field_name as a class attribute
+    canonical_field_name: str | None = None
+    field_description: str | None = None
+
     @classmethod
     def __prepare__(metacls, cls, bases, **kwds):  # noqa: ANN001, ANN003, ANN206, N804
         """Prepare the class namespace, ignoring reserved fields."""
@@ -74,6 +78,8 @@ class LabeledEnum(Enum, metaclass=LabeledEnumMeta):
         found = Gender.from_label("Female")  # Returns Gender.FEMALE
     """
 
+    _label_: str
+
     def __new__(cls, value: int, label: str) -> "LabeledEnum":
         """Create a new enum member with value and label.
 
@@ -92,7 +98,7 @@ class LabeledEnum(Enum, metaclass=LabeledEnumMeta):
         return self._label_
 
     @property
-    def field_name(self) -> str:
+    def field_name(self) -> str | None:
         """Get the canonical field name for this enum.
 
         Returns the canonical_field_name class attribute if defined,

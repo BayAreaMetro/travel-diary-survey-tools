@@ -275,9 +275,7 @@ def format_persons(
     tour_stats = aggregate_tour_statistics(tours)
 
     # Join tour statistics, filling with defaults for persons with no tours
-    persons_ctramp = persons_ctramp.join(
-        tour_stats, on="person_id", how="left"
-    ).with_columns(
+    persons_ctramp = persons_ctramp.join(tour_stats, on="person_id", how="left").with_columns(
         [
             pl.col("activity_pattern").fill_null("H"),  # Home if no tours
             pl.col("imf_choice").fill_null(0),  # 0 mandatory tours

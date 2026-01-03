@@ -98,13 +98,9 @@ def create_tour(
     if origin_arrive_time is None:
         origin_arrive_time = default_arrive
     if dest_depart_time is None:
-        dest_depart_time = (
-            origin_depart_time + (origin_arrive_time - origin_depart_time) / 2
-        )
+        dest_depart_time = origin_depart_time + (origin_arrive_time - origin_depart_time) / 2
     if dest_arrive_time is None:
-        dest_arrive_time = (
-            origin_depart_time + (origin_arrive_time - origin_depart_time) / 2
-        )
+        dest_arrive_time = origin_depart_time + (origin_arrive_time - origin_depart_time) / 2
 
     record = {
         "tour_id": tour_id,

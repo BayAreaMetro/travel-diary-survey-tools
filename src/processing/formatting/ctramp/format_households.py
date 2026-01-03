@@ -85,9 +85,7 @@ def format_households(
     )
 
     # Join aggregates with households
-    households_ctramp = households.join(
-        household_aggregates, on="hh_id", how="left"
-    )
+    households_ctramp = households.join(household_aggregates, on="hh_id", how="left")
 
     # Rename columns to CT-RAMP naming convention
     households_ctramp = households_ctramp.rename(
@@ -100,23 +98,17 @@ def format_households(
     income_detailed_map = {
         income_cat.value: get_income_midpoint(income_cat)
         for income_cat in IncomeDetailed
-        if "Prefer not to answer" not in income_cat.label
-        and "Missing" not in income_cat.label
+        if "Prefer not to answer" not in income_cat.label and "Missing" not in income_cat.label
     }
     income_followup_map = {
         income_cat.value: get_income_midpoint(income_cat)
         for income_cat in IncomeFollowup
-        if "Prefer not to answer" not in income_cat.label
-        and "Missing" not in income_cat.label
+        if "Prefer not to answer" not in income_cat.label and "Missing" not in income_cat.label
     }
 
     households_ctramp = households_ctramp.with_columns(
-        pl.col("income_detailed")
-        .fill_null(-1)
-        .replace_strict(income_detailed_map, default=-1),
-        pl.col("income_followup")
-        .fill_null(-1)
-        .replace_strict(income_followup_map, default=-1),
+        pl.col("income_detailed").fill_null(-1).replace_strict(income_detailed_map, default=-1),
+        pl.col("income_followup").fill_null(-1).replace_strict(income_followup_map, default=-1),
     )
 
     # Use income_detailed if available, otherwise income_followup

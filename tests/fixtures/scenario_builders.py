@@ -402,9 +402,7 @@ def multi_stop_tour(
             purpose=Purpose.PRIMARY_WORKPLACE,
             o_purpose_category=PurposeCategory.HOME,
             d_purpose_category=PurposeCategory.WORK,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(8, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(8, 0)),
         ),
         create_unlinked_trip(
             trip_id=2,
@@ -418,9 +416,7 @@ def multi_stop_tour(
             o_purpose_category=PurposeCategory.WORK,
             d_purpose_category=PurposeCategory.MEAL,
             mode_type=ModeType.WALK,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(12, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(12, 0)),
         ),
         create_unlinked_trip(
             trip_id=3,
@@ -434,9 +430,7 @@ def multi_stop_tour(
             o_purpose_category=PurposeCategory.MEAL,
             d_purpose_category=PurposeCategory.WORK,
             mode_type=ModeType.WALK,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(13, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(13, 0)),
         ),
         create_unlinked_trip(
             trip_id=4,
@@ -449,9 +443,7 @@ def multi_stop_tour(
             purpose=Purpose.HOME,
             o_purpose_category=PurposeCategory.WORK,
             d_purpose_category=PurposeCategory.HOME,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(17, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(17, 0)),
         ),
     ]
 
@@ -518,9 +510,7 @@ def multi_tour_day(
             purpose=Purpose.PRIMARY_WORKPLACE,
             o_purpose_category=PurposeCategory.HOME,
             d_purpose_category=PurposeCategory.WORK,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(8, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(8, 0)),
         ),
         create_unlinked_trip(
             trip_id=2,
@@ -533,9 +523,7 @@ def multi_tour_day(
             purpose=Purpose.HOME,
             o_purpose_category=PurposeCategory.WORK,
             d_purpose_category=PurposeCategory.HOME,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(17, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(17, 0)),
         ),
         create_unlinked_trip(
             trip_id=3,
@@ -548,9 +536,7 @@ def multi_tour_day(
             purpose=Purpose.GROCERY,
             o_purpose_category=PurposeCategory.HOME,
             d_purpose_category=PurposeCategory.SHOP,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(19, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(19, 0)),
         ),
         create_unlinked_trip(
             trip_id=4,
@@ -563,9 +549,7 @@ def multi_tour_day(
             purpose=Purpose.HOME,
             o_purpose_category=PurposeCategory.SHOP,
             d_purpose_category=PurposeCategory.HOME,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(20, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(20, 0)),
         ),
     ]
 
@@ -636,9 +620,7 @@ def work_tour_no_usual_location(
             purpose=Purpose.PRIMARY_WORKPLACE,
             o_purpose_category=PurposeCategory.HOME,
             d_purpose_category=PurposeCategory.WORK,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(8, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(8, 0)),
         ),
         create_unlinked_trip(
             trip_id=2,
@@ -651,9 +633,7 @@ def work_tour_no_usual_location(
             purpose=Purpose.HOME,
             o_purpose_category=PurposeCategory.WORK,
             d_purpose_category=PurposeCategory.HOME,
-            depart_time=datetime.combine(
-                datetime.now(tz=UTC).date(), time(17, 0)
-            ),
+            depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(17, 0)),
         ),
     ]
 

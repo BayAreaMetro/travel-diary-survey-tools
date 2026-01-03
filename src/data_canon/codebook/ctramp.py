@@ -159,9 +159,7 @@ def map_purpose_to_ctramp(
         .then(pl.lit("work_high"))
         .otherwise(pl.lit("work_very high"))
     )
-    work_expr = home_expr.when(purpose.is_in(work_purposes)).then(
-        work_income_segmentation
-    )
+    work_expr = home_expr.when(purpose.is_in(work_purposes)).then(work_income_segmentation)
 
     # School purposes - segmented by student type
     k12_purposes = [Purpose.K12_SCHOOL.value, Purpose.DAYCARE.value]
@@ -172,20 +170,14 @@ def map_purpose_to_ctramp(
         .then(pl.lit("school_high"))
         .otherwise(pl.lit("school_grade"))
     )
-    school_expr = work_expr.when(purpose.is_in(k12_purposes)).then(
-        school_segmentation_expr
-    )
-    university_expr = school_expr.when(purpose == Purpose.COLLEGE.value).then(
-        pl.lit("university")
-    )
+    school_expr = work_expr.when(purpose.is_in(k12_purposes)).then(school_segmentation_expr)
+    university_expr = school_expr.when(purpose == Purpose.COLLEGE.value).then(pl.lit("university"))
 
     # At-work sub-tour purposes
-    atwork_expr = university_expr.when(
-        purpose == Purpose.WORK_ACTIVITY.value
-    ).then(pl.lit("atwork_business"))
-    eatout_expr = atwork_expr.when(purpose == Purpose.DINING.value).then(
-        pl.lit("eatout")
+    atwork_expr = university_expr.when(purpose == Purpose.WORK_ACTIVITY.value).then(
+        pl.lit("atwork_business")
     )
+    eatout_expr = atwork_expr.when(purpose == Purpose.DINING.value).then(pl.lit("eatout"))
 
     # Escort purposes
     escort_purposes = [
@@ -194,17 +186,11 @@ def map_purpose_to_ctramp(
         Purpose.ACCOMPANY.value,
     ]
     escort_segmentation_expr = (
-        pl.when(
-            student_category.is_in(
-                ["College or higher", "Grade or high school"]
-            )
-        )
+        pl.when(student_category.is_in(["College or higher", "Grade or high school"]))
         .then(pl.lit("escort_kids"))
         .otherwise(pl.lit("escort_no kids"))
     )
-    escort_expr = eatout_expr.when(purpose.is_in(escort_purposes)).then(
-        escort_segmentation_expr
-    )
+    escort_expr = eatout_expr.when(purpose.is_in(escort_purposes)).then(escort_segmentation_expr)
 
     # Shopping
     shopping_purposes = [
@@ -212,9 +198,7 @@ def map_purpose_to_ctramp(
         Purpose.ROUTINE_SHOPPING.value,
         Purpose.MAJOR_SHOPPING.value,
     ]
-    shopping_expr = escort_expr.when(purpose.is_in(shopping_purposes)).then(
-        pl.lit("shopping")
-    )
+    shopping_expr = escort_expr.when(purpose.is_in(shopping_purposes)).then(pl.lit("shopping"))
 
     # Social/recreation
     social_purposes = [
@@ -222,9 +206,7 @@ def map_purpose_to_ctramp(
         Purpose.ENTERTAINMENT.value,
         Purpose.EXERCISE.value,
     ]
-    social_expr = shopping_expr.when(purpose.is_in(social_purposes)).then(
-        pl.lit("social")
-    )
+    social_expr = shopping_expr.when(purpose.is_in(social_purposes)).then(pl.lit("social"))
 
     # Maintenance/errands
     maintenance_purposes = [
@@ -232,18 +214,18 @@ def map_purpose_to_ctramp(
         Purpose.ERRAND_NO_APPT.value,
         Purpose.ERRAND_WITH_APPT.value,
     ]
-    maintenance_expr = social_expr.when(
-        purpose.is_in(maintenance_purposes)
-    ).then(pl.lit("othmaint"))
+    maintenance_expr = social_expr.when(purpose.is_in(maintenance_purposes)).then(
+        pl.lit("othmaint")
+    )
 
     # Discretionary
     discretionary_purposes = [
         Purpose.RELIGIOUS_CIVIC.value,
         Purpose.FAMILY_ACTIVITY.value,
     ]
-    discretionary_expr = maintenance_expr.when(
-        purpose.is_in(discretionary_purposes)
-    ).then(pl.lit("othdiscr"))
+    discretionary_expr = maintenance_expr.when(purpose.is_in(discretionary_purposes)).then(
+        pl.lit("othdiscr")
+    )
 
     # Default fallback
     return discretionary_expr.otherwise(pl.lit("othdiscr"))
@@ -261,9 +243,7 @@ def map_mode_to_ctramp(mode_type: pl.Expr, num_travelers: pl.Expr) -> pl.Expr:
         Polars expression resolving to CTRAMP mode integer code
     """
     # Walk mode
-    walk_expr = pl.when(mode_type == ModeType.WALK.value).then(
-        pl.lit(CTRAMPMode.WALK.value)
-    )
+    walk_expr = pl.when(mode_type == ModeType.WALK.value).then(pl.lit(CTRAMPMode.WALK.value))
 
     # Bike and micromobility modes
     bike_modes = [
@@ -271,14 +251,12 @@ def map_mode_to_ctramp(mode_type: pl.Expr, num_travelers: pl.Expr) -> pl.Expr:
         ModeType.BIKESHARE.value,
         ModeType.SCOOTERSHARE.value,
     ]
-    bike_expr = walk_expr.when(mode_type.is_in(bike_modes)).then(
-        pl.lit(CTRAMPMode.BIKE.value)
-    )
+    bike_expr = walk_expr.when(mode_type.is_in(bike_modes)).then(pl.lit(CTRAMPMode.BIKE.value))
 
     # School bus
-    school_bus_expr = bike_expr.when(
-        mode_type == ModeType.SCHOOL_BUS.value
-    ).then(pl.lit(CTRAMPMode.SCHOOL_BUS.value))
+    school_bus_expr = bike_expr.when(mode_type == ModeType.SCHOOL_BUS.value).then(
+        pl.lit(CTRAMPMode.SCHOOL_BUS.value)
+    )
 
     # Transit modes (default to walk access)
     transit_modes = [ModeType.TRANSIT.value, ModeType.FERRY.value]
@@ -300,9 +278,7 @@ def map_mode_to_ctramp(mode_type: pl.Expr, num_travelers: pl.Expr) -> pl.Expr:
         .then(pl.lit(CTRAMPMode.SHARED_RIDE_2.value))
         .otherwise(pl.lit(CTRAMPMode.SHARED_RIDE_3_PLUS.value))
     )
-    car_expr = transit_expr.when(mode_type.is_in(car_modes)).then(
-        car_occupancy_segmentation
-    )
+    car_expr = transit_expr.when(mode_type.is_in(car_modes)).then(car_occupancy_segmentation)
 
     # Default to drive alone for unknown modes
     return car_expr.otherwise(pl.lit(CTRAMPMode.DRIVE_ALONE.value))

@@ -61,9 +61,7 @@ def add_optional_fields_batch(record: dict, **fields) -> None:
     record.update({k: v for k, v in fields.items() if v is not None})
 
 
-def ensure_fields_exist(
-    record: dict, field_names: list[str], default_value=None
-) -> None:
+def ensure_fields_exist(record: dict, field_names: list[str], default_value=None) -> None:
     """Ensure specified fields exist in record, adding default if missing.
 
     Modifies record in-place. Useful for formatters that require certain

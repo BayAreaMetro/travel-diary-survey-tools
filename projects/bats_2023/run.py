@@ -1,14 +1,19 @@
 """Runner script for the BATS 2023 DaySim processing pipeline."""
 
+import argparse
 import logging
 import os
 from pathlib import Path
 
-# Our custom step to add TAZ/MAZ IDs
-from join_maztaz import custom_add_taz_ids
+import polars as pl
 
+from data_canon.models import (
+    daysim as daysim_models,
+)
+from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
 from processing import (
+    add_zone_ids,
     detect_joint_trips,
     extract_tours,
     format_ctramp,
@@ -40,26 +45,41 @@ for drive, path in drives.items():
 # Path to the YAML config file you provided
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
-# ---------------------------------------------------------------------
-# Logging setup
-# ---------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
 
-logger = logging.getLogger(__name__)
+# Optional: project-specific custom step functions
+# You can define or import them here if needed
+@step()
+def custom_foo_bar(
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+    linked_trips: pl.DataFrame,
+) -> dict:
+    """A custom processing step that does something specific.
+
+    Args:
+        households: Households DataFrame
+        persons: Persons DataFrame
+        linked_trips: Linked trips DataFrame
+
+    Returns:
+        Dictionary of processed DataFrames
+    """
+    # Custom processing logic here
+    logger.info("Running custom_foo_bar step")
+    # For demonstration, just return the inputs unchanged
+    return {
+        "households": households,
+        "persons": persons,
+        "linked_trips": linked_trips,
+    }
 
 
-# Set up custom steps list ----------------------------------
-# We pass our callable functions to the pipeline so it can execute them
-# We do it this way so that we can easily swap in/out custom steps as needed
-# instead of hardcoding them in the pipeline definition
-# ---------------------------------------------------------------------
+# Set up custom steps dictionary ----------------------------------
 processing_steps = [
+    custom_foo_bar,
     load_data,
     clean_2023_bats,
-    custom_add_taz_ids,
+    add_zone_ids,
     link_trips,
     detect_joint_trips,
     extract_tours,
@@ -69,15 +89,41 @@ processing_steps = [
 ]
 
 
+new_models = {
+    # Daysim models
+    "households_daysim": daysim_models.HouseholdDaysimModel,
+    "persons_daysim": daysim_models.PersonDaysimModel,
+    "days_daysim": daysim_models.PersonDayDaysimModel,
+    "linked_trips_daysim": daysim_models.LinkedTripDaysimModel,
+    "tours_daysim": daysim_models.TourDaysimModel,
+    # CT-RAMP models
+}
+
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="BATS 2023 DaySim Processing Pipeline")
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Clear the pipeline cache before running",
+    )
+    args = parser.parse_args()
+
     logger.info("Starting BATS 2023 DaySim Processing Pipeline")
 
+    cache_dir = Path(".cache")
     pipeline = Pipeline(
         config_path=CONFIG_PATH,
         steps=processing_steps,
         caching=True,
     )
+
+    # Clear cache if requested
+    if args.clear_cache and pipeline.cache:
+        pipeline.cache.clear()
+        logger.info("Cleared pipeline cache at %s", cache_dir)
+
     result = pipeline.run()
 
     logger.info("Pipeline finished successfully.")

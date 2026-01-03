@@ -26,9 +26,7 @@ def join_zone_from_latlon(
     # Convert only coordinates to GeoDataFrame
     gdf = gpd.GeoDataFrame(
         coords_df.to_pandas(),
-        geometry=gpd.points_from_xy(
-            coords_df[lon_col].to_list(), coords_df[lat_col].to_list()
-        ),
+        geometry=gpd.points_from_xy(coords_df[lon_col].to_list(), coords_df[lat_col].to_list()),
         crs="EPSG:4326",
     )
 
@@ -39,9 +37,7 @@ def join_zone_from_latlon(
     gdf_joined = gpd.sjoin(gdf, shp, how="left", predicate="within")
 
     # Extract just the zone ID column
-    zone_series = pl.from_pandas(
-        gdf_joined[[zone_id_field]].reset_index(drop=True)
-    )
+    zone_series = pl.from_pandas(gdf_joined[[zone_id_field]].reset_index(drop=True))
 
     # Add the zone column to the original dataframe
     result = df.with_columns(zone_series[zone_id_field].alias(zone_col_name))

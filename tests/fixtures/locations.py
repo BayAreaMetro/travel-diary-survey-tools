@@ -42,21 +42,15 @@ WORK_3_LOCATION = Location(lat=37.7700, lon=-122.4700, taz=202, maz=2020)
 # School locations
 SCHOOL_LOCATION = Location(lat=37.7300, lon=-122.4300, taz=300, maz=3000)
 SCHOOL_HIGH_LOCATION = Location(lat=37.7350, lon=-122.4350, taz=301, maz=3010)
-SCHOOL_COLLEGE_LOCATION = Location(
-    lat=37.7400, lon=-122.4400, taz=302, maz=3020
-)
+SCHOOL_COLLEGE_LOCATION = Location(lat=37.7400, lon=-122.4400, taz=302, maz=3020)
 
 # Transit access points (BART stations)
 BART_HOME_LOCATION = Location(lat=37.7100, lon=-122.4100, taz=100, maz=1001)
 BART_WORK_LOCATION = Location(lat=37.7400, lon=-122.4400, taz=200, maz=2001)
 
 # Transit stops (bus stops, same TAZ as origin/destination)
-TRANSIT_STOP_HOME_LOCATION = Location(
-    lat=37.7050, lon=-122.4050, taz=100, maz=1002
-)
-TRANSIT_STOP_WORK_LOCATION = Location(
-    lat=37.7550, lon=-122.4550, taz=200, maz=2002
-)
+TRANSIT_STOP_HOME_LOCATION = Location(lat=37.7050, lon=-122.4050, taz=100, maz=1002)
+TRANSIT_STOP_WORK_LOCATION = Location(lat=37.7550, lon=-122.4550, taz=200, maz=2002)
 
 # Activity locations
 SHOPPING_LOCATION = Location(lat=37.7250, lon=-122.4250, taz=400, maz=4000)

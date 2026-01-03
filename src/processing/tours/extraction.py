@@ -164,9 +164,7 @@ def extract_tours(
     )
 
     # Step 4: Detect anchor-based subtours (work-based, school-based, etc.)
-    linked_trips_with_subtours = detect_anchor_based_subtours(
-        linked_trips_with_anchor_periods
-    )
+    linked_trips_with_subtours = detect_anchor_based_subtours(linked_trips_with_anchor_periods)
 
     # Step 5: Aggregation and tour classification
     # Create tour_id and parent_tour_id
@@ -189,18 +187,14 @@ def extract_tours(
         linked_trips_with_tour_dir = linked_trips_with_tour_dir.with_columns(
             pl.lit(None, dtype=pl.Int64).alias("joint_tour_id")
         )
-        tours = tours.with_columns(
-            pl.lit(None, dtype=pl.Int64).alias("joint_tour_id")
-        )
+        tours = tours.with_columns(pl.lit(None, dtype=pl.Int64).alias("joint_tour_id"))
 
     # Step 7: Validate tours and correct data quality issues
     tours = validate_and_correct_tours(tours, linked_trips_with_tour_dir)
 
     # Step 8: Add tour_id and joint_tour_id to unlinked_trips
     unlinked_trips_with_tour_ids = unlinked_trips.join(
-        linked_trips_with_tour_dir.select(
-            "linked_trip_id", "tour_id", "joint_tour_id"
-        ),
+        linked_trips_with_tour_dir.select("linked_trip_id", "tour_id", "joint_tour_id"),
         on="linked_trip_id",
         how="left",
     )

@@ -52,12 +52,8 @@ def format_individual_trip(
         return pl.DataFrame()
 
     # Filter to trips on individual tours only
-    individual_tour_ids = tours.filter(pl.col("joint_tour_id").is_null())[
-        "tour_id"
-    ]
-    individual_trips = linked_trips.filter(
-        pl.col("tour_id").is_in(individual_tour_ids)
-    )
+    individual_tour_ids = tours.filter(pl.col("joint_tour_id").is_null())["tour_id"]
+    individual_trips = linked_trips.filter(pl.col("tour_id").is_in(individual_tour_ids))
 
     # Join with tour context
     individual_trips = individual_trips.join(
@@ -140,14 +136,12 @@ def format_individual_trip(
     # Convert times to minutes after midnight
     individual_trips = individual_trips.with_columns(
         [
-            (
-                pl.col("depart_time").dt.hour() * 60
-                + pl.col("depart_time").dt.minute()
-            ).alias("depart_minutes"),
-            (
-                pl.col("arrive_time").dt.hour() * 60
-                + pl.col("arrive_time").dt.minute()
-            ).alias("arrive_minutes"),
+            (pl.col("depart_time").dt.hour() * 60 + pl.col("depart_time").dt.minute()).alias(
+                "depart_minutes"
+            ),
+            (pl.col("arrive_time").dt.hour() * 60 + pl.col("arrive_time").dt.minute()).alias(
+                "arrive_minutes"
+            ),
         ]
     )
 
@@ -171,9 +165,7 @@ def format_individual_trip(
         ]
     )
 
-    logger.info(
-        "Formatted %d individual trip records", len(individual_trips_ctramp)
-    )
+    logger.info("Formatted %d individual trip records", len(individual_trips_ctramp))
     return individual_trips_ctramp
 
 
@@ -236,17 +228,13 @@ def format_joint_trip(
 
     # Join with tour context
     joint_trips_formatted = joint_trips_formatted.join(
-        tours.select(
-            ["tour_id", "joint_tour_id", "tour_purpose", "tour_category"]
-        ),
+        tours.select(["tour_id", "joint_tour_id", "tour_purpose", "tour_category"]),
         on="tour_id",
         how="left",
     )
 
     # Filter to only trips on joint tours
-    joint_trips_formatted = joint_trips_formatted.filter(
-        pl.col("joint_tour_id").is_not_null()
-    )
+    joint_trips_formatted = joint_trips_formatted.filter(pl.col("joint_tour_id").is_not_null())
 
     # Join with households
     joint_trips_formatted = joint_trips_formatted.join(
@@ -284,14 +272,12 @@ def format_joint_trip(
     # Convert times
     joint_trips_formatted = joint_trips_formatted.with_columns(
         [
-            (
-                pl.col("depart_time").dt.hour() * 60
-                + pl.col("depart_time").dt.minute()
-            ).alias("DepartMinutes"),
-            (
-                pl.col("arrive_time").dt.hour() * 60
-                + pl.col("arrive_time").dt.minute()
-            ).alias("ArriveMinutes"),
+            (pl.col("depart_time").dt.hour() * 60 + pl.col("depart_time").dt.minute()).alias(
+                "DepartMinutes"
+            ),
+            (pl.col("arrive_time").dt.hour() * 60 + pl.col("arrive_time").dt.minute()).alias(
+                "ArriveMinutes"
+            ),
         ]
     )
 
@@ -310,9 +296,7 @@ def format_joint_trip(
             pl.col("TripMode"),
             pl.col("DepartMinutes").cast(pl.Int64),
             pl.col("ArriveMinutes").cast(pl.Int64),
-            pl.col("num_joint_travelers")
-            .cast(pl.Int64)
-            .alias("NumParticipants"),
+            pl.col("num_joint_travelers").cast(pl.Int64).alias("NumParticipants"),
         ]
     )
 

@@ -202,16 +202,13 @@ class TestFullyJointTour:
         assert len(joint_tours) == 2, "Both tours should be marked as joint"
 
         joint_tour_ids = joint_tours["joint_tour_id"].unique()
-        assert len(joint_tour_ids) == 1, (
-            "Both tours should share same joint_tour_id"
-        )
+        assert len(joint_tour_ids) == 1, "Both tours should share same joint_tour_id"
 
         # Verify joint_tour_id format (hh_id + 2 digits)
         joint_tour_id = int(joint_tour_ids[0])
         expected_prefix = 23000075  # hh_id
         assert joint_tour_id // 100 == expected_prefix, (
-            f"joint_tour_id {joint_tour_id} should start "
-            f"with hh_id {expected_prefix}"
+            f"joint_tour_id {joint_tour_id} should start with hh_id {expected_prefix}"
         )
 
     def test_three_person_joint_tour(self, basic_household_data):
@@ -222,9 +219,7 @@ class TestFullyJointTour:
         unlinked_trips = pl.DataFrame(
             {
                 "trip_id": [1, 2, 3, 4, 5, 6],
-                "day_id": [2300007500101] * 2
-                + [2300007500201] * 2
-                + [2300007500301] * 2,
+                "day_id": [2300007500101] * 2 + [2300007500201] * 2 + [2300007500301] * 2,
                 "person_id": [
                     23000075001,
                     23000075001,
@@ -292,14 +287,10 @@ class TestFullyJointTour:
 
         # Verify all marked as joint with same ID
         joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
-        assert len(joint_tours) == 3, (
-            "All three tours should be marked as joint"
-        )
+        assert len(joint_tours) == 3, "All three tours should be marked as joint"
 
         joint_tour_ids = joint_tours["joint_tour_id"].unique()
-        assert len(joint_tour_ids) == 1, (
-            "All tours should share same joint_tour_id"
-        )
+        assert len(joint_tour_ids) == 1, "All tours should share same joint_tour_id"
 
 
 class TestPartialJointTour:
@@ -417,9 +408,7 @@ class TestPartialJointTour:
 
         # Neither person should have joint_tour_id (tour not fully joint)
         joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
-        assert len(joint_tours) == 0, (
-            "No tours should be marked as joint (not stable throughout)"
-        )
+        assert len(joint_tours) == 0, "No tours should be marked as joint (not stable throughout)"
 
 
 class TestPartialDropoff:
@@ -437,12 +426,8 @@ class TestPartialDropoff:
         unlinked_trips = pl.DataFrame(
             {
                 "trip_id": list(range(1, 10)),
-                "day_id": [2300007500101] * 3
-                + [2300007500201] * 3
-                + [2300007500301] * 3,
-                "person_id": [23000075001] * 3
-                + [23000075002] * 3
-                + [23000075003] * 3,
+                "day_id": [2300007500101] * 3 + [2300007500201] * 3 + [2300007500301] * 3,
+                "person_id": [23000075001] * 3 + [23000075002] * 3 + [23000075003] * 3,
                 "hh_id": [23000075] * 9,
                 "travel_dow": [TravelDow.MONDAY.value] * 9,
                 "depart_time": [
@@ -556,21 +541,15 @@ class TestPartialDropoff:
 
         # Parents should have joint_tour_id (stable pair through entire tour)
         # Child should NOT (different tour pattern)
-        parent_tours = tours.filter(
-            pl.col("person_id").is_in([23000075001, 23000075002])
-        )
+        parent_tours = tours.filter(pl.col("person_id").is_in([23000075001, 23000075002]))
         child_tours = tours.filter(pl.col("person_id") == 23000075003)
 
-        parent_joint = parent_tours.filter(
-            pl.col("joint_tour_id").is_not_null()
-        )
+        parent_joint = parent_tours.filter(pl.col("joint_tour_id").is_not_null())
         assert len(parent_joint) == 2, "Both parents should have joint tours"
 
         # Parents should share same joint_tour_id
         parent_joint_ids = parent_joint["joint_tour_id"].unique()
-        assert len(parent_joint_ids) == 1, (
-            "Parents should share same joint_tour_id"
-        )
+        assert len(parent_joint_ids) == 1, "Parents should share same joint_tour_id"
 
         # Child should not have joint_tour_id for this tour
         child_joint = child_tours.filter(pl.col("joint_tour_id").is_not_null())
