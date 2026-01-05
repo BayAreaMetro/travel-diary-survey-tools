@@ -28,6 +28,7 @@ class Pipeline:
         config_path: str | Path,
         steps: list[Callable] | None = None,
         caching: bool | Path | str = False,
+        data_models: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
@@ -37,6 +38,8 @@ class Pipeline:
             caching: If False, disable caching.
                 If True, use default cache directory ".cache".
                 If str or Path, use specified directory for caching.
+            data_models: Optional dictionary of extra data models for validation.
+                These will be added to the default data models in CanonicalData object.
         """
         self.config_path = config_path
         self.config = self._load_config()
@@ -76,6 +79,10 @@ class Pipeline:
         # Scan cache and report status
         self._scan_cache()
         self.report_status()
+
+        # Add extra data models if provided
+        if data_models:
+            self.data.add_models(data_models)
 
     def _load_config(self) -> dict[str, Any]:
         """Load the pipeline configuration from a YAML file.
