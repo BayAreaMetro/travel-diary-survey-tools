@@ -14,19 +14,23 @@ logger = logging.getLogger(__name__)
 def add_zone_to_dataframe(
     df: pl.DataFrame,
     shp: gpd.GeoDataFrame,
+    df_index: str,
     lon_col: str,
     lat_col: str,
     zone_col_name: str,
     zone_id_field: str,
 ) -> pl.DataFrame:
     """Add zone ID to dataframe based on lon/lat coordinates."""
+    # Convert to GeoDataFrame
+    # Keep just index to avoid corrupting original polars DataFrame with pandas nonsense
     gdf = gpd.GeoDataFrame(
-        df.to_pandas(),
+        index=df[df_index].to_list(),
         geometry=gpd.points_from_xy(df[lon_col].to_list(), df[lat_col].to_list()),
         crs="EPSG:4326",
     )
+    gdf.index.name = df_index
 
-    # Prepare shapefile for spatial join and ensure zone ID is string
+    # Prepare shapefile for spatial join and ensure zone ID is string to handle nulls in pandas land
     shp_prepared = shp.loc[:, [zone_id_field, "geometry"]].copy()
     shp_prepared[zone_id_field] = shp_prepared[zone_id_field].astype(str)
     shp_prepared = shp_prepared.set_index(zone_id_field)
@@ -36,7 +40,18 @@ def add_zone_to_dataframe(
     gdf_joined = gdf_joined.rename(columns={zone_id_field: zone_col_name})
     gdf_joined = gdf_joined.drop(columns="geometry")
 
-    return pl.from_pandas(gdf_joined)
+    # Join back to original polars DataFrame on index
+    df_joined = (
+        df.join(
+            pl.from_pandas(gdf_joined.reset_index()),
+            on=df_index,
+            how="left",
+        )
+        # Ensure zone ID column is Int64 with nulls where no zone found
+        .with_columns(pl.col(zone_col_name).cast(pl.Int64))
+    )
+
+    return df_joined
 
 
 @step()
@@ -44,6 +59,8 @@ def add_zone_ids(
     households: pl.DataFrame,
     persons: pl.DataFrame,
     linked_trips: pl.DataFrame,
+    tours: pl.DataFrame,
+    joint_trips: pl.DataFrame,
     zone_geographies: list[dict],
 ) -> dict:
     """Add zone IDs for multiple geographic levels based on locations.
@@ -58,6 +75,8 @@ def add_zone_ids(
         households: Households dataframe
         persons: Persons dataframe
         linked_trips: Linked trips dataframe
+        tours: Tours dataframe
+        joint_trips: Joint trips dataframe
         zone_geographies: List of dicts, each containing:
             - shapefile: Path to shapefile with zone boundaries (str)
             - zone_id_field: Field name in shapefile for zone ID
@@ -70,6 +89,8 @@ def add_zone_ids(
         "households": households,
         "persons": persons,
         "linked_trips": linked_trips,
+        "tours": tours,
+        "joint_trips": joint_trips,
     }
 
     # Process each zone geography
@@ -78,28 +99,33 @@ def add_zone_ids(
         zone_id_field = zone_config["zone_id_field"]
         zone_name = zone_config["zone_name"]
 
-        logger.info(
-            "Adding %s IDs using field '%s' from %s",
-            zone_name.upper(),
-            zone_id_field,
-            shapefile_path,
-        )
-
         # Load the shapefile
         shapefile = gpd.read_file(shapefile_path)
 
-        # Standard location mappings: (table, lon_col, lat_col, location_prefix)
+        # Standard location mappings: (table, table_index, lon_col, lat_col, location_prefix)
         standard_locations = [
-            ("households", "home_lon", "home_lat", "home"),
-            ("persons", "work_lon", "work_lat", "work"),
-            ("persons", "school_lon", "school_lat", "school"),
-            ("linked_trips", "o_lon", "o_lat", "o"),
-            ("linked_trips", "d_lon", "d_lat", "d"),
+            ("households", "hh_id", "home_lon", "home_lat", "home"),
+            ("persons", "person_id", "work_lon", "work_lat", "work"),
+            ("persons", "person_id", "school_lon", "school_lat", "school"),
+            ("linked_trips", "linked_trip_id", "o_lon", "o_lat", "o"),
+            ("linked_trips", "linked_trip_id", "d_lon", "d_lat", "d"),
+            ("tours", "tour_id", "o_lon", "o_lat", "o"),
+            ("tours", "tour_id", "d_lon", "d_lat", "d"),
+            ("joint_trips", "joint_trip_id", "o_lon_mean", "o_lat_mean", "o"),
+            ("joint_trips", "joint_trip_id", "d_lon_mean", "d_lat_mean", "d"),
         ]
 
         # Apply this zone geography to all standard locations
-        for table, lon_col, lat_col, location_prefix in standard_locations:
+        for table, idx, lon_col, lat_col, location_prefix in standard_locations:
             output_col = f"{location_prefix}_{zone_name}"
+
+            logger.info(
+                "Adding %s IDs on table %s using field '%s' from %s",
+                zone_name.upper(),
+                table,
+                zone_id_field,
+                shapefile_path,
+            )
 
             if output_col in results[table].columns:
                 logger.warning(
@@ -112,6 +138,7 @@ def add_zone_ids(
             results[table] = add_zone_to_dataframe(
                 results[table],
                 shapefile,
+                df_index=idx,
                 lon_col=lon_col,
                 lat_col=lat_col,
                 zone_col_name=output_col,
