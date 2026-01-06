@@ -137,8 +137,8 @@ steps:
         # CTRAMP Formats
         households_ctramp: "{{ output_dir }}/ctramp/HouseholdData.csv"
         persons_ctramp: "{{ output_dir }}/ctramp/PersonData.csv"
-        mandatory_location_ctramp: "{{ output_dir }}/ctramp/MandatoryLocationData.csv"
-        individual_tour_ctramp: "{{ output_dir }}/ctramp/IndivTourData.csv"
-        individual_trip_ctramp: "{{ output_dir }}/ctramp/IndivTripData.csv"
-        joint_tour_ctramp: "{{ output_dir }}/ctramp/JointTourData.csv"
-        joint_trip_ctramp: "{{ output_dir }}/ctramp/JointTripData.csv"
+        mandatory_locations_ctramp: "{{ output_dir }}/ctramp/MandatoryLocationData.csv"
+        individual_tours_ctramp: "{{ output_dir }}/ctramp/IndivTourData.csv"
+        individual_trips_ctramp: "{{ output_dir }}/ctramp/IndivTripData.csv"
+        joint_tours_ctramp: "{{ output_dir }}/ctramp/JointTourData.csv"
+        joint_trips_ctramp: "{{ output_dir }}/ctramp/JointTripData.csv"

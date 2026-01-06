@@ -120,30 +120,21 @@ def format_ctramp(  # noqa: D417, PLR0913
     # Format each table
     households_ctramp = format_households(households, persons)
 
-    # Create empty tours DataFrame for tour stats aggregation
-    empty_formatted_tours = pl.DataFrame(
-        schema={
-            "person_id": pl.Int64,
-            "tour_purpose": pl.String,
-        }
-    )
-
+    # Format tours - use empty DataFrame with proper schema if no tours exist
     if len(tours) == 0:
-        individual_tour_ctramp = pl.DataFrame()
-        persons_ctramp = format_persons(persons, empty_formatted_tours, config)
+        individual_tours_ctramp = pl.DataFrame(
+            schema={
+                "person_id": pl.Int64,
+                "tour_purpose": pl.String,
+            }
+        )
     else:
-        # Format tours using canonical persons for person_type and school_type
-        individual_tour_ctramp = format_individual_tour(
+        individual_tours_ctramp = format_individual_tour(
             tours, linked_trips, persons, households_ctramp, config
         )
-        # Re-format persons with actual tour statistics
-        persons_ctramp = format_persons(persons, individual_tour_ctramp, config)
 
-    # Prepare result dictionary, to be additionally populated with tours/trips
-    result = {
-        "households_ctramp": households_ctramp,
-        "persons_ctramp": persons_ctramp,
-    }
+    # Format persons with tour statistics (works with empty or populated tours)
+    persons_ctramp = format_persons(persons, individual_tours_ctramp, config)
 
     # Format mandatory locations - needs canonical households (home_taz)
     # but we need income from formatted households, so rejoin home_taz
@@ -151,26 +142,31 @@ def format_ctramp(  # noqa: D417, PLR0913
         households.select(["hh_id", "home_taz"]), on="hh_id", how="left"
     )
     mandatory_location_ctramp = format_mandatory_location(persons, households_with_taz, config)
-    result["mandatory_location_ctramp"] = mandatory_location_ctramp
 
     # Add formatted tours to results
-    result["individual_tour_ctramp"] = individual_tour_ctramp
-
-    joint_tour_ctramp = format_joint_tour(
+    joint_tours_ctramp = format_joint_tour(
         tours, linked_trips, persons_ctramp, households_ctramp, config
     )
-    result["joint_tour_ctramp"] = joint_tour_ctramp
 
-    individual_trip_ctramp = format_individual_trip(
+    individual_trips_ctramp = format_individual_trip(
         linked_trips, tours, persons, households_ctramp, config=config
     )
-    result["individual_trip_ctramp"] = individual_trip_ctramp
 
-    joint_trip_ctramp = format_joint_trip(
+    joint_trips_ctramp = format_joint_trip(
         joint_trips, linked_trips, tours, households_ctramp, config=config
     )
-    result["joint_trip_ctramp"] = joint_trip_ctramp
 
     logger.info("CT-RAMP formatting complete")
+
+    # Prepare result dictionary
+    result = {
+        "households_ctramp": households_ctramp,
+        "persons_ctramp": persons_ctramp,
+        "individual_trips_ctramp": individual_trips_ctramp,
+        "individual_tours_ctramp": individual_tours_ctramp,
+        "joint_trips_ctramp": joint_trips_ctramp,
+        "joint_tours_ctramp": joint_tours_ctramp,
+        "mandatory_locations_ctramp": mandatory_location_ctramp,
+    }
 
     return result
