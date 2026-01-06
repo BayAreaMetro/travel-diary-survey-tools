@@ -96,12 +96,12 @@ def format_households(
 
     # Map income categories to midpoint values
     income_detailed_map = {
-        income_cat.value: get_income_midpoint(income_cat)
+        income_cat.value: int(get_income_midpoint(income_cat))
         for income_cat in IncomeDetailed
         if "Prefer not to answer" not in income_cat.label and "Missing" not in income_cat.label
     }
     income_followup_map = {
-        income_cat.value: get_income_midpoint(income_cat)
+        income_cat.value: int(get_income_midpoint(income_cat))
         for income_cat in IncomeFollowup
         if "Prefer not to answer" not in income_cat.label and "Missing" not in income_cat.label
     }

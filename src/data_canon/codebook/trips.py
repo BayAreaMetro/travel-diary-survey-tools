@@ -163,32 +163,103 @@ class Mode(LabeledEnum):
     """mode value labels."""
 
     # NOTE: This is absolute hot chaos... MUST FIX!!!
-    # Plan for 2+ level hierarchy: mode groups (x) > detailed modes (xx) > regionally specific (xxx)  # noqa: E501
-    # Goal is no orphaned modes so they all map to a group
+    # Goal is no orphaned or multi-coded modes so they all map to a group and one group only!
     # e.g.,:
-    # 1. Transit
-    #   |-- 11. Local Bus
-    #   |-- 12. Express Bus
-    #   |-- 13. Light Rail
-    #   |     |-- 131. Streetcar/Cable Car
-    #   |     |-- 132. MUNI Metro
-    #   |     |-- 133. MBTA T
-    #   |-- 14. Urban Rail
-    #   |      |-- 141. BART
-    #   |      |-- 142. NYC Subway
-    #   |      |-- 143. DC Metro
-    #   |-- 15. Commuter Rail
-    #   |      |-- 151. Caltrain
-    #   |      |-- 152. MBTA Commuter Rail
-    #   |      |-- 153. Caltrain
-    #   |      |-- 154. Metro North
-    #   |-- 16. Intercity Rail
-    #   |      |-- 161. Capitol Corridor
-    #   |      |-- 162. Amtrak Northeast Regional
-    #   |-- 17. Ferry
-    #   |      |-- 171. Richmond Ferry
-    #   |      |-- 172. Staten Island Ferry
-    #   |-- 18. Other Transit
+    # Mode Hierarchy Example:
+    # x0000 - Abstract level generic mode (e.g., automobile, active, transit)
+    # xx000 - Physical level modes (e.g., bus, lightrail, urban rail, commuter rail, ferry, etc.)
+    # xxx00 - Operational level modes (e.g., express bus, local bus, rapid bus, etc.)
+    # xxxx0 - Agency specific (e.g., MUNI, BART, MBTA, NYC Subway, etc.)
+    # xxxxx - Line-level specific (e.g., Richmond Ferry, Amtrak Northeast Regional, etc.)
+    # 10000 Transit
+    # ├─11000 Bus
+    # │   ├─11100 Local Bus
+    # │   │   ├─11110 SF Muni
+    # │   │   │   ├─11111 38 Geary
+    # │   │   │   └─11112 14 Mission
+    # │   │   ├─11120 MTA Bus
+    # │   │   │   ├─11121 M15 SBS
+    # │   │   │   └─11122 B41
+    # │   │   └─11130 MBTA Bus
+    # │   │       └─11131 Route 1
+    # │   └─11200 Express Bus
+    # │       └─11210 MTA Bus
+    # │           └─11211 X27
+    # ├─12000 Rail
+    # │   ├─12100 Urban Rail
+    # │   │   ├─12110 NYC Subway
+    # │   │   │   ├─12111 A Line
+    # │   │   │   └─12112 7 Line
+    # │   │   └─12120 SF Muni Metro
+    # │   │       └─12121 N Judah
+    # │   └─12200 Commuter Rail
+    # │       ├─12210 MBTA
+    # │       │   └─12211 Providence Line
+    # │       └─12220 Caltrain
+    # │           └─12221 Local Service
+    # └─13000 Ferry
+    #     └─13100 Passenger Ferry
+    #         ├─13110 SF Bay Ferry
+    #         │   └─13111 Richmond Ferry
+    #         └─13120 NYC Ferry
+    #             └─13121 Astoria Route
+
+    # 20000 Active
+    # ├─21000 Walk
+    # │   ├─21100 Standard Walk
+    # │   │   └─21110 Generic
+    # │   │       └─21111 Sidewalk Walk
+    # │   └─21200 Assisted Walk
+    # │       └─21210 Generic
+    # │           └─21211 Mobility Aid
+    # ├─22000 Bike
+    # │   ├─22100 Personal Bike
+    # │   │   └─22110 Generic
+    # │   │       └─22111 Road Bike
+    # │   └─22200 Bike Share
+    # │       ├─22210 Bay Wheels (SF)
+    # │       │   └─22211 Classic Bike
+    # │       └─22220 Citi Bike (NYC)
+    # │           └─22221 Classic Bike
+    # └─23000 Micromobility
+    #     ├─23100 E-scooter Share
+    #     │   └─23110 Generic
+    #     │       └─23111 Dockless Scooter
+    #     └─23200 E-bike Share
+    #         └─23210 Generic
+    #             └─23211 Dockless E-bike
+
+    # 30000 Automobile
+    # ├─31000 Personal Auto
+    # │   ├─31100 Solo Driver
+    # │   │   └─31110 Generic
+    # │   │       └─31111 Private Car
+    # │   ├─31200 Carpool / HOV
+    # │   │   └─31210 Generic
+    # │   │       └─31211 HOV 2+
+    # │   └─31300 EV
+    # │       └─31310 Generic
+    # │           └─31311 Private EV
+    # ├─32000 TNC / Ridehail
+    # │   ├─32100 Solo Ridehail
+    # │   │   ├─32110 Uber
+    # │   │   │   └─32111 UberX
+    # │   │   └─32120 Lyft
+    # │   │       └─32121 Lyft Standard
+    # │   └─32200 Pooled Ridehail
+    # │       ├─32210 Uber
+    # │       │   └─32211 Uber Pool
+    # │       └─32220 Lyft
+    # │           └─32221 Lyft Shared
+    # └─33000 Rental / Carshare
+    #     ├─33100 Traditional Rental
+    #     │   └─33110 Hertz
+    #     │       └─33111 Economy Class
+    #     └─33200 Carshare
+    #         ├─33210 Zipcar
+    #         │   └─33211 Hourly Rental
+    #         └─33220 Getaround
+    #             └─33221 Hourly Rental
 
     WALK = (1, "Walk/jog/wheelchair")
     BIKE = (2, "Standard bicycle (household)")

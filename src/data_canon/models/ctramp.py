@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field
 from data_canon.codebook.ctramp import (
     FreeParkingChoice,
     MandatoryTourFrequency,
-    PersonType,
     TourComposition,
     WalkToTransitSubZone,
+)
+from data_canon.codebook.ctramp import (
+    PersonType as CTRAMPPersonType,
 )
 
 
@@ -90,7 +92,7 @@ class PersonCTRAMPModel(BaseModel):
     person_num: int = Field(ge=1, description="Person number unique to the household")
     age: int = Field(ge=0, description="Person age")
     gender: str = Field(description="Person gender (m=male, f=female)")
-    type: PersonType = Field(
+    type: CTRAMPPersonType = Field(
         description=(
             "Person lifestage/employment type (Full-time worker, Part-time worker, University student, Nonworker, "
             "Retired, Student of non-driving age, Student of driving age, Child too young for school)"
@@ -125,7 +127,7 @@ class MandatoryLocationCTRAMPModel(BaseModel):
     Income: int = Field(ge=0, description="Annual household income ($2000)")
     PersonID: int = Field(description="Unique person ID number")
     PersonNum: int = Field(ge=1, description="Person number unique to the household")
-    PersonType: "PersonType" = Field(
+    PersonType: CTRAMPPersonType = Field(
         description=(
             "Person lifestage/employment type (1=Full-time worker; 2=Part-time worker; 3=University student; "
             "4=Nonworker; 5=Retired; 6=Student of non-driving age; 7=Student of driving age; "
@@ -167,7 +169,7 @@ class IndividualTourCTRAMPModel(BaseModel):
     hh_id: int = Field(description="Unique household ID number")
     person_id: int = Field(description="Unique person ID number")
     person_num: int = Field(ge=1, description="Person number unique to the household")
-    person_type: PersonType = Field(
+    person_type: CTRAMPPersonType = Field(
         description=(
             "Person lifestage/employment type (1=Full-time worker; 2=Part-time worker; 3=University student; "
             "4=Nonworker; 5=Retired; 6=Student of non-driving age; 7=Student of driving age; "

@@ -86,6 +86,32 @@ class CTRAMPMode(LabeledEnum):
     SCHOOL_BUS = 9, "School bus"
 
 
+class TripModeType(LabeledEnum):
+    """Enumeration for trip mode type categories."""
+
+    DA = 1, "Drive alone"
+    DA_TOLL = 2, "Drive alone - toll"
+    SR2 = 3, "Shared ride 2"
+    SR2_TOLL = 4, "Shared ride 2 - toll"
+    SR3 = 5, "Shared ride 3+"
+    SR3_TOLL = 6, "Shared ride 3+ - toll"
+    WALK = 7, "Walk"
+    BIKE = 8, "Bike"
+    WLK_LOC_WLK = 9, "Walk to local bus"
+    WLK_LRF_WLK = 10, "Walk to light rail or ferry"
+    WLK_EXP_WLK = 11, "Walk to express bus"
+    WLK_HVY_WLK = 12, "Walk to heavy rail"
+    WLK_COM_WLK = 13, "Walk to commuter rail"
+    DRV_LOC_WLK = 14, "Drive to local bus"
+    DRV_LRF_WLK = 15, "Drive to light rail or ferry"
+    DRV_EXP_WLK = 16, "Drive to express bus"
+    DRV_HVY_WLK = 17, "Drive to heavy rail"
+    DRV_COM_WLK = 18, "Drive to commuter rail"
+    TAXI = 19, "Taxi"
+    TNC = 20, "TNC - single party"
+    TNC2 = 21, "TNC - shared"
+
+
 def map_purpose_to_ctramp(
     purpose: pl.Expr,
     income: pl.Expr,
