@@ -86,6 +86,7 @@ steps:
 
   - name: format_ctramp
     validate_input: false
+    validate_output: true
     cache: false
     params:
       # Income thresholds (in absolute dollars)
@@ -137,7 +138,7 @@ steps:
         households_ctramp: "{{ output_dir }}/ctramp/HouseholdData.csv"
         persons_ctramp: "{{ output_dir }}/ctramp/PersonData.csv"
         mandatory_location_ctramp: "{{ output_dir }}/ctramp/MandatoryLocationData.csv"
-        individual_tour_ctramp: "{{ output_dir }}/ctramp/IndividualTourData.csv"
-        individual_trip_ctramp: "{{ output_dir }}/ctramp/IndividualTripData.csv"
+        individual_tour_ctramp: "{{ output_dir }}/ctramp/IndivTourData.csv"
+        individual_trip_ctramp: "{{ output_dir }}/ctramp/IndivTripData.csv"
         joint_tour_ctramp: "{{ output_dir }}/ctramp/JointTourData.csv"
         joint_trip_ctramp: "{{ output_dir }}/ctramp/JointTripData.csv"
