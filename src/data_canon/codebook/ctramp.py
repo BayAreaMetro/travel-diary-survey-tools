@@ -42,7 +42,7 @@ class WalkToTransitSubZone(LabeledEnum):
 
 # NOTE: This is basically a re-map of the canonical PersonType enum
 # Can we just use that directly instead of redefining here?
-class PersonType(LabeledEnum):
+class CTRAMPPersonType(LabeledEnum):
     """Enumeration for person type categories."""
 
     FULL_TIME_WORKER = 1, "Full-time worker"
@@ -110,6 +110,42 @@ class TripModeType(LabeledEnum):
     TAXI = 19, "Taxi"
     TNC = 20, "TNC - single party"
     TNC2 = 21, "TNC - shared"
+
+
+class JTFChoice(LabeledEnum):
+    """Enumeration for joint tour frequency choice categories."""
+
+    NONE_PRE_SCHOOL_ONLY = -4, "no joint tours, only pre-school children leave household"
+    NONE_FEWER_THAN_2_LEAVE_HH = -3, "no joint tours, fewer than 2 people leave household"
+    NONE_SINGLE_PERSON_HH = -2, "no joint tours, single person hh"
+    NONE_NONE = 1, "no joint tours"
+    ONE_SHOP = 2, "1 shop (S)"
+    ONE_MAINT = 3, "1 maintenance (M)"
+    ONE_EATOUT = 4, "1 eating out (E)"
+    ONE_VISIT = 5, "1 visiting family/friends (V)"
+    ONE_DISCR = 6, "1 discretionary (D)"
+    TWO_SHOP = 7, "2 shop (SS)"
+    ONE_SHOP_ONE_MAINT = 8, "1 shop, 1 maintenance (SM)"
+    ONE_SHOP_ONE_EATOUT = 9, "1 shop, 1 eating out (SE)"
+    ONE_SHOP_ONE_VISIT = 10, "1 shop, 1 visit (SV)"
+    ONE_SHOP_ONE_DISCR = 11, "1 shop, 1 discretionary (SD)"
+    TWO_MAINT = 12, "2 maintenance (MM)"
+    ONE_MAINT_ONE_EATOUT = 13, "1 maintenance, 1 eating out (ME)"
+    ONE_MAINT_ONE_VISIT = 14, "1 maintenance, 1 visit (MV)"
+    ONE_MAINT_ONE_DISCR = 15, "1 maintenance, 1 discretionary (MD)"
+    TWO_EATOUT = 16, "2 eating out"
+    ONE_EATOUT_ONE_VISIT = 17, "1 eating out, 1 visit (EV)"
+    ONE_EATOUT_ONE_DISCR = 18, "1 eating out, 1 discretionary (ED)"
+    TWO_VISIT = 19, "2 visiting"
+    ONE_VISIT_ONE_DISCR = 20, "1 visit, 1 discretionary"
+    TWO_DISCR = 21, "2 discretionary"
+
+
+class WFHChoice(LabeledEnum):
+    """Enumeration for work-from-home choice categories."""
+
+    NON_WORKER_OR_NO_WFH = 0, "non-worker or workers who don't work from home"
+    WORKS_FROM_HOME = 1, "workers who work from home"
 
 
 def map_purpose_to_ctramp(
@@ -188,7 +224,7 @@ def map_purpose_to_ctramp(
     work_expr = home_expr.when(purpose.is_in(work_purposes)).then(work_income_segmentation)
 
     # School purposes - segmented by student type
-    k12_purposes = [Purpose.K12_SCHOOL.value, Purpose.DAYCARE.value]
+    k12_purposes = [Purpose.K12_SCHOOL.value, Purpose.DAYCARE.value, Purpose.SCHOOL.value]
     school_segmentation_expr = (
         pl.when(student_category == "College or higher")
         .then(pl.lit("university"))
@@ -223,6 +259,7 @@ def map_purpose_to_ctramp(
         Purpose.GROCERY.value,
         Purpose.ROUTINE_SHOPPING.value,
         Purpose.MAJOR_SHOPPING.value,
+        Purpose.SHOPPING_ERRANDS.value,
     ]
     shopping_expr = escort_expr.when(purpose.is_in(shopping_purposes)).then(pl.lit("shopping"))
 

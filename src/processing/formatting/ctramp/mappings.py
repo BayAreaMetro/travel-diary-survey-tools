@@ -4,7 +4,7 @@ This module contains lookup tables and mappings to transform canonical
 survey data into CT-RAMP model format.
 """
 
-from data_canon.codebook.ctramp import PersonType as CTRAMPPersonType
+from data_canon.codebook.ctramp import CTRAMPPersonType
 from data_canon.codebook.persons import Employment, Gender, SchoolType, Student
 from data_canon.codebook.persons import PersonType as CanonicalPersonType
 

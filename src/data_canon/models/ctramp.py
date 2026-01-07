@@ -7,13 +7,12 @@ Based on https://github.com/BayAreaMetro/modeling-website/wiki/DataDictionary
 from pydantic import BaseModel, Field
 
 from data_canon.codebook.ctramp import (
+    CTRAMPPersonType,
     FreeParkingChoice,
     MandatoryTourFrequency,
     TourComposition,
     WalkToTransitSubZone,
-)
-from data_canon.codebook.ctramp import (
-    PersonType as CTRAMPPersonType,
+    WFHChoice,
 )
 
 
@@ -45,6 +44,9 @@ class HouseholdCTRAMPModel(BaseModel):
         description="Walk to transit sub-zone (0=cannot walk to transit, 1=short-walk, 2=long-walk)",
     )
     auto_suff: int | None = Field(None, description="Incorrectly coded; ignore")
+    wfh_choice: WFHChoice | None = Field(
+        description="Work-from-home choice (0=non-worker or workers who don't work from home, 1=workers who work from home)"
+    )
     # NOTE: Model output only, not derivable from survey data.
     ao_rn: int | None = Field(description="Random number for automobile ownership model")
     fp_rn: int | None = Field(description="Random number for free parking model")

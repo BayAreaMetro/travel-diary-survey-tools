@@ -52,12 +52,12 @@ class CTRAMPConfig(BaseModel):
 
     # Age thresholds
     age_adult: int = Field(
-        default=4,  # AgeCategory.AGE_18_TO_24.value
-        ge=3,  # AgeCategory.AGE_16_TO_17.value minimum
-        le=5,  # AgeCategory.AGE_25_TO_34.value maximum
+        default=4,
+        ge=0,
         description=(
-            "Age threshold for adult vs child in joint tours. "
-            "Should be an AgeCategory enum value. Default: 4 (AGE_18_TO_24)"
+            "Age category threshold for adult vs child in joint tours. "
+            "Use AgeCategory enum value (e.g., 4 = AGE_18_TO_24 and higher are adults). "
+            "Default: 4 (18+)"
         ),
     )
 

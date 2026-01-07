@@ -21,6 +21,7 @@ from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
     Gender,
+    JobType,
     SchoolType,
     Student,
     WorkParking,
@@ -104,6 +105,7 @@ def create_person(
     employment: Employment = Employment.EMPLOYED_FULLTIME,
     student: Student = Student.NONSTUDENT,
     school_type: SchoolType = SchoolType.MISSING,
+    job_type: int | None = None,
     commute_subsidy_use_3: BooleanYesNo = BooleanYesNo.NO,
     commute_subsidy_use_4: BooleanYesNo = BooleanYesNo.NO,
     value_of_time: float = 15.0,
@@ -141,6 +143,7 @@ def create_person(
         employment: Employment status enum
         student: Student status enum
         school_type: Type of school enum (if student)
+        job_type: Job type enum (if employed).
         commute_subsidy_use_3: Free parking used (BooleanYesNo)
         commute_subsidy_use_4: Discounted parking used (BooleanYesNo)
         value_of_time: Value of time in $/hour
@@ -178,6 +181,18 @@ def create_person(
         "commute_subsidy_use_4": commute_subsidy_use_4.value,
         "value_of_time": value_of_time,
     }
+
+    # Set job_type - default to FIXED (1) for employed, MISSING (995) for non-workers
+    if job_type is None:
+        if employment.value in [
+            Employment.EMPLOYED_FULLTIME.value,
+            Employment.EMPLOYED_PARTTIME.value,
+            Employment.EMPLOYED_SELF.value,
+        ]:
+            job_type = JobType.FIXED.value
+        else:
+            job_type = JobType.MISSING.value
+    record["job_type"] = job_type
 
     # Always include all location fields (tour extraction requires them
     # even if None)

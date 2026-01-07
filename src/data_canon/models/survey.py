@@ -18,6 +18,7 @@ from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
     Gender,
+    JobType,
     PersonType,
     SchoolType,
     Student,
@@ -70,6 +71,7 @@ class PersonModel(BaseModel):
     work_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
     school_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
     person_type: PersonType = step_field(required_in_steps=[])
+    job_type: JobType | None = step_field(required_in_steps=["format_ctramp"], default=None)
     employment: Employment = step_field(required_in_steps=["extract_tours"])
     student: Student = step_field(required_in_steps=["extract_tours"])
     school_type: SchoolType | None = step_field(

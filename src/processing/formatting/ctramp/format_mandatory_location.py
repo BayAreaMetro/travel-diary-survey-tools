@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 def format_mandatory_location(
-    persons: pl.DataFrame,
-    households: pl.DataFrame,
+    persons_canonical: pl.DataFrame,
+    households_canonical: pl.DataFrame,
+    households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
 ) -> pl.DataFrame:
     """Format mandatory locations (work/school) to CT-RAMP specification.
@@ -23,13 +24,12 @@ def format_mandatory_location(
     for persons with work or school locations.
 
     Args:
-        persons: DataFrame with canonical person fields including:
-            - person_id, hh_id, person_num
-            - person_type (CTRAMP classified)
-            - age, employment_category, student_category
-            - work_taz, school_taz
-        households: DataFrame with canonical household fields including:
-            - hh_id, home_taz, income
+        persons_canonical: Canonical persons DataFrame with person_id, hh_id, person_num,
+            person_type, age, employment, student, work_taz, school_taz
+        households_canonical: Canonical households DataFrame with hh_id, home_taz
+            (used for HomeTAZ field in output)
+        households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
+            (used for Income field in output)
         config: CT-RAMP configuration with income_base_year_dollars
 
     Returns:
@@ -48,7 +48,10 @@ def format_mandatory_location(
 
     # Check if persons has work/school location columns
     # If not, return empty DataFrame (no mandatory locations)
-    if "work_taz" not in persons.columns and "school_taz" not in persons.columns:
+    if (
+        "work_taz" not in persons_canonical.columns
+        and "school_taz" not in persons_canonical.columns
+    ):
         return pl.DataFrame(
             schema={
                 "person_id": pl.Int64,
@@ -59,8 +62,13 @@ def format_mandatory_location(
         )
 
     # Join persons with households to get income and home TAZ
-    mandatory_loc = persons.join(
-        households.select(["hh_id", "home_taz", "income"]),
+    # Need home_taz from canonical and income from formatted
+    mandatory_loc = persons_canonical.join(
+        households_canonical.select(["hh_id", "home_taz"]),
+        on="hh_id",
+        how="left",
+    ).join(
+        households_ctramp.select(["hh_id", "income"]),
         on="hh_id",
         how="left",
     )

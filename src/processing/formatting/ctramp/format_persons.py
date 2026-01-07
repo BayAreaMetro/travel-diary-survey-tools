@@ -15,14 +15,10 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import (
-    FreeParkingChoice,
-)
-from data_canon.codebook.ctramp import (
-    PersonType as CTRAMPPersonType,
-)
+from data_canon.codebook.ctramp import CTRAMPPersonType, FreeParkingChoice
 from data_canon.codebook.generic import BooleanYesNo
-from data_canon.codebook.persons import AgeCategory
+from data_canon.codebook.persons import AgeCategory, Employment, JobType
+from utils.helpers import get_age_midpoint
 
 from .ctramp_config import CTRAMPConfig
 from .mappings import (
@@ -59,7 +55,6 @@ def aggregate_tour_statistics(
                 "person_id": pl.Int64,
                 "imf_choice": pl.Int64,
                 "inmf_choice": pl.Int64,
-                "wfh_choice": pl.Int64,
                 "activity_pattern": pl.String,
             }
         )
@@ -87,9 +82,6 @@ def aggregate_tour_statistics(
             # Count mandatory and non-mandatory tours
             pl.col("is_mandatory").sum().alias("imf_choice"),
             (~pl.col("is_mandatory")).sum().alias("inmf_choice"),
-            # Check if any work-from-home (no tours with trips/stops)
-            # Note: WFH logic would need trip data; for now set to 0
-            pl.lit(0).alias("wfh_choice"),
         ]
     )
 
@@ -109,7 +101,6 @@ def aggregate_tour_statistics(
             "activity_pattern",
             "imf_choice",
             "inmf_choice",
-            "wfh_choice",
         ]
     )
 
@@ -183,8 +174,8 @@ def classify_person_type(
 
 
 def format_persons(
-    persons: pl.DataFrame,
-    tours: pl.DataFrame,
+    persons_canonical: pl.DataFrame,
+    tours_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
 ) -> pl.DataFrame:
     """Format person data to CT-RAMP specification.
@@ -197,19 +188,11 @@ def format_persons(
     - Aggregate activity patterns and tour frequencies from tour data
 
     Args:
-        persons: DataFrame with canonical person fields including:
-            - person_id: Unique person ID
-            - hh_id: Household ID
-            - person_num: Person number within household
-            - age: Person age
-            - gender: Gender code
-            - employment: Employment status
-            - student: Student status
-            - school_type: Type of school attending
-            - commute_subsidy_use_3: Free parking used (BooleanYesNo)
-            - commute_subsidy_use_4: Discounted parking used (BooleanYesNo)
-            - value_of_time: Value of time ($/hour)
-        tours: DataFrame with formatted tour data including tour_purpose_ctramp
+        persons_canonical: Canonical persons DataFrame with person_id, hh_id, person_num,
+            age, gender, employment, student, school_type, commute_subsidy_use_3
+            (free parking), commute_subsidy_use_4 (discounted parking), value_of_time
+        tours_ctramp: Formatted CT-RAMP tours DataFrame with person_id and tour_purpose
+            (CTRAMP-formatted purpose strings like 'work_low', 'school_grade', etc.)
         config: CT-RAMP configuration with age thresholds
 
     Returns:
@@ -236,7 +219,7 @@ def format_persons(
     logger.info("Formatting person data for CT-RAMP")
 
     # Apply person type classification
-    persons_ctramp = persons.with_columns(
+    persons_ctramp = persons_canonical.with_columns(
         pl.struct(["age", "employment", "student", "school_type"])
         .map_elements(
             lambda x: classify_person_type(
@@ -247,7 +230,27 @@ def format_persons(
             ),
             return_dtype=pl.Int64,
         )
+        .alias("type_code")
+    )
+
+    # Convert person type code to string label (raises if invalid)
+    persons_ctramp = persons_ctramp.with_columns(
+        pl.col("type_code")
+        .map_elements(
+            lambda code: CTRAMPPersonType.from_value(code).label,
+            return_dtype=pl.String,
+        )
         .alias("type")
+    )
+
+    # Convert age category to continuous midpoint
+    persons_ctramp = persons_ctramp.with_columns(
+        pl.col("age")
+        .map_elements(
+            lambda code: (get_age_midpoint(ac) if (ac := AgeCategory.from_value(code)) else code),
+            return_dtype=pl.Int64,
+        )
+        .alias("age")
     )
 
     # Map gender (convert int enum to string "m"/"f")
@@ -272,7 +275,7 @@ def format_persons(
     )
 
     # Aggregate tour statistics from tour data
-    tour_stats = aggregate_tour_statistics(tours)
+    tour_stats = aggregate_tour_statistics(tours_ctramp)
 
     # Join tour statistics, filling with defaults for persons with no tours
     persons_ctramp = persons_ctramp.join(tour_stats, on="person_id", how="left").with_columns(
@@ -280,8 +283,25 @@ def format_persons(
             pl.col("activity_pattern").fill_null("H"),  # Home if no tours
             pl.col("imf_choice").fill_null(0),  # 0 mandatory tours
             pl.col("inmf_choice").fill_null(0),  # 0 non-mandatory tours
-            pl.col("wfh_choice").fill_null(0),  # No work from home
         ]
+    )
+
+    # Derive wfh_choice from job_type and employment status
+    # WFH = 1 only for employed workers (full-time, part-time, self-employed) AND job_type = WFH
+    persons_ctramp = persons_ctramp.with_columns(
+        pl.when(
+            pl.col("employment").is_in(
+                [
+                    Employment.EMPLOYED_FULLTIME.value,
+                    Employment.EMPLOYED_PARTTIME.value,
+                    Employment.EMPLOYED_SELF.value,
+                ]
+            )
+            & (pl.col("job_type") == JobType.WFH.value)
+        )
+        .then(pl.lit(1))
+        .otherwise(pl.lit(0))
+        .alias("wfh_choice")
     )
 
     # Note: value_of_time is model output, not survey data

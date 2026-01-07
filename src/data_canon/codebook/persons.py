@@ -122,11 +122,12 @@ class Industry(LabeledEnum):
     OTHER_SPECIFY = (997, "Other, please specify")
 
 
-class JobCommuteType(LabeledEnum):
-    """job_commute_type value labels."""
+class JobType(LabeledEnum):
+    """job_type value labels."""
 
-    canonical_field_name = "job_commute_type"
+    canonical_field_name = "job_type"
 
+    # NONWORKER = (0, "Non-worker")
     FIXED = (1, "Go to one work location ONLY (outside of home)")
     VARIES = (2, "Work location regularly varies (different offices/jobsites)")
     WFH = (3, "Work ONLY from home or remotely (telework, self-employed)")

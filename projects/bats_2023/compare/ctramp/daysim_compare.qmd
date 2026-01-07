@@ -110,10 +110,10 @@ data = load_data(
 - [x] start_hour / end_hour: Looks okay
 
 ## Joint Trips:
+- [] Column naming doesn't align at all with codebook.
 
-
-# Joint Tours:
-
+## Joint Tours:
+- [] Column naming doesn't align at all with codebook.
 
 # Household Data Comparison
 ```{python}

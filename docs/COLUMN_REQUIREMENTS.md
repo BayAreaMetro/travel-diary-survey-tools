@@ -37,6 +37,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `work_maz` | int or None | ≥ 1 |  |  |  |  |  |  | ✓ | ✓ |  |
 |  | `school_maz` | int or None | ≥ 1 |  |  |  |  |  |  | ✓ | ✓ |  |
 |  | `person_type` | PersonType |  |  |  |  |  |  |  |  |  |  |
+|  | `job_type` | data_canon.codebook.persons.JobType or None |  |  |  |  |  |  |  | ✓ |  |  |
 |  | `employment` | Employment |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `student` | Student |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `school_type` | data_canon.codebook.persons.SchoolType or None |  |  |  |  |  | ✓ |  |  |  |  |
@@ -427,9 +428,9 @@ This section shows the categorical values and labels for custom enum fields.
 | 995 | Missing Response |
 | 997 | Other, please specify |
 
-## JobCommuteType
+## JobType
 
-**Field name:** `job_commute_type`
+**Field name:** `job_type`
 
 | Value | Label |
 | --- | --- |
