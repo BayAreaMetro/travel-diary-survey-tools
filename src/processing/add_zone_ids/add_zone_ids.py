@@ -40,28 +40,31 @@ def add_zone_to_dataframe(
     gdf_joined = gdf_joined.rename(columns={zone_id_field: zone_col_name})
     gdf_joined = gdf_joined.drop(columns="geometry")
 
+    # If all zone IDs are integers, convert to Int64 to allow nulls
+    # else keep as string
+    casttype = pl.Utf8
+    if gdf_joined[zone_col_name].dropna().apply(lambda x: x.isdigit()).all():
+        casttype = pl.Int64
+
     # Join back to original polars DataFrame on index
-    df_joined = (
-        df.join(
-            pl.from_pandas(gdf_joined.reset_index()),
-            on=df_index,
-            how="left",
-        )
-        # Ensure zone ID column is Int64 with nulls where no zone found
-        .with_columns(pl.col(zone_col_name).cast(pl.Int64))
-    )
+    df_joined = df.join(
+        pl.from_pandas(gdf_joined.reset_index()),
+        on=df_index,
+        how="left",
+    ).with_columns(pl.col(zone_col_name).cast(casttype))
 
     return df_joined
 
 
 @step()
 def add_zone_ids(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    tours: pl.DataFrame,
-    joint_trips: pl.DataFrame,
     zone_geographies: list[dict],
+    households: pl.DataFrame | None = None,
+    persons: pl.DataFrame | None = None,
+    unlinked_trips: pl.DataFrame | None = None,
+    linked_trips: pl.DataFrame | None = None,
+    tours: pl.DataFrame | None = None,
+    joint_trips: pl.DataFrame | None = None,
 ) -> dict:
     """Add zone IDs for multiple geographic levels based on locations.
 
@@ -74,6 +77,7 @@ def add_zone_ids(
     Args:
         households: Households dataframe
         persons: Persons dataframe
+        unlinked_trips: Unlinked trips dataframe
         linked_trips: Linked trips dataframe
         tours: Tours dataframe
         joint_trips: Joint trips dataframe
@@ -85,14 +89,15 @@ def add_zone_ids(
     Returns:
         Dictionary with updated dataframes
     """
+    # Initialize results dictionary in outer scope to update in loop, allow accumulation of zone IDs
     results = {
         "households": households,
         "persons": persons,
+        "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "tours": tours,
         "joint_trips": joint_trips,
     }
-
     # Process each zone geography
     for zone_config in zone_geographies:
         shapefile_path = zone_config["shapefile"]
@@ -107,6 +112,8 @@ def add_zone_ids(
             ("households", "hh_id", "home_lon", "home_lat", "home"),
             ("persons", "person_id", "work_lon", "work_lat", "work"),
             ("persons", "person_id", "school_lon", "school_lat", "school"),
+            ("unlinked_trips", "trip_id", "o_lon", "o_lat", "o"),
+            ("unlinked_trips", "trip_id", "d_lon", "d_lat", "d"),
             ("linked_trips", "linked_trip_id", "o_lon", "o_lat", "o"),
             ("linked_trips", "linked_trip_id", "d_lon", "d_lat", "d"),
             ("tours", "tour_id", "o_lon", "o_lat", "o"),
@@ -119,6 +126,13 @@ def add_zone_ids(
         for table, idx, lon_col, lat_col, location_prefix in standard_locations:
             output_col = f"{location_prefix}_{zone_name}"
 
+            df = results.get(table)
+
+            if df is None:
+                # Make sure its not in results
+                results.pop(table, None)
+                continue  # Skip if no table specified
+
             logger.info(
                 "Adding %s IDs on table %s using field '%s' from %s",
                 zone_name.upper(),
@@ -127,16 +141,16 @@ def add_zone_ids(
                 shapefile_path,
             )
 
-            if output_col in results[table].columns:
+            if output_col in df.columns:
                 logger.warning(
                     "Column %s already exists in %s; replacing it.",
                     output_col,
                     table,
                 )
-                results[table] = results[table].drop(output_col)
+                df = df.drop(output_col)
 
             results[table] = add_zone_to_dataframe(
-                results[table],
+                df,
                 shapefile,
                 df_index=idx,
                 lon_col=lon_col,
