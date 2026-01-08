@@ -8,6 +8,9 @@ from pathlib import Path
 import polars as pl
 
 from data_canon.models import (
+    ctramp as ctramp_models,
+)
+from data_canon.models import (
     daysim as daysim_models,
 )
 from pipeline.decoration import step
@@ -16,6 +19,7 @@ from processing import (
     add_zone_ids,
     detect_joint_trips,
     extract_tours,
+    format_ctramp,
     format_daysim,
     link_trips,
     load_data,
@@ -82,6 +86,7 @@ processing_steps = [
     link_trips,
     detect_joint_trips,
     extract_tours,
+    format_ctramp,
     format_daysim,
     write_data,
 ]
@@ -95,6 +100,13 @@ new_models = {
     "linked_trips_daysim": daysim_models.LinkedTripDaysimModel,
     "tours_daysim": daysim_models.TourDaysimModel,
     # CT-RAMP models
+    "households_ctramp": ctramp_models.HouseholdCTRAMPModel,
+    "persons_ctramp": ctramp_models.PersonCTRAMPModel,
+    "mandatory_locations_ctramp": ctramp_models.MandatoryLocationCTRAMPModel,
+    "individual_tours_ctramp": ctramp_models.IndividualTourCTRAMPModel,
+    "individual_trips_ctramp": ctramp_models.IndividualTripCTRAMPModel,
+    "joint_tours_ctramp": ctramp_models.JointTourCTRAMPModel,
+    "joint_trips_ctramp": ctramp_models.JointTripCTRAMPModel,
 }
 
 # ---------------------------------------------------------------------

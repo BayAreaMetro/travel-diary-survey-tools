@@ -43,8 +43,8 @@ class HouseholdModel(BaseModel):
     hh_id: int = step_field(ge=1, unique=True, required_in_steps=["extract_tours"])
     home_lat: float = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
     home_lon: float = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
-    home_taz: int | None = step_field(ge=1, required_in_steps=["format_daysim"])
-    home_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim"])
+    home_taz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
+    home_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
     residence_rent_own: ResidenceRentOwn = step_field(required_in_steps=["format_daysim"])
     residence_type: ResidenceType = step_field(required_in_steps=["format_daysim"])
 
@@ -58,20 +58,20 @@ class PersonModel(BaseModel):
         fk_to="households.hh_id",
         required_child=True,
     )
-    person_num: int = step_field(ge=1, required_in_steps=["format_daysim"])
+    person_num: int = step_field(ge=1, required_in_steps=["format_ctramp", "format_daysim"])
     age: AgeCategory = step_field(required_in_steps=["extract_tours"])
-    gender: Gender = step_field(required_in_steps=[])
+    gender: Gender = step_field(required_in_steps=["format_ctramp"])
     # These fields can be None if person is not employed or in school
     work_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
     work_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     school_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
     school_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
-    work_taz: int | None = step_field(ge=1, required_in_steps=["format_daysim"])
-    school_taz: int | None = step_field(ge=1, required_in_steps=["format_daysim"])
-    work_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim"])
-    school_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim"])
+    work_taz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
+    school_taz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
+    work_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
+    school_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim", "format_ctramp"])
     person_type: PersonType = step_field(required_in_steps=[])
-    job_type: JobType | None = step_field(required_in_steps=[], default=None)
+    job_type: JobType | None = step_field(required_in_steps=["format_ctramp"], default=None)
     employment: Employment = step_field(required_in_steps=["extract_tours"])
     student: Student = step_field(required_in_steps=["extract_tours"])
     school_type: SchoolType | None = step_field(
@@ -84,10 +84,10 @@ class PersonModel(BaseModel):
         required_in_steps=["format_daysim"],
     )
     commute_subsidy_use_3: BooleanYesNo | None = step_field(
-        required_in_steps=[],
+        required_in_steps=["format_ctramp"],
     )
     commute_subsidy_use_4: BooleanYesNo | None = step_field(
-        required_in_steps=[],
+        required_in_steps=["format_ctramp"],
     )
     is_proxy: bool = step_field(required_in_steps=["format_daysim"])
     num_days_complete: int = step_field(ge=0, default=0)
@@ -197,22 +197,22 @@ class LinkedTripModel(BaseModel):
     arrive_hour: int = step_field(ge=0, le=23)
     arrive_minute: int = step_field(ge=0, le=59)
     arrive_seconds: int = step_field(ge=0, le=59)
-    o_purpose: Purpose = step_field(required_in_steps=[])
+    o_purpose: Purpose = step_field(required_in_steps=["format_ctramp"])
     o_purpose_category: int = step_field()
     o_lat: float = step_field(ge=-90, le=90, required_in_steps=["detect_joint_trips"])
     o_lon: float = step_field(ge=-180, le=180, required_in_steps=["detect_joint_trips"])
-    d_purpose: Purpose = step_field(required_in_steps=[])
+    d_purpose: Purpose = step_field(required_in_steps=["format_ctramp"])
     d_purpose_category: int = step_field(required_in_steps=["extract_tours"])
     d_lat: float = step_field(ge=-90, le=90, required_in_steps=["detect_joint_trips"])
     d_lon: float = step_field(ge=-180, le=180, required_in_steps=["detect_joint_trips"])
     o_taz: int | None = step_field(
         ge=1,
-        required_in_steps=["format_daysim"],
+        required_in_steps=["format_ctramp", "format_daysim"],
         default=None,
     )
     d_taz: int | None = step_field(
         ge=1,
-        required_in_steps=["format_daysim"],
+        required_in_steps=["format_ctramp", "format_daysim"],
         default=None,
     )
     o_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim"], default=None)
@@ -275,12 +275,12 @@ class TourModel(BaseModel):
     d_lon: float = step_field(ge=-180, le=180)
     o_taz: int | None = step_field(
         ge=1,
-        required_in_steps=["format_daysim"],
+        required_in_steps=["format_ctramp", "format_daysim"],
         default=None,
     )
     d_taz: int | None = step_field(
         ge=1,
-        required_in_steps=["format_daysim"],
+        required_in_steps=["format_ctramp", "format_daysim"],
         default=None,
     )
     o_maz: int | None = step_field(ge=1, required_in_steps=["format_daysim"], default=None)
@@ -292,7 +292,7 @@ class TourModel(BaseModel):
     tour_mode: ModeType = step_field()
     outbound_mode: ModeType | None = step_field()
     inbound_mode: ModeType | None = step_field()
-    num_travelers: int = step_field(ge=1, required_in_steps=[], default=1)
+    num_travelers: int = step_field(ge=1, required_in_steps=["format_ctramp"], default=1)
 
     @model_validator(mode="after")
     def validate_complete_tours(self) -> "TourModel":
