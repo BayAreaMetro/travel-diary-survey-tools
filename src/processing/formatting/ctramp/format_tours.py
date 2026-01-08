@@ -12,13 +12,15 @@ import polars as pl
 from data_canon.codebook.ctramp import (
     CTRAMPPersonType,
     TourComposition,
-    map_mode_to_ctramp,
-    map_purpose_category_to_ctramp,
 )
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
-from processing.formatting.ctramp.mappings import PERSON_TYPE_TO_CTRAMP
+from processing.formatting.ctramp.mappings import (
+    PERSON_TYPE_TO_CTRAMP,
+    map_mode_to_ctramp,
+    map_purpose_category_to_ctramp,
+)
 
 from .ctramp_config import CTRAMPConfig
 

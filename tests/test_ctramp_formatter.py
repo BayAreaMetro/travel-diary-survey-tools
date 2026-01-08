@@ -6,12 +6,18 @@ format.
 """
 
 from datetime import datetime, time
+from pathlib import Path
 from typing import get_args
 
 import polars as pl
 import pytest
 
-from data_canon.codebook.ctramp import CTRAMPPersonType, FreeParkingChoice
+from data_canon.codebook.ctramp import (
+    CTRAMPPersonType,
+    FreeParkingChoice,
+    build_alternatives,
+    load_alternatives_from_csv,
+)
 from data_canon.codebook.generic import BooleanYesNo
 from data_canon.codebook.households import IncomeDetailed, IncomeFollowup
 from data_canon.codebook.persons import (
@@ -1400,6 +1406,34 @@ class TestHouseholdFieldCorrections:
 class TestPersonFieldCorrections:
     """Tests for person field corrections."""
 
+    def test_inmf_matches_csv_fixture(self):
+        """Validate that get_inmf_code_from_counts matches the CSV fixture row by row."""
+        csv_path = (
+            Path(__file__).parent
+            / "fixtures"
+            / "CTRAMP_IndividualNonMandatoryTourFrequencyAlternatives.csv"
+        )
+
+        # Example usage: print all alternatives
+        csv_alternatives = load_alternatives_from_csv(csv_path)
+        # Use `maxes` (inclusive max frequencies) with the new API
+        py_alternatives = build_alternatives(
+            maxes={
+                "escort": 2,
+                "shopping": 1,
+                "othmaint": 1,
+                "othdiscr": 1,
+                "eatout": 1,
+                "social": 1,
+            }
+        )
+
+        # Compare
+        for code in sorted(set(csv_alternatives.keys()).union(py_alternatives.keys())):
+            alt_csv = csv_alternatives.get(code)
+            alt_py = py_alternatives.get(code)
+            assert alt_csv == alt_py, f"Mismatch for code {code}: CSV={alt_csv}, PY={alt_py}"
+
     def test_type_outputs_string_labels(self, standard_config):
         """Test that person type outputs string labels, not integers."""
         persons = pl.DataFrame(
@@ -1456,15 +1490,15 @@ class TestPersonFieldCorrections:
         # Create individual non-mandatory tours
         tours = pl.DataFrame(
             [
-                # Person 101: 0 non-mandatory tours
+                # Person 101: 0 non-mandatory tours (1 work tour doesn't count)
                 create_tour(
                     tour_id=1001,
                     person_id=101,
                     tour_purpose=PurposeCategory.WORK,
                 ),
-                # Person 102: 1 non-mandatory tour
+                # Person 102: 1 shopping tour -> code 17
                 create_tour(tour_id=1002, person_id=102, tour_purpose=PurposeCategory.SHOP),
-                # Person 103: 3 non-mandatory tours
+                # Person 103: shop + eatout + social -> code 23
                 create_tour(tour_id=1003, person_id=103, tour_purpose=PurposeCategory.SHOP),
                 create_tour(tour_id=1004, person_id=103, tour_purpose=PurposeCategory.MEAL),
                 create_tour(tour_id=1005, person_id=103, tour_purpose=PurposeCategory.SOCIALREC),
@@ -1516,11 +1550,209 @@ class TestPersonFieldCorrections:
 
         result = format_persons(persons, tours_formatted, standard_config)
 
-        # Binned values should match codebook alternatives
-        # 0 tours = bin 0, 1 tour = bin 1, 2-3 tours might be bin 2, etc.
-        assert result["inmf_choice"][0] == 0, "0 tours should be bin 0"
-        assert result["inmf_choice"][1] == 1, "1 tour should be bin 1"
-        assert result["inmf_choice"][2] in [2, 3], "3 tours should be binned (not raw count)"
+        # Assert CTRAMP alternative codes from codebook CSV
+        # Code 0 = no non-mandatory tours (special case)
+        # Code 17 = (escort=0, shopping=1, othmaint=0, othdiscr=0, eatout=0, social=0)
+        # Code 23 = (escort=0, shopping=1, othmaint=0, othdiscr=0, eatout=1, social=1)
+        assert result["inmf_choice"][0] == 0, "No non-mandatory tours -> code 0"
+        assert result["inmf_choice"][1] == 17, "1 shopping tour -> code 17"
+        assert result["inmf_choice"][2] == 23, "shop+eatout+social -> code 23"
+
+    def test_inmf_choice_escort_tours(self, standard_config):
+        """Test inmf_choice with escort tours."""
+        persons = pl.DataFrame(
+            [
+                create_person(person_id=101, hh_id=1),
+                create_person(person_id=102, hh_id=1),
+            ]
+        )
+
+        tours = pl.DataFrame(
+            [
+                # Person 101: 1 escort tour -> code 33
+                create_tour(tour_id=1001, person_id=101, tour_purpose=PurposeCategory.ESCORT),
+                # Person 102: 2 escort tours -> code 65
+                create_tour(tour_id=1002, person_id=102, tour_purpose=PurposeCategory.ESCORT),
+                create_tour(tour_id=1003, person_id=102, tour_purpose=PurposeCategory.ESCORT),
+            ],
+            schema=get_tour_schema(),
+        )
+
+        households = pl.DataFrame([create_household(hh_id=1)])
+        households_formatted = format_households(households, persons, tours)
+        trips = pl.DataFrame(
+            [
+                create_linked_trip(
+                    trip_id=10001,
+                    tour_id=1001,
+                    person_id=101,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10002,
+                    tour_id=1002,
+                    person_id=102,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10003,
+                    tour_id=1003,
+                    person_id=102,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+            ]
+        )
+        tours_formatted = format_individual_tour(
+            tours, trips, persons, households_formatted, standard_config
+        )
+        result = format_persons(persons, tours_formatted, standard_config)
+
+        # Code 33 = (escort=1, shopping=0, othmaint=0, othdiscr=0, eatout=0, social=0)
+        # Code 65 = (escort=2, shopping=0, othmaint=0, othdiscr=0, eatout=0, social=0)
+        assert result["inmf_choice"][0] == 33, "1 escort tour -> code 33"
+        assert result["inmf_choice"][1] == 65, "2 escort tours -> code 65"
+
+    def test_inmf_choice_capping_behavior(self, standard_config):
+        """Test that tour counts exceeding codebook maximums are capped properly."""
+        persons = pl.DataFrame(
+            [
+                create_person(person_id=101, hh_id=1),
+                create_person(person_id=102, hh_id=1),
+            ]
+        )
+
+        tours = pl.DataFrame(
+            [
+                # Person 101: 3 escort tours (should cap to 2) -> code 65
+                create_tour(tour_id=1001, person_id=101, tour_purpose=PurposeCategory.ESCORT),
+                create_tour(tour_id=1002, person_id=101, tour_purpose=PurposeCategory.ESCORT),
+                create_tour(tour_id=1003, person_id=101, tour_purpose=PurposeCategory.ESCORT),
+                # Person 102: 2 shopping tours (should cap to 1) -> code 17
+                create_tour(tour_id=1004, person_id=102, tour_purpose=PurposeCategory.SHOP),
+                create_tour(tour_id=1005, person_id=102, tour_purpose=PurposeCategory.SHOP),
+            ],
+            schema=get_tour_schema(),
+        )
+
+        households = pl.DataFrame([create_household(hh_id=1)])
+        households_formatted = format_households(households, persons, tours)
+        trips = pl.DataFrame(
+            [
+                create_linked_trip(
+                    trip_id=10001 + i,
+                    tour_id=1001 + i,
+                    person_id=101 if i < 3 else 102,
+                    tour_direction=TourDirection.OUTBOUND,
+                )
+                for i in range(5)
+            ]
+        )
+        tours_formatted = format_individual_tour(
+            tours, trips, persons, households_formatted, standard_config
+        )
+        result = format_persons(persons, tours_formatted, standard_config)
+
+        # 3 escort tours capped to 2 -> code 65
+        # 2 shopping tours capped to 1 -> code 17
+        assert result["inmf_choice"][0] == 65, "3 escort tours capped to 2 -> code 65"
+        assert result["inmf_choice"][1] == 17, "2 shopping tours capped to 1 -> code 17"
+
+    def test_inmf_choice_complex_combinations(self, standard_config):
+        """Test various complex tour combinations."""
+        persons = pl.DataFrame(
+            [
+                create_person(person_id=101, hh_id=1),
+                create_person(person_id=102, hh_id=1),
+                create_person(person_id=103, hh_id=1),
+            ]
+        )
+
+        tours = pl.DataFrame(
+            [
+                # Person 101: 1 othdiscr -> code 2
+                create_tour(tour_id=1001, person_id=101, tour_purpose=PurposeCategory.OTHER),
+                # Person 102: 1 othmaint -> code 9
+                create_tour(tour_id=1002, person_id=102, tour_purpose=PurposeCategory.ERRAND),
+                # Person 103: 1 eatout -> code 5
+                create_tour(tour_id=1003, person_id=103, tour_purpose=PurposeCategory.MEAL),
+            ],
+            schema=get_tour_schema(),
+        )
+
+        households = pl.DataFrame([create_household(hh_id=1)])
+        households_formatted = format_households(households, persons, tours)
+        trips = pl.DataFrame(
+            [
+                create_linked_trip(
+                    trip_id=10001,
+                    tour_id=1001,
+                    person_id=101,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10002,
+                    tour_id=1002,
+                    person_id=102,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10003,
+                    tour_id=1003,
+                    person_id=103,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+            ]
+        )
+        tours_formatted = format_individual_tour(
+            tours, trips, persons, households_formatted, standard_config
+        )
+        result = format_persons(persons, tours_formatted, standard_config)
+
+        # Code 2 = (escort=0, shopping=0, othmaint=0, othdiscr=1, eatout=0, social=0)
+        # Code 9 = (escort=0, shopping=0, othmaint=1, othdiscr=0, eatout=0, social=0)
+        # Code 5 = (escort=0, shopping=0, othmaint=0, othdiscr=0, eatout=1, social=0)
+        assert result["inmf_choice"][0] == 2, "1 othdiscr tour -> code 2"
+        assert result["inmf_choice"][1] == 9, "1 othmaint tour -> code 9"
+        assert result["inmf_choice"][2] == 5, "1 eatout tour -> code 5"
+
+    def test_inmf_choice_maximum_combination(self, standard_config):
+        """Test maximum tour combination (all categories at max)."""
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
+
+        # Maximum: 2 escort, 1 shopping, 1 othmaint, 1 othdiscr, 1 eatout, 1 social -> code 96
+        tours = pl.DataFrame(
+            [
+                create_tour(tour_id=1001, person_id=101, tour_purpose=PurposeCategory.ESCORT),
+                create_tour(tour_id=1002, person_id=101, tour_purpose=PurposeCategory.ESCORT),
+                create_tour(tour_id=1003, person_id=101, tour_purpose=PurposeCategory.SHOP),
+                create_tour(tour_id=1004, person_id=101, tour_purpose=PurposeCategory.ERRAND),
+                create_tour(tour_id=1005, person_id=101, tour_purpose=PurposeCategory.OTHER),
+                create_tour(tour_id=1006, person_id=101, tour_purpose=PurposeCategory.MEAL),
+                create_tour(tour_id=1007, person_id=101, tour_purpose=PurposeCategory.SOCIALREC),
+            ],
+            schema=get_tour_schema(),
+        )
+
+        households = pl.DataFrame([create_household(hh_id=1)])
+        households_formatted = format_households(households, persons, tours)
+        trips = pl.DataFrame(
+            [
+                create_linked_trip(
+                    trip_id=10000 + i,
+                    tour_id=1001 + i,
+                    person_id=101,
+                    tour_direction=TourDirection.OUTBOUND,
+                )
+                for i in range(7)
+            ]
+        )
+        tours_formatted = format_individual_tour(
+            tours, trips, persons, households_formatted, standard_config
+        )
+        result = format_persons(persons, tours_formatted, standard_config)
+
+        # Code 96 = (escort=2, shopping=1, othmaint=1, othdiscr=1, eatout=1, social=1)
+        assert result["inmf_choice"][0] == 96, "All categories at maximum -> code 96"
 
     def test_wfh_choice_detects_work_from_home(self, standard_config):
         """Test that wfh_choice is derived from job_type and employment status."""

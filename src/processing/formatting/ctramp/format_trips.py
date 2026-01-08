@@ -9,11 +9,11 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import map_mode_to_ctramp, map_purpose_category_to_ctramp
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 
 from .ctramp_config import CTRAMPConfig
+from .mappings import map_mode_to_ctramp, map_purpose_category_to_ctramp
 
 logger = logging.getLogger(__name__)
 

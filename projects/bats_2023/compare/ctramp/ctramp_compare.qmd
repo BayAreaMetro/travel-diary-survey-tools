@@ -79,18 +79,19 @@ data = load_data(
 - [x] income: Looks okay
 - [x] workers: Looks okay
 - [x] size: Looks okay
-- [] jtf_choice: survey has all -4 (no joint tours)
-- [] autos: Only 0 autos in survey data
+- [x] autos: Looks okay
+- [] jtf_choice: We have more joint tours in survey data than model data -- but could be OK?
 
 ## Persons:
 - [x] fp_choice: Looks okay
 - [x] activity_pattern: Looks okay
 - [x] imf_choice: Looks okay
 - [x] gender: Looks okay
+- [x] age: Is OK, but spikey at median age bins -- might consider random distribution within bins
+- [x] wfh_choice: Looks okay
 - [] type: person type assigned integer instead of string labels
-- [] age: is integer code but should be continuous value
 - [] inmf_choice: should be binned to match codebook `IndividualNonMandatoryTourFrequencyAlternatives.csv`
-- [] wfh_choice: seems to be missing wfh option entirely in survey data
+
 
 ## Individual Trips:
 - [x] inbound: Looks okay
