@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import yaml
 from pydantic import BaseModel
+from pydantic.fields import FieldInfo
 
 import data_canon.codebook.days as days_module
 import data_canon.codebook.households as households_module
@@ -33,7 +34,7 @@ from data_canon.models.survey import (
 from data_canon.validation.row import get_step_validation_summary
 
 
-def get_field_type_description(field_info: object) -> str:
+def get_field_type_description(field_info: FieldInfo) -> str:
     """Extract human-readable type description from field.
 
     Args:
@@ -43,6 +44,10 @@ def get_field_type_description(field_info: object) -> str:
         String describing the field type
     """
     annotation = field_info.annotation
+
+    # Handle case where annotation is None
+    if annotation is None:
+        return "Any"
 
     # Handle Optional types (Union with None)
     if hasattr(annotation, "__origin__"):
@@ -66,7 +71,7 @@ def get_field_type_description(field_info: object) -> str:
     return str(annotation).replace(" | ", " or ")
 
 
-def get_field_constraints(field_info: object) -> str:
+def get_field_constraints(field_info: FieldInfo) -> str:
     """Extract validation constraints from field.
 
     Args:
@@ -403,7 +408,7 @@ def generate_enum_codebook_markdown(enums: dict[str, type]) -> str:
         lines.append("| --- | --- |")
 
         # Add enum members
-        lines.extend([f"| {member.value} | {member.label} |" for member in enum_class])
+        lines.extend([f"| {member.value} | {member.label} |" for member in enum_class])  # type: ignore[attr-defined]
 
         lines.append("")
 
