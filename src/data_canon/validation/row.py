@@ -19,7 +19,6 @@ from pydantic import ValidationError as PydanticValidationError
 from data_canon.core.exceptions import DataValidationError
 from data_canon.core.validators import (
     get_required_fields_for_step,
-    get_step_validation_summary,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,9 +57,7 @@ def validate_row_for_step(
     required_fields = get_required_fields_for_step(model, step_name)
 
     # Check for missing required fields
-    missing_fields = [
-        field_name for field_name in required_fields if row_dict.get(field_name) is None
-    ]
+    missing_fields = [field_name for field_name in required_fields if field_name not in row_dict]
 
     if missing_fields:
         msg = f"Missing required fields for step '{step_name}': {', '.join(missing_fields)}"
@@ -68,7 +65,8 @@ def validate_row_for_step(
 
     # Build dict with only non-None values to avoid Pydantic's
     # required field enforcement for step-conditional fields
-    filtered_row = {k: v for k, v in row_dict.items() if v is not None}
+    # Include all required fields (even if None) + all non-None fields
+    filtered_row = {k: v for k, v in row_dict.items() if v is not None or k in required_fields}
 
     # Validate all present fields in a single pass using model_validate
     # This is much faster than validating each field individually
@@ -203,13 +201,3 @@ def _report_errors(error_groups: dict[str, list[int]], table_name: str) -> None:
         rule="row_validation",
         message=summary_msg,
     )
-
-
-# Public API ---------------------------------------------------------------
-
-__all__ = [
-    "get_required_fields_for_step",
-    "get_step_validation_summary",
-    "validate_dataframe_rows",
-    "validate_row_for_step",
-]

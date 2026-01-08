@@ -85,11 +85,3 @@ def get_step_validation_summary(
         step_fields["ALL"] = all_steps_fields
 
     return step_fields
-
-
-# Public API ---------------------------------------------------------------
-
-__all__ = [
-    "get_required_fields_for_step",
-    "get_step_validation_summary",
-]
