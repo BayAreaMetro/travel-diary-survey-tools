@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 @step()
-def format_ctramp(  # noqa: D417, PLR0913
+def format_ctramp(  # noqa: PLR0913
     persons: pl.DataFrame,
     households: pl.DataFrame,
     linked_trips: pl.DataFrame,
@@ -61,6 +61,10 @@ def format_ctramp(  # noqa: D417, PLR0913
         linked_trips: Canonical linked trip data (required)
         tours: Canonical tour data (required)
         joint_trips: Aggregated joint trip data (required)
+        income_low_threshold: Income threshold for low-income bracket
+        income_med_threshold: Income threshold for medium-income bracket
+        income_high_threshold: Income threshold for high-income bracket
+        income_base_year_dollars: Base year for income adjustment
         drop_missing_taz: If True, remove households without valid TAZ IDs
 
     Returns:
