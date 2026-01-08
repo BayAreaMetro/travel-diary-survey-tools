@@ -23,6 +23,7 @@ import data_canon.codebook.persons as persons_module
 import data_canon.codebook.trips as trips_module
 import data_canon.codebook.vehicles as vehicles_module
 from data_canon.core.labeled_enum import LabeledEnum
+from data_canon.core.validators import get_step_validation_summary
 from data_canon.models.survey import (
     HouseholdModel,
     LinkedTripModel,
@@ -31,7 +32,6 @@ from data_canon.models.survey import (
     TourModel,
     UnlinkedTripModel,
 )
-from data_canon.validation.row import get_step_validation_summary
 
 
 def get_field_type_description(field_info: FieldInfo) -> str:
@@ -45,12 +45,8 @@ def get_field_type_description(field_info: FieldInfo) -> str:
     """
     annotation = field_info.annotation
 
-    # Handle case where annotation is None
-    if annotation is None:
-        return "Any"
-
     # Handle Optional types (Union with None)
-    if hasattr(annotation, "__origin__"):
+    if annotation is not None and hasattr(annotation, "__origin__"):
         origin = annotation.__origin__
         # Check for Union type (includes | syntax)
         if origin is types.UnionType or str(origin) == "typing.Union":
@@ -63,7 +59,7 @@ def get_field_type_description(field_info: FieldInfo) -> str:
             return " or ".join(type_names)
 
     # Simple type
-    if hasattr(annotation, "__name__"):
+    if annotation is not None and hasattr(annotation, "__name__"):
         return annotation.__name__
 
     # Convert to string and replace pipe with "or" for markdown compatibility
@@ -408,7 +404,9 @@ def generate_enum_codebook_markdown(enums: dict[str, type]) -> str:
         lines.append("| --- | --- |")
 
         # Add enum members
-        lines.extend([f"| {member.value} | {member.label} |" for member in enum_class])  # type: ignore[attr-defined]
+        lines.extend(
+            [f"| {member.value} | {member.label} |" for member in enum_class.__members__.values()]
+        )
 
         lines.append("")
 
@@ -440,13 +438,19 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_path = output_dir / "COLUMN_REQUIREMENTS.md"
-    output_path.write_text(markdown, encoding="utf-8")
+    # Remove trailing whitespace and ensure single trailing newline
+    markdown_lines = [line.rstrip() for line in markdown.splitlines()]
+    markdown_formatted = "\n".join(markdown_lines) + "\n"
+    output_path.write_text(markdown_formatted, encoding="utf-8")
     print(f"Generated: {output_path}")
 
     # Generate CSV in scripts folder
     csv = generate_matrix_csv(models)
     csv_path = output_dir / "column_requirements.csv"
-    csv_path.write_text(csv, encoding="utf-8")
+    # Remove trailing whitespace and ensure single trailing newline
+    csv_lines = [line.rstrip() for line in csv.splitlines()]
+    csv_formatted = "\n".join(csv_lines) + "\n"
+    csv_path.write_text(csv_formatted, encoding="utf-8")
     print(f"Generated: {csv_path}")
 
 
