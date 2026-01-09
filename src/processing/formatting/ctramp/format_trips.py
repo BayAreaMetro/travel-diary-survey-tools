@@ -66,7 +66,7 @@ def format_individual_trip(
         tours_ctramp.select(["tour_id", "tour_purpose", "tour_mode", "tour_category"]),
         on="tour_id",
         how="left",
-    )
+    ).with_columns(pl.col("tour_category").alias("tour_category_ctramp"))
 
     # Join with persons and households
     individual_trips = individual_trips.join(
@@ -143,7 +143,9 @@ def format_individual_trip(
     individual_trips = individual_trips.with_columns(
         map_mode_to_ctramp(
             pl.col("mode_type"),
-            pl.lit(1),  # Individual trips are single traveler
+            pl.col("num_travelers"),
+            pl.col("access_mode"),
+            pl.col("egress_mode"),
         ).alias("trip_mode")
     )
 
@@ -172,13 +174,13 @@ def format_individual_trip(
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
             pl.col("orig_purpose"),
             pl.col("dest_purpose"),
-            pl.col("o_taz").cast(pl.Int64).alias("orig_taz"),
-            pl.col("d_taz").cast(pl.Int64).alias("dest_taz"),
+            pl.col("o_TAZ1454").cast(pl.Int64).alias("orig_taz"),
+            pl.col("d_TAZ1454").cast(pl.Int64).alias("dest_taz"),
             pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
             pl.col("depart_hour").cast(pl.Int64),
             pl.col("trip_mode"),
             pl.col("tour_mode"),  # Already CTRAMP-formatted
-            pl.col("tour_category"),  # Already CTRAMP-formatted
+            pl.col("tour_category_ctramp").alias("tour_category"),
             pl.col("depart_minutes").cast(pl.Int64),
             pl.col("arrive_minutes").cast(pl.Int64),
         ]
@@ -241,8 +243,11 @@ def format_joint_trip(
             pl.col("depart_time").first(),
             pl.col("arrive_time").first(),
             pl.col("num_travelers").first(),
-            pl.col("o_taz").first(),
-            pl.col("d_taz").first(),
+            pl.col("o_TAZ1454").first(),
+            pl.col("d_TAZ1454").first(),
+            pl.col("tour_direction").first(),
+            pl.col("access_mode").first(),
+            pl.col("egress_mode").first(),
         ]
     )
 
@@ -254,9 +259,7 @@ def format_joint_trip(
 
     # Join with tour context
     joint_trips_formatted = joint_trips_formatted.join(
-        tours_canonical.select(
-            ["tour_id", "joint_tour_id", "tour_purpose", "tour_category", "tour_mode"]
-        ),
+        tours_canonical.select(["tour_id", "joint_tour_id", "tour_purpose", "tour_mode"]),
         on="tour_id",
         how="left",
     )
@@ -301,10 +304,14 @@ def format_joint_trip(
             map_mode_to_ctramp(
                 pl.col("mode_type"),
                 pl.col("num_travelers").fill_null(2),
+                pl.col("access_mode"),
+                pl.col("egress_mode"),
             ).alias("trip_mode"),
             map_mode_to_ctramp(
                 pl.col("tour_mode"),
                 pl.col("num_travelers").fill_null(2),
+                None,  # Tour mode doesn't have access/egress
+                None,
             ).alias("tour_mode_ctramp"),
         ]
     )
@@ -320,10 +327,13 @@ def format_joint_trip(
         ]
     )
 
-    # Determine inbound flag
-    # This needs to be derived from tour context or trip sequence
-    # For now, default to 0 (outbound) - would need tour direction from linked_trips
-    joint_trips_formatted = joint_trips_formatted.with_columns(pl.lit(0).alias("inbound"))
+    # Determine inbound flag from tour_direction
+    joint_trips_formatted = joint_trips_formatted.with_columns(
+        pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
+        .then(pl.lit(1))
+        .otherwise(pl.lit(0))
+        .alias("inbound")
+    )
 
     # Create stop_id as sequence within tour
     joint_trips_formatted = joint_trips_formatted.sort(
@@ -342,12 +352,13 @@ def format_joint_trip(
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
             pl.col("orig_purpose"),
             pl.col("dest_purpose"),
-            pl.col("o_taz").cast(pl.Int64).alias("orig_taz"),
-            pl.col("d_taz").cast(pl.Int64).alias("dest_taz"),
+            pl.col("o_TAZ1454").cast(pl.Int64).alias("orig_taz"),
+            pl.col("d_TAZ1454").cast(pl.Int64).alias("dest_taz"),
             pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
             pl.col("trip_mode"),
             pl.col("tour_mode_ctramp").alias("tour_mode"),
-            pl.col("tour_category"),
+            # All joint tours are just "JOINT_NON_MANDATORY" category
+            pl.lit("JOINT_NON_MANDATORY").alias("tour_category"),
             pl.col("num_joint_travelers").cast(pl.Int64).alias("num_participants"),
             pl.col("depart_hour").cast(pl.Int64),
             pl.col("trip_time"),

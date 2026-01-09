@@ -3,6 +3,7 @@
 import csv
 import itertools
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from data_canon.core.labeled_enum import LabeledEnum
@@ -70,24 +71,7 @@ class StudentCategory(LabeledEnum):
     NOT_STUDENT = 2, "Not a student"
 
 
-class CTRAMPMode(LabeledEnum):
-    """CTRAMP travel mode codes.
-
-    Reference: TravelModes#tour-and-trip-modes on MTC modeling wiki.
-    """
-
-    DRIVE_ALONE = 1, "Drive alone"
-    SHARED_RIDE_2 = 2, "Shared ride 2"
-    SHARED_RIDE_3_PLUS = 3, "Shared ride 3+"
-    WALK = 4, "Walk"
-    BIKE = 5, "Bike"
-    WALK_TRANSIT_WALK = 6, "Walk-transit-walk"
-    DRIVE_TRANSIT_WALK = 7, "Drive-transit-walk"
-    WALK_TRANSIT_DRIVE = 8, "Walk-transit-drive"
-    SCHOOL_BUS = 9, "School bus"
-
-
-class TripModeType(LabeledEnum):
+class CTRAMPModeType(LabeledEnum):
     """Enumeration for trip mode type categories."""
 
     DA = 1, "Drive alone"
@@ -111,6 +95,15 @@ class TripModeType(LabeledEnum):
     TAXI = 19, "Taxi"
     TNC = 20, "TNC - single party"
     TNC2 = 21, "TNC - shared"
+
+
+class CTRAMPTourCategory(StrEnum):
+    """Enumeration for tour category."""
+
+    MANDATORY = "Mandatory"
+    INDIVIDUAL_NON_MANDATORY = "Non-mandatory"
+    JOINT_NON_MANDATORY = "Joint non-mandatory"
+    AT_WORK = "At-work"
 
 
 class JTFChoice(LabeledEnum):

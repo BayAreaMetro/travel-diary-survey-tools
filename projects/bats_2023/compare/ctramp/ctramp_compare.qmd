@@ -80,41 +80,56 @@ data = load_data(
 - [x] workers: Looks okay
 - [x] size: Looks okay
 - [x] autos: Looks okay
-- [] jtf_choice: We have more joint tours in survey data than model data -- but could be OK?
+- [x] jtf_choice: We have more joint tours in survey data than model data -- but could be OK?
 
 ## Persons:
+- [x] age: Is OK, but spikey at median age bins -- might consider random distribution within bins
+- [x] gender: Looks okay
+- [x] type: Looks okay
 - [x] fp_choice: Looks okay
 - [x] activity_pattern: Looks okay
 - [x] imf_choice: Looks okay
-- [x] gender: Looks okay
-- [x] age: Is OK, but spikey at median age bins -- might consider random distribution within bins
+- [x] inmf_choice: Looks okay
 - [x] wfh_choice: Looks okay
-- [] type: person type assigned integer instead of string labels
-- [] inmf_choice: should be binned to match codebook `IndividualNonMandatoryTourFrequencyAlternatives.csv`
-
 
 ## Individual Trips:
 - [x] inbound: Looks okay
-- [] orig/dest_purpose: Missing work, atwork trips -- Possible string coding error "Work" vs lowercase "work"
-- [] tour_purpose: expected string, got int
-- [] depart_hour: Missing this field instead of depart/arrive_minutes
-- [] orig/dest_taz: Survey seems to be mapped to MAZs instead of TAZs.
-- [] trip_mode: Coding is just wrong -- needs to be mapped to codebook values.
+- [x] tour_purpose: Looks okay
+- [x] orig/dest_purpose: Looks okay
+- [x] orig/dest_taz: Looks okay
+- [x] trip_mode: Looks okay
+- [x] depart_hour: Looks okay
 
 ## Individual Tours:
-- [] type: expected string, got int
-- [] tour_category: expected string, got int
-- [] tour_purpose: Everything got mapped to othdisc
-- [] orig/dest_taz: Survey seems to be mapped to MAZs instead of TAZs.
-- [] atWork_freq: Also looks to be n+1 of what it should be? Need review of definition.
-- [] num_ob_stops / num_ib_stops: Numbers look like they are offset n+1 of what they should be?
+- [x] person_type: Looks okay
+- [x] tour_category: Looks okay
+- [x] tour_purpose: Looks okay
+- [x] orig/dest_taz: Looks okay
 - [x] start_hour / end_hour: Looks okay
+- [x] tour_mode: Looks okay
+- [x] atWork_freq: Looks okay
+- [x] num_ob_stops / num_ib_stops: Looks okay
 
 ## Joint Trips:
-- [] Column naming doesn't align at all with codebook.
+- [x] inbound: Looks okay
+- [x] tour_purpose: Looks okay
+- [x] orig/dest_purpose: Looks okay
+- [x] orig/dest_taz:  Looks okay
+- [x] parking_taz: Looks okay
+- [x] tour_mode: Looks okay
+- [x] tour_category: Looks okay
+- [x] num_participants: Looks okay
+- [x] depart_hour: Looks okay
 
 ## Joint Tours:
-- [] Column naming doesn't align at all with codebook.
+- [x] tour_category: Looks okay
+- [x] tour_purpose: Looks okay
+- [x] tour_composition: Looks okay
+- [x] tour_participants: Looks okay
+- [x] orig/dest_taz:  Looks okay
+- [x] end_hour / start_hour: Looks okay
+- [x] tour_mode: Looks okay
+- [x] num_ob_stops / num_ib_stops: Looks a bit off but code looks correct
 
 # Household Data Comparison
 ```{python}
@@ -190,7 +205,7 @@ compare_distributions(data["IndivTripData"], indiv_trip_fields, table_name="Indi
 #| echo: false
 
 indiv_tour_fields = [
-  'type',
+  'person_type',
   'tour_category',
   'tour_purpose',
   'orig_taz',
@@ -214,8 +229,19 @@ compare_distributions(data["IndivTourData"], indiv_tour_fields, table_name="Indi
 #| echo: false
 
 joint_trip_fields = [
+  'inbound',
+  'tour_purpose',
+  'orig_purpose',
+  'dest_purpose',
+  'orig_taz',
+  'dest_taz',
+  'parking_taz',
+  'trip_mode',
+  'tour_mode',
+  'tour_category',
+  'num_participants',
+  'depart_hour',
 ]
-
 # Example comparison for JointTripData table
 compare_distributions(data["JointTripData"], joint_trip_fields, table_name="JointTripData")
 
@@ -228,6 +254,17 @@ compare_distributions(data["JointTripData"], joint_trip_fields, table_name="Join
 #| echo: false
 
 joint_tour_fields = [
+  'tour_category',
+  'tour_purpose',
+  'tour_composition',
+  # 'tour_participants',
+  'orig_taz',
+  'dest_taz',
+  'start_hour',
+  'end_hour',
+  'tour_mode',
+  'num_ob_stops',
+  'num_ib_stops'
 ]
 
 # Example comparison for JointTourData table

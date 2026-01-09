@@ -7,6 +7,7 @@ Based on https://github.com/BayAreaMetro/modeling-website/wiki/DataDictionary
 from pydantic import BaseModel, Field
 
 from data_canon.codebook.ctramp import (
+    CTRAMPModeType,
     CTRAMPPersonType,
     FreeParkingChoice,
     MandatoryTourFrequency,
@@ -192,16 +193,16 @@ class IndividualTourCTRAMPModel(BaseModel):
     orig_taz: int = Field(ge=1, le=1454, description="Origin transportation analysis zone")
     dest_taz: int = Field(ge=1, le=1454, description="Destination transportation analysis zone")
     start_hour: int = Field(
-        ge=5,
+        ge=0,  # Model is limited to 5-23, but data may have 0-4 values,
         le=23,
         description="Start time of the tour (5=5am-6am, ..., 23=11pm-midnight)",
     )
     end_hour: int = Field(
-        ge=5,
+        ge=0,  # Model is limited to 5-23, but data may have 0-4 values,
         le=23,
         description="End time of the tour (5=5am-6am, ..., 23=11pm-midnight)",
     )
-    tour_mode: int = Field(
+    tour_mode: CTRAMPModeType = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
     atWork_freq: int = Field(
@@ -289,14 +290,14 @@ class IndividualTripCTRAMPModel(BaseModel):
         description="Transportation analysis zone in which the trip maker(s) park (0 if no parking zone is selected)",
     )
     depart_hour: int = Field(
-        ge=5,
+        ge=0,  # Model is limited to 5-23, but data may have 0-4 values,
         le=23,
         description="Time of departure for the trip (5=5am-6am, ..., 23=11pm-midnight)",
     )
-    trip_mode: int = Field(
+    trip_mode: CTRAMPModeType = Field(
         description="Travel mode for the trip (see TravelModes#tour-and-trip-modes)"
     )
-    tour_mode: int = Field(
+    tour_mode: CTRAMPModeType = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
     tour_category: str = Field(
@@ -343,16 +344,16 @@ class JointTourCTRAMPModel(BaseModel):
     orig_taz: int = Field(ge=1, le=1454, description="Origin transportation analysis zone")
     dest_taz: int = Field(ge=1, le=1454, description="Destination transportation analysis zone")
     start_hour: int = Field(
-        ge=5,
+        ge=0,  # Model is limited to 5-23, but data may have 0-4 values,
         le=23,
         description="Start time of the tour (5=5am-6am, ..., 23=11pm-midnight)",
     )
     end_hour: int = Field(
-        ge=5,
+        ge=0,  # Model is limited to 5-23, but data may have 0-4 values,
         le=23,
         description="End time of the tour (5=5am-6am, ..., 23=11pm-midnight)",
     )
-    tour_mode: int = Field(
+    tour_mode: CTRAMPModeType = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
     num_ob_stops: int = Field(ge=0, description="Number of out-bound (from home) stops on the tour")
@@ -399,15 +400,15 @@ class JointTripCTRAMPModel(BaseModel):
         description="Transportation analysis zone in which the trip maker(s) park (0 if no parking zone is selected)",
     )
     depart_hour: int = Field(
-        ge=5,
+        ge=0,  # Model is limited to 5-23, but data may have 0-4 values,
         le=23,
         description="Time of departure for the trip (5=5am-6am, ..., 23=11pm-midnight)",
     )
-    trip_mode: int = Field(
+    trip_mode: CTRAMPModeType = Field(
         description="Travel mode for the trip (see TravelModes#tour-and-trip-modes)"
     )
     num_participants: int = Field(ge=2, description="Number of participants on the tour")
-    tour_mode: int = Field(
+    tour_mode: CTRAMPModeType = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
     tour_category: str = Field(description='Tour category ("JOINT_NON_MANDATORY")')

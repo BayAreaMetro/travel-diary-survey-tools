@@ -4,12 +4,16 @@ This module contains lookup tables and mappings to transform canonical
 survey data into CT-RAMP model format.
 """
 
+import logging
+
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPMode, CTRAMPPersonType
+from data_canon.codebook.ctramp import CTRAMPModeType, CTRAMPPersonType
 from data_canon.codebook.persons import Employment, Gender, SchoolType, Student
 from data_canon.codebook.persons import PersonType as CanonicalPersonType
 from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
+
+logger = logging.getLogger(__name__)
 
 # Canonical PersonType to CT-RAMP PersonType mapping
 PERSON_TYPE_TO_CTRAMP = {}
@@ -366,19 +370,36 @@ def map_purpose_category_to_ctramp(
     return maintenance_expr.otherwise(pl.lit("othdiscr"))
 
 
-def map_mode_to_ctramp(mode_type: pl.Expr, num_travelers: pl.Expr) -> pl.Expr:
+def map_mode_to_ctramp(
+    mode_type: pl.Expr,
+    num_travelers: pl.Expr,
+    access_mode: pl.Expr | None = None,
+    egress_mode: pl.Expr | None = None,
+) -> pl.Expr:
     """Map canonical mode_type to CTRAMP mode integer code.
 
     Args:
         mode_type: Polars expression for canonical mode_type
             (from ModeType enum)
         num_travelers: Polars expression for number of travelers in vehicle
+        access_mode: Optional polars expression for access mode (AccessEgressMode enum)
+        egress_mode: Optional polars expression for egress mode (AccessEgressMode enum)
 
     Returns:
-        Polars expression resolving to CTRAMP mode integer code
+        Polars expression resolving to CTRAMPModeType integer code (21 codes)
+
+    Notes:
+        - Walk=7, Bike=8
+        - Transit: WLK_LOC_WLK=9 (walk-to-transit) or DRV_LOC_WLK=14 (drive-to-transit)
+          Uses access_mode/egress_mode to detect drive-to-transit
+        - Personal vehicle by occupancy: DA=1, SR2=3, SR3=5 (non-toll)
+        - TNC: Single passenger=20, Shared=21
+        - Taxi=19
+        - School bus treated as SR3=5
+        - Unknown modes default to DA=1
     """
     # Walk mode
-    walk_expr = pl.when(mode_type == ModeType.WALK.value).then(pl.lit(CTRAMPMode.WALK.value))
+    walk_expr = pl.when(mode_type == ModeType.WALK.value).then(pl.lit(CTRAMPModeType.WALK.value))
 
     # Bike and micromobility modes
     bike_modes = [
@@ -386,37 +407,70 @@ def map_mode_to_ctramp(mode_type: pl.Expr, num_travelers: pl.Expr) -> pl.Expr:
         ModeType.BIKESHARE.value,
         ModeType.SCOOTERSHARE.value,
     ]
-    bike_expr = walk_expr.when(mode_type.is_in(bike_modes)).then(pl.lit(CTRAMPMode.BIKE.value))
+    bike_expr = walk_expr.when(mode_type.is_in(bike_modes)).then(pl.lit(CTRAMPModeType.BIKE.value))
 
-    # School bus
-    school_bus_expr = bike_expr.when(mode_type == ModeType.SCHOOL_BUS.value).then(
-        pl.lit(CTRAMPMode.SCHOOL_BUS.value)
+    # Transit modes - check for drive-to-transit via access/egress modes
+    # Default to walk-local bus-walk (WLK_LOC_WLK=9)
+    # If drove to transit (access or egress by car), use DRV_LOC_WLK=14
+    transit_modes = [
+        ModeType.TRANSIT.value,
+        ModeType.FERRY.value,
+        ModeType.SHUTTLE.value,
+    ]
+    # Define drive access/egress modes (matching DaySim logic)
+    # AccessEgressMode: CAR=1, CARSHARE=2, TAXI=3, TNC=4
+    drove_access_egress = [1, 2, 3, 4]  # CAR, CARSHARE, TAXI, TNC
+
+    if access_mode is not None and egress_mode is not None:
+        # Check if either access or egress involved driving
+        drove_to_transit = access_mode.is_in(drove_access_egress) | egress_mode.is_in(
+            drove_access_egress
+        )
+        transit_mode_code = (
+            pl.when(drove_to_transit)
+            .then(pl.lit(CTRAMPModeType.DRV_LOC_WLK.value))
+            .otherwise(pl.lit(CTRAMPModeType.WLK_LOC_WLK.value))
+        )
+    else:
+        # No access/egress info available, default to walk-to-transit
+        transit_mode_code = pl.lit(CTRAMPModeType.WLK_LOC_WLK.value)
+
+    transit_expr = bike_expr.when(mode_type.is_in(transit_modes)).then(transit_mode_code)
+
+    # School bus - treat as SR3
+    school_bus_expr = transit_expr.when(mode_type == ModeType.SCHOOL_BUS.value).then(
+        pl.lit(CTRAMPModeType.SR3.value)
     )
 
-    # Transit modes (default to walk access)
-    transit_modes = [ModeType.TRANSIT.value, ModeType.FERRY.value]
-    transit_expr = school_bus_expr.when(mode_type.is_in(transit_modes)).then(
-        pl.lit(CTRAMPMode.WALK_TRANSIT_WALK.value)
+    # Taxi - specific code
+    taxi_expr = school_bus_expr.when(mode_type == ModeType.TAXI.value).then(
+        pl.lit(CTRAMPModeType.TAXI.value)
     )
 
-    # Car modes - distinguish by occupancy
-    car_modes = [
+    # TNC - distinguish between single (TNC=20) and shared (TNC2=21)
+    tnc_occupancy = (
+        pl.when(num_travelers == 1)
+        .then(pl.lit(CTRAMPModeType.TNC.value))
+        .otherwise(pl.lit(CTRAMPModeType.TNC2.value))
+    )
+    tnc_expr = taxi_expr.when(mode_type == ModeType.TNC.value).then(tnc_occupancy)
+
+    # Personal vehicle (CAR, CARSHARE) - distinguish by occupancy (non-toll)
+    auto_modes = [
         ModeType.CAR.value,
         ModeType.CARSHARE.value,
-        ModeType.TAXI.value,
-        ModeType.TNC.value,
     ]
-    car_occupancy_segmentation = (
+    auto_occupancy_segmentation = (
         pl.when(num_travelers == 1)
-        .then(pl.lit(CTRAMPMode.DRIVE_ALONE.value))
+        .then(pl.lit(CTRAMPModeType.DA.value))
         .when(num_travelers == 2)  # noqa: PLR2004
-        .then(pl.lit(CTRAMPMode.SHARED_RIDE_2.value))
-        .otherwise(pl.lit(CTRAMPMode.SHARED_RIDE_3_PLUS.value))
+        .then(pl.lit(CTRAMPModeType.SR2.value))
+        .otherwise(pl.lit(CTRAMPModeType.SR3.value))
     )
-    car_expr = transit_expr.when(mode_type.is_in(car_modes)).then(car_occupancy_segmentation)
+    auto_expr = tnc_expr.when(mode_type.is_in(auto_modes)).then(auto_occupancy_segmentation)
 
-    # Default to drive alone for unknown modes
-    return car_expr.otherwise(pl.lit(CTRAMPMode.DRIVE_ALONE.value))
+    # Default to drive alone (DA=1) for OTHER, LONG_DISTANCE, MISSING, and any unknown modes
+    return auto_expr.otherwise(pl.lit(CTRAMPModeType.DA.value))
 
 
 # Validate mapping completeness at module load time

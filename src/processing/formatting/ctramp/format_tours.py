@@ -9,10 +9,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import (
-    CTRAMPPersonType,
-    TourComposition,
-)
+from data_canon.codebook.ctramp import CTRAMPTourCategory, TourComposition
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
@@ -81,20 +78,16 @@ def format_individual_tour(
         how="left",
     )
 
-    # Remap person_type to CTRAMP format and convert to string labels (raises if invalid)
+    # Remap person_type to CTRAMP format (keep as integer enum value)
     individual_tours = individual_tours.with_columns(
-        pl.col("person_type")
-        .replace_strict(PERSON_TYPE_TO_CTRAMP)
-        .map_elements(
-            lambda code: CTRAMPPersonType.from_value(code).label,
-            return_dtype=pl.String,
-        )
-        .alias("type")
+        pl.col("person_type").replace_strict(PERSON_TYPE_TO_CTRAMP).alias("person_type_ctramp")
     )
 
     # Calculate subtour count (at-work tours)
+    # atWork_freq represents the number of at-work subtours
+    # Per CTRAMP documentation: "Number of at work sub-tours (non-zero only for work tours)"
     subtour_counts = (
-        individual_tours.filter(pl.col("parent_tour_id").is_not_null())
+        individual_tours.filter(pl.col("parent_tour_id") != pl.col("tour_id"))
         .group_by("parent_tour_id")
         .agg(pl.len().alias("atWork_freq"))
     )
@@ -119,17 +112,19 @@ def format_individual_tour(
     )
 
     # Map tour_category to string labels
+    # Note: tour_purpose here is the canonical PurposeCategory enum, not the mapped CTRAMP string
     mandatory_purposes = [
         PurposeCategory.WORK.value,
         PurposeCategory.SCHOOL.value,
     ]
+
     individual_tours = individual_tours.with_columns(
-        pl.when(pl.col("parent_tour_id").is_not_null())
-        .then(pl.lit("AT_WORK"))
+        pl.when(pl.col("parent_tour_id") != pl.col("tour_id"))
+        .then(pl.lit(CTRAMPTourCategory.AT_WORK))
         .when(pl.col("tour_purpose").is_in(mandatory_purposes))
-        .then(pl.lit("MANDATORY"))
-        .otherwise(pl.lit("INDIVIDUAL_NON_MANDATORY"))
-        .alias("tour_category")
+        .then(pl.lit(CTRAMPTourCategory.MANDATORY))
+        .otherwise(pl.lit(CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY))
+        .alias("tour_category_ctramp")
     )
 
     # Convert times to hour integers (5am-11pm = 5-23)
@@ -141,10 +136,23 @@ def format_individual_tour(
     )
 
     # Map mode to CTRAMP integer codes
+    # Get max num_travelers from trips for each tour to properly map occupancy-based modes
+    if len(linked_trips_canonical) > 0:
+        tour_travelers = linked_trips_canonical.group_by("tour_id").agg(
+            pl.col("num_travelers").max().alias("max_num_travelers")
+        )
+        individual_tours = individual_tours.join(tour_travelers, on="tour_id", how="left")
+        # For tours with no trips (shouldn't happen), default to 1
+        num_travelers_expr = pl.col("max_num_travelers").fill_null(1)
+    else:
+        num_travelers_expr = pl.lit(1)
+
     individual_tours = individual_tours.with_columns(
         map_mode_to_ctramp(
             pl.col("tour_mode"),
-            pl.lit(1),  # Assume single traveler for individual tours
+            num_travelers_expr,
+            None,  # Tours don't have access/egress modes
+            None,
         ).alias("tour_mode_ctramp")
     )
 
@@ -214,12 +222,12 @@ def format_individual_tour(
             pl.col("hh_id"),
             pl.col("person_id"),
             pl.col("person_num"),
-            pl.col("type").alias("person_type"),
+            pl.col("person_type_ctramp").alias("person_type"),
             pl.col("tour_id"),
-            pl.col("tour_category"),
+            pl.col("tour_category_ctramp").alias("tour_category"),
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
-            pl.col("o_taz").cast(pl.Int64).alias("orig_taz"),
-            pl.col("d_taz").cast(pl.Int64).alias("dest_taz"),
+            pl.col("o_TAZ1454").cast(pl.Int64).alias("orig_taz"),
+            pl.col("d_TAZ1454").cast(pl.Int64).alias("dest_taz"),
             pl.col("start_hour").cast(pl.Int64),
             pl.col("end_hour").cast(pl.Int64),
             pl.col("tour_mode_ctramp").alias("tour_mode"),
@@ -292,8 +300,8 @@ def format_joint_tour(
             pl.col("person_num").sort().cast(pl.Utf8).str.join(" ").alias("Participants"),
             pl.col("tour_category").first(),
             pl.col("tour_purpose").first(),
-            pl.col("o_taz").first(),
-            pl.col("d_taz").first(),
+            pl.col("o_TAZ1454").first(),
+            pl.col("d_TAZ1454").first(),
             pl.col("origin_depart_time").first(),
             pl.col("origin_arrive_time").first(),
             pl.col("tour_mode").first(),
@@ -342,6 +350,7 @@ def format_joint_tour(
 
     # Calculate all trip-based metrics in a single aggregation
     # Stops = trips - 1 (number of intermediate destinations)
+    # Ensure stops never goes below 0 (when there are 0 trips in a direction)
     if len(linked_trips_canonical) > 0:
         joint_trip_stats = (
             linked_trips_canonical.filter(pl.col("joint_tour_id").is_not_null())
@@ -354,13 +363,17 @@ def format_joint_tour(
                         .then(1)
                         .sum()
                         - 1
-                    ).alias("num_ob_stops"),
+                    )
+                    .clip(lower_bound=0)
+                    .alias("num_ob_stops"),
                     (
                         pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
                         .then(1)
                         .sum()
                         - 1
-                    ).alias("num_ib_stops"),
+                    )
+                    .clip(lower_bound=0)
+                    .alias("num_ib_stops"),
                     pl.when(pl.col("tour_direction") == TourDirection.SUBTOUR.value)
                     .then(1)
                     .sum()
@@ -402,6 +415,8 @@ def format_joint_tour(
             map_mode_to_ctramp(
                 pl.col("tour_mode"),
                 pl.col("num_travelers").fill_null(config.default_joint_tour_travelers),
+                None,  # Tours don't have access/egress modes
+                None,
             ).alias("tour_mode_ctramp"),
         ]
     )
@@ -414,9 +429,9 @@ def format_joint_tour(
         ]
     )
 
-    # Map tour_category to string labels (joint tours are always JOINT)
+    # Map tour_category to string labels (joint tours are always JOINT_NON_MANDATORY)
     joint_tours_formatted = joint_tours_formatted.with_columns(
-        pl.lit("JOINT").alias("tour_category")
+        pl.lit(CTRAMPTourCategory.JOINT_NON_MANDATORY).alias("tour_category")
     )
 
     # Validate that no joint tours have zero trips
@@ -449,8 +464,8 @@ def format_joint_tour(
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
             pl.col("Composition").alias("tour_composition"),
             pl.col("Participants").alias("tour_participants"),
-            pl.col("o_taz").cast(pl.Int64).alias("orig_taz"),
-            pl.col("d_taz").cast(pl.Int64).alias("dest_taz"),
+            pl.col("o_TAZ1454").cast(pl.Int64).alias("orig_taz"),
+            pl.col("d_TAZ1454").cast(pl.Int64).alias("dest_taz"),
             pl.col("start_hour").cast(pl.Int64),
             pl.col("end_hour").cast(pl.Int64),
             pl.col("tour_mode_ctramp").alias("tour_mode"),

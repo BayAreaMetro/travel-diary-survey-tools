@@ -113,8 +113,8 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `mode_type` | ModeType |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `driver` | Driver |  |  |  | ✓ |  |  |  |  | ✓ |  |
 |  | `num_travelers` | int | ≥ 1 |  |  |  |  |  |  |  |  |  |
-|  | `access_mode` | data_canon.codebook.trips.AccessEgressMode or None |  |  |  |  |  |  |  |  | ✓ |  |
-|  | `egress_mode` | data_canon.codebook.trips.AccessEgressMode or None |  |  |  |  |  |  |  |  | ✓ |  |
+|  | `access_mode` | data_canon.codebook.trips.AccessEgressMode or None |  |  |  |  |  |  |  | ✓ | ✓ |  |
+|  | `egress_mode` | data_canon.codebook.trips.AccessEgressMode or None |  |  |  |  |  |  |  | ✓ | ✓ |  |
 |  | `duration_minutes` | float | ≥ 0 |  |  |  |  |  |  |  |  |  |
 |  | `distance_meters` | float | ≥ 0 |  |  |  |  |  |  |  |  |  |
 |  | `depart_time` | datetime |  |  |  |  | ✓ |  |  |  |  |  |

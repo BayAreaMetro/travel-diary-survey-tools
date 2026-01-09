@@ -279,11 +279,13 @@ def create_linked_trip(
         "o_lat": o_lat,
         "o_lon": o_lon,
         "o_taz": o_taz,
+        "o_TAZ1454": o_taz,  # Copy for CTRAMP compatibility
         "o_maz": o_maz,
         "o_purpose_category": o_purpose.value,
         "d_lat": d_lat,
         "d_lon": d_lon,
         "d_taz": d_taz,
+        "d_TAZ1454": d_taz,  # Copy for CTRAMP compatibility
         "d_maz": d_maz,
         "d_purpose_category": d_purpose.value,
         "mode_type": mode_type.value,

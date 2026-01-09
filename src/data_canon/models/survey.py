@@ -221,10 +221,10 @@ class LinkedTripModel(BaseModel):
     driver: Driver = step_field(required_in_steps=["link_trips", "format_daysim"])
     num_travelers: int = step_field(ge=1)
     access_mode: AccessEgressMode | None = step_field(
-        required_in_steps=["format_daysim"], default=None
+        required_in_steps=["format_daysim", "format_ctramp"], default=None
     )
     egress_mode: AccessEgressMode | None = step_field(
-        required_in_steps=["format_daysim"], default=None
+        required_in_steps=["format_daysim", "format_ctramp"], default=None
     )
 
     duration_minutes: float = step_field(ge=0)

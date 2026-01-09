@@ -114,6 +114,8 @@ def create_tour(
         "tour_category": tour_category.value,
         "o_taz": o_taz,
         "d_taz": d_taz,
+        "o_TAZ1454": o_taz,  # Copy for CTRAMP compatibility
+        "d_TAZ1454": d_taz,  # Copy for CTRAMP compatibility
         "o_lat": o_lat,
         "o_lon": o_lon,
         "d_lat": d_lat,
@@ -165,6 +167,8 @@ def get_tour_schema() -> dict[str, type]:
         "tour_category": pl.Int64,
         "o_taz": pl.Int64,
         "d_taz": pl.Int64,
+        "o_TAZ1454": pl.Int64,
+        "d_TAZ1454": pl.Int64,
         "origin_depart_time": pl.Datetime,
         "origin_arrive_time": pl.Datetime,
         "dest_depart_time": pl.Datetime,

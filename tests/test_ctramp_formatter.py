@@ -14,7 +14,11 @@ import pytest
 
 from data_canon.codebook.ctramp import (
     CTRAMPPersonType,
+    CTRAMPTourCategory,
     FreeParkingChoice,
+    JTFChoice,
+    TourComposition,
+    WFHChoice,
     build_alternatives,
     load_alternatives_from_csv,
 )
@@ -294,7 +298,7 @@ class TestHouseholdFormatting:
         assert result["autos"][0] == 1
         assert result["size"][0] == 2
         assert result["workers"][0] == 1
-        assert result["jtf_choice"][0] == 1  # NONE_NONE when no joint tours
+        assert result["jtf_choice"][0] == JTFChoice.NONE_NONE.value
 
     def test_income_fallback_logic(self):
         """Test income fallback from detailed to followup."""
@@ -351,7 +355,7 @@ class TestPersonFormatting:
         assert result["activity_pattern"][0] == "H"  # Placeholder
         assert result["imf_choice"][0] == 0  # Placeholder
         assert result["inmf_choice"][0] == 0  # Placeholder (default)
-        assert result["wfh_choice"][0] == 0  # Placeholder
+        assert result["wfh_choice"][0] == WFHChoice.NON_WORKER_OR_NO_WFH.value  # Placeholder
 
     def test_gender_mapping(self, standard_config):
         """Test gender mapping to m/f format."""
@@ -1140,7 +1144,7 @@ class TestJointTourFormatting:
         assert result["num_ob_stops"][0] == 0  # 1 trip = 0 stops
         assert result["num_ib_stops"][0] == 0  # 1 trip = 0 stops
         # Composition: 1 adult + 1 child
-        assert result["tour_composition"][0] == 3  # ADULTS_AND_CHILDREN
+        assert result["tour_composition"][0] == TourComposition.ADULTS_AND_CHILDREN.value
 
     def test_individual_tour_exclusion_joint_formatter(self, standard_config):
         """Test that individual tours are excluded from joint tours."""
@@ -1378,7 +1382,9 @@ class TestHouseholdFieldCorrections:
 
         households_ctramp = result["households_ctramp"]
         # With 2 joint shopping tours, should get TWO_SHOP (JTFChoice value 7)
-        assert households_ctramp["jtf_choice"][0] == 7, "Should have TWO_SHOP jtf_choice"
+        assert households_ctramp["jtf_choice"][0] == JTFChoice.TWO_SHOP.value, (
+            "Should have TWO_SHOP jtf_choice"
+        )
 
     def test_jtf_choice_zero_when_no_joint_tours(self, standard_config):
         """Test that jtf_choice is 0 when there are no joint tours."""
@@ -1398,8 +1404,8 @@ class TestHouseholdFieldCorrections:
         )
 
         households_ctramp = result["households_ctramp"]
-        assert households_ctramp["jtf_choice"][0] == 1, (
-            "Should be 1 (NONE_NONE) with no joint tours"
+        assert households_ctramp["jtf_choice"][0] == JTFChoice.NONE_NONE.value, (
+            "Should be NONE_NONE with no joint tours"
         )
 
 
@@ -1808,9 +1814,15 @@ class TestPersonFieldCorrections:
 
         result = format_persons(persons, tours_formatted, standard_config)
 
-        assert result["wfh_choice"][0] == 0, "Employed person with FIXED job_type should not be WFH"
-        assert result["wfh_choice"][1] == 1, "Employed person with WFH job_type should be WFH"
-        assert result["wfh_choice"][2] == 0, "Non-worker should not be WFH even with WFH job_type"
+        assert result["wfh_choice"][0] == WFHChoice.NON_WORKER_OR_NO_WFH.value, (
+            "Employed person with FIXED job_type should not be WFH"
+        )
+        assert result["wfh_choice"][1] == WFHChoice.WORKS_FROM_HOME.value, (
+            "Employed person with WFH job_type should be WFH"
+        )
+        assert result["wfh_choice"][2] == WFHChoice.NON_WORKER_OR_NO_WFH.value, (
+            "Non-worker should not be WFH even with WFH job_type"
+        )
 
 
 class TestIndividualTripFieldCorrections:
@@ -1922,8 +1934,10 @@ class TestIndividualTourFieldCorrections:
             tours, trips, persons, households_formatted, standard_config
         )
 
-        assert isinstance(result["person_type"][0], str), "person_type should be string"
-        assert result["person_type"][0] == "Full-time worker", "Should output person type label"
+        assert isinstance(result["person_type"][0], int), "person_type should be integer enum"
+        assert result["person_type"][0] == CTRAMPPersonType.FULL_TIME_WORKER.value, (
+            "Should output person type code for Full-time worker"
+        )
 
     def test_tour_category_string_not_int(self, standard_config):
         """Test that tour_category outputs string labels (MANDATORY, etc), not integers."""
@@ -1969,11 +1983,13 @@ class TestIndividualTourFieldCorrections:
             tours, trips, persons, households_formatted, standard_config
         )
 
-        assert result["tour_category"][0] == "MANDATORY", "Work tour should be MANDATORY"
-        assert result["tour_category"][1] == "INDIVIDUAL_NON_MANDATORY", (
+        assert result["tour_category"][0] == CTRAMPTourCategory.MANDATORY, (
+            "Work tour should be MANDATORY"
+        )
+        assert result["tour_category"][1] == CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY, (
             "Shopping should be INDIVIDUAL_NON_MANDATORY"
         )
-        assert result["tour_category"][2] == "AT_WORK", "Subtour should be AT_WORK"
+        assert result["tour_category"][2] == CTRAMPTourCategory.AT_WORK, "Subtour should be AT_WORK"
 
     def test_tour_purpose_not_all_othdisc(self, standard_config):
         """Test that tour_purpose correctly maps various purposes, not all to 'othdisc'."""
