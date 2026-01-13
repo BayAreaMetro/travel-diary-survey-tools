@@ -197,31 +197,64 @@ def compare_distributions(
 
 
 def load_data(
-    data_models: dict, iteration: int, model_dir: Path | str, survey_dir: Path | str
+    data_models: dict,
+    iteration: int,
+    model_dir: Path | str,
+    survey_dir: Path | str,
+    cache: bool | Path | str = True,
 ) -> dict[str, dict[str, pl.LazyFrame]]:
-    """Load model and survey data for a specified table."""
-    # Load all tables
-    data = {}
-    iteration = 3
+    """Load model and survey data for a specified table.
+
+    If `cache` is truthy:
+      - If `cache` is True, use a .cache directory alongside this file.
+      - If `cache` is a Path/str, use that directory.
+    Cached files are stored as parquet named: <table>_<iteration>_model.parquet
+    and <table>_<iteration>_survey.parquet. When cache files exist they are
+    loaded lazily via pl.scan_parquet.
+    """
+    # Resolve cache directory
+    cache_dir: Path | None = None
+    if cache is True:
+        cache_dir = Path(__file__).resolve().parent / ".cache"
+    elif cache:
+        cache_dir = Path(cache)
+    if cache_dir:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _load_source(csv_path: Path, cache_path: Path | None, source_name: str) -> pl.LazyFrame:
+        """Load data from cache (parquet) or CSV, creating cache if needed."""
+        if cache_path and cache_path.exists():
+            logger.info("Loading %s from cache %s", source_name, cache_path)
+            try:
+                return pl.scan_parquet(cache_path)
+            except Exception:
+                logger.exception("Failed to read cache %s, falling back to CSV", cache_path)
+
+        logger.info("Loading %s from %s", source_name, csv_path)
+        df = pl.read_csv(csv_path, infer_schema_length=10000)
+
+        if cache_path:
+            try:
+                df.write_parquet(cache_path)
+                logger.info("Wrote cache %s", cache_path)
+            except Exception:
+                logger.exception("Failed to write cache %s", cache_path)
+
+        return df.lazy()
+
+    data: dict[str, dict[str, pl.LazyFrame]] = {}
+
     for table_name in data_models:
-        model_path = Path(model_dir) / f"{table_name}_{iteration}.csv"
-        survey_path = Path(survey_dir) / f"{table_name}.csv"
+        model_csv = Path(model_dir) / f"{table_name}_{iteration}.csv"
+        survey_csv = Path(survey_dir) / f"{table_name}.csv"
 
-        msg = f"Loading {table_name} model data from {model_path}"
-        logger.info(msg)
-        model_df = pl.read_csv(
-            model_path,
-            infer_schema_length=10000,
-        ).lazy()
+        model_cache = cache_dir / f"{table_name}_{iteration}_model.parquet" if cache_dir else None
+        survey_cache = cache_dir / f"{table_name}_{iteration}_survey.parquet" if cache_dir else None
 
-        msg = f"Loading {table_name} survey data from {survey_path}"
-        logger.info(msg)
-        survey_df = pl.read_csv(
-            survey_path,
-            infer_schema_length=10000,
-        ).lazy()
-
-        data[table_name] = {"model": model_df, "survey": survey_df}
+        data[table_name] = {
+            "model": _load_source(model_csv, model_cache, f"{table_name} model"),
+            "survey": _load_source(survey_csv, survey_cache, f"{table_name} survey"),
+        }
 
     return data
 

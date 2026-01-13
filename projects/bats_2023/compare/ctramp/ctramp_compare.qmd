@@ -70,6 +70,7 @@ data = load_data(
     model_dir=model_dir,
     data_models=data_models,
     iteration=3,
+    cache=True
 )
 ```
 
@@ -134,7 +135,6 @@ data = load_data(
 # Household Data Comparison
 ```{python}
 #| label: compare-households
-#| include: false
 #| echo: false
 
 hh_fields = [
@@ -153,7 +153,6 @@ compare_distributions(data["HouseholdData"], hh_fields, table_name="HouseholdDat
 # Person Data Comparison
 ```{python}
 #| label: compare-persons
-#| include: false
 #| echo: false
 
 person_fields = [
@@ -173,7 +172,6 @@ compare_distributions(data["PersonData"], person_fields, table_name="PersonData"
 # Individual Trip Data Comparison
 ```{python}
 #| label: compare-indiv-trips
-#| include: false
 #| echo: false
 
 indiv_trip_fields = [
@@ -201,7 +199,6 @@ compare_distributions(data["IndivTripData"], indiv_trip_fields, table_name="Indi
 # Individual Tour Data Comparison
 ```{python}
 #| label: compare-indiv-tours
-#| include: false
 #| echo: false
 
 indiv_tour_fields = [
@@ -225,7 +222,6 @@ compare_distributions(data["IndivTourData"], indiv_tour_fields, table_name="Indi
 # Joint Trip Data Comparison
 ```{python}
 #| label: compare-joint-trips
-#| include: false
 #| echo: false
 
 joint_trip_fields = [
@@ -250,7 +246,6 @@ compare_distributions(data["JointTripData"], joint_trip_fields, table_name="Join
 # Joint Tour Data Comparison
 ```{python}
 #| label: compare-joint-tours
-#| include: false
 #| echo: false
 
 joint_tour_fields = [
