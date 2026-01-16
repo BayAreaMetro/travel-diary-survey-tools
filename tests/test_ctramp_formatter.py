@@ -2243,7 +2243,7 @@ class TestWeightsAndSampleRate:
 
     def test_person_no_weight_columns_when_missing(self, standard_config):
         """Test person_weight and sampleRate absent when not in input."""
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)]).drop("person_weight")
         tours = pl.DataFrame()
 
         result = format_persons(persons, tours, standard_config)
@@ -2465,7 +2465,7 @@ class TestWeightsAndSampleRate:
                     linked_trip_id=10002, tour_id=1001, tour_direction=TourDirection.INBOUND
                 ),
             ]
-        )
+        ).drop("linked_trip_weight")
 
         households_formatted = format_households(households, persons, tours)
         tours_formatted = format_individual_tour(
