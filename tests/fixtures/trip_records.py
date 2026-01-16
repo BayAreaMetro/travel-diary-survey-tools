@@ -218,6 +218,7 @@ def create_linked_trip(
     distance_meters: float = 8046.72,
     num_unlinked_trips: int = 1,
     tour_direction: TourDirection = TourDirection.OUTBOUND,
+    linked_trip_weight: float = 1.0,
     access_mode: AccessEgressMode | None = None,
     egress_mode: AccessEgressMode | None = None,
     **overrides,
@@ -252,6 +253,7 @@ def create_linked_trip(
         distance_meters: Trip distance in meters
         num_unlinked_trips: Number of component unlinked trips
         tour_direction: Tour direction enum (OUTBOUND/INBOUND)
+        linked_trip_weight: Linked trip expansion factor
         access_mode: Transit access mode enum (for transit trips)
         egress_mode: Transit egress mode enum (for transit trips)
         **overrides: Override any default values
@@ -279,11 +281,13 @@ def create_linked_trip(
         "o_lat": o_lat,
         "o_lon": o_lon,
         "o_taz": o_taz,
+        "o_TAZ1454": o_taz,  # Copy for CTRAMP compatibility
         "o_maz": o_maz,
         "o_purpose_category": o_purpose.value,
         "d_lat": d_lat,
         "d_lon": d_lon,
         "d_taz": d_taz,
+        "d_TAZ1454": d_taz,  # Copy for CTRAMP compatibility
         "d_maz": d_maz,
         "d_purpose_category": d_purpose.value,
         "mode_type": mode_type.value,
@@ -292,6 +296,7 @@ def create_linked_trip(
         "distance_meters": distance_meters,
         "num_unlinked_trips": num_unlinked_trips,
         "tour_direction": tour_direction.value,
+        "linked_trip_weight": linked_trip_weight,
         "access_mode": access_mode.value if access_mode else None,
         "egress_mode": egress_mode.value if egress_mode else None,
         "joint_trip_id": None,  # Required for extract_tours step

@@ -44,6 +44,7 @@ def create_tour(
     tour_mode: Mode = Mode.MISSING,
     student_category: str = "Not student",
     data_quality: TourDataQuality = TourDataQuality.VALID,
+    tour_weight: float = 1.0,
     joint_tour_id: int | None = None,
     parent_tour_id: int | None = None,
     subtour_num: int = 0,
@@ -81,6 +82,7 @@ def create_tour(
         tour_mode: Primary tour mode enum
         student_category: Student category for work/school tours
         data_quality: Data quality flag enum
+        tour_weight: Tour expansion factor
         joint_tour_id: Joint tour ID (None for individual tours)
         parent_tour_id: Parent tour (None for primary tours)
         subtour_num: Subtour number (0 for primary tours)
@@ -114,6 +116,8 @@ def create_tour(
         "tour_category": tour_category.value,
         "o_taz": o_taz,
         "d_taz": d_taz,
+        "o_TAZ1454": o_taz,  # Copy for CTRAMP compatibility
+        "d_TAZ1454": d_taz,  # Copy for CTRAMP compatibility
         "o_lat": o_lat,
         "o_lon": o_lon,
         "d_lat": d_lat,
@@ -130,6 +134,7 @@ def create_tour(
         "tour_mode": tour_mode.value,
         "student_category": student_category,
         "data_quality": data_quality.value,
+        "tour_weight": tour_weight,
         "joint_tour_id": joint_tour_id,
         "parent_tour_id": parent_tour_id,
         "subtour_num": subtour_num,
@@ -165,6 +170,8 @@ def get_tour_schema() -> dict[str, type]:
         "tour_category": pl.Int64,
         "o_taz": pl.Int64,
         "d_taz": pl.Int64,
+        "o_TAZ1454": pl.Int64,
+        "d_TAZ1454": pl.Int64,
         "origin_depart_time": pl.Datetime,
         "origin_arrive_time": pl.Datetime,
         "dest_depart_time": pl.Datetime,
