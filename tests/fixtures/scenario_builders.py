@@ -48,7 +48,7 @@ def _create_trips_from_spec(
 
     Args:
         trip_specs: List of trip specification dicts with keys:
-            - trip_id: Trip ID
+            - unlinked_trip_id: Trip ID
             - o_location: Origin Location object
             - d_location: Destination Location object
             - o_purpose_category, d_purpose_category: Purpose categories
@@ -81,7 +81,7 @@ def _create_trips_from_spec(
         )
 
         trip = create_unlinked_trip(
-            trip_id=spec["trip_id"],
+            unlinked_trip_id=spec["unlinked_trip_id"],
             person_id=person_id,
             hh_id=hh_id,
             day_id=day_id,
@@ -157,7 +157,7 @@ def simple_work_tour(
     # Create trips using specification
     trip_specs = [
         {
-            "trip_id": 1,
+            "unlinked_trip_id": 1,
             "o_location": HOME_LOCATION,
             "d_location": WORK_LOCATION,
             "o_purpose_category": PurposeCategory.HOME,
@@ -170,7 +170,7 @@ def simple_work_tour(
             "travel_time": 60,
         },
         {
-            "trip_id": 2,
+            "unlinked_trip_id": 2,
             "o_location": WORK_LOCATION,
             "d_location": HOME_LOCATION,
             "o_purpose_category": PurposeCategory.WORK,
@@ -247,7 +247,7 @@ def transit_commute(
     trip_specs = [
         # Morning: Home → walk to BART
         {
-            "trip_id": 1,
+            "unlinked_trip_id": 1,
             "o_location": HOME_LOCATION,
             "d_location": BART_HOME_LOCATION,
             "o_purpose_category": PurposeCategory.HOME,
@@ -262,7 +262,7 @@ def transit_commute(
         },
         # Morning: BART ride
         {
-            "trip_id": 2,
+            "unlinked_trip_id": 2,
             "o_location": BART_HOME_LOCATION,
             "d_location": BART_WORK_LOCATION,
             "o_purpose_category": PurposeCategory.CHANGE_MODE,
@@ -277,7 +277,7 @@ def transit_commute(
         },
         # Morning: Walk to work
         {
-            "trip_id": 3,
+            "unlinked_trip_id": 3,
             "o_location": BART_WORK_LOCATION,
             "d_location": WORK_LOCATION,
             "o_purpose_category": PurposeCategory.CHANGE_MODE,
@@ -292,7 +292,7 @@ def transit_commute(
         },
         # Evening: Walk to BART
         {
-            "trip_id": 4,
+            "unlinked_trip_id": 4,
             "o_location": WORK_LOCATION,
             "d_location": BART_WORK_LOCATION,
             "o_purpose_category": PurposeCategory.WORK,
@@ -307,7 +307,7 @@ def transit_commute(
         },
         # Evening: BART ride
         {
-            "trip_id": 5,
+            "unlinked_trip_id": 5,
             "o_location": BART_WORK_LOCATION,
             "d_location": BART_HOME_LOCATION,
             "o_purpose_category": PurposeCategory.CHANGE_MODE,
@@ -322,7 +322,7 @@ def transit_commute(
         },
         # Evening: Walk home
         {
-            "trip_id": 6,
+            "unlinked_trip_id": 6,
             "o_location": BART_HOME_LOCATION,
             "d_location": HOME_LOCATION,
             "o_purpose_category": PurposeCategory.CHANGE_MODE,
@@ -392,7 +392,7 @@ def multi_stop_tour(
     # Home → Work → Stop → Work → Home
     trips = [
         create_unlinked_trip(
-            trip_id=1,
+            unlinked_trip_id=1,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=HOME_LOCATION.lat,
@@ -405,7 +405,7 @@ def multi_stop_tour(
             depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(8, 0)),
         ),
         create_unlinked_trip(
-            trip_id=2,
+            unlinked_trip_id=2,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=WORK_LOCATION.lat,
@@ -419,7 +419,7 @@ def multi_stop_tour(
             depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(12, 0)),
         ),
         create_unlinked_trip(
-            trip_id=3,
+            unlinked_trip_id=3,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=RESTAURANT_LOCATION.lat,
@@ -433,7 +433,7 @@ def multi_stop_tour(
             depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(13, 0)),
         ),
         create_unlinked_trip(
-            trip_id=4,
+            unlinked_trip_id=4,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=WORK_LOCATION.lat,
@@ -500,7 +500,7 @@ def multi_tour_day(
     # Home → Work → Home → Shop → Home
     trips = [
         create_unlinked_trip(
-            trip_id=1,
+            unlinked_trip_id=1,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=HOME_LOCATION.lat,
@@ -513,7 +513,7 @@ def multi_tour_day(
             depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(8, 0)),
         ),
         create_unlinked_trip(
-            trip_id=2,
+            unlinked_trip_id=2,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=WORK_LOCATION.lat,
@@ -526,7 +526,7 @@ def multi_tour_day(
             depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(17, 0)),
         ),
         create_unlinked_trip(
-            trip_id=3,
+            unlinked_trip_id=3,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=HOME_LOCATION.lat,
@@ -539,7 +539,7 @@ def multi_tour_day(
             depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(19, 0)),
         ),
         create_unlinked_trip(
-            trip_id=4,
+            unlinked_trip_id=4,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=SHOPPING_LOCATION.lat,
@@ -610,7 +610,7 @@ def work_tour_no_usual_location(
     # Home → Work → Home (work destination is ad-hoc, not usual location)
     trips = [
         create_unlinked_trip(
-            trip_id=1,
+            unlinked_trip_id=1,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=HOME_LOCATION.lat,
@@ -623,7 +623,7 @@ def work_tour_no_usual_location(
             depart_time=datetime.combine(datetime.now(tz=UTC).date(), time(8, 0)),
         ),
         create_unlinked_trip(
-            trip_id=2,
+            unlinked_trip_id=2,
             person_id=person_id,
             hh_id=hh_id,
             o_lat=WORK_LOCATION.lat,

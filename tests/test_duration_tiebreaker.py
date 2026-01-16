@@ -83,7 +83,7 @@ def test_duration_tiebreaker_equal_priority():
         },
         unlinked_trips_data=[
             {
-                "trip_id": 1,
+                "unlinked_trip_id": 1,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -103,10 +103,10 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 2,
+                "unlinked_trip_id": 2,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -127,10 +127,10 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 3,
+                "unlinked_trip_id": 3,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -151,7 +151,7 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "driver": Driver.DRIVER.value,
                 "num_travelers": 1,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )
@@ -181,7 +181,7 @@ def test_duration_tiebreaker_different_priority():
         },
         unlinked_trips_data=[
             {
-                "trip_id": 1,
+                "unlinked_trip_id": 1,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -199,10 +199,10 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 2,
+                "unlinked_trip_id": 2,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -223,10 +223,10 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 3,
+                "unlinked_trip_id": 3,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -246,7 +246,7 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )
@@ -272,7 +272,7 @@ def test_activity_duration_last_trip():
         },
         unlinked_trips_data=[
             {
-                "trip_id": 1010101,
+                "unlinked_trip_id": 1010101,
                 "day_id": 10101,
                 "person_id": 101,
                 "hh_id": 10,
@@ -290,10 +290,10 @@ def test_activity_duration_last_trip():
                 "duration_minutes": 60,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 1010102,
+                "unlinked_trip_id": 1010102,
                 "day_id": 10101,
                 "person_id": 101,
                 "hh_id": 10,
@@ -313,7 +313,7 @@ def test_activity_duration_last_trip():
                 "duration_minutes": 60,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )

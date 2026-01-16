@@ -54,7 +54,7 @@ class TestStepValidationBehavior:
     def test_validation_passes_without_step_specific_fields_in_wrong_step(self):
         """Should allow missing step-specific fields in other steps."""
         row = {
-            "trip_id": 1,
+            "unlinked_trip_id": 1,
             "person_id": 101,
             "hh_id": 1,
             "day_id": 10101,
@@ -80,7 +80,7 @@ class TestStepValidationBehavior:
     def test_validation_fails_without_step_specific_fields_in_right_step(self):
         """Should require step-specific fields in their designated step."""
         row = {
-            "trip_id": 1,
+            "unlinked_trip_id": 1,
             "person_id": 101,
             "hh_id": 1,
             "day_id": 10101,
@@ -107,7 +107,7 @@ class TestStepValidationBehavior:
     def test_validation_passes_with_all_required_fields_for_step(self):
         """Should pass when all step-required fields are present."""
         row = {
-            "trip_id": 1,
+            "unlinked_trip_id": 1,
             "person_id": 101,
             "hh_id": 1,
             "day_id": 10101,
@@ -137,7 +137,7 @@ class TestStepValidationBehavior:
         """Datetime fields should follow same selective pattern."""
         # Without datetime - OK for preprocessing
         row_no_dt = {
-            "trip_id": 1,
+            "unlinked_trip_id": 1,
             "person_id": 101,
             "hh_id": 1,
             "day_id": 10101,
@@ -176,7 +176,7 @@ class TestStepValidationBehavior:
         # Include linked_trip_id in preprocessing step (not required there)
         # But with invalid value - should still fail validation
         row = {
-            "trip_id": 1,
+            "unlinked_trip_id": 1,
             "person_id": 101,
             "hh_id": 1,
             "day_id": 10101,

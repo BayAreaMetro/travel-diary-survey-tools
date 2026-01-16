@@ -173,7 +173,7 @@ class TestAddZoneIds:
         """Sample linked trips data."""
         return pl.DataFrame(
             {
-                "trip_id": [1, 2],
+                "unlinked_trip_id": [1, 2],
                 "o_lon": [0.5, 1.5],
                 "o_lat": [0.5, 1.5],
                 "d_lon": [1.5, 2.5],
@@ -324,7 +324,7 @@ class TestAddZoneIds:
         # Original columns should still exist
         assert "hh_id" in result["households"].columns
         assert "person_id" in result["persons"].columns
-        assert "trip_id" in result["unlinked_trips"].columns
+        assert "unlinked_trip_id" in result["unlinked_trips"].columns
         assert "home_lon" in result["households"].columns
 
     def test_returns_all_three_tables(

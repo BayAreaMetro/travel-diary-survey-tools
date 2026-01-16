@@ -51,7 +51,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `day_id` | int | ≥ 1, UNIQUE |  |  |  |  |  |  |  |  |
 |  | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  |  |  |  |
 |  | `travel_dow` | TravelDow |  |  |  |  |  |  |  |  |  |
-| **unlinked_trips** | `trip_id` | int | ≥ 1, UNIQUE |  |  |  |  |  |  |  |  |
+| **unlinked_trips** | `unlinked_trip_id` | int | ≥ 1, UNIQUE |  |  |  |  |  |  |  |  |
 |  | `day_id` | int | ≥ 1, FK → `days.day_id` |  |  |  |  |  |  |  |  |
 |  | `person_id` | int | ≥ 1, FK → `persons.person_id` |  |  |  |  |  |  |  |  |
 |  | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  |  |  |  |

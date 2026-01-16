@@ -31,7 +31,7 @@ def _default_times(depart_time, arrive_time, default_depart_hour=8, travel_minut
 
 
 def create_unlinked_trip(
-    trip_id: int = 10001,
+    unlinked_trip_id: int = 10001,
     _linked_trip_id: int | None = None,
     person_id: int = 101,
     hh_id: int = 1,
@@ -47,7 +47,7 @@ def create_unlinked_trip(
     travel_time: int = 30,
     duration_minutes: float | None = None,
     distance_meters: float = 1000.0,
-    trip_weight: float = 1.0,
+    unlinked_trip_weight: float = 1.0,
     transit_access: int = 0,
     transit_egress: int = 0,
     travel_dow: TravelDow = TravelDow.MONDAY,
@@ -76,7 +76,7 @@ def create_unlinked_trip(
     These are the inputs to the link_trips processing step.
 
     Args:
-        trip_id: Trip ID
+        unlinked_trip_id: Trip ID
         person_id: Person ID
         hh_id: Household ID
         day_id: Day ID (links trip to a specific day)
@@ -91,7 +91,7 @@ def create_unlinked_trip(
         travel_time: Travel time in minutes
         duration_minutes: Trip duration in minutes (defaults to travel_time)
         distance_meters: Trip distance in meters
-        trip_weight: Trip expansion weight
+        unlinked_trip_weight: Trip expansion weight
         transit_access: Transit access flag
         transit_egress: Transit egress flag
         travel_dow: Day of week enum
@@ -126,7 +126,7 @@ def create_unlinked_trip(
     )
 
     record = {
-        "trip_id": trip_id,
+        "unlinked_trip_id": unlinked_trip_id,
         "person_id": person_id,
         "hh_id": hh_id,
         "day_id": day_id,
@@ -139,7 +139,7 @@ def create_unlinked_trip(
             duration_minutes if duration_minutes is not None else float(travel_time)
         ),
         "distance_meters": distance_meters,
-        "trip_weight": trip_weight,
+        "unlinked_trip_weight": unlinked_trip_weight,
         "transit_access": transit_access,
         "transit_egress": transit_egress,
         "travel_dow": travel_dow.value,
