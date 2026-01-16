@@ -47,7 +47,7 @@ def create_unlinked_trip(
     travel_time: int = 30,
     duration_minutes: float | None = None,
     distance_meters: float = 1000.0,
-    trip_weight: float = 1.0,
+    unlinked_trip_weight: float = 1.0,
     transit_access: int = 0,
     transit_egress: int = 0,
     travel_dow: TravelDow = TravelDow.MONDAY,
@@ -91,7 +91,7 @@ def create_unlinked_trip(
         travel_time: Travel time in minutes
         duration_minutes: Trip duration in minutes (defaults to travel_time)
         distance_meters: Trip distance in meters
-        trip_weight: Trip expansion weight
+        unlinked_trip_weight: Trip expansion weight
         transit_access: Transit access flag
         transit_egress: Transit egress flag
         travel_dow: Day of week enum
@@ -139,7 +139,7 @@ def create_unlinked_trip(
             duration_minutes if duration_minutes is not None else float(travel_time)
         ),
         "distance_meters": distance_meters,
-        "trip_weight": trip_weight,
+        "unlinked_trip_weight": unlinked_trip_weight,
         "transit_access": transit_access,
         "transit_egress": transit_egress,
         "travel_dow": travel_dow.value,
@@ -218,6 +218,7 @@ def create_linked_trip(
     distance_meters: float = 8046.72,
     num_unlinked_trips: int = 1,
     tour_direction: TourDirection = TourDirection.OUTBOUND,
+    linked_trip_weight: float = 1.0,
     access_mode: AccessEgressMode | None = None,
     egress_mode: AccessEgressMode | None = None,
     **overrides,
@@ -252,6 +253,7 @@ def create_linked_trip(
         distance_meters: Trip distance in meters
         num_unlinked_trips: Number of component unlinked trips
         tour_direction: Tour direction enum (OUTBOUND/INBOUND)
+        linked_trip_weight: Linked trip expansion factor
         access_mode: Transit access mode enum (for transit trips)
         egress_mode: Transit egress mode enum (for transit trips)
         **overrides: Override any default values
@@ -294,6 +296,7 @@ def create_linked_trip(
         "distance_meters": distance_meters,
         "num_unlinked_trips": num_unlinked_trips,
         "tour_direction": tour_direction.value,
+        "linked_trip_weight": linked_trip_weight,
         "access_mode": access_mode.value if access_mode else None,
         "egress_mode": egress_mode.value if egress_mode else None,
         "joint_trip_id": None,  # Required for extract_tours step

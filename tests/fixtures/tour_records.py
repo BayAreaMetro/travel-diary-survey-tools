@@ -44,6 +44,7 @@ def create_tour(
     tour_mode: Mode = Mode.MISSING,
     student_category: str = "Not student",
     data_quality: TourDataQuality = TourDataQuality.VALID,
+    tour_weight: float = 1.0,
     joint_tour_id: int | None = None,
     parent_tour_id: int | None = None,
     subtour_num: int = 0,
@@ -81,6 +82,7 @@ def create_tour(
         tour_mode: Primary tour mode enum
         student_category: Student category for work/school tours
         data_quality: Data quality flag enum
+        tour_weight: Tour expansion factor
         joint_tour_id: Joint tour ID (None for individual tours)
         parent_tour_id: Parent tour (None for primary tours)
         subtour_num: Subtour number (0 for primary tours)
@@ -132,6 +134,7 @@ def create_tour(
         "tour_mode": tour_mode.value,
         "student_category": student_category,
         "data_quality": data_quality.value,
+        "tour_weight": tour_weight,
         "joint_tour_id": joint_tour_id,
         "parent_tour_id": parent_tour_id,
         "subtour_num": subtour_num,

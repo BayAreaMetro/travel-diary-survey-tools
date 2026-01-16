@@ -23,7 +23,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `home_maz` | int or None | ≥ 1 |  |  |  |  |  |  | ✓ | ✓ |  |
 |  | `residence_rent_own` | ResidenceRentOwn |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `residence_type` | ResidenceType |  |  |  |  |  |  |  |  | ✓ |  |
-|  | `hh_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |
+|  | `household_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |
 | **persons** | `person_id` | int | ≥ 1, UNIQUE |  |  |  |  | ✓ |  |  |  |  |
 |  | `hh_id` | int | ≥ 1, FK → `households.hh_id`, REQ_CHILD |  |  |  |  |  |  |  |  |  |
 |  | `person_num` | int | ≥ 1 |  |  |  |  |  |  | ✓ | ✓ |  |

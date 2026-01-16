@@ -110,16 +110,9 @@ def format_individual_trip(
     )
 
     # Map origin and destination purposes
+    # Note: tour_purpose from tours_ctramp is already a CT-RAMP string, so use it directly
     individual_trips = individual_trips.with_columns(
         [
-            map_purpose_category_to_ctramp(
-                pl.col("tour_purpose"),
-                pl.col("income"),
-                pl.col("school_type"),
-                config.income_low_threshold,
-                config.income_med_threshold,
-                config.income_high_threshold,
-            ).alias("tour_purpose_ctramp"),
             map_purpose_category_to_ctramp(
                 pl.col("o_purpose_category"),
                 pl.col("income"),
@@ -170,7 +163,7 @@ def format_individual_trip(
         pl.col("tour_id"),
         pl.col("stop_id"),
         pl.col("inbound"),
-        pl.col("tour_purpose_ctramp").alias("tour_purpose"),
+        pl.col("tour_purpose"),  # Already CTRAMP-formatted from tours_ctramp
         pl.col("orig_purpose"),
         pl.col("dest_purpose"),
         pl.col("o_TAZ1454").cast(pl.Int64).alias("orig_taz"),

@@ -67,7 +67,7 @@ def format_households(
             "num_people": "hhsize",
             "num_vehicles": "hhvehs",
             "num_workers": "hhwkrs",
-            "hh_weight": "hhexpfac",
+            "household_weight": "hhexpfac",
         }
     )
 
