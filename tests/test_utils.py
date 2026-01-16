@@ -24,7 +24,7 @@ def basic_trip_data() -> pl.DataFrame:
     """Create basic trip data for testing."""
     return pl.DataFrame(
         {
-            "trip_id": [1, 2, 3],
+            "unlinked_trip_id": [1, 2, 3],
             "day_id": [101, 101, 101],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],

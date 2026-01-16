@@ -41,7 +41,7 @@ def test_household_fixture_has_all_required_fields():
 
 def test_trip_fixture_has_all_required_fields():
     """Verify trip test data includes all required fields."""
-    trip_dict = create_linked_trip(trip_id=1)
+    trip_dict = create_linked_trip(unlinked_trip_id=1)
 
     try:
         validate_row_for_step(trip_dict, LinkedTripModel, step_name="extract_tours")

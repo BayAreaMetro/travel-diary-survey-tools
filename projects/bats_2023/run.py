@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import polars as pl
+from clean_bats_2023 import clean_2023_bats
 
 from data_canon.models import (
     daysim as daysim_models,
@@ -22,7 +23,6 @@ from processing import (
     load_data,
     write_data,
 )
-from processing.cleaning.clean_bats_2023 import clean_2023_bats
 
 # ---------------------------------------------------------------------
 # Configuration

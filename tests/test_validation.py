@@ -289,14 +289,14 @@ class TestCustomValidators:
             )
             long_trips = unlinked_trips.filter(pl.col("duration_hours") > 4)
             if len(long_trips) > 0:
-                trip_ids = long_trips["trip_id"].to_list()[:5]
+                trip_ids = long_trips["unlinked_trip_id"].to_list()[:5]
                 errors.append(f"Found {len(long_trips)} trips longer than 4 hours: {trip_ids}")
             return errors
 
         # Include all required fields for UnlinkedTripModel
         data_obj.unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3],
+                "unlinked_trip_id": [1, 2, 3],
                 "person_id": [101, 101, 101],
                 "hh_id": [1, 1, 1],
                 "day_id": [10101, 10101, 10101],

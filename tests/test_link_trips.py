@@ -420,7 +420,7 @@ class TestAggregateLinkedTrips:
                 "driver": [0, 0],
                 "distance_meters": [804.67, 8046.7],
                 "duration_minutes": [10.0, 30.0],
-                "trip_weight": [1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0],
             }
         )
 
@@ -501,7 +501,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1, 1],
                 "driver": [0, 0, 0],
                 "duration_minutes": [10.0, 25.0, 15.0],
-                "trip_weight": [1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0],
             }
         )
 
@@ -555,7 +555,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1],
                 "driver": [0, 0],
                 "duration_minutes": [10.0, 30.0],
-                "trip_weight": [1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0],
             }
         )
 
@@ -606,7 +606,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1],
                 "driver": [0, 0],
                 "duration_minutes": [10.0, 25.0],  # Travel time
-                "trip_weight": [1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0],
             }
         )
 
@@ -678,7 +678,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1, 1, 1],
                 "driver": [0, 0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 10.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
             }
         )
 
@@ -697,7 +697,7 @@ class TestLinkTripsIntegration:
         """Should link and aggregate trips end-to-end."""
         trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3],
+                "unlinked_trip_id": [1, 2, 3],
                 "day_id": [10001, 10001, 10001],
                 "person_id": [100, 100, 100],
                 "hh_id": [10, 10, 10],
@@ -753,7 +753,7 @@ class TestLinkTripsIntegration:
                 "num_travelers": [1, 1, 1],
                 "driver": [0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0],
             }
         )
 
@@ -782,7 +782,7 @@ class TestLinkTripsIntegration:
         """Should preserve all required columns in output."""
         trips = pl.DataFrame(
             {
-                "trip_id": [1],
+                "unlinked_trip_id": [1],
                 "day_id": [10001],
                 "person_id": [100],
                 "hh_id": [10],
@@ -810,7 +810,7 @@ class TestLinkTripsIntegration:
                 "num_travelers": [1],
                 "driver": [0],
                 "duration_minutes": [30.0],
-                "trip_weight": [1.0],
+                "unlinked_trip_weight": [1.0],
             }
         )
 
@@ -1004,7 +1004,7 @@ class TestTableLevelUniqueness:
                 "num_travelers": [1, 1, 1, 1],
                 "driver": [0, 0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 30.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
             }
         )
 
@@ -1095,7 +1095,7 @@ class TestTableLevelUniqueness:
                 "num_travelers": [1, 1, 1, 1],
                 "driver": [0, 0, 0, 0],
                 "duration_minutes": [5.0, 5.0, 25.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
             }
         )
 
@@ -1115,7 +1115,7 @@ class TestTableLevelUniqueness:
         """Full pipeline maintains proper uniqueness constraints."""
         trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4, 5],
+                "unlinked_trip_id": [1, 2, 3, 4, 5],
                 "day_id": [10001, 10001, 10001, 10002, 10002],
                 "person_id": [100, 100, 100, 100, 100],
                 "hh_id": [10, 10, 10, 10, 10],
@@ -1197,7 +1197,7 @@ class TestTableLevelUniqueness:
                 "num_travelers": [1, 1, 1, 1, 1],
                 "driver": [0, 0, 0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 30.0, 30.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0, 1.0],
             }
         )
 
@@ -1220,6 +1220,8 @@ class TestTableLevelUniqueness:
         assert linked_trips["linked_trip_id"].n_unique() == len(linked_trips)
 
         # Each linked_trip_id should appear exactly once
-        for trip_id in linked_trips["linked_trip_id"]:
-            count = (linked_trips["linked_trip_id"] == trip_id).sum()
-            assert count == 1, f"linked_trip_id {trip_id} appears {count} times, should be 1"
+        for unlinked_trip_id in linked_trips["linked_trip_id"]:
+            count = (linked_trips["linked_trip_id"] == unlinked_trip_id).sum()
+            assert count == 1, (
+                f"linked_trip_id {unlinked_trip_id} appears {count} times, should be 1"
+            )
