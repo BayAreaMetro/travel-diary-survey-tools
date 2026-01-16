@@ -507,6 +507,16 @@ def format_persons(
     if "value_of_time" not in persons_ctramp.columns:
         output_cols.remove("value_of_time")
 
+    # Add weight and sampleRate if person_weight exists
+    if "person_weight" in persons_ctramp.columns:
+        persons_ctramp = persons_ctramp.with_columns(
+            pl.when(pl.col("person_weight") > 0)
+            .then(pl.col("person_weight").pow(-1))
+            .otherwise(None)
+            .alias("sampleRate")
+        )
+        output_cols.extend(["person_weight", "sampleRate"])
+
     # Select final columns in CT-RAMP order
     persons_ctramp = persons_ctramp.select(output_cols)
 

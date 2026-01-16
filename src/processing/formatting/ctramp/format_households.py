@@ -244,17 +244,27 @@ def format_households(
     )
 
     # Select final columns in CT-RAMP order
-    households_ctramp = households_ctramp.select(
-        [
-            "hh_id",
-            "taz",
-            "income",
-            "autos",
-            "jtf_choice",
-            "size",
-            "workers",
-        ]
-    )
+    output_cols = [
+        "hh_id",
+        "taz",
+        "income",
+        "autos",
+        "jtf_choice",
+        "size",
+        "workers",
+    ]
+
+    # Add weight and sampleRate if household_weight exists
+    if "household_weight" in households_ctramp.columns:
+        households_ctramp = households_ctramp.with_columns(
+            pl.when(pl.col("household_weight") > 0)
+            .then(pl.col("household_weight").pow(-1))
+            .otherwise(None)
+            .alias("sampleRate")
+        )
+        output_cols.extend(["household_weight", "sampleRate"])
+
+    households_ctramp = households_ctramp.select(output_cols)
 
     logger.info("Formatted %d households for CT-RAMP", len(households_ctramp))
 

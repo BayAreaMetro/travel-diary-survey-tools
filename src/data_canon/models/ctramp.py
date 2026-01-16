@@ -87,6 +87,11 @@ class HouseholdCTRAMPModel(BaseModel):
     stl_rn: int | None = Field(description="Random number for stop location choice model")
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    sampleRate: float | None = Field(
+        None,
+        ge=0,
+        description="This household represents 1/sampleRate households, calculate from weights as 1/weight",
+    )  # For some reason this wasn't in the original CTRAMP model spec
     household_weight: float | None = Field(
         ge=0, description="Survey weight for the household (not part of CT-RAMP spec)"
     )
@@ -127,6 +132,11 @@ class PersonCTRAMPModel(BaseModel):
     )
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    sampleRate: float | None = Field(
+        None,
+        ge=0,
+        description="This person represents 1/sampleRate persons, calculate from weights as 1/weight",
+    )  # For some reason this wasn't in the original CTRAMP model spec
     person_weight: float | None = Field(
         ge=0, description="Survey weight for the person (not part of CT-RAMP spec)"
     )
@@ -225,7 +235,7 @@ class IndividualTourCTRAMPModel(BaseModel):
     sampleRate: float | None = Field(
         None,
         ge=0,
-        description="This household represents 1/sampleRate households, calculate from weights as 1/weight",
+        description="This tour represents 1/sampleRate tours, calculate from weights as 1/weight",
     )
     # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
@@ -326,7 +336,7 @@ class IndividualTripCTRAMPModel(BaseModel):
     sampleRate: float | None = Field(
         None,
         ge=0,
-        description="This household represents 1/sampleRate households, calculate from weights as 1/weight",
+        description="This trip represents 1/sampleRate trips, calculate from weights as 1/weight",
     )
     # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
@@ -393,11 +403,6 @@ class JointTourCTRAMPModel(BaseModel):
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
 
-    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
-    tour_weight: float | None = Field(
-        ge=0, description="Survey weight for the tour (not part of CT-RAMP spec)"
-    )
-
 
 class JointTripCTRAMPModel(BaseModel):
     """Joint trip results from Travel Model (CT-RAMP format)."""
@@ -450,9 +455,4 @@ class JointTripCTRAMPModel(BaseModel):
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
-    )
-
-    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
-    trip_weight: float | None = Field(
-        ge=0, description="Survey weight for the trip (not part of CT-RAMP spec)"
     )
