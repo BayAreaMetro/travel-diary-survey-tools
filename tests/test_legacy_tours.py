@@ -406,7 +406,7 @@ def mode_hierarchy_data():
             "duration_minutes": [60, 30],
             "num_travelers": [1, 1],
             "driver": [Driver.MISSING.value, Driver.DRIVER.value],
-            "trip_weight": [1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0],
         }
     )
 
@@ -781,7 +781,7 @@ def test_tour_timing():
                 Driver.MISSING.value,
                 Driver.DRIVER.value,
             ],
-            "trip_weight": [1.0, 1.0, 1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
         }
     )
 
@@ -936,7 +936,7 @@ def test_tour_trip_counts():
             "duration_minutes": [15, 15, 30, 30],
             "num_travelers": [1, 1, 1, 1],
             "driver": [Driver.DRIVER.value] * 4,
-            "trip_weight": [1.0, 1.0, 1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
         }
     )
 
@@ -1057,7 +1057,7 @@ def test_incomplete_tour_at_end_of_day():
                 Driver.DRIVER.value,
                 Driver.DRIVER.value,
             ],
-            "trip_weight": [1.0, 1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0, 1.0],
         }
     )
 
@@ -1162,7 +1162,7 @@ def test_no_work_location():
             ],  # Add duration_minutes required by link_trips
             "num_travelers": [1, 1],
             "driver": [Driver.DRIVER.value, Driver.DRIVER.value],
-            "trip_weight": [1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0],
         }
     )
 

@@ -317,7 +317,7 @@ def aggregate_linked_trips(
                 # Number of segments in linked trip
                 pl.len().alias("num_segments"),
                 # Linked trip weight (mean of segment weights)
-                pl.col("trip_weight").mean().alias("linked_trip_weight"),
+                pl.col("unlinked_trip_weight").mean().alias("linked_trip_weight"),
                 # num_travelers (max of segment num_travelers)
                 pl.col("num_travelers").max().alias("num_travelers"),
                 # Determine driver status across segments

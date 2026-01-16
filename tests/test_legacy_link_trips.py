@@ -119,7 +119,7 @@ SIMPLE_TRANSIT_JOURNEY = pl.DataFrame(
         "arrive_seconds": [0, 0, 0, 0],
         "distance_meters": [804.5, 804.5, 8046.7, 8046.7],
         "duration_minutes": [10.0, 3.0, 40.0, 30.0],
-        "trip_weight": [1.0, 1.0, 1.0, 1.0],
+        "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
         "travel_dow": [1, 1, 1, 1],  # Monday
         "num_travelers": [1, 1, 1, 1],
         "driver": [2, 2, 2, 1],  # Passenger for transit/walk, Driver for drive
@@ -201,7 +201,7 @@ COMPLEX_MODE_JOURNEY = pl.DataFrame(
         "distance_meters": [1609.3, 8046.7, 402.3],  # ~1, 5, 0.25 miles
         "distance_miles": [1.0, 5.0, 0.25],
         "duration_minutes": [25.0, 40.0, 15.0],
-        "trip_weight": [1.5, 1.5, 1.5],
+        "unlinked_trip_weight": [1.5, 1.5, 1.5],
         "travel_dow": [2, 2, 2],  # Tuesday
         "num_travelers": [1, 1, 1],
         "driver": [2, 2, 2],  # All passenger (bike/transit/walk)

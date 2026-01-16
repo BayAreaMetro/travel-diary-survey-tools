@@ -47,7 +47,7 @@ def create_unlinked_trip(
     travel_time: int = 30,
     duration_minutes: float | None = None,
     distance_meters: float = 1000.0,
-    trip_weight: float = 1.0,
+    unlinked_trip_weight: float = 1.0,
     transit_access: int = 0,
     transit_egress: int = 0,
     travel_dow: TravelDow = TravelDow.MONDAY,
@@ -91,7 +91,7 @@ def create_unlinked_trip(
         travel_time: Travel time in minutes
         duration_minutes: Trip duration in minutes (defaults to travel_time)
         distance_meters: Trip distance in meters
-        trip_weight: Trip expansion weight
+        unlinked_trip_weight: Trip expansion weight
         transit_access: Transit access flag
         transit_egress: Transit egress flag
         travel_dow: Day of week enum
@@ -139,7 +139,7 @@ def create_unlinked_trip(
             duration_minutes if duration_minutes is not None else float(travel_time)
         ),
         "distance_meters": distance_meters,
-        "trip_weight": trip_weight,
+        "unlinked_trip_weight": unlinked_trip_weight,
         "transit_access": transit_access,
         "transit_egress": transit_egress,
         "travel_dow": travel_dow.value,

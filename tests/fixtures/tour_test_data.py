@@ -230,7 +230,7 @@ class TestDataBuilder:
             "duration_minutes": duration_minutes,
             "num_travelers": num_travelers,
             "driver": driver,
-            "trip_weight": 1.0,
+            "unlinked_trip_weight": 1.0,
             **overrides,
         }
 

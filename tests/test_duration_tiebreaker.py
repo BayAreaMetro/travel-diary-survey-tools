@@ -103,7 +103,7 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
                 "trip_id": 2,
@@ -127,7 +127,7 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
                 "trip_id": 3,
@@ -151,7 +151,7 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "driver": Driver.DRIVER.value,
                 "num_travelers": 1,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )
@@ -199,7 +199,7 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
                 "trip_id": 2,
@@ -223,7 +223,7 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
                 "trip_id": 3,
@@ -246,7 +246,7 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )
@@ -290,7 +290,7 @@ def test_activity_duration_last_trip():
                 "duration_minutes": 60,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
                 "trip_id": 1010102,
@@ -313,7 +313,7 @@ def test_activity_duration_last_trip():
                 "duration_minutes": 60,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )

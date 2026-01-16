@@ -573,10 +573,10 @@ def format_linked_trips(
     )
 
     # Step 5: Add trip weight from linked trips, assign 1.0 if missing
-    if "trip_weight" in linked_trips.columns:
+    if "linked_trip_weight" in linked_trips.columns:
         trips_daysim = trips_daysim.join(
-            linked_trips.select(["linked_trip_id", "trip_weight"]).rename(
-                {"trip_weight": "trexpfac"}
+            linked_trips.select(["linked_trip_id", "linked_trip_weight"]).rename(
+                {"linked_trip_weight": "trexpfac"}
             ),
             on="linked_trip_id",
             how="left",

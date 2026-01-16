@@ -420,7 +420,7 @@ class TestAggregateLinkedTrips:
                 "driver": [0, 0],
                 "distance_meters": [804.67, 8046.7],
                 "duration_minutes": [10.0, 30.0],
-                "trip_weight": [1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0],
             }
         )
 
@@ -501,7 +501,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1, 1],
                 "driver": [0, 0, 0],
                 "duration_minutes": [10.0, 25.0, 15.0],
-                "trip_weight": [1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0],
             }
         )
 
@@ -555,7 +555,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1],
                 "driver": [0, 0],
                 "duration_minutes": [10.0, 30.0],
-                "trip_weight": [1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0],
             }
         )
 
@@ -606,7 +606,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1],
                 "driver": [0, 0],
                 "duration_minutes": [10.0, 25.0],  # Travel time
-                "trip_weight": [1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0],
             }
         )
 
@@ -678,7 +678,7 @@ class TestAggregateLinkedTrips:
                 "num_travelers": [1, 1, 1, 1],
                 "driver": [0, 0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 10.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
             }
         )
 
@@ -753,7 +753,7 @@ class TestLinkTripsIntegration:
                 "num_travelers": [1, 1, 1],
                 "driver": [0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0],
             }
         )
 
@@ -810,7 +810,7 @@ class TestLinkTripsIntegration:
                 "num_travelers": [1],
                 "driver": [0],
                 "duration_minutes": [30.0],
-                "trip_weight": [1.0],
+                "unlinked_trip_weight": [1.0],
             }
         )
 
@@ -1004,7 +1004,7 @@ class TestTableLevelUniqueness:
                 "num_travelers": [1, 1, 1, 1],
                 "driver": [0, 0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 30.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
             }
         )
 
@@ -1095,7 +1095,7 @@ class TestTableLevelUniqueness:
                 "num_travelers": [1, 1, 1, 1],
                 "driver": [0, 0, 0, 0],
                 "duration_minutes": [5.0, 5.0, 25.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
             }
         )
 
@@ -1197,7 +1197,7 @@ class TestTableLevelUniqueness:
                 "num_travelers": [1, 1, 1, 1, 1],
                 "driver": [0, 0, 0, 0, 0],
                 "duration_minutes": [10.0, 30.0, 30.0, 30.0, 30.0],
-                "trip_weight": [1.0, 1.0, 1.0, 1.0, 1.0],
+                "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0, 1.0],
             }
         )
 
