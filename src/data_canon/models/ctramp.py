@@ -86,6 +86,11 @@ class HouseholdCTRAMPModel(BaseModel):
     stf_rn: int | None = Field(description="Random number for stop frequency model")
     stl_rn: int | None = Field(description="Random number for stop location choice model")
 
+    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    household_weight: float | None = Field(
+        ge=0, description="Survey weight for the household (not part of CT-RAMP spec)"
+    )
+
 
 class PersonCTRAMPModel(BaseModel):
     """Person results from Travel Model (CT-RAMP format)."""
@@ -119,6 +124,11 @@ class PersonCTRAMPModel(BaseModel):
         ge=0,
         le=1,
         description="Works from home choice (0=non-worker or workers who don't work from home, 1=workers who work from home) - Added in TM1.6",
+    )
+
+    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    person_weight: float | None = Field(
+        ge=0, description="Survey weight for the person (not part of CT-RAMP spec)"
     )
 
 
@@ -212,7 +222,11 @@ class IndividualTourCTRAMPModel(BaseModel):
     num_ob_stops: int = Field(description="Number of out-bound stops on the tour")
     num_ib_stops: int = Field(description="Number of in-bound stops on the tour")
     # NOTE: Derivable from survey weights when available.
-    sampleRate: float | None = Field(None, description="To document, added in Travel Model 1.5")
+    sampleRate: float | None = Field(
+        None,
+        ge=0,
+        description="This household represents 1/sampleRate households, calculate from weights as 1/weight",
+    )
     # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
         description="Autonomous vehicle available, added in Travel Model 1.5"
@@ -237,6 +251,11 @@ class IndividualTourCTRAMPModel(BaseModel):
     )
     destSharedTNCWait: float | None = Field(
         None, description="To document, added in Travel Model 1.5"
+    )
+
+    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    tour_weight: float | None = Field(
+        ge=0, description="Survey weight for the tour (not part of CT-RAMP spec)"
     )
 
 
@@ -305,7 +324,9 @@ class IndividualTripCTRAMPModel(BaseModel):
     )
     # NOTE: Derivable from survey weights when available.
     sampleRate: float | None = Field(
-        None, description="This household represents 1/sampleRate households"
+        None,
+        ge=0,
+        description="This household represents 1/sampleRate households, calculate from weights as 1/weight",
     )
     # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
@@ -320,6 +341,12 @@ class IndividualTripCTRAMPModel(BaseModel):
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
+    )
+
+    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    trip_weight: float | None = Field(
+        ge=0,
+        description="Survey weight for the trip, aka linked_trip_weight (not part of CT-RAMP spec)",
     )
 
 
@@ -364,6 +391,11 @@ class JointTourCTRAMPModel(BaseModel):
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+
+    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    tour_weight: float | None = Field(
+        ge=0, description="Survey weight for the tour (not part of CT-RAMP spec)"
     )
 
 
@@ -418,4 +450,9 @@ class JointTripCTRAMPModel(BaseModel):
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
+    )
+
+    # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
+    trip_weight: float | None = Field(
+        ge=0, description="Survey weight for the trip (not part of CT-RAMP spec)"
     )
