@@ -31,7 +31,7 @@ def _default_times(depart_time, arrive_time, default_depart_hour=8, travel_minut
 
 
 def create_unlinked_trip(
-    trip_id: int = 10001,
+    unlinked_trip_id: int = 10001,
     _linked_trip_id: int | None = None,
     person_id: int = 101,
     hh_id: int = 1,
@@ -76,7 +76,7 @@ def create_unlinked_trip(
     These are the inputs to the link_trips processing step.
 
     Args:
-        trip_id: Trip ID
+        unlinked_trip_id: Trip ID
         person_id: Person ID
         hh_id: Household ID
         day_id: Day ID (links trip to a specific day)
@@ -126,7 +126,7 @@ def create_unlinked_trip(
     )
 
     record = {
-        "trip_id": trip_id,
+        "unlinked_trip_id": unlinked_trip_id,
         "person_id": person_id,
         "hh_id": hh_id,
         "day_id": day_id,

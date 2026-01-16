@@ -70,7 +70,7 @@ def create_multi_person_household_processed(
     # Create simple days for all persons
     days_list = []
     unlinked_trips_list = []
-    trip_id = 1
+    unlinked_trip_id = 1
 
     for person in persons.iter_rows(named=True):
         person_id = person["person_id"]
@@ -93,7 +93,7 @@ def create_multi_person_household_processed(
             unlinked_trips_list.extend(
                 [
                     create_unlinked_trip(
-                        trip_id=trip_id,
+                        unlinked_trip_id=unlinked_trip_id,
                         person_id=person_id,
                         hh_id=hh_id,
                         day_id=person_id,
@@ -106,7 +106,7 @@ def create_multi_person_household_processed(
                         d_lon=person["work_lon"],
                     ),
                     create_unlinked_trip(
-                        trip_id=trip_id + 1,
+                        unlinked_trip_id=unlinked_trip_id + 1,
                         person_id=person_id,
                         hh_id=hh_id,
                         day_id=person_id,
@@ -120,7 +120,7 @@ def create_multi_person_household_processed(
                     ),
                 ]
             )
-            trip_id += 2
+            unlinked_trip_id += 2
 
     days = pl.DataFrame(days_list)
     unlinked_trips = pl.DataFrame(unlinked_trips_list) if unlinked_trips_list else pl.DataFrame()

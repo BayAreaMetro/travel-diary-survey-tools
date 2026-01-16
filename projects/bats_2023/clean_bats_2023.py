@@ -24,7 +24,13 @@ def clean_2023_bats(
     # Much wow...
     logger.info("Cleaning 2023 trip data")
 
-    unlinked_trips = unlinked_trips.rename({"arrive_second": "arrive_seconds"})
+    # Rename columns to match expected names
+    unlinked_trips = unlinked_trips.rename(
+        {
+            "arrive_second": "arrive_seconds",
+            "trip_id": "unlinked_trip_id",
+        }
+    )
 
     # Add time columns if missing
     unlinked_trips = add_time_columns(unlinked_trips)

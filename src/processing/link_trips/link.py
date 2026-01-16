@@ -266,6 +266,71 @@ def aggregate_linked_trips(
         )
     )
 
+    # Build aggregation list
+    agg_exprs = [
+        # Linked trip number (from first trip segment)
+        pl.first("linked_trip_num"),
+        # Travel dow is from first trip. Caution for overnight trips
+        pl.first("travel_dow"),
+        # Departure information (from first trip segment)
+        # pl.first("depart_date"),
+        # pl.first("depart_hour"),
+        # pl.first("depart_minute"),
+        # pl.first("depart_seconds"),
+        pl.first("depart_time"),
+        pl.first("o_purpose"),
+        pl.first("o_purpose_category"),
+        pl.first("o_lat"),
+        pl.first("o_lon"),
+        # Arrival information (from last trip segment)
+        # pl.last("arrive_date"),
+        # pl.last("arrive_hour"),
+        # pl.last("arrive_minute"),
+        # pl.last("arrive_seconds"),
+        pl.last("arrive_time"),
+        pl.last("d_purpose"),
+        pl.last("d_purpose_category"),
+        pl.last("d_lat"),
+        pl.last("d_lon"),
+        # Trip distance (sum of segment distances)
+        pl.col("distance_meters").sum(),
+        # Travel duration (sum of segment durations)
+        pl.col("duration_minutes").sum().alias("travel_duration_minutes"),
+        # Total trip duration
+        (pl.col("arrive_time").max() - pl.col("depart_time").min())
+        .dt.total_minutes()
+        .alias("duration_minutes"),
+        # Dwell duration at change_mode locations:
+        # duration_minutes - travel_duration_minutes
+        (
+            (pl.col("arrive_time").max() - pl.col("depart_time").min()).dt.total_minutes()
+            - pl.col("duration_minutes").sum()
+        ).alias("dwell_duration_minutes"),
+        # Number of segments in linked trip
+        pl.len().alias("num_segments"),
+    ]
+
+    # Conditionally add linked_trip_weight if column exists
+    if "unlinked_trip_weight" in unlinked_trips.columns:
+        agg_exprs.append(pl.col("unlinked_trip_weight").mean().alias("linked_trip_weight"))
+
+    # Add remaining aggregations
+    agg_exprs.extend(
+        [
+            # num_travelers (max of segment num_travelers)
+            pl.col("num_travelers").max().alias("num_travelers"),
+            # Determine driver status across segments
+            pl.when(pl.col("driver").n_unique() == 1)
+            .then(pl.col("driver").first())
+            # If missing entirely
+            .when(pl.col("driver").filter(pl.col("driver") != Driver.MISSING.value).n_unique() == 0)
+            .then(pl.lit(Driver.MISSING.value))  # All missing
+            # If mixed driver/passenger, set to BOTH
+            .otherwise(pl.lit(Driver.BOTH.value))
+            .alias("driver"),
+        ]
+    )
+
     # Now aggregate with proper time ordering
     linked_trips = (
         unlinked_trips
@@ -274,66 +339,7 @@ def aggregate_linked_trips(
         .group_by(
             ["linked_trip_id", "person_id", "hh_id"],
         )
-        .agg(
-            [
-                # Linked trip number (from first trip segment)
-                pl.first("linked_trip_num"),
-                # Travel dow is from first trip. Caution for overnight trips
-                pl.first("travel_dow"),
-                # Departure information (from first trip segment)
-                # pl.first("depart_date"),
-                # pl.first("depart_hour"),
-                # pl.first("depart_minute"),
-                # pl.first("depart_seconds"),
-                pl.first("depart_time"),
-                pl.first("o_purpose"),
-                pl.first("o_purpose_category"),
-                pl.first("o_lat"),
-                pl.first("o_lon"),
-                # Arrival information (from last trip segment)
-                # pl.last("arrive_date"),
-                # pl.last("arrive_hour"),
-                # pl.last("arrive_minute"),
-                # pl.last("arrive_seconds"),
-                pl.last("arrive_time"),
-                pl.last("d_purpose"),
-                pl.last("d_purpose_category"),
-                pl.last("d_lat"),
-                pl.last("d_lon"),
-                # Trip distance (sum of segment distances)
-                pl.col("distance_meters").sum(),
-                # Travel duration (sum of segment durations)
-                pl.col("duration_minutes").sum().alias("travel_duration_minutes"),
-                # Total trip duration
-                (pl.col("arrive_time").max() - pl.col("depart_time").min())
-                .dt.total_minutes()
-                .alias("duration_minutes"),
-                # Dwell duration at change_mode locations:
-                # duration_minutes - travel_duration_minutes
-                (
-                    (pl.col("arrive_time").max() - pl.col("depart_time").min()).dt.total_minutes()
-                    - pl.col("duration_minutes").sum()
-                ).alias("dwell_duration_minutes"),
-                # Number of segments in linked trip
-                pl.len().alias("num_segments"),
-                # Linked trip weight (mean of segment weights)
-                pl.col("trip_weight").mean().alias("linked_trip_weight"),
-                # num_travelers (max of segment num_travelers)
-                pl.col("num_travelers").max().alias("num_travelers"),
-                # Determine driver status across segments
-                pl.when(pl.col("driver").n_unique() == 1)
-                .then(pl.col("driver").first())
-                # If missing entirely
-                .when(
-                    pl.col("driver").filter(pl.col("driver") != Driver.MISSING.value).n_unique()
-                    == 0
-                )
-                .then(pl.lit(Driver.MISSING.value))  # All missing
-                # If mixed driver/passenger, set to BOTH
-                .otherwise(pl.lit(Driver.BOTH.value))
-                .alias("driver"),
-            ]
-        )
+        .agg(agg_exprs)
         # Join with mode selection based on longest duration
         .join(mode_selection, on="linked_trip_id", how="left")
         # Join with access/egress modes

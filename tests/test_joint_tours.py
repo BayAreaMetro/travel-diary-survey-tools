@@ -113,7 +113,7 @@ class TestFullyJointTour:
         # Two adults make a joint tour: home -> shop -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4],
+                "unlinked_trip_id": [1, 2, 3, 4],
                 "day_id": [
                     2300007500101,
                     2300007500101,
@@ -169,7 +169,7 @@ class TestFullyJointTour:
                 "o_lon": [-122.4, -122.42, -122.4, -122.42],
                 "d_lat": [37.82, 37.8, 37.82, 37.8],
                 "d_lon": [-122.42, -122.4, -122.42, -122.4],
-                "trip_weight": [1.0] * 4,
+                "unlinked_trip_weight": [1.0] * 4,
                 "distance_meters": [2000.0] * 4,
                 "duration_minutes": [15.0] * 4,
                 "num_travelers": [2, 2, 2, 2],
@@ -218,7 +218,7 @@ class TestFullyJointTour:
         # All three people make a joint tour: home -> restaurant -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4, 5, 6],
+                "unlinked_trip_id": [1, 2, 3, 4, 5, 6],
                 "day_id": [2300007500101] * 2 + [2300007500201] * 2 + [2300007500301] * 2,
                 "person_id": [
                     23000075001,
@@ -257,7 +257,7 @@ class TestFullyJointTour:
                 "o_lon": [-122.4, -122.43] * 3,
                 "d_lat": [37.83, 37.8] * 3,
                 "d_lon": [-122.43, -122.4] * 3,
-                "trip_weight": [1.0] * 6,
+                "unlinked_trip_weight": [1.0] * 6,
                 "distance_meters": [3000.0] * 6,
                 "duration_minutes": [15.0] * 6,
                 "num_travelers": [3] * 6,
@@ -307,7 +307,7 @@ class TestPartialJointTour:
         # Person 2: home -> shop (joint) -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4, 5, 6],
+                "unlinked_trip_id": [1, 2, 3, 4, 5, 6],
                 "day_id": [2300007500101] * 3
                 + [2300007500201] * 2
                 + [2300007500101],  # P1 has 3 trips same day
@@ -374,7 +374,7 @@ class TestPartialJointTour:
                 "o_lon": [-122.4, -122.42, -122.43, -122.4, -122.42, -122.4],
                 "d_lat": [37.82, 37.83, 37.8, 37.82, 37.8, 37.82],
                 "d_lon": [-122.42, -122.43, -122.4, -122.42, -122.4, -122.42],
-                "trip_weight": [1.0] * 6,
+                "unlinked_trip_weight": [1.0] * 6,
                 "distance_meters": [2000.0] * 6,
                 "duration_minutes": [15.0] * 6,
                 "num_travelers": [
@@ -425,7 +425,7 @@ class TestPartialDropoff:
         # Parents only: school -> shop -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": list(range(1, 10)),
+                "unlinked_trip_id": list(range(1, 10)),
                 "day_id": [2300007500101] * 3 + [2300007500201] * 3 + [2300007500301] * 3,
                 "person_id": [23000075001] * 3 + [23000075002] * 3 + [23000075003] * 3,
                 "hh_id": [23000075] * 9,
@@ -504,7 +504,7 @@ class TestPartialDropoff:
                 "o_lon": [-122.4, -122.43, -122.42] * 3,
                 "d_lat": [37.81, 37.82, 37.8] * 3,
                 "d_lon": [-122.43, -122.42, -122.4] * 3,
-                "trip_weight": [1.0] * 9,
+                "unlinked_trip_weight": [1.0] * 9,
                 "distance_meters": [2000.0] * 9,
                 "duration_minutes": [15.0] * 9,
                 "num_travelers": [
@@ -571,7 +571,7 @@ class TestNoJointTours:
         # Each person makes independent tour
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4],
+                "unlinked_trip_id": [1, 2, 3, 4],
                 "day_id": [
                     2300007500101,
                     2300007500101,
@@ -623,7 +623,7 @@ class TestNoJointTours:
                 "o_lon": [-122.4, -122.45, -122.4, -122.48],
                 "d_lat": [37.85, 37.8, 37.82, 37.8],
                 "d_lon": [-122.45, -122.4, -122.48, -122.4],
-                "trip_weight": [1.0] * 4,
+                "unlinked_trip_weight": [1.0] * 4,
                 "distance_meters": [5000.0] * 4,
                 "duration_minutes": [30.0] * 4,
                 "num_travelers": [1] * 4,

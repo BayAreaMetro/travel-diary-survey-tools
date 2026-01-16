@@ -1,4 +1,5 @@
 weighted = true
+rmove_only = true
 
 day_filename = "day.csv"
 hh_filename = "hh.csv"
@@ -13,12 +14,11 @@ dir = "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/test/"
 
 
 [raw]
-dir = "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
+dir = "X:/survey_repos/ProjRoot_Mon-Thu20251011/WgtRoot_Mon-Thu20251011/output/full_weighted_dataset"
 
 [00-preprocess]
 dir = "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/test/00-preprocess"
 primary_respondent_only = true
-rmove_only = true
 
 [01-taz_spatial_join]
 dir = "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/test/01-taz_spatial_join"
@@ -36,9 +36,6 @@ trip_linked_detail_week_filename = "trip-detail.csv"
 dir = "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/test/03a-tour_extract_week"
 personday_filename = "personday.csv"
 tour_filename = "tour.csv"
-hh_weight_col = "hh_weight"
-person_weight_col = "person_weight"
-trip_weight_col = "trip_weight"
 
 [03b-assign_day]
 dir = "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Processed/test/03b-assign_day"

@@ -841,7 +841,7 @@ class TestTripFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -892,7 +892,7 @@ class TestTripFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -939,7 +939,7 @@ class TestTripFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -986,7 +986,7 @@ class TestTripFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -1034,7 +1034,7 @@ class TestTripFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -1081,7 +1081,7 @@ class TestTripFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -1125,7 +1125,7 @@ class TestTripFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -1311,7 +1311,7 @@ class TestEndToEndDaysimFormatting:
         unlinked_trips = pl.DataFrame(
             [
                 create_unlinked_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     person_id=101,
                     hh_id=1,
                     person_num=1,
@@ -1319,7 +1319,7 @@ class TestEndToEndDaysimFormatting:
                     d_purpose_category=PurposeCategory.WORK,
                 ),
                 create_unlinked_trip(
-                    trip_id=2,
+                    unlinked_trip_id=2,
                     person_id=201,
                     hh_id=2,
                     person_num=1,

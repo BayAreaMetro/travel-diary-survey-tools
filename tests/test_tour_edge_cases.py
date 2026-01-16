@@ -57,7 +57,7 @@ def single_trip_tour_data():
     # Single trip: home -> grocery store
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1],
+            "unlinked_trip_id": [1],
             "day_id": [1],
             "person_id": [1],
             "hh_id": [1],
@@ -73,7 +73,7 @@ def single_trip_tour_data():
             "o_lon": [-122.4],
             "d_lat": [37.82],
             "d_lon": [-122.42],
-            "trip_weight": [1.0],
+            "unlinked_trip_weight": [1.0],
             "distance_meters": [2000.0],
             "duration_minutes": [15.0],
             "num_travelers": [1],
@@ -127,7 +127,7 @@ def partial_tour_data():
     # Trips: work -> lunch -> work -> home
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3],
+            "unlinked_trip_id": [1, 2, 3],
             "day_id": [1, 1, 1],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],
@@ -171,7 +171,7 @@ def partial_tour_data():
             "o_lon": [-122.45, -122.46, -122.45],
             "d_lat": [37.86, 37.85, 37.8],
             "d_lon": [-122.46, -122.45, -122.4],
-            "trip_weight": [1.0, 1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0, 1.0],
             "distance_meters": [1000.0, 1000.0, 5000.0],
             "duration_minutes": [15.0, 15.0, 30.0],
             "num_travelers": [1, 1, 1],
@@ -229,7 +229,7 @@ def distant_destinations_data():
     # home -> SF -> Oakland -> SJ -> home
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3],
+            "unlinked_trip_id": [1, 2, 3],
             "day_id": [1, 1, 1],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],
@@ -273,7 +273,7 @@ def distant_destinations_data():
             "o_lon": [-122.4, -122.39, -122.2],
             "d_lat": [37.79, 37.6, 37.8],  # SF, Oakland, Home
             "d_lon": [-122.39, -122.2, -122.4],
-            "trip_weight": [1.0, 1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0, 1.0],
             "distance_meters": [10000.0, 20000.0, 30000.0],
             "duration_minutes": [60.0, 60.0, 120.0],
             "num_travelers": [1, 1, 1],
@@ -380,7 +380,7 @@ def test_tour_num_sequential():
     # home->work->home, home->shop->home, home->social->home
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3, 4, 5],
+            "unlinked_trip_id": [1, 2, 3, 4, 5],
             "day_id": [1, 1, 1, 1, 1],
             "person_id": [1, 1, 1, 1, 1],
             "hh_id": [1, 1, 1, 1, 1],
@@ -432,7 +432,7 @@ def test_tour_num_sequential():
             "o_lon": [-122.4, -122.45, -122.4, -122.41, -122.4],
             "d_lat": [37.85, 37.8, 37.81, 37.8, 37.82],
             "d_lon": [-122.45, -122.4, -122.41, -122.4, -122.42],
-            "trip_weight": [1.0, 1.0, 1.0, 1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0, 1.0],
             "distance_meters": [5000.0, 5000.0, 1000.0, 1000.0, 2000.0],
             "duration_minutes": [30.0, 30.0, 15.0, 15.0, 15.0],
             "num_travelers": [1, 1, 1, 1, 1],
@@ -496,7 +496,7 @@ def test_all_tours_have_required_fields():
     # Mix of scenarios: normal tours, single-trip tours, partial tours
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3, 4],
+            "unlinked_trip_id": [1, 2, 3, 4],
             "day_id": [1, 1, 2, 2],
             "person_id": [1, 1, 2, 2],
             "hh_id": [1, 1, 1, 1],
@@ -547,7 +547,7 @@ def test_all_tours_have_required_fields():
             "o_lon": [-122.4, -122.45, -122.4, -122.41],
             "d_lat": [37.85, 37.8, 37.81, 37.8],
             "d_lon": [-122.45, -122.4, -122.41, -122.4],
-            "trip_weight": [1.0, 1.0, 1.0, 1.0],
+            "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
             "distance_meters": [5000.0, 5000.0, 1000.0, 1000.0],
             "duration_minutes": [30.0, 30.0, 30.0, 30.0],
             "num_travelers": [1, 1, 1, 1],

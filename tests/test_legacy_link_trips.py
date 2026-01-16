@@ -59,7 +59,7 @@ MODE_MAP = {
 # This is the canonical format - legacy format is derived from this
 SIMPLE_TRANSIT_JOURNEY = pl.DataFrame(
     {
-        "trip_id": [1, 2, 3, 4],
+        "unlinked_trip_id": [1, 2, 3, 4],
         "day_id": [1, 1, 1, 1],
         "person_id": [1, 1, 1, 1],
         "hh_id": [1, 1, 1, 1],
@@ -119,7 +119,7 @@ SIMPLE_TRANSIT_JOURNEY = pl.DataFrame(
         "arrive_seconds": [0, 0, 0, 0],
         "distance_meters": [804.5, 804.5, 8046.7, 8046.7],
         "duration_minutes": [10.0, 3.0, 40.0, 30.0],
-        "trip_weight": [1.0, 1.0, 1.0, 1.0],
+        "unlinked_trip_weight": [1.0, 1.0, 1.0, 1.0],
         "travel_dow": [1, 1, 1, 1],  # Monday
         "num_travelers": [1, 1, 1, 1],
         "driver": [2, 2, 2, 1],  # Passenger for transit/walk, Driver for drive
@@ -141,7 +141,7 @@ SIMPLE_TRANSIT_JOURNEY_EXPECTED = {
 # multiple modes within a single trip segment
 COMPLEX_MODE_JOURNEY = pl.DataFrame(
     {
-        "trip_id": [1, 2, 3],
+        "unlinked_trip_id": [1, 2, 3],
         "day_id": [2, 2, 2],
         "person_id": [2, 2, 2],
         "hh_id": [2, 2, 2],
@@ -201,7 +201,7 @@ COMPLEX_MODE_JOURNEY = pl.DataFrame(
         "distance_meters": [1609.3, 8046.7, 402.3],  # ~1, 5, 0.25 miles
         "distance_miles": [1.0, 5.0, 0.25],
         "duration_minutes": [25.0, 40.0, 15.0],
-        "trip_weight": [1.5, 1.5, 1.5],
+        "unlinked_trip_weight": [1.5, 1.5, 1.5],
         "travel_dow": [2, 2, 2],  # Tuesday
         "num_travelers": [1, 1, 1],
         "driver": [2, 2, 2],  # All passenger (bike/transit/walk)
@@ -240,7 +240,7 @@ def to_legacy_format(new_df: pl.DataFrame) -> pd.DataFrame:
             "hhno": new_df["hh_id"].to_list(),
             "pno": new_df["person_id"].to_list(),
             "dow": new_df["day_id"].to_list(),
-            "tripno": new_df["trip_id"].to_list(),
+            "tripno": new_df["unlinked_trip_id"].to_list(),
             "opurp": [new_to_legacy_purpose[p] for p in new_df["o_purpose_category"].to_list()],
             "dpurp": [new_to_legacy_purpose[p] for p in new_df["d_purpose_category"].to_list()],
             "mode": new_df["mode_type"].to_list(),
