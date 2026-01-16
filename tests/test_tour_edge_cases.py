@@ -57,7 +57,7 @@ def single_trip_tour_data():
     # Single trip: home -> grocery store
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1],
+            "unlinked_trip_id": [1],
             "day_id": [1],
             "person_id": [1],
             "hh_id": [1],
@@ -127,7 +127,7 @@ def partial_tour_data():
     # Trips: work -> lunch -> work -> home
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3],
+            "unlinked_trip_id": [1, 2, 3],
             "day_id": [1, 1, 1],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],
@@ -229,7 +229,7 @@ def distant_destinations_data():
     # home -> SF -> Oakland -> SJ -> home
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3],
+            "unlinked_trip_id": [1, 2, 3],
             "day_id": [1, 1, 1],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],
@@ -380,7 +380,7 @@ def test_tour_num_sequential():
     # home->work->home, home->shop->home, home->social->home
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3, 4, 5],
+            "unlinked_trip_id": [1, 2, 3, 4, 5],
             "day_id": [1, 1, 1, 1, 1],
             "person_id": [1, 1, 1, 1, 1],
             "hh_id": [1, 1, 1, 1, 1],
@@ -496,7 +496,7 @@ def test_all_tours_have_required_fields():
     # Mix of scenarios: normal tours, single-trip tours, partial tours
     unlinked_trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3, 4],
+            "unlinked_trip_id": [1, 2, 3, 4],
             "day_id": [1, 1, 2, 2],
             "person_id": [1, 1, 2, 2],
             "hh_id": [1, 1, 1, 1],

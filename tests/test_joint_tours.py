@@ -113,7 +113,7 @@ class TestFullyJointTour:
         # Two adults make a joint tour: home -> shop -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4],
+                "unlinked_trip_id": [1, 2, 3, 4],
                 "day_id": [
                     2300007500101,
                     2300007500101,
@@ -218,7 +218,7 @@ class TestFullyJointTour:
         # All three people make a joint tour: home -> restaurant -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4, 5, 6],
+                "unlinked_trip_id": [1, 2, 3, 4, 5, 6],
                 "day_id": [2300007500101] * 2 + [2300007500201] * 2 + [2300007500301] * 2,
                 "person_id": [
                     23000075001,
@@ -307,7 +307,7 @@ class TestPartialJointTour:
         # Person 2: home -> shop (joint) -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4, 5, 6],
+                "unlinked_trip_id": [1, 2, 3, 4, 5, 6],
                 "day_id": [2300007500101] * 3
                 + [2300007500201] * 2
                 + [2300007500101],  # P1 has 3 trips same day
@@ -425,7 +425,7 @@ class TestPartialDropoff:
         # Parents only: school -> shop -> home
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": list(range(1, 10)),
+                "unlinked_trip_id": list(range(1, 10)),
                 "day_id": [2300007500101] * 3 + [2300007500201] * 3 + [2300007500301] * 3,
                 "person_id": [23000075001] * 3 + [23000075002] * 3 + [23000075003] * 3,
                 "hh_id": [23000075] * 9,
@@ -571,7 +571,7 @@ class TestNoJointTours:
         # Each person makes independent tour
         unlinked_trips = pl.DataFrame(
             {
-                "trip_id": [1, 2, 3, 4],
+                "unlinked_trip_id": [1, 2, 3, 4],
                 "day_id": [
                     2300007500101,
                     2300007500101,

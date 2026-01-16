@@ -372,7 +372,7 @@ def mode_hierarchy_data():
     # Trip data (using linked trips - already merged change_mode segments)
     trips = pl.DataFrame(
         {
-            "trip_id": [1, 2],
+            "unlinked_trip_id": [1, 2],
             "linked_trip_id": [1, 2],
             "day_id": [2, 2],
             "travel_dow": [TravelDow.MONDAY.value, TravelDow.MONDAY.value],
@@ -611,7 +611,7 @@ def test_mode_hierarchy(mode_hierarchy_data):
 
     # Create dummy unlinked_trips from linked_trips for extract_tours
     # (mode_hierarchy_data fixture provides linked trips directly)
-    unlinked_trips = linked_trips.with_columns(trip_id=pl.col("linked_trip_id"))
+    unlinked_trips = linked_trips.with_columns(unlinked_trip_id=pl.col("linked_trip_id"))
 
     # Extract tours using both unlinked and linked trips
     result = extract_tours(persons, households, unlinked_trips, linked_trips)
@@ -700,7 +700,7 @@ def test_tour_timing():
 
     trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3, 4],
+            "unlinked_trip_id": [1, 2, 3, 4],
             "linked_trip_id": [1, 2, 3, 4],
             "day_id": [2, 2, 2, 2],
             "travel_dow": [TravelDow.MONDAY.value] * 4,
@@ -885,7 +885,7 @@ def test_tour_trip_counts():
 
     trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3, 4],
+            "unlinked_trip_id": [1, 2, 3, 4],
             "linked_trip_id": [1, 2, 3, 4],
             "day_id": [2, 2, 2, 2],
             "travel_dow": [TravelDow.MONDAY.value] * 4,
@@ -1004,7 +1004,7 @@ def test_incomplete_tour_at_end_of_day():
     # Day 2: Incomplete tour (home -> work, no return)
     trips = pl.DataFrame(
         {
-            "trip_id": [1, 2, 3],
+            "unlinked_trip_id": [1, 2, 3],
             "linked_trip_id": [1, 2, 3],
             "day_id": [1, 1, 2],
             "travel_dow": [TravelDow.MONDAY.value] * 3,
@@ -1120,7 +1120,7 @@ def test_no_work_location():
 
     trips = pl.DataFrame(
         {
-            "trip_id": [1, 2],
+            "unlinked_trip_id": [1, 2],
             "linked_trip_id": [1, 2],
             "day_id": [2, 2],
             "travel_dow": [TravelDow.MONDAY.value, TravelDow.MONDAY.value],

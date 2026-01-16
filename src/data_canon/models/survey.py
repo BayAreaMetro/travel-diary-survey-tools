@@ -109,7 +109,7 @@ class PersonDayModel(BaseModel):
 class UnlinkedTripModel(BaseModel):
     """Trip data model for validation."""
 
-    trip_id: int = step_field(ge=1, unique=True)
+    unlinked_trip_id: int = step_field(ge=1, unique=True)
     day_id: int = step_field(ge=1, fk_to="days.day_id")
     person_id: int = step_field(ge=1, fk_to="persons.person_id")
     hh_id: int = step_field(ge=1, fk_to="households.hh_id")
@@ -166,7 +166,7 @@ class UnlinkedTripModel(BaseModel):
             and self.arrive_time < self.depart_time
         ):
             msg = (
-                f"Trip {self.trip_id}: arrive_time ({self.arrive_time}) "
+                f"Trip {self.unlinked_trip_id}: arrive_time ({self.arrive_time}) "
                 f"must be after depart_time ({self.depart_time})"
             )
             raise ValueError(msg)
