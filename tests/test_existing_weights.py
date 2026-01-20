@@ -2,6 +2,7 @@
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 from processing.weighting.existing_weights import add_existing_weights
 
@@ -68,7 +69,6 @@ class TestAddExistingWeights:
         weights_config = {
             "person_weights": {
                 "weight_path": str(weight_file),
-                "id_col": "person_id",
                 "weight_id_col": "pid",
             }
         }
@@ -286,12 +286,31 @@ class TestAddExistingWeights:
 
         weights_config = {
             "household_weights": {
-                # Missing weight_path
-                "id_col": "hh_id",
+                # Missing weight_path - Pydantic will catch this
             }
         }
 
-        with pytest.raises(ValueError, match="Missing required 'weight_path'"):
+        with pytest.raises(ValidationError):
+            add_existing_weights(
+                weights=weights_config,
+                households=households,
+            )
+
+    def test_error_on_nonexistent_file(self):
+        """Test that nonexistent weight file raises FileNotFoundError."""
+        households = pl.DataFrame(
+            {
+                "hh_id": [1, 2],
+            }
+        )
+
+        weights_config = {
+            "household_weights": {
+                "weight_path": "/nonexistent/path/to/weights.csv",
+            }
+        }
+
+        with pytest.raises(FileNotFoundError, match="Weight file does not exist"):
             add_existing_weights(
                 weights=weights_config,
                 households=households,
@@ -432,3 +451,69 @@ class TestAddExistingWeights:
         # Should not raise error, just log warning
         assert "households" not in result
         assert "Weight file provided for households but table not found" in caplog.text
+
+    def test_config_key_auto_inference(self, tmp_path):
+        """Test that config_key is automatically inferred from dict key."""
+        households = pl.DataFrame(
+            {
+                "hh_id": [1, 2],
+            }
+        )
+
+        # Create weight file
+        weight_file = tmp_path / "hh_weights.csv"
+        pl.DataFrame(
+            {
+                "hh_id": [1, 2],
+                "hh_weight": [1.5, 2.0],
+            }
+        ).write_csv(weight_file)
+
+        # config_key will be inferred from the dict key "household_weights"
+        weights_config = {
+            "household_weights": {
+                "weight_path": str(weight_file),
+            }
+        }
+
+        result = add_existing_weights(
+            weights=weights_config,
+            households=households,
+        )
+
+        assert "hh_weight" in result["households"].columns
+        assert result["households"]["hh_weight"].to_list() == [1.5, 2.0]
+
+    def test_defaults_applied_correctly(self, tmp_path):
+        """Test that default weight_id_col and weight_col are applied correctly."""
+        persons = pl.DataFrame(
+            {
+                "person_id": [1, 2, 3],
+            }
+        )
+
+        # Weight file with canonical column names
+        weight_file = tmp_path / "person_weights.csv"
+        pl.DataFrame(
+            {
+                "person_id": [1, 2, 3],  # Canonical ID column
+                "person_weight": [1.2, 1.5, 1.8],  # Canonical weight column
+            }
+        ).write_csv(weight_file)
+
+        # Only provide weight_path, let defaults fill in the rest
+        weights_config = {
+            "person_weights": {
+                "weight_path": str(weight_file),
+                # weight_id_col should default to "person_id"
+                # weight_col should default to "person_weight"
+            }
+        }
+
+        result = add_existing_weights(
+            weights=weights_config,
+            persons=persons,
+        )
+
+        assert "person_weight" in result["persons"].columns
+        assert result["persons"]["person_weight"].to_list() == [1.2, 1.5, 1.8]

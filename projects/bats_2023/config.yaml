@@ -85,7 +85,7 @@ steps:
 
   - name: add_existing_weights
     validate_input: false
-    cache: true
+    cache: false
     params:
       derive_missing_weights: true
       weights:
@@ -96,8 +96,8 @@ steps:
         day_weights:
           weight_path: "{{ weights_dir }}/day_weights.csv"
         unlinked_trip_weights:
-          id_col: "trip_id" # Default should probably be 'unlinked_trip_id' in future canonical
-          weight_col: "trip_weight" # Default should probably be 'unlinked_trip_weight'
+          weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
+          weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
           weight_path: "{{ weights_dir }}/trip_weights.csv"
 
   # - name: final_check

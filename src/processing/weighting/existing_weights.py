@@ -1,8 +1,10 @@
 """Simply concatenate existing weights to the data."""
 
 import logging
+from pathlib import Path
 
 import polars as pl
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pipeline.decoration import step
 
@@ -18,6 +20,119 @@ DEFAULT_WEIGHT_CONFIG_MAPPING = {
     "joint_trip_weights": ("joint_trips", "joint_trip_id", "joint_trip_weight"),
     "tour_weights": ("tours", "tour_id", "tour_weight"),
 }
+
+
+class WeightConfig(BaseModel):
+    """Configuration for a single weight file.
+
+    Most fields use sensible defaults - typically you only need to provide weight_path.
+    Override weight_id_col only if your weight file uses different ID column names.
+    Override weight_col only if your weight file uses different weight column names.
+
+    Examples:
+        Basic usage with defaults:
+        >>> WeightConfig(config_key="household_weights", weight_path="hh_weights.csv")
+        # Uses: weight_id_col="hh_id", weight_col="hh_weight"
+
+        Override weight column name:
+        >>> WeightConfig(
+        ...     config_key="person_weights",
+        ...     weight_path="person_weights.csv",
+        ...     weight_col="final_weight"  # Weight file uses "final_weight" not "person_weight"
+        ... )
+
+        Override ID column name (external weight file with non-canonical IDs):
+        >>> WeightConfig(
+        ...     config_key="unlinked_trip_weights",
+        ...     weight_path="trip_weights.csv",
+        ...     weight_id_col="trip_id",  # Weight file uses "trip_id" not "unlinked_trip_id"
+        ...     weight_col="trip_weight" # Weight file uses "trip_weight" not "unlinked_trip_weight"
+        ... )
+
+    Attributes:
+        config_key: Key identifying the weight type (e.g., 'household_weights')
+        weight_path: Path to the CSV file containing weights
+        weight_id_col: ID column name in the weight file. Defaults to canonical table ID.
+        weight_col: Weight column name in the weight file. Defaults to canonical weight column.
+    """
+
+    config_key: str
+    weight_path: Path
+    weight_id_col: str | None = Field(
+        default=None, description="Defaults to canonical table ID if not provided"
+    )
+    weight_col: str | None = Field(
+        default=None, description="Defaults to canonical weight column if not provided"
+    )
+
+    @field_validator("config_key")
+    @classmethod
+    def validate_config_key(cls, v: str) -> str:
+        """Validate that config_key is one of the allowed values."""
+        if v not in DEFAULT_WEIGHT_CONFIG_MAPPING:
+            msg = (
+                f"Invalid weight config key: {v}. "
+                f"Must be one of {list(DEFAULT_WEIGHT_CONFIG_MAPPING.keys())}"
+            )
+            raise ValueError(msg)
+        return v
+
+    @field_validator("weight_path")
+    @classmethod
+    def validate_path_exists(cls, v: Path) -> Path:
+        """Validate that the weight file exists."""
+        if not v.exists():
+            msg = f"Weight file does not exist: {v}"
+            raise FileNotFoundError(msg)
+        return v
+
+    @model_validator(mode="after")
+    def set_defaults_from_mapping(self) -> "WeightConfig":
+        """Set default values for weight_id_col and weight_col from the mapping."""
+        _, table_id_col, canonical_weight_col = DEFAULT_WEIGHT_CONFIG_MAPPING[self.config_key]
+
+        if self.weight_id_col is None:
+            self.weight_id_col = table_id_col
+        if self.weight_col is None:
+            self.weight_col = canonical_weight_col
+
+        return self
+
+    @property
+    def table_name(self) -> str:
+        """Get the table name for this weight config."""
+        return DEFAULT_WEIGHT_CONFIG_MAPPING[self.config_key][0]
+
+    @property
+    def table_id_col(self) -> str:
+        """Get the canonical table ID column."""
+        return DEFAULT_WEIGHT_CONFIG_MAPPING[self.config_key][1]
+
+    def validate_columns(self, weight_df: pl.DataFrame, table_df: pl.DataFrame) -> None:
+        """Validate that required columns exist in weight file and table.
+
+        Args:
+            weight_df: The weight DataFrame loaded from weight_path
+            table_df: The survey data table to join weights to
+
+        Raises:
+            ValueError: If required columns are missing
+        """
+        # Check weight file has required columns
+        if self.weight_id_col not in weight_df.columns:
+            msg = f"Weight file {self.weight_path} missing required ID column: {self.weight_id_col}"
+            raise ValueError(msg)
+
+        if self.weight_col not in weight_df.columns:
+            msg = (
+                f"Weight file {self.weight_path} missing required weight column: {self.weight_col}"
+            )
+            raise ValueError(msg)
+
+        # Check table has required ID column
+        if self.table_id_col not in table_df.columns:
+            msg = f"Table {self.table_name} missing required ID column: {self.table_id_col}"
+            raise ValueError(msg)
 
 
 def _derive_missing_weights(
@@ -117,7 +232,7 @@ def _derive_missing_weights(
 
 @step()
 def add_existing_weights(
-    weights: dict[str, dict[str, str]],
+    weights: dict[str, WeightConfig | dict],
     derive_missing_weights: bool = False,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -190,28 +305,23 @@ def add_existing_weights(
     provided_weights = set()
     has_weight = {}
 
-    # Load and join provided weight files
-    for config_key, cfg in weights.items():
-        if config_key not in DEFAULT_WEIGHT_CONFIG_MAPPING:
+    # Validate and convert weight configs to WeightConfig objects
+    validated_weights: dict[str, WeightConfig] = {}
+    for config_key, value in weights.items():
+        if isinstance(value, WeightConfig):
+            validated_weights[config_key] = value
+        elif isinstance(value, dict):
+            # Auto-infer config_key from dict key if not provided
+            validated_weights[config_key] = WeightConfig(config_key=config_key, **value)
+        else:
             msg = (
-                f"Invalid weight config key: {config_key}. "
-                f"Must be one of {list(DEFAULT_WEIGHT_CONFIG_MAPPING.keys())}"
+                f"Weight config for {config_key} must be a WeightConfig or dict, got {type(value)}"
             )
-            raise ValueError(msg)
+            raise TypeError(msg)
 
-        # Get defaults from mapping
-        table_name, default_id_col, default_weight_col = DEFAULT_WEIGHT_CONFIG_MAPPING[config_key]
-
-        # Override with config values if provided
-        file_path = cfg.get("weight_path")
-        table_id_col = cfg.get("id_col", default_id_col)  # ID column in main table
-        weight_id_col = cfg.get("weight_id_col", table_id_col)  # ID column in weight file
-        weight_col = cfg.get("weight_col", default_weight_col)
-
-        if file_path is None:
-            msg = f"Missing required 'weight_path' for {config_key}"
-            raise ValueError(msg)
-
+    # Load and join provided weight files
+    for cfg in validated_weights.values():
+        table_name = cfg.table_name
         provided_weights.add(table_name)
 
         df = tables.get(table_name)
@@ -219,29 +329,24 @@ def add_existing_weights(
             logger.warning("Weight file provided for %s but table not found in data", table_name)
             continue
 
-        # Load and join weight file
-        logger.info("Loading weights from %s for %s", file_path, table_name)
-        weight_df = pl.read_csv(file_path)
+        # Load weight file
+        logger.info("Loading weights from %s for %s", cfg.weight_path, table_name)
+        weight_df = pl.read_csv(cfg.weight_path)
 
-        # Validate required columns exist
-        if weight_id_col not in weight_df.columns:
-            msg = f"Weight file {file_path} missing required ID column: {weight_id_col}"
-            raise ValueError(msg)
-        if weight_col not in weight_df.columns:
-            msg = f"Weight file {file_path} missing required weight column: {weight_col}"
-            raise ValueError(msg)
-        if table_id_col not in df.columns:
-            msg = f"Table {table_name} missing required ID column: {table_id_col}"
-            raise ValueError(msg)
+        # Validate columns exist
+        cfg.validate_columns(weight_df, df)
 
         # Join, handling potential ID column name mismatch
-        if weight_id_col != table_id_col:
+        if cfg.weight_id_col != cfg.table_id_col:
             # Rename weight file ID column to match table
-            weight_df = weight_df.rename({weight_id_col: table_id_col})
+            if cfg.weight_id_col is None:
+                msg = f"weight_id_col should never be None due to model_validator for {table_name}"
+                raise ValueError(msg)
+            weight_df = weight_df.rename({cfg.weight_id_col: cfg.table_id_col})
 
-        logger.info("Joined %s to %s on %s", weight_col, table_name, table_id_col)
-        tables[table_name] = df.join(weight_df, on=table_id_col, how="left")
-        has_weight[table_name] = weight_col
+        logger.info("Joined %s to %s on %s", cfg.weight_col, table_name, cfg.table_id_col)
+        tables[table_name] = df.join(weight_df, on=cfg.table_id_col, how="left")
+        has_weight[table_name] = cfg.weight_col
 
     # Derive missing weights if requested
     if derive_missing_weights:
