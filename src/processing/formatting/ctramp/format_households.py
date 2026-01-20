@@ -254,15 +254,15 @@ def format_households(
         "workers",
     ]
 
-    # Add weight and sampleRate if household_weight exists
-    if "household_weight" in households_ctramp.columns:
+    # Add weight and sampleRate if hh_weight exists
+    if "hh_weight" in households_ctramp.columns:
         households_ctramp = households_ctramp.with_columns(
-            pl.when(pl.col("household_weight") > 0)
-            .then(pl.col("household_weight").pow(-1))
+            pl.when(pl.col("hh_weight") > 0)
+            .then(pl.col("hh_weight").pow(-1))
             .otherwise(None)
             .alias("sampleRate")
         )
-        output_cols.extend(["household_weight", "sampleRate"])
+        output_cols.extend(["hh_weight", "sampleRate"])
 
     households_ctramp = households_ctramp.select(output_cols)
 

@@ -2092,11 +2092,11 @@ class TestWeightsAndSampleRate:
     """Tests for weight fields and sampleRate calculation in CTRAMP output."""
 
     def test_household_weight_and_samplerate(self):
-        """Test household_weight and sampleRate are output when weight exists."""
+        """Test hh_weight and sampleRate are output when weight exists."""
         households = pl.DataFrame(
             [
-                create_household(hh_id=1, household_weight=2.5),
-                create_household(hh_id=2, household_weight=4.0),
+                create_household(hh_id=1, hh_weight=2.5),
+                create_household(hh_id=2, hh_weight=4.0),
             ]
         )
         persons = pl.DataFrame(
@@ -2110,23 +2110,23 @@ class TestWeightsAndSampleRate:
         result = format_households(households, persons, tours)
 
         # Verify weight column present
-        assert "household_weight" in result.columns
+        assert "hh_weight" in result.columns
         assert "sampleRate" in result.columns
 
         # Verify weight values passed through
-        assert result.filter(pl.col("hh_id") == 1)["household_weight"][0] == 2.5
-        assert result.filter(pl.col("hh_id") == 2)["household_weight"][0] == 4.0
+        assert result.filter(pl.col("hh_id") == 1)["hh_weight"][0] == 2.5
+        assert result.filter(pl.col("hh_id") == 2)["hh_weight"][0] == 4.0
 
         # Verify sampleRate = 1/weight
         assert result.filter(pl.col("hh_id") == 1)["sampleRate"][0] == pytest.approx(1 / 2.5)
         assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(1 / 4.0)
 
     def test_household_samplerate_null_when_zero_weight(self):
-        """Test sampleRate is None when household_weight is zero."""
+        """Test sampleRate is None when hh_weight is zero."""
         households = pl.DataFrame(
             [
-                create_household(hh_id=1, household_weight=0.0),
-                create_household(hh_id=2, household_weight=2.0),
+                create_household(hh_id=1, hh_weight=0.0),
+                create_household(hh_id=2, hh_weight=2.0),
             ]
         )
         persons = pl.DataFrame(
@@ -2144,7 +2144,7 @@ class TestWeightsAndSampleRate:
         assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(0.5)
 
     def test_household_samplerate_null_when_null_weight(self):
-        """Test sampleRate is None when household_weight is null."""
+        """Test sampleRate is None when hh_weight is null."""
         households = pl.DataFrame(
             {
                 "hh_id": [1, 2],
@@ -2154,7 +2154,7 @@ class TestWeightsAndSampleRate:
                 "num_workers": [1, 1],
                 "income_detailed": [IncomeDetailed.INCOME_75TO100.value] * 2,
                 "income_followup": [None, None],
-                "household_weight": [None, 3.0],
+                "hh_weight": [None, 3.0],
                 "home_lat": [37.7, 37.8],
                 "home_lon": [-122.4, -122.5],
                 "home_maz": [None, None],
@@ -2178,7 +2178,7 @@ class TestWeightsAndSampleRate:
         assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(1 / 3.0)
 
     def test_household_no_weight_columns_when_missing(self):
-        """Test household_weight and sampleRate absent when not in input."""
+        """Test hh_weight and sampleRate absent when not in input."""
         households = pl.DataFrame(
             {
                 "hh_id": [1],
@@ -2194,7 +2194,7 @@ class TestWeightsAndSampleRate:
                 "home_walk_subzone": [None],
                 "residence_type": [None],
                 "residence_rent_own": [None],
-                # NO household_weight column
+                # NO hh_weight column
             }
         )
         persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
@@ -2203,7 +2203,7 @@ class TestWeightsAndSampleRate:
         result = format_households(households, persons, tours)
 
         # Weight columns should not be present
-        assert "household_weight" not in result.columns
+        assert "hh_weight" not in result.columns
         assert "sampleRate" not in result.columns
 
     def test_person_weight_and_samplerate(self, standard_config):

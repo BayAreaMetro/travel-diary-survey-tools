@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 @step()
-def format_ctramp(  # noqa: PLR0913
+def format_ctramp(
     persons: pl.DataFrame,
     households: pl.DataFrame,
     linked_trips: pl.DataFrame,

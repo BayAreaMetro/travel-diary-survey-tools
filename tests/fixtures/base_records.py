@@ -44,7 +44,7 @@ def create_household(
     income_followup: IncomeFollowup | None = None,
     residence_type: ResidenceType | None = ResidenceType.SFH,
     residence_rent_own: ResidenceRentOwn | None = ResidenceRentOwn.OWN,
-    household_weight: float = 1.0,
+    hh_weight: float = 1.0,
     **overrides,
 ) -> dict:
     """Create a complete canonical household record.
@@ -68,7 +68,7 @@ def create_household(
         residence_type: Residence type enum (default SFH, for Daysim)
         residence_rent_own: Residence rent/own status enum (default OWN, for
             Daysim)
-        household_weight: Household expansion factor
+        hh_weight: Household expansion factor
         **overrides: Override any default values
 
     Returns:
@@ -82,7 +82,7 @@ def create_household(
         "num_workers": num_workers,
         "income_detailed": income_detailed.value if income_detailed else None,
         "income_followup": income_followup.value if income_followup else None,
-        "household_weight": household_weight,
+        "hh_weight": hh_weight,
     }
 
     # Always include optional fields (formatters may require them)

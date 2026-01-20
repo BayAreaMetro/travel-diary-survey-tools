@@ -92,7 +92,7 @@ class HouseholdCTRAMPModel(BaseModel):
         ge=0,
         description="This household represents 1/sampleRate households, calculate from weights as 1/weight",
     )  # For some reason this wasn't in the original CTRAMP model spec
-    household_weight: float | None = Field(
+    hh_weight: float | None = Field(
         ge=0, description="Survey weight for the household (not part of CT-RAMP spec)"
     )
 

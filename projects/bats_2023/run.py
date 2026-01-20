@@ -17,6 +17,7 @@ from data_canon.models import (
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
 from processing import (
+    add_existing_weights,
     add_zone_ids,
     detect_joint_trips,
     extract_tours,
@@ -89,6 +90,7 @@ processing_steps = [
     format_ctramp,
     format_daysim,
     write_data,
+    add_existing_weights,
 ]
 
 
