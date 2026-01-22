@@ -108,6 +108,14 @@ def validate_dataframe_rows(
     Raises:
         DataValidationError: If any row fails validation
     """
+    logger.debug(
+        "validate_dataframe_rows for table '%s' with %s rows using %s model (step=%s)",
+        table_name,
+        len(df),
+        model.__name__,
+        step,
+    )
+
     if len(df) == 0:
         return
 
@@ -159,8 +167,8 @@ def validate_dataframe_rows(
         if len(error_groups) >= max_unique_errors:
             break
 
-        # Raise with error details
-        _report_errors(error_groups, table_name)
+    # Raise with error details (after all batches are processed)
+    _report_errors(error_groups, table_name)
 
 
 def _report_errors(error_groups: dict[str, list[int]], table_name: str) -> None:
