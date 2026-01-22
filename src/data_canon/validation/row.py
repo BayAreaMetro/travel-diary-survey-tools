@@ -108,14 +108,6 @@ def validate_dataframe_rows(
     Raises:
         DataValidationError: If any row fails validation
     """
-    logger.debug(
-        "validate_dataframe_rows for table '%s' with %s rows using %s model (step=%s)",
-        table_name,
-        len(df),
-        model.__name__,
-        step,
-    )
-
     if len(df) == 0:
         return
 
