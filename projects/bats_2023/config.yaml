@@ -99,6 +99,7 @@ steps:
           weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
           weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
           weight_path: "{{ weights_dir }}/trip_weights.csv"
+          keep_name: false # Defaults to false, but you could keep original name if desired
 
   # - name: final_check
   #   validate_input: true
@@ -122,6 +123,7 @@ steps:
       # Other parameters
       # This is not optimal, but model requires a binary gender
       gender_default_for_missing: "f"
+      taz_field: "TAZ1454"  # TAZ field to use for CTRAMP formatting
       drop_missing_taz: true  # Drop households without valid TAZ
 
   # This prepares a new set of files formatted for DaySim
@@ -137,14 +139,14 @@ steps:
     validate_input: true
     params:
       output_paths:
-        # Standard Survey Formats
-        households: "{{ output_dir }}/survey/households.csv"
-        persons: "{{ output_dir }}/survey/persons.csv"
-        days: "{{ output_dir }}/survey/days.csv"
-        unlinked_trips: "{{ output_dir }}/survey/unlinked_trips.csv"
-        linked_trips: "{{ output_dir }}/survey/linked_trips.csv"
-        tours: "{{ output_dir }}/survey/tours.csv"
-        joint_trips: "{{ output_dir }}/survey/joint_trips.csv"
+        # # Standard Survey Formats
+        # households: "{{ output_dir }}/survey/households.csv"
+        # persons: "{{ output_dir }}/survey/persons.csv"
+        # days: "{{ output_dir }}/survey/days.csv"
+        # unlinked_trips: "{{ output_dir }}/survey/unlinked_trips.csv"
+        # linked_trips: "{{ output_dir }}/survey/linked_trips.csv"
+        # tours: "{{ output_dir }}/survey/tours.csv"
+        # joint_trips: "{{ output_dir }}/survey/joint_trips.csv"
 
         # DaySim Formats
         households_daysim: "{{ output_dir }}/daysim/households.csv"

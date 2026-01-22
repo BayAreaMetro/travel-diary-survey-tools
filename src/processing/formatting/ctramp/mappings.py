@@ -8,10 +8,17 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPModeType, CTRAMPPersonType
+from data_canon.codebook.ctramp import (
+    CTRAMPEmploymentCategory,
+    CTRAMPGender,
+    CTRAMPModeType,
+    CTRAMPPersonType,
+    CTRAMPPurpose,
+    CTRAMPStudentCategory,
+)
 from data_canon.codebook.persons import Employment, Gender, SchoolType, Student
 from data_canon.codebook.persons import PersonType as CanonicalPersonType
-from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
+from data_canon.codebook.trips import AccessEgressMode, ModeType, Purpose, PurposeCategory
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +33,8 @@ for c in CanonicalPersonType:
 
 
 GENDER_MAP = {
-    Gender.MALE.value: "m",
-    Gender.FEMALE.value: "f",
+    Gender.MALE.value: CTRAMPGender.MALE.value,
+    Gender.FEMALE.value: CTRAMPGender.FEMALE.value,
     # Only 2 genders coded in CT-RAMP. All else get mapped to default.
     # Gender.NON_BINARY.value: ?...,
     # Gender.OTHER.value: ?...,
@@ -37,11 +44,11 @@ GENDER_MAP = {
 
 # Employment to person type component
 EMPLOYMENT_MAP = {
-    Employment.EMPLOYED_FULLTIME.value: "full_time",
-    Employment.EMPLOYED_PARTTIME.value: "part_time",
-    Employment.UNEMPLOYED_NOT_LOOKING.value: "not_employed",
-    Employment.MISSING.value: "not_employed",
-    -1: "not_employed",
+    Employment.EMPLOYED_FULLTIME.value: CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value,
+    Employment.EMPLOYED_PARTTIME.value: CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value,
+    Employment.UNEMPLOYED_NOT_LOOKING.value: CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
+    Employment.MISSING.value: CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
+    -1: CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
 }
 
 # Student to person type component
@@ -148,7 +155,7 @@ def map_purpose_to_ctramp(
                 ]
             )
         )
-        .then(pl.lit("College or higher"))
+        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
         .when(
             school_type.is_in(
                 [
@@ -158,11 +165,11 @@ def map_purpose_to_ctramp(
                 ]
             )
         )
-        .then(pl.lit("Grade or high school"))
-        .otherwise(pl.lit("Not student"))
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
     )
     # Home purpose
-    home_expr = pl.when(purpose == Purpose.HOME.value).then(pl.lit("Home"))
+    home_expr = pl.when(purpose == Purpose.HOME.value).then(pl.lit(CTRAMPPurpose.HOME.value))
 
     # Work purposes - segmented by income
     work_purposes = [
@@ -171,32 +178,36 @@ def map_purpose_to_ctramp(
     ]
     work_income_segmentation = (
         pl.when(income < income_low_threshold)
-        .then(pl.lit("work_low"))
+        .then(pl.lit(CTRAMPPurpose.WORK_LOW.value))
         .when(income < income_med_threshold)
-        .then(pl.lit("work_med"))
+        .then(pl.lit(CTRAMPPurpose.WORK_MED.value))
         .when(income < income_high_threshold)
-        .then(pl.lit("work_high"))
-        .otherwise(pl.lit("work_very high"))
+        .then(pl.lit(CTRAMPPurpose.WORK_HIGH.value))
+        .otherwise(pl.lit(CTRAMPPurpose.WORK_VERY_HIGH.value))
     )
     work_expr = home_expr.when(purpose.is_in(work_purposes)).then(work_income_segmentation)
 
     # School purposes - segmented by student type
     k12_purposes = [Purpose.K12_SCHOOL.value, Purpose.DAYCARE.value, Purpose.SCHOOL.value]
     school_segmentation_expr = (
-        pl.when(student_category == "College or higher")
-        .then(pl.lit("university"))
-        .when(student_category == "Grade or high school")
-        .then(pl.lit("school_high"))
-        .otherwise(pl.lit("school_grade"))
+        pl.when(student_category == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value)
+        .then(pl.lit(CTRAMPPurpose.UNIVERSITY.value))
+        .when(student_category == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value)
+        .then(pl.lit(CTRAMPPurpose.SCHOOL_HIGH.value))
+        .otherwise(pl.lit(CTRAMPPurpose.SCHOOL_GRADE.value))
     )
     school_expr = work_expr.when(purpose.is_in(k12_purposes)).then(school_segmentation_expr)
-    university_expr = school_expr.when(purpose == Purpose.COLLEGE.value).then(pl.lit("university"))
+    university_expr = school_expr.when(purpose == Purpose.COLLEGE.value).then(
+        pl.lit(CTRAMPPurpose.UNIVERSITY.value)
+    )
 
     # At-work sub-tour purposes
     atwork_expr = university_expr.when(purpose == Purpose.WORK_ACTIVITY.value).then(
-        pl.lit("atwork_business")
+        pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value)
     )
-    eatout_expr = atwork_expr.when(purpose == Purpose.DINING.value).then(pl.lit("eatout"))
+    eatout_expr = atwork_expr.when(purpose == Purpose.DINING.value).then(
+        pl.lit(CTRAMPPurpose.EATOUT.value)
+    )
 
     # Escort purposes
     escort_purposes = [
@@ -205,9 +216,16 @@ def map_purpose_to_ctramp(
         Purpose.ACCOMPANY.value,
     ]
     escort_segmentation_expr = (
-        pl.when(student_category.is_in(["College or higher", "Grade or high school"]))
-        .then(pl.lit("escort_kids"))
-        .otherwise(pl.lit("escort_no kids"))
+        pl.when(
+            student_category.is_in(
+                [
+                    CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value,
+                    CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value,
+                ]
+            )
+        )
+        .then(pl.lit(CTRAMPPurpose.ESCORT_KIDS.value))
+        .otherwise(pl.lit(CTRAMPPurpose.ESCORT_NO_KIDS.value))
     )
     escort_expr = eatout_expr.when(purpose.is_in(escort_purposes)).then(escort_segmentation_expr)
 
@@ -218,7 +236,9 @@ def map_purpose_to_ctramp(
         Purpose.MAJOR_SHOPPING.value,
         Purpose.SHOPPING_ERRANDS.value,
     ]
-    shopping_expr = escort_expr.when(purpose.is_in(shopping_purposes)).then(pl.lit("shopping"))
+    shopping_expr = escort_expr.when(purpose.is_in(shopping_purposes)).then(
+        pl.lit(CTRAMPPurpose.SHOPPING.value)
+    )
 
     # Social/recreation
     social_purposes = [
@@ -226,7 +246,9 @@ def map_purpose_to_ctramp(
         Purpose.ENTERTAINMENT.value,
         Purpose.EXERCISE.value,
     ]
-    social_expr = shopping_expr.when(purpose.is_in(social_purposes)).then(pl.lit("social"))
+    social_expr = shopping_expr.when(purpose.is_in(social_purposes)).then(
+        pl.lit(CTRAMPPurpose.SOCIAL.value)
+    )
 
     # Maintenance/errands
     maintenance_purposes = [
@@ -235,7 +257,7 @@ def map_purpose_to_ctramp(
         Purpose.ERRAND_WITH_APPT.value,
     ]
     maintenance_expr = social_expr.when(purpose.is_in(maintenance_purposes)).then(
-        pl.lit("othmaint")
+        pl.lit(CTRAMPPurpose.OTHMAINT.value)
     )
 
     # Discretionary
@@ -244,11 +266,11 @@ def map_purpose_to_ctramp(
         Purpose.FAMILY_ACTIVITY.value,
     ]
     discretionary_expr = maintenance_expr.when(purpose.is_in(discretionary_purposes)).then(
-        pl.lit("othdiscr")
+        pl.lit(CTRAMPPurpose.OTHDISCR.value)
     )
 
     # Default fallback
-    return discretionary_expr.otherwise(pl.lit("othdiscr"))
+    return discretionary_expr.otherwise(pl.lit(CTRAMPPurpose.OTHDISCR.value))
 
 
 def map_purpose_category_to_ctramp(
@@ -288,7 +310,7 @@ def map_purpose_category_to_ctramp(
                 ]
             )
         )
-        .then(pl.lit("College or higher"))
+        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
         .when(
             school_type.is_in(
                 [
@@ -298,22 +320,24 @@ def map_purpose_category_to_ctramp(
                 ]
             )
         )
-        .then(pl.lit("Grade or high school"))
-        .otherwise(pl.lit("Not student"))
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
     )
 
     # Home purpose
-    home_expr = pl.when(purpose_category == PurposeCategory.HOME.value).then(pl.lit("Home"))
+    home_expr = pl.when(purpose_category == PurposeCategory.HOME.value).then(
+        pl.lit(CTRAMPPurpose.HOME.value)
+    )
 
     # Work purposes - segmented by income
     work_income_segmentation = (
         pl.when(income < income_low_threshold)
-        .then(pl.lit("work_low"))
+        .then(pl.lit(CTRAMPPurpose.WORK_LOW.value))
         .when(income < income_med_threshold)
-        .then(pl.lit("work_med"))
+        .then(pl.lit(CTRAMPPurpose.WORK_MED.value))
         .when(income < income_high_threshold)
-        .then(pl.lit("work_high"))
-        .otherwise(pl.lit("work_very high"))
+        .then(pl.lit(CTRAMPPurpose.WORK_HIGH.value))
+        .otherwise(pl.lit(CTRAMPPurpose.WORK_VERY_HIGH.value))
     )
     work_expr = home_expr.when(
         purpose_category.is_in([PurposeCategory.WORK.value, PurposeCategory.WORK_RELATED.value])
@@ -321,11 +345,11 @@ def map_purpose_category_to_ctramp(
 
     # School purposes - segmented by student type
     school_segmentation_expr = (
-        pl.when(student_category == "College or higher")
-        .then(pl.lit("university"))
-        .when(student_category == "Grade or high school")
-        .then(pl.lit("school_high"))
-        .otherwise(pl.lit("school_grade"))
+        pl.when(student_category == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value)
+        .then(pl.lit(CTRAMPPurpose.UNIVERSITY.value))
+        .when(student_category == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value)
+        .then(pl.lit(CTRAMPPurpose.SCHOOL_HIGH.value))
+        .otherwise(pl.lit(CTRAMPPurpose.SCHOOL_GRADE.value))
     )
     school_expr = work_expr.when(
         purpose_category.is_in([PurposeCategory.SCHOOL.value, PurposeCategory.SCHOOL_RELATED.value])
@@ -333,19 +357,26 @@ def map_purpose_category_to_ctramp(
 
     # At-work sub-tour (work-related)
     atwork_expr = school_expr.when(purpose_category == PurposeCategory.WORK_RELATED.value).then(
-        pl.lit("atwork_business")
+        pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value)
     )
 
     # Eating out
     eatout_expr = atwork_expr.when(purpose_category == PurposeCategory.MEAL.value).then(
-        pl.lit("eatout")
+        pl.lit(CTRAMPPurpose.EATOUT.value)
     )
 
     # Escort
     escort_segmentation_expr = (
-        pl.when(student_category.is_in(["College or higher", "Grade or high school"]))
-        .then(pl.lit("escort_kids"))
-        .otherwise(pl.lit("escort_no kids"))
+        pl.when(
+            student_category.is_in(
+                [
+                    CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value,
+                    CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value,
+                ]
+            )
+        )
+        .then(pl.lit(CTRAMPPurpose.ESCORT_KIDS.value))
+        .otherwise(pl.lit(CTRAMPPurpose.ESCORT_NO_KIDS.value))
     )
     escort_expr = eatout_expr.when(purpose_category == PurposeCategory.ESCORT.value).then(
         escort_segmentation_expr
@@ -353,21 +384,21 @@ def map_purpose_category_to_ctramp(
 
     # Shopping
     shopping_expr = escort_expr.when(purpose_category == PurposeCategory.SHOP.value).then(
-        pl.lit("shopping")
+        pl.lit(CTRAMPPurpose.SHOPPING.value)
     )
 
     # Social/recreation
     social_expr = shopping_expr.when(purpose_category == PurposeCategory.SOCIALREC.value).then(
-        pl.lit("social")
+        pl.lit(CTRAMPPurpose.SOCIAL.value)
     )
 
     # Maintenance/errands
     maintenance_expr = social_expr.when(purpose_category == PurposeCategory.ERRAND.value).then(
-        pl.lit("othmaint")
+        pl.lit(CTRAMPPurpose.OTHMAINT.value)
     )
 
     # Discretionary - all others
-    return maintenance_expr.otherwise(pl.lit("othdiscr"))
+    return maintenance_expr.otherwise(pl.lit(CTRAMPPurpose.OTHDISCR.value))
 
 
 def map_mode_to_ctramp(
@@ -417,9 +448,14 @@ def map_mode_to_ctramp(
         ModeType.FERRY.value,
         ModeType.SHUTTLE.value,
     ]
-    # Define drive access/egress modes (matching DaySim logic)
-    # AccessEgressMode: CAR=1, CARSHARE=2, TAXI=3, TNC=4
-    drove_access_egress = [1, 2, 3, 4]  # CAR, CARSHARE, TAXI, TNC
+    # Define drive access/egress modes from canonical AccessEgressMode enum
+    drove_access_egress = [
+        AccessEgressMode.TNC.value,
+        AccessEgressMode.CAR_HOUSEHOLD.value,
+        AccessEgressMode.CAR_OTHER.value,
+        AccessEgressMode.DROPOFF_HOUSEHOLD.value,
+        AccessEgressMode.DROPOFF_OTHER.value,
+    ]
 
     if access_mode is not None and egress_mode is not None:
         # Check if either access or egress involved driving

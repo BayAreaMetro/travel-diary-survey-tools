@@ -45,6 +45,11 @@ class CTRAMPConfig(BaseModel):
         ),
     )
 
+    taz_field: str = Field(
+        default="taz",
+        description="The field name in the household data that contains the TAZ ID for CTRAMP formatting.",  # noqa: E501
+    )
+
     drop_missing_taz: bool = Field(
         default=True,
         description="If True, remove households without valid TAZ IDs",

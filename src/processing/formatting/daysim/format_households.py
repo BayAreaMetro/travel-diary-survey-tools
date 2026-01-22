@@ -76,6 +76,7 @@ def format_households(
     households_daysim = households_daysim.with_columns(
         pl.col("income_detailed").fill_null(-1).replace(INCOME_DETAILED_TO_MIDPOINT),
         pl.col("income_followup").fill_null(-1).replace(INCOME_FOLLOWUP_TO_MIDPOINT),
+        pl.col("hhexpfac").fill_null(0),
         hownrent=pl.col("residence_rent_own").replace(RENTOWN_MAP),
         hrestype=pl.col("residence_type").replace(RESTYPE_MAP),
     )

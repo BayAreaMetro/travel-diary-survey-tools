@@ -4,13 +4,18 @@ Based on https://github.com/BayAreaMetro/modeling-website/wiki/DataDictionary
 """
 # ruff: noqa: E501 N815
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from data_canon.codebook.ctramp import (
+    CTRAMPActivityPattern,
+    CTRAMPEmploymentCategory,
     CTRAMPModeType,
     CTRAMPPersonType,
+    CTRAMPPurpose,
+    CTRAMPStudentCategory,
+    CTRAMPTourCategory,
     FreeParkingChoice,
-    MandatoryTourFrequency,
+    IMFChoice,
     TourComposition,
     WalkToTransitSubZone,
     WFHChoice,
@@ -26,7 +31,7 @@ class HouseholdCTRAMPModel(BaseModel):
         le=1454,
         description="Transportation analysis zone of home location",
     )
-    income: int = Field(ge=0, description="Annual household income ($2000)")
+    income: int | None = Field(ge=0, description="Annual household income ($2000)")
     autos: int = Field(ge=0, description="Household automobiles")
     jtf_choice: int = Field(ge=-4, le=21, description="Number and type of household joint tours")
     size: int = Field(ge=1, description="Number of persons in the household")
@@ -115,19 +120,17 @@ class PersonCTRAMPModel(BaseModel):
     fp_choice: FreeParkingChoice = Field(
         description="Free parking eligibility choice (1=park for free, 2=pay to park)",
     )
-    activity_pattern: str = Field(
+    activity_pattern: CTRAMPActivityPattern = Field(
         description="Primary daily activity pattern (M=mandatory, N=non-mandatory, H=home)"
     )
-    imf_choice: MandatoryTourFrequency = Field(
+    imf_choice: IMFChoice = Field(
         description=(
             "Individual mandatory tour frequency (1=one work tour, 2=two work tours, 3=one school tour, "
             "4=two school tours, 5=one work tour and one school tour)"
         ),
     )
-    inmf_choice: int = Field(ge=1, le=96, description="Individual non-mandatory tour frequency")
-    wfh_choice: int = Field(
-        ge=0,
-        le=1,
+    inmf_choice: int = Field(ge=0, le=96, description="Individual non-mandatory tour frequency")
+    wfh_choice: WFHChoice = Field(
         description="Works from home choice (0=non-worker or workers who don't work from home, 1=workers who work from home) - Added in TM1.6",
     )
 
@@ -140,6 +143,19 @@ class PersonCTRAMPModel(BaseModel):
     person_weight: float | None = Field(
         ge=0, description="Survey weight for the person (not part of CT-RAMP spec)"
     )
+
+    # For some reason the person type in this model is string not int unlike the other CT-RAMP models
+    @field_validator("type", mode="before")
+    @classmethod
+    def validate_person_type_from_label(cls, v: str | CTRAMPPersonType) -> CTRAMPPersonType:
+        """Convert string label to enum member."""
+        if isinstance(v, str):
+            result = CTRAMPPersonType.from_label(v)
+            if result is None:
+                msg = f"Invalid person type label: {v}"
+                raise ValueError(msg)
+            return CTRAMPPersonType(result.value)
+        return v
 
 
 class MandatoryLocationCTRAMPModel(BaseModel):
@@ -158,10 +174,10 @@ class MandatoryLocationCTRAMPModel(BaseModel):
         ),
     )
     PersonAge: int = Field(ge=0, description="Person age")
-    EmploymentCategory: str = Field(
+    EmploymentCategory: CTRAMPEmploymentCategory = Field(
         description='Employment category ("Full-time worker", "Part-time worker", "Not employed")'
     )
-    StudentCategory: str = Field(
+    StudentCategory: CTRAMPStudentCategory = Field(
         description='Student category ("College or higher", "Grade or high school", "Not student")'
     )
     WorkLocation: int = Field(
@@ -199,15 +215,15 @@ class IndividualTourCTRAMPModel(BaseModel):
             "8=Child too young for school)"
         ),
     )
-    tour_id: int = Field(ge=0, le=4, description="Individual tour number unique to the person")
-    tour_category: str = Field(
+    tour_id: int = Field(ge=0, description="Individual tour number unique to the person")
+    tour_category: CTRAMPTourCategory = Field(
         description='Type of tour ("MANDATORY", "INDIVIDUAL_NON_MANDATORY", "AT_WORK")'
     )
-    tour_purpose: str = Field(
+    tour_purpose: CTRAMPPurpose = Field(
         description=(
-            'Tour purpose, given the type of tour ("work_low", "work_med", "work_high", "work_very high", '
+            'Tour purpose, given the type of tour ("work_low", "work_med", "work_high", "work_very_high", '
             '"university", "school_high", "school_grade", "atwork_business", "atwork_eat", "atwork_maint", '
-            '"eatout", "escort_kids", "escort_no kids", "othdiscr", "othmaint", "shopping", "social")'
+            '"eatout", "escort_kids", "escort_no_kids", "othdiscr", "othmaint", "shopping", "social")'
         )
     )
     orig_taz: int = Field(ge=1, le=1454, description="Origin transportation analysis zone")
@@ -290,21 +306,21 @@ class IndividualTripCTRAMPModel(BaseModel):
         le=1,
         description="Inbound stop indicator (1 if the trip is on the inbound leg of the tour, 0 otherwise)",
     )
-    tour_purpose: str = Field(
+    tour_purpose: CTRAMPPurpose = Field(
         description=(
             'Tour purpose, given the type of tour ("work_low", "work_med", "work_high", "work_very high", '
             '"university", "school_high", "school_grade", "atwork_business", "atwork_eat", "atwork_maint", '
             '"eatout", "escort_kids", "escort_no kids", "othdiscr", "othmaint", "shopping", "social")'
         )
     )
-    orig_purpose: str = Field(
+    orig_purpose: CTRAMPPurpose = Field(
         description=(
             'Purpose at the origin end of the trip ("Home", "work_low", "work_med", "work_high", "work_very high", '
             '"university", "school_high", "school_grade", "atwork_business", "atwork_eat", "atwork_maint", '
             '"eatout", "escort_kids", "escort_no kids", "othdiscr", "othmaint", "shopping", "social")'
         )
     )
-    dest_purpose: str = Field(
+    dest_purpose: CTRAMPPurpose = Field(
         description=(
             'Purpose at the destination end of the trip ("Home", "work_low", "work_med", "work_high", "work_very high", '
             '"university", "school_high", "school_grade", "atwork_business", "atwork_eat", "atwork_maint", '
@@ -329,7 +345,7 @@ class IndividualTripCTRAMPModel(BaseModel):
     tour_mode: CTRAMPModeType = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
-    tour_category: str = Field(
+    tour_category: CTRAMPTourCategory = Field(
         description='The type of tour for which this trip is a part ("AT_WORK", "INDIVIDUAL_NON_MANDATORY", "MANDATORY")'
     )
     # NOTE: Derivable from survey weights when available.

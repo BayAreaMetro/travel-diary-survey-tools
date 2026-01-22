@@ -4,12 +4,23 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import EmploymentCategory, StudentCategory
-from data_canon.codebook.persons import Employment, Student
+from data_canon.codebook.ctramp import (
+    CTRAMPEmploymentCategory,
+    CTRAMPStudentCategory,
+)
+from data_canon.codebook.persons import Employment, SchoolType, Student
 
 from .ctramp_config import CTRAMPConfig
 
 logger = logging.getLogger(__name__)
+
+# Employment to CT-RAMP employment category mapping
+EMPLOYMENT_TO_CTRAMP = {
+    Employment.EMPLOYED_FULLTIME.value: CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value,
+    Employment.EMPLOYED_PARTTIME.value: CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value,
+    Employment.EMPLOYED_SELF.value: CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value,
+    Employment.EMPLOYED_UNPAID.value: CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value,
+}
 
 
 def format_mandatory_location(
@@ -49,8 +60,8 @@ def format_mandatory_location(
     # Check if persons has work/school location columns
     # If not, return empty DataFrame (no mandatory locations)
     if (
-        "work_taz" not in persons_canonical.columns
-        and "school_taz" not in persons_canonical.columns
+        f"work_{config.taz_field}" not in persons_canonical.columns
+        and f"school_{config.taz_field}" not in persons_canonical.columns
     ):
         return pl.DataFrame(
             schema={
@@ -64,7 +75,7 @@ def format_mandatory_location(
     # Join persons with households to get income and home TAZ
     # Need home_taz from canonical and income from formatted
     mandatory_loc = persons_canonical.join(
-        households_canonical.select(["hh_id", "home_taz"]),
+        households_canonical.select(["hh_id", f"home_{config.taz_field}"]),
         on="hh_id",
         how="left",
     ).join(
@@ -75,20 +86,15 @@ def format_mandatory_location(
 
     # Compute employment_category from employment
     mandatory_loc = mandatory_loc.with_columns(
-        pl.when(
-            pl.col("employment").is_in(
-                [
-                    Employment.EMPLOYED_FULLTIME.value,
-                    Employment.EMPLOYED_PARTTIME.value,
-                ]
-            )
+        pl.col("employment")
+        .replace(
+            EMPLOYMENT_TO_CTRAMP,
+            default=CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
         )
-        .then(pl.lit(EmploymentCategory.EMPLOYED.value))
-        .otherwise(pl.lit(EmploymentCategory.NOT_EMPLOYED.value))
         .alias("employment_category")
     )
 
-    # Compute student_category from student
+    # Compute student_category from student and school_type
     mandatory_loc = mandatory_loc.with_columns(
         pl.when(
             pl.col("student").is_in(
@@ -99,29 +105,64 @@ def format_mandatory_location(
                     Student.PARTTIME_ONLINE.value,
                 ]
             )
+            & pl.col("school_type").is_in(
+                [
+                    SchoolType.COLLEGE_2YEAR.value,
+                    SchoolType.COLLEGE_4YEAR.value,
+                    SchoolType.GRADUATE_SCHOOL.value,
+                ]
+            )
         )
-        .then(pl.lit(StudentCategory.STUDENT.value))
-        .otherwise(pl.lit(StudentCategory.NOT_STUDENT.value))
+        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
+        .when(
+            pl.col("student").is_in(
+                [
+                    Student.FULLTIME_INPERSON.value,
+                    Student.PARTTIME_INPERSON.value,
+                    Student.FULLTIME_ONLINE.value,
+                    Student.PARTTIME_ONLINE.value,
+                ]
+            )
+            & pl.col("school_type").is_in(
+                [
+                    SchoolType.ELEMENTARY.value,
+                    SchoolType.MIDDLE_SCHOOL.value,
+                    SchoolType.HIGH_SCHOOL.value,
+                ]
+            )
+        )
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
         .alias("student_category")
     )
 
     # Filter to only persons with work or school locations
     # Add columns as null if they don't exist
-    if "work_taz" not in mandatory_loc.columns:
-        mandatory_loc = mandatory_loc.with_columns(pl.lit(None).cast(pl.Int64).alias("work_taz"))
-    if "school_taz" not in mandatory_loc.columns:
-        mandatory_loc = mandatory_loc.with_columns(pl.lit(None).cast(pl.Int64).alias("school_taz"))
+    if f"work_{config.taz_field}" not in mandatory_loc.columns:
+        mandatory_loc = mandatory_loc.with_columns(
+            pl.lit(None).cast(pl.Int64).alias(f"work_{config.taz_field}")
+        )
+    if f"school_{config.taz_field}" not in mandatory_loc.columns:
+        mandatory_loc = mandatory_loc.with_columns(
+            pl.lit(None).cast(pl.Int64).alias(f"school_{config.taz_field}")
+        )
 
     mandatory_loc = mandatory_loc.filter(
-        (pl.col("work_taz").is_not_null() & (pl.col("work_taz") > 0))
-        | (pl.col("school_taz").is_not_null() & (pl.col("school_taz") > 0))
+        (
+            pl.col(f"work_{config.taz_field}").is_not_null()
+            & (pl.col(f"work_{config.taz_field}") > 0)
+        )
+        | (
+            pl.col(f"school_{config.taz_field}").is_not_null()
+            & (pl.col(f"school_{config.taz_field}") > 0)
+        )
     )
 
     # Map to CT-RAMP column names
     mandatory_loc = mandatory_loc.select(
         [
             pl.col("hh_id").alias("HHID"),
-            pl.col("home_taz").cast(pl.Int64).alias("HomeTAZ"),
+            pl.col(f"home_{config.taz_field}").cast(pl.Int64).alias("HomeTAZ"),
             (pl.col("income") / config.income_base_year_dollars).cast(pl.Int64).alias("Income"),
             pl.col("person_id").alias("PersonID"),
             pl.col("person_num").alias("PersonNum"),
@@ -129,8 +170,11 @@ def format_mandatory_location(
             pl.col("age").alias("PersonAge"),
             pl.col("employment_category").alias("EmploymentCategory"),
             pl.col("student_category").alias("StudentCategory"),
-            pl.col("work_taz").fill_null(0).cast(pl.Int64).alias("WorkLocation"),
-            pl.col("school_taz").fill_null(0).cast(pl.Int64).alias("SchoolLocation"),
+            pl.col(f"work_{config.taz_field}").fill_null(0).cast(pl.Int64).alias("WorkLocation"),
+            pl.col(f"school_{config.taz_field}")
+            .fill_null(0)
+            .cast(pl.Int64)
+            .alias("SchoolLocation"),
         ]
     )
 

@@ -19,6 +19,8 @@ from data_canon.codebook.persons import Employment
 from processing.formatting.ctramp.mappings import PURPOSECATEGORY_TO_JTF_GROUP
 from utils.helpers import get_income_midpoint
 
+from .ctramp_config import CTRAMPConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,7 +138,8 @@ def _compute_jtf_choice(
 def format_households(
     households_canonical: pl.DataFrame,
     persons_canonical: pl.DataFrame,
-    tours_canonical: pl.DataFrame | None = None,
+    tours_canonical: pl.DataFrame,
+    config: CTRAMPConfig,
 ) -> pl.DataFrame:
     """Format household data to CT-RAMP specification.
 
@@ -145,15 +148,16 @@ def format_households(
     - Rename fields to CT-RAMP conventions
     - Convert income categories to midpoint values
     - Compute household aggregates (size, workers, vehicles)
-    - Map TAZ
+    - Map TAZ using configuration
 
     Args:
         households_canonical: Canonical households DataFrame with hh_id, home_taz,
             income_detailed, income_followup, num_vehicles
         persons_canonical: Canonical persons DataFrame with hh_id, employment (for
             computing household size and worker count)
-        tours_canonical: Optional canonical tours DataFrame with hh_id, joint_tour_id,
+        tours_canonical: Canonical tours DataFrame with hh_id, joint_tour_id,
             tour_purpose (for computing joint tour frequency)
+        config: CTRAMPConfig instance with configuration parameters
 
     Returns:
         DataFrame with CT-RAMP household fields:
@@ -198,7 +202,7 @@ def format_households(
     # Rename columns to CT-RAMP naming convention
     households_ctramp = households_ctramp.rename(
         {
-            "home_taz": "taz",
+            f"home_{config.taz_field}": "taz",
         }
     )
 
@@ -215,8 +219,8 @@ def format_households(
     }
 
     households_ctramp = households_ctramp.with_columns(
-        pl.col("income_detailed").fill_null(-1).replace_strict(income_detailed_map, default=-1),
-        pl.col("income_followup").fill_null(-1).replace_strict(income_followup_map, default=-1),
+        pl.col("income_detailed").replace_strict(income_detailed_map, default=None),
+        pl.col("income_followup").replace_strict(income_followup_map, default=None),
     )
 
     # Use income_detailed if available, otherwise income_followup

@@ -39,6 +39,7 @@ def format_ctramp(
     income_med_threshold: int,
     income_high_threshold: int,
     income_base_year_dollars: int,
+    taz_field: str = "taz",
     drop_missing_taz: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
@@ -65,6 +66,7 @@ def format_ctramp(
         income_med_threshold: Income threshold for medium-income bracket
         income_high_threshold: Income threshold for high-income bracket
         income_base_year_dollars: Base year for income adjustment
+        taz_field: The field that contains the TAZ ID for CTRAMP formatting.
         drop_missing_taz: If True, remove households without valid TAZ IDs
 
     Returns:
@@ -90,12 +92,12 @@ def format_ctramp(
         income_high_threshold=income_high_threshold,
         income_base_year_dollars=income_base_year_dollars,
         drop_missing_taz=drop_missing_taz,
+        taz_field=taz_field,
     )
-
     logger.info("Starting CT-RAMP formatting")
 
     # Ensure TAZ columns are Int64 for filtering
-    households = households.with_columns(pl.col("home_taz").cast(pl.Int64))
+    households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))
 
     # Drop any households that do not have a TAZ assigned
     if config.drop_missing_taz:
@@ -103,7 +105,8 @@ def format_ctramp(
         n_og_persons = len(persons)
 
         households = households.filter(
-            households["home_taz"].is_not_null() & (households["home_taz"] != -1)
+            households[f"home_{config.taz_field}"].is_not_null()
+            & (households[f"home_{config.taz_field}"] != -1)
         )
         persons = persons.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
 
@@ -125,7 +128,7 @@ def format_ctramp(
         )
 
     # Format each table
-    households_ctramp = format_households(households, persons, tours)
+    households_ctramp = format_households(households, persons, tours, config)
 
     # Format tours - use empty DataFrame with proper schema if no tours exist
     if len(tours) == 0:

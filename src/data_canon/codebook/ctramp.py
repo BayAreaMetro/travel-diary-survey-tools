@@ -9,6 +9,22 @@ from pathlib import Path
 from data_canon.core.labeled_enum import LabeledEnum
 
 
+class CTRAMPEmploymentCategory(StrEnum):
+    """Enumeration for employment category."""
+
+    FULL_TIME_EMPLOYED = "Full-time employed"
+    PART_TIME_EMPLOYED = "Part-time employed"
+    NOT_EMPLOYED = "Not employed"
+
+
+class CTRAMPStudentCategory(StrEnum):
+    """Enumeration for student category."""
+
+    COLLEGE_OR_HIGHER = "College or higher"
+    GRADE_OR_HIGH_SCHOOL = "Grade or high school"
+    NOT_STUDENT = "Not a student"
+
+
 class FreeParkingChoice(LabeledEnum):
     """Enumeration for free parking choice categories."""
 
@@ -16,14 +32,11 @@ class FreeParkingChoice(LabeledEnum):
     PAY_TO_PARK = 2, "pay to park"
 
 
-class MandatoryTourFrequency(LabeledEnum):
-    """Enumeration for mandatory tour frequency categories."""
+class CTRAMPGender(LabeledEnum):
+    """Enumeration for CT-RAMP gender categories."""
 
-    ONE_WORK_TOUR = 1, "one work tour"
-    TWO_WORK_TOURS = 2, "two work tours"
-    ONE_SCHOOL_TOUR = 3, "one school tour"
-    TWO_SCHOOL_TOURS = 4, "two school tours"
-    WORK_AND_SCHOOL = 5, "one work tour and one school tour"
+    MALE = "m", "Male"
+    FEMALE = "f", "Female"
 
 
 class TourComposition(LabeledEnum):
@@ -57,20 +70,6 @@ class CTRAMPPersonType(LabeledEnum):
     CHILD_UNDER_5 = 8, "Child too young for school"
 
 
-class EmploymentCategory(LabeledEnum):
-    """Enumeration for employment category."""
-
-    EMPLOYED = 1, "Employed"
-    NOT_EMPLOYED = 2, "Not employed"
-
-
-class StudentCategory(LabeledEnum):
-    """Enumeration for student category."""
-
-    STUDENT = 1, "Student"
-    NOT_STUDENT = 2, "Not a student"
-
-
 class CTRAMPModeType(LabeledEnum):
     """Enumeration for trip mode type categories."""
 
@@ -97,13 +96,44 @@ class CTRAMPModeType(LabeledEnum):
     TNC2 = 21, "TNC - shared"
 
 
-class CTRAMPTourCategory(StrEnum):
+class CTRAMPTourCategory(LabeledEnum):
     """Enumeration for tour category."""
 
-    MANDATORY = "Mandatory"
-    INDIVIDUAL_NON_MANDATORY = "Non-mandatory"
-    JOINT_NON_MANDATORY = "Joint non-mandatory"
-    AT_WORK = "At-work"
+    MANDATORY = "MANDATORY", "Mandatory tour"
+    INDIVIDUAL_NON_MANDATORY = "NON_MANDATORY", "Individual non-mandatory tour"
+    JOINT_NON_MANDATORY = "JOINT_NON_MANDATORY", "Joint non-mandatory tour"
+    AT_WORK = "AT_WORK", "At-work subtour"
+
+
+class CTRAMPActivityPattern(LabeledEnum):
+    """Enumeration for activity pattern."""
+
+    MANDATORY = "M", "Mandatory"
+    NON_MANDATORY = "N", "Non-mandatory"
+    HOME = "H", "Home"
+
+
+class CTRAMPPurpose(LabeledEnum):
+    """Enumeration for tour purpose."""
+
+    HOME = "Home", "Home"
+    WORK_LOW = "work_low", "Work - Low income"
+    WORK_MED = "work_med", "Work - Medium income"
+    WORK_HIGH = "work_high", "Work - High income"
+    WORK_VERY_HIGH = "work_very high", "Work - Very High income"
+    UNIVERSITY = "university", "University"
+    SCHOOL_HIGH = "school_high", "School - High school"
+    SCHOOL_GRADE = "school_grade", "School - Grade school"
+    ATWORK_BUSINESS = "atwork_business", "At-work - Business"
+    ATWORK_EAT = "atwork_eat", "At-work - Eating"
+    ATWORK_MAINT = "atwork_maint", "At-work - Maintenance"
+    EATOUT = "eatout", "Eating out"
+    ESCORT_KIDS = "escort_kids", "Escort - Kids"
+    ESCORT_NO_KIDS = "escort_no kids", "Escort - No kids"
+    SHOPPING = "shopping", "Shopping"
+    SOCIAL = "social", "Social/recreational"
+    OTHMAINT = "othmaint", "Other maintenance"
+    OTHDISCR = "othdiscr", "Other discretionary"
 
 
 class JTFChoice(LabeledEnum):
@@ -145,6 +175,7 @@ class WFHChoice(LabeledEnum):
 class IMFChoice(LabeledEnum):
     """Enumeration for individual mandatory tour frequency choice categories."""
 
+    NONE = 0, "no mandatory tours"
     ONE_WORK = 1, "one work tour"
     TWO_WORK = 2, "two work tours"
     ONE_SCHOOL = 3, "one school tour"
@@ -154,8 +185,8 @@ class IMFChoice(LabeledEnum):
 
 # Non-mandatory tour frequency alternatives ------------------------
 @dataclass(frozen=True)
-class Alternative:
-    """Data class representing a non-mandatory tour frequency alternative."""
+class INMFAlternative:
+    """Data class representing an individual non-mandatory tour frequency alternative."""
 
     code: int
     escort: int
@@ -165,15 +196,35 @@ class Alternative:
     eatout: int
     social: int
 
+    def to_label(self) -> str:
+        """Generate human-readable label from tour counts."""
+        if self.code == 0:
+            return "no non-mandatory tours"
+        parts = []
+        if self.escort > 0:
+            parts.append(f"{self.escort} escort")
+        if self.shopping > 0:
+            parts.append(f"{self.shopping} shopping")
+        if self.othmaint > 0:
+            parts.append(f"{self.othmaint} other maint")
+        if self.othdiscr > 0:
+            parts.append(f"{self.othdiscr} other discr")
+        if self.eatout > 0:
+            parts.append(f"{self.eatout} eat out")
+        if self.social > 0:
+            parts.append(f"{self.social} social")
+        return ", ".join(parts) if parts else "no tours"
 
-def load_alternatives_from_csv(path: str | Path) -> dict[int, Alternative]:
+
+# Load alternatives from CSV file
+def load_alternatives_from_csv(path: str | Path) -> dict[int, INMFAlternative]:
     """Load alternatives from a CSV file."""
-    mapping: dict[int, Alternative] = {}
+    mapping: dict[int, INMFAlternative] = {}
     with Path(path).open(newline="", encoding="utf-8") as fh:
         rdr = csv.DictReader(fh)
         for row in rdr:
             code = int(row["a"])
-            mapping[code] = Alternative(
+            mapping[code] = INMFAlternative(
                 code=code,
                 escort=int(row.get("escort", 0)),
                 shopping=int(row.get("shopping", 0)),
@@ -185,9 +236,10 @@ def load_alternatives_from_csv(path: str | Path) -> dict[int, Alternative]:
     return mapping
 
 
+# Build alternatives programmatically
 def build_alternatives(
     *, sizes: dict[str, int] | None = None, maxes: dict[str, int] | None = None
-) -> dict[int, Alternative]:
+) -> dict[int, INMFAlternative]:
     """Build all combinations of alternatives.
 
     Provide either:
@@ -210,10 +262,43 @@ def build_alternatives(
         sizes_map = {k: (sizes or {}).get(k) or 2 for k in fields}
 
     # Generate all combinations
-    mapping: dict[int, Alternative] = {}
+    mapping: dict[int, INMFAlternative] = {}
     for code, vals in enumerate(itertools.product(*[range(sizes_map[f]) for f in fields]), start=1):
-        mapping[code] = Alternative(code=code, **dict(zip(fields, vals, strict=False)))
+        mapping[code] = INMFAlternative(code=code, **dict(zip(fields, vals, strict=False)))
     return mapping
+
+
+# Build the INMF alternatives at module load time
+_INMF_ALTERNATIVES = build_alternatives(
+    maxes={
+        "escort": 2,
+        "shopping": 1,
+        "othmaint": 1,
+        "othdiscr": 1,
+        "eatout": 1,
+        "social": 1,
+    }
+)
+
+# Build reverse lookup: counts tuple -> code for O(1) lookup
+_INMF_REVERSE_LOOKUP: dict[tuple[int, int, int, int, int, int], int] = {
+    (alt.escort, alt.shopping, alt.othmaint, alt.othdiscr, alt.eatout, alt.social): code
+    for code, alt in _INMF_ALTERNATIVES.items()
+}
+
+# Compute max values for each field (for capping)
+_INMF_MAXES = {
+    "escort": max(alt.escort for alt in _INMF_ALTERNATIVES.values()),
+    "shopping": max(alt.shopping for alt in _INMF_ALTERNATIVES.values()),
+    "othmaint": max(alt.othmaint for alt in _INMF_ALTERNATIVES.values()),
+    "othdiscr": max(alt.othdiscr for alt in _INMF_ALTERNATIVES.values()),
+    "eatout": max(alt.eatout for alt in _INMF_ALTERNATIVES.values()),
+    "social": max(alt.social for alt in _INMF_ALTERNATIVES.values()),
+}
+
+
+# Exported names
+__all__ = ["_INMF_ALTERNATIVES", "_INMF_MAXES", "_INMF_REVERSE_LOOKUP"]
 
 
 if __name__ == "__main__":

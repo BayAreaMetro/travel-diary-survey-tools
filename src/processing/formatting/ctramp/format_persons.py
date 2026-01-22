@@ -16,10 +16,12 @@ import logging
 import polars as pl
 
 from data_canon.codebook.ctramp import (
+    _INMF_MAXES,
+    _INMF_REVERSE_LOOKUP,
     CTRAMPPersonType,
+    CTRAMPPurpose,
     FreeParkingChoice,
     IMFChoice,
-    build_alternatives,
 )
 from data_canon.codebook.generic import BooleanYesNo
 from data_canon.codebook.persons import AgeCategory, Employment, JobType
@@ -34,34 +36,6 @@ from .mappings import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Build the canonical INMF alternatives mapping (used by get_inmf_code_from_counts)
-_INMF_ALTERNATIVES = build_alternatives(
-    maxes={
-        "escort": 2,
-        "shopping": 1,
-        "othmaint": 1,
-        "othdiscr": 1,
-        "eatout": 1,
-        "social": 1,
-    }
-)
-
-# Build reverse lookup: counts tuple -> code for O(1) lookup
-_INMF_REVERSE_LOOKUP: dict[tuple[int, int, int, int, int, int], int] = {
-    (alt.escort, alt.shopping, alt.othmaint, alt.othdiscr, alt.eatout, alt.social): code
-    for code, alt in _INMF_ALTERNATIVES.items()
-}
-
-# Compute max values for each field (for capping)
-_INMF_MAXES = {
-    "escort": max(alt.escort for alt in _INMF_ALTERNATIVES.values()),
-    "shopping": max(alt.shopping for alt in _INMF_ALTERNATIVES.values()),
-    "othmaint": max(alt.othmaint for alt in _INMF_ALTERNATIVES.values()),
-    "othdiscr": max(alt.othdiscr for alt in _INMF_ALTERNATIVES.values()),
-    "eatout": max(alt.eatout for alt in _INMF_ALTERNATIVES.values()),
-    "social": max(alt.social for alt in _INMF_ALTERNATIVES.values()),
-}
 
 
 # Individual Mandatory/Non-Mandatory Frequency Mapping ------------------------
@@ -198,11 +172,23 @@ def aggregate_tour_statistics(
         )
 
     # Define purpose categories for aggregation
-    work_purposes = ["work_low", "work_med", "work_high", "work_very high"]
-    school_purposes = ["school_grade", "school_high", "university"]
+    work_purposes = [
+        CTRAMPPurpose.WORK_LOW.value,
+        CTRAMPPurpose.WORK_MED.value,
+        CTRAMPPurpose.WORK_HIGH.value,
+        CTRAMPPurpose.WORK_VERY_HIGH.value,
+    ]
+    school_purposes = [
+        CTRAMPPurpose.SCHOOL_GRADE.value,
+        CTRAMPPurpose.SCHOOL_HIGH.value,
+        CTRAMPPurpose.UNIVERSITY.value,
+    ]
 
     # Define escort purposes (includes both segmented variants)
-    escort_purposes = ["escort", "escort_kids", "escort_no kids"]
+    escort_purposes = [
+        CTRAMPPurpose.ESCORT_KIDS.value,
+        CTRAMPPurpose.ESCORT_NO_KIDS.value,
+    ]
 
     # Classify each tour into purpose-specific flags
     tour_stats = tours.with_columns(

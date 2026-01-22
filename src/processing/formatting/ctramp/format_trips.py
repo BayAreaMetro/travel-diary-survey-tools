@@ -110,7 +110,6 @@ def format_individual_trip(
     )
 
     # Map origin and destination purposes
-    # Note: tour_purpose from tours_ctramp is already a CT-RAMP string, so use it directly
     individual_trips = individual_trips.with_columns(
         [
             map_purpose_category_to_ctramp(
@@ -129,17 +128,33 @@ def format_individual_trip(
                 config.income_med_threshold,
                 config.income_high_threshold,
             ).alias("dest_purpose"),
+            map_purpose_category_to_ctramp(
+                pl.col("tour_purpose"),
+                pl.col("income"),
+                pl.col("school_type"),
+                config.income_low_threshold,
+                config.income_med_threshold,
+                config.income_high_threshold,
+            ).alias("tour_purpose_ctramp"),
         ]
     )
 
-    # Map trip mode
+    # Map trip mode and tour mode
     individual_trips = individual_trips.with_columns(
-        map_mode_to_ctramp(
-            pl.col("mode_type"),
-            pl.col("num_travelers"),
-            pl.col("access_mode"),
-            pl.col("egress_mode"),
-        ).alias("trip_mode")
+        [
+            map_mode_to_ctramp(
+                pl.col("mode_type"),
+                pl.col("num_travelers"),
+                pl.col("access_mode"),
+                pl.col("egress_mode"),
+            ).alias("trip_mode"),
+            map_mode_to_ctramp(
+                pl.col("tour_mode"),
+                pl.col("num_travelers"),
+                None,  # Tour mode doesn't have access/egress
+                None,
+            ).alias("tour_mode_ctramp"),
+        ]
     )
 
     # Convert times to minutes after midnight and extract hours
@@ -163,15 +178,15 @@ def format_individual_trip(
         pl.col("tour_id"),
         pl.col("stop_id"),
         pl.col("inbound"),
-        pl.col("tour_purpose"),  # Already CTRAMP-formatted from tours_ctramp
+        pl.col("tour_purpose_ctramp").alias("tour_purpose"),
         pl.col("orig_purpose"),
         pl.col("dest_purpose"),
-        pl.col("o_TAZ1454").cast(pl.Int64).alias("orig_taz"),
-        pl.col("d_TAZ1454").cast(pl.Int64).alias("dest_taz"),
+        pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
+        pl.col(f"d_{config.taz_field}").cast(pl.Int64).alias("dest_taz"),
         pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
         pl.col("depart_hour").cast(pl.Int64),
         pl.col("trip_mode"),
-        pl.col("tour_mode"),  # Already CTRAMP-formatted
+        pl.col("tour_mode_ctramp").alias("tour_mode"),
         pl.col("tour_category_ctramp").alias("tour_category"),
         pl.col("depart_minutes").cast(pl.Int64),
         pl.col("arrive_minutes").cast(pl.Int64),
@@ -248,8 +263,8 @@ def format_joint_trip(
             pl.col("depart_time").first(),
             pl.col("arrive_time").first(),
             pl.col("num_travelers").first(),
-            pl.col("o_TAZ1454").first(),
-            pl.col("d_TAZ1454").first(),
+            pl.col(f"o_{config.taz_field}").first(),
+            pl.col(f"d_{config.taz_field}").first(),
             pl.col("tour_direction").first(),
             pl.col("access_mode").first(),
             pl.col("egress_mode").first(),
@@ -357,8 +372,8 @@ def format_joint_trip(
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
             pl.col("orig_purpose"),
             pl.col("dest_purpose"),
-            pl.col("o_TAZ1454").cast(pl.Int64).alias("orig_taz"),
-            pl.col("d_TAZ1454").cast(pl.Int64).alias("dest_taz"),
+            pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
+            pl.col(f"d_{config.taz_field}").cast(pl.Int64).alias("dest_taz"),
             pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
             pl.col("trip_mode"),
             pl.col("tour_mode_ctramp").alias("tour_mode"),
