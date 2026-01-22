@@ -126,14 +126,6 @@ class UnlinkedTripModel(BaseModel):
         fk_to="tours.tour_id",
         required_in_steps=["format_daysim"],
     )
-    depart_date: datetime
-    depart_hour: int = step_field(ge=0, le=23)
-    depart_minute: int = step_field(ge=0, le=59)
-    depart_seconds: int = step_field(ge=0, le=59)
-    arrive_date: datetime
-    arrive_hour: int = step_field(ge=0, le=23)
-    arrive_minute: int = step_field(ge=0, le=59)
-    arrive_seconds: int = step_field(ge=0, le=59)
     o_lon: float = step_field(ge=-180, le=180, required_in_steps=["link_trips"])
     o_lat: float = step_field(ge=-90, le=90, required_in_steps=["link_trips"])
     d_lon: float = step_field(ge=-180, le=180, required_in_steps=["link_trips"])
@@ -193,14 +185,6 @@ class LinkedTripModel(BaseModel):
     )
     tour_id: int = step_field(ge=1, fk_to="tours.tour_id", required_in_steps=["format_daysim"])
     travel_dow: TravelDow = step_field(required_in_steps=["extract_tours"])
-    depart_date: datetime = step_field()
-    depart_hour: int = step_field(ge=0, le=23)
-    depart_minute: int = step_field(ge=0, le=59)
-    depart_seconds: int = step_field(ge=0, le=59)
-    arrive_date: datetime = step_field()
-    arrive_hour: int = step_field(ge=0, le=23)
-    arrive_minute: int = step_field(ge=0, le=59)
-    arrive_seconds: int = step_field(ge=0, le=59)
     o_purpose: Purpose = step_field(required_in_steps=[])
     o_purpose_category: int = step_field()
     o_lat: float = step_field(ge=-90, le=90, required_in_steps=["detect_joint_trips"])
