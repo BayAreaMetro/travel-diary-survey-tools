@@ -64,6 +64,10 @@ class WeightConfig(BaseModel):
     weight_col: str | None = Field(
         default=None, description="Defaults to canonical weight column if not provided"
     )
+    keep_name: bool = Field(
+        default=False,
+        description="If True, keeps original weight_col name instead of renaming to canonical",
+    )
 
     @field_validator("config_key")
     @classmethod
@@ -336,10 +340,13 @@ def add_existing_weights(  # noqa: C901, PLR0912
 
         # Load weight file
         logger.info("Loading weights from %s for %s", cfg.weight_path, table_name)
-        weight_df = pl.read_csv(cfg.weight_path).select([cfg.weight_id_col, cfg.weight_col])
+        weight_df = pl.read_csv(cfg.weight_path)
 
-        # Validate columns exist
+        # Validate columns exist before selecting
         cfg.validate_columns(weight_df, df)
+
+        # Select only needed columns
+        weight_df = weight_df.select([cfg.weight_id_col, cfg.weight_col])
 
         # Handle potential column name mismatches
         rename_map = {}
@@ -352,7 +359,7 @@ def add_existing_weights(  # noqa: C901, PLR0912
             rename_map[cfg.weight_id_col] = cfg.table_id_col
 
         # Rename weight column to canonical name if needed
-        if cfg.weight_col != cfg.canonical_weight_col:
+        if not cfg.keep_name and cfg.weight_col != cfg.canonical_weight_col:
             if cfg.weight_col is None:
                 msg = f"weight_col should never be None due to model_validator for {table_name}"
                 raise ValueError(msg)
