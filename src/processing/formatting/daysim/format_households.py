@@ -71,6 +71,10 @@ def format_households(
         }
     )
 
+    # If there is no weight column at all, create one with default value 1.0
+    if "hhexpfac" not in households_daysim.columns:
+        households_daysim = households_daysim.with_columns(pl.lit(1.0).alias("hhexpfac"))
+
     # Map income categories to midpoint values
     # (fill null first to avoid type issues)
     households_daysim = households_daysim.with_columns(
