@@ -85,14 +85,6 @@ class CTRAMPConfig(BaseModel):
         ),
     )
 
-    default_joint_tour_travelers: int = Field(
-        default=2,
-        ge=1,
-        description=(
-            "Default number of travelers for joint tours when num_travelers is missing. Default: 2"
-        ),
-    )
-
     @model_validator(mode="after")
     def validate_income_ordering(self) -> "CTRAMPConfig":
         """Validate that income thresholds are in proper order."""

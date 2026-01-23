@@ -425,7 +425,7 @@ def format_joint_tour(
             ).alias("tour_purpose_ctramp"),
             map_mode_to_ctramp(
                 pl.col("tour_mode"),
-                pl.col("num_travelers").fill_null(config.default_joint_tour_travelers),
+                pl.col("num_travelers"),
                 None,  # Tours don't have access/egress modes
                 None,
             ).alias("tour_mode_ctramp"),
