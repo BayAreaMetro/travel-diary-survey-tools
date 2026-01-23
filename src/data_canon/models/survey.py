@@ -209,6 +209,7 @@ class TourModel(BaseModel):
     """Tour-level records with clear, descriptive step_field names."""
 
     tour_id: int = step_field(ge=1, unique=True)
+    hh_id: int = step_field(ge=1, fk_to="households.hh_id")
     person_id: int = step_field(ge=1, fk_to="persons.person_id")
     day_id: int = step_field(ge=1, fk_to="days.day_id")
     tour_num: int = step_field(ge=1)

@@ -199,6 +199,12 @@ def format_households(
     # Join aggregates with households
     households_ctramp = households_canonical.join(household_aggregates, on="hh_id", how="left")
 
+    # Ensure income columns have proper nullable int type before any operations
+    households_ctramp = households_ctramp.with_columns(
+        pl.col("income_detailed").cast(pl.Int64),
+        pl.col("income_followup").cast(pl.Int64),
+    )
+
     # Rename columns to CT-RAMP naming convention
     households_ctramp = households_ctramp.rename(
         {
@@ -225,9 +231,7 @@ def format_households(
 
     # Use income_detailed if available, otherwise income_followup
     households_ctramp = households_ctramp.with_columns(
-        income=pl.when(pl.col("income_detailed") > 0)
-        .then(pl.col("income_detailed"))
-        .otherwise(pl.col("income_followup"))
+        income=pl.coalesce(pl.col("income_detailed"), pl.col("income_followup"))
     )
 
     # Compute jtf_choice for all households

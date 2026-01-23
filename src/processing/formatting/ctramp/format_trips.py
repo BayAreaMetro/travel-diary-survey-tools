@@ -56,17 +56,21 @@ def format_individual_trip(
         return pl.DataFrame()
 
     # Filter to trips on individual tours only
-    # tours_ctramp already contains only individual tours from format_individual_tour
+    # tours_ctramp has _tour_id_canonical for matching with canonical trip tour_ids
     individual_trips = linked_trips_canonical.filter(
-        pl.col("tour_id").is_in(tours_ctramp["tour_id"].implode())
+        pl.col("tour_id").is_in(tours_ctramp["_tour_id_canonical"].implode())
     )
 
-    # Join with tour context
-    individual_trips = individual_trips.join(
-        tours_ctramp.select(["tour_id", "tour_purpose", "tour_mode", "tour_category"]),
-        on="tour_id",
+    # Join with tour context (tour fields are already CTRAMP formatted)
+    # Rename canonical tour_id temporarily to avoid collision, then join
+    individual_trips = individual_trips.rename({"tour_id": "_canonical_tour_id"}).join(
+        tours_ctramp.select(
+            ["_tour_id_canonical", "tour_id", "tour_purpose", "tour_mode", "tour_category"]
+        ),
+        left_on="_canonical_tour_id",
+        right_on="_tour_id_canonical",
         how="left",
-    ).with_columns(pl.col("tour_category").alias("tour_category_ctramp"))
+    )
 
     # Join with persons and households
     individual_trips = individual_trips.join(
@@ -128,33 +132,18 @@ def format_individual_trip(
                 config.income_med_threshold,
                 config.income_high_threshold,
             ).alias("dest_purpose"),
-            map_purpose_category_to_ctramp(
-                pl.col("tour_purpose"),
-                pl.col("income"),
-                pl.col("school_type"),
-                config.income_low_threshold,
-                config.income_med_threshold,
-                config.income_high_threshold,
-            ).alias("tour_purpose_ctramp"),
+            # tour_purpose is already CTRAMP formatted from join, no need to remap
         ]
     )
 
-    # Map trip mode and tour mode
+    # Map trip mode (tour_mode already formatted from join)
     individual_trips = individual_trips.with_columns(
-        [
-            map_mode_to_ctramp(
-                pl.col("mode_type"),
-                pl.col("num_travelers"),
-                pl.col("access_mode"),
-                pl.col("egress_mode"),
-            ).alias("trip_mode"),
-            map_mode_to_ctramp(
-                pl.col("tour_mode"),
-                pl.col("num_travelers"),
-                None,  # Tour mode doesn't have access/egress
-                None,
-            ).alias("tour_mode_ctramp"),
-        ]
+        map_mode_to_ctramp(
+            pl.col("mode_type"),
+            pl.col("num_travelers"),
+            pl.col("access_mode"),
+            pl.col("egress_mode"),
+        ).alias("trip_mode")
     )
 
     # Convert times to minutes after midnight and extract hours
@@ -178,7 +167,7 @@ def format_individual_trip(
         pl.col("tour_id"),
         pl.col("stop_id"),
         pl.col("inbound"),
-        pl.col("tour_purpose_ctramp").alias("tour_purpose"),
+        pl.col("tour_purpose"),
         pl.col("orig_purpose"),
         pl.col("dest_purpose"),
         pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
@@ -186,8 +175,8 @@ def format_individual_trip(
         pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
         pl.col("depart_hour").cast(pl.Int64),
         pl.col("trip_mode"),
-        pl.col("tour_mode_ctramp").alias("tour_mode"),
-        pl.col("tour_category_ctramp").alias("tour_category"),
+        pl.col("tour_mode"),
+        pl.col("tour_category"),
         pl.col("depart_minutes").cast(pl.Int64),
         pl.col("arrive_minutes").cast(pl.Int64),
     ]

@@ -87,7 +87,7 @@ def format_mandatory_location(
     # Compute employment_category from employment
     mandatory_loc = mandatory_loc.with_columns(
         pl.col("employment")
-        .replace(
+        .replace_strict(
             EMPLOYMENT_TO_CTRAMP,
             default=CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
         )

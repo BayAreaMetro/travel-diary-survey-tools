@@ -222,7 +222,8 @@ def format_individual_tour(
         pl.col("person_id"),
         pl.col("person_num"),
         pl.col("person_type_ctramp").alias("person_type"),
-        pl.col("tour_num").alias("tour_id"),
+        pl.col("tour_num").alias("tour_id"),  # CTRAMP tour_id is tour_num
+        pl.col("tour_id").alias("_tour_id_canonical"),  # Temp column for joining with trips
         pl.col("tour_category_ctramp").alias("tour_category"),
         pl.col("tour_purpose_ctramp").alias("tour_purpose"),
         pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),

@@ -100,6 +100,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `tour_direction` | TourDirection |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `linked_trip_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |
 | **tours** | `tour_id` | int | ≥ 1, UNIQUE |  |  |  |  |  |  |  |  |  |  |
+|  | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  |  |  |  |  |  |
 |  | `person_id` | int | ≥ 1, FK → `persons.person_id` |  |  |  |  |  |  |  |  |  |  |
 |  | `day_id` | int | ≥ 1, FK → `days.day_id` |  |  |  |  |  |  |  |  |  |  |
 |  | `tour_num` | int | ≥ 1 |  |  |  |  |  |  |  |  |  |  |

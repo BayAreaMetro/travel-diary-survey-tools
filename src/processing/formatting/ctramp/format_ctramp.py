@@ -28,6 +28,77 @@ from .format_trips import format_individual_trip, format_joint_trip
 logger = logging.getLogger(__name__)
 
 
+def _drop_missing_taz(
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+    tours: pl.DataFrame,
+    linked_trips: pl.DataFrame,
+    joint_trips: pl.DataFrame,
+    config: CTRAMPConfig,
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    n_og_households = len(households)
+    n_og_persons = len(persons)
+
+    households = households.filter(
+        households[f"home_{config.taz_field}"].is_not_null()
+        & (households[f"home_{config.taz_field}"] != -1)
+    )
+    persons = persons.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
+
+    # Filter tours and trips (skip if empty to avoid errors)
+    if len(tours) > 0 and "hh_id" in tours.columns:
+        tours = tours.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
+    if len(linked_trips) > 0 and "hh_id" in linked_trips.columns:
+        linked_trips = linked_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
+    if len(joint_trips) > 0 and "hh_id" in joint_trips.columns:
+        joint_trips = joint_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
+
+    logger.info(
+        "Dropped %d households without TAZ with %d persons; %d households and %d persons remain",
+        n_og_households - len(households),
+        n_og_persons - len(persons),
+        len(households),
+        len(persons),
+    )
+
+    # Drop tours and member trips if either TAZ is missing
+    # Do this as separate step to provide informative logging
+    n_og_tours = 0
+    n_og_trips = 0
+    n_og_joint_trips = 0
+    if len(tours) > 0:
+        n_og_tours = len(tours)
+        tours = tours.filter(
+            (tours[f"o_{config.taz_field}"].is_not_null())
+            & (tours[f"o_{config.taz_field}"] != -1)
+            & (tours[f"d_{config.taz_field}"].is_not_null())
+            & (tours[f"d_{config.taz_field}"] != -1)
+        )
+    if len(linked_trips) > 0 and "hh_id" in linked_trips.columns:
+        n_og_trips = len(linked_trips)
+        linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
+
+    if len(joint_trips) > 0 and "hh_id" in joint_trips.columns:
+        n_og_joint_trips = len(joint_trips)
+        joint_trips = joint_trips.filter(
+            pl.col("joint_trip_id").is_in(linked_trips["joint_trip_id"].implode())
+        )
+
+    logger.info(
+        "Dropped %d tours without origin/destination TAZ; %d tours remain.\n"
+        "This also dropped %d linked trips; %d linked trips remain.\n"
+        "This also dropped %d joint trips; %d joint trips remain.",
+        n_og_tours - len(tours),
+        len(tours),
+        n_og_trips - len(linked_trips),
+        len(linked_trips),
+        n_og_joint_trips - len(joint_trips),
+        len(joint_trips),
+    )
+
+    return households, persons, tours, linked_trips, joint_trips
+
+
 @step()
 def format_ctramp(
     persons: pl.DataFrame,
@@ -101,66 +172,13 @@ def format_ctramp(
 
     # Drop any households that do not have a TAZ assigned
     if config.drop_missing_taz:
-        n_og_households = len(households)
-        n_og_persons = len(persons)
-
-        households = households.filter(
-            households[f"home_{config.taz_field}"].is_not_null()
-            & (households[f"home_{config.taz_field}"] != -1)
-        )
-        persons = persons.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-
-        # Filter tours and trips (skip if empty to avoid errors)
-        if len(tours) > 0 and "hh_id" in tours.columns:
-            tours = tours.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-        if len(linked_trips) > 0 and "hh_id" in linked_trips.columns:
-            linked_trips = linked_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-        if len(joint_trips) > 0 and "hh_id" in joint_trips.columns:
-            joint_trips = joint_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-
-        logger.info(
-            "Dropped %d households without TAZ with %d persons; "
-            "%d households and %d persons remain",
-            n_og_households - len(households),
-            n_og_persons - len(persons),
-            len(households),
-            len(persons),
-        )
-
-        # Drop tours and member trips if either TAZ is missing
-        # Do this as separate step to provide informative logging
-        n_og_tours = 0
-        n_og_trips = 0
-        n_og_joint_trips = 0
-        if len(tours) > 0:
-            n_og_tours = len(tours)
-            tours = tours.filter(
-                (tours[f"o_{config.taz_field}"].is_not_null())
-                & (tours[f"o_{config.taz_field}"] != -1)
-                & (tours[f"d_{config.taz_field}"].is_not_null())
-                & (tours[f"d_{config.taz_field}"] != -1)
-            )
-        if len(linked_trips) > 0 and "hh_id" in linked_trips.columns:
-            n_og_trips = len(linked_trips)
-            linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
-
-        if len(joint_trips) > 0 and "hh_id" in joint_trips.columns:
-            n_og_joint_trips = len(joint_trips)
-            joint_trips = joint_trips.filter(
-                pl.col("joint_trip_id").is_in(linked_trips["joint_trip_id"].implode())
-            )
-
-        logger.info(
-            "Dropped %d tours without origin/destination TAZ; %d tours remain.\n"
-            "This also dropped %d linked trips; %d linked trips remain.\n"
-            "This also dropped %d joint trips; %d joint trips remain.",
-            n_og_tours - len(tours),
-            len(tours),
-            n_og_trips - len(linked_trips),
-            len(linked_trips),
-            n_og_joint_trips - len(joint_trips),
-            len(joint_trips),
-        )
+        (
+            households,
+            persons,
+            tours,
+            linked_trips,
+            joint_trips,
+        ) = _drop_missing_taz(households, persons, tours, linked_trips, joint_trips, config)
 
     # Format each table
     households_ctramp = format_households(households, persons, tours, config)
@@ -224,8 +242,8 @@ def format_ctramp(
 
     logger.info("CT-RAMP formatting complete")
 
-    # Prepare result dictionary
-    result = {
+    # Prepare result dictionary and clean up temporary columns
+    tables = {
         "households_ctramp": households_ctramp,
         "persons_ctramp": persons_ctramp,
         "individual_trips_ctramp": individual_trips_ctramp,
@@ -235,4 +253,10 @@ def format_ctramp(
         "mandatory_locations_ctramp": mandatory_location_ctramp,
     }
 
-    return result
+    # Clean up temporary columns (any column starting with _) from all tables
+    for name, df in tables.items():
+        temp_cols = [col for col in df.columns if col.startswith("_")]
+        if temp_cols:
+            tables[name] = df.drop(temp_cols)
+
+    return tables
