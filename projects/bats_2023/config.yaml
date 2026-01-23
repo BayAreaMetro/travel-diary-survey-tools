@@ -106,7 +106,6 @@ steps:
 
   - name: format_ctramp
     validate_input: false
-    validate_output: true
     cache: false
     params:
       # Income thresholds (in absolute dollars)

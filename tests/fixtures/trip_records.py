@@ -206,12 +206,14 @@ def create_linked_trip(
     o_lon: float = -122.40,
     o_taz: int | None = 100,
     o_maz: int | None = None,
-    o_purpose: PurposeCategory = PurposeCategory.HOME,
+    o_purpose: Purpose = Purpose.HOME,
+    o_purpose_category: PurposeCategory | None = None,
     d_lat: float = 37.75,
     d_lon: float = -122.45,
     d_taz: int | None = 200,
     d_maz: int | None = None,
-    d_purpose: PurposeCategory = PurposeCategory.WORK,
+    d_purpose: Purpose = Purpose.PRIMARY_WORKPLACE,
+    d_purpose_category: PurposeCategory | None = None,
     mode_type: ModeType = ModeType.CAR,
     driver: Driver = Driver.DRIVER,
     num_travelers: int = 1,
@@ -241,12 +243,14 @@ def create_linked_trip(
         o_lon: Origin longitude
         o_taz: Origin TAZ (optional, added via spatial join)
         o_maz: Origin MAZ (optional, added via spatial join)
-        o_purpose: Origin purpose category enum
+        o_purpose: Origin purpose enum (detailed)
+        o_purpose_category: Origin purpose category (high-level, derived if not provided)
         d_lat: Destination latitude
         d_lon: Destination longitude
         d_taz: Destination TAZ (optional, added via spatial join)
         d_maz: Destination MAZ (optional, added via spatial join)
-        d_purpose: Destination purpose category enum
+        d_purpose: Destination purpose enum (detailed)
+        d_purpose_category: Destination purpose category (high-level, derived if not provided)
         mode_type: Mode type enum (car/transit/walk/bike)
         driver: Driver status enum
         num_travelers: Number of travelers
@@ -266,6 +270,12 @@ def create_linked_trip(
         depart_time, arrive_time, default_depart_hour=8, travel_minutes=30
     )
 
+    # If purpose_category not provided, derive from purpose
+    if o_purpose_category is None:
+        o_purpose_category = PurposeToCategoryMap.get_category(o_purpose)
+    if d_purpose_category is None:
+        d_purpose_category = PurposeToCategoryMap.get_category(d_purpose)
+
     record = {
         "linked_trip_id": linked_trip_id,
         "person_id": person_id,
@@ -283,13 +293,15 @@ def create_linked_trip(
         "o_taz": o_taz,
         "o_TAZ1454": o_taz,  # Copy for CTRAMP compatibility
         "o_maz": o_maz,
-        "o_purpose_category": o_purpose.value,
+        "o_purpose": o_purpose.value,
+        "o_purpose_category": o_purpose_category.value,
         "d_lat": d_lat,
         "d_lon": d_lon,
         "d_taz": d_taz,
         "d_TAZ1454": d_taz,  # Copy for CTRAMP compatibility
         "d_maz": d_maz,
-        "d_purpose_category": d_purpose.value,
+        "d_purpose": d_purpose.value,
+        "d_purpose_category": d_purpose_category.value,
         "mode_type": mode_type.value,
         "driver": driver.value,
         "num_travelers": num_travelers,

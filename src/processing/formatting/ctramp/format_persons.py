@@ -328,7 +328,7 @@ def classify_person_type(
         person_type = CTRAMPPersonType.FULL_TIME_WORKER.value
     elif emp_status == "part_time":
         person_type = CTRAMPPersonType.PART_TIME_WORKER.value
-    elif is_student and school_cat in ("elementary", "high_school"):
+    elif is_student and school_cat in ("grade_school", "high_school"):
         person_type = CTRAMPPersonType.CHILD_DRIVING_AGE.value
     elif age >= AgeCategory.AGE_65_TO_74.value:  # Retired
         person_type = CTRAMPPersonType.RETIRED.value

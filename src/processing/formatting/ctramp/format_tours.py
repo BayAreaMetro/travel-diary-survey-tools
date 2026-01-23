@@ -120,10 +120,10 @@ def format_individual_tour(
 
     individual_tours = individual_tours.with_columns(
         pl.when(pl.col("parent_tour_id") != pl.col("tour_id"))
-        .then(pl.lit(CTRAMPTourCategory.AT_WORK))
+        .then(pl.lit(CTRAMPTourCategory.AT_WORK.value))
         .when(pl.col("tour_purpose").is_in(mandatory_purposes))
-        .then(pl.lit(CTRAMPTourCategory.MANDATORY))
-        .otherwise(pl.lit(CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY))
+        .then(pl.lit(CTRAMPTourCategory.MANDATORY.value))
+        .otherwise(pl.lit(CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY.value))
         .alias("tour_category_ctramp")
     )
 

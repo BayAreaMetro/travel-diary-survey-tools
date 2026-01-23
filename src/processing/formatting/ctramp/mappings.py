@@ -9,7 +9,6 @@ import logging
 import polars as pl
 
 from data_canon.codebook.ctramp import (
-    CTRAMPEmploymentCategory,
     CTRAMPGender,
     CTRAMPModeType,
     CTRAMPPersonType,
@@ -44,11 +43,11 @@ GENDER_MAP = {
 
 # Employment to person type component
 EMPLOYMENT_MAP = {
-    Employment.EMPLOYED_FULLTIME.value: CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value,
-    Employment.EMPLOYED_PARTTIME.value: CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value,
-    Employment.UNEMPLOYED_NOT_LOOKING.value: CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
-    Employment.MISSING.value: CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
-    -1: CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
+    Employment.EMPLOYED_FULLTIME.value: "full_time",
+    Employment.EMPLOYED_PARTTIME.value: "part_time",
+    Employment.UNEMPLOYED_NOT_LOOKING.value: "not_employed",
+    Employment.MISSING.value: "not_employed",
+    -1: "not_employed",
 }
 
 # Student to person type component

@@ -259,7 +259,7 @@ class TestFreeParkingChoice:
 class TestHouseholdFormatting:
     """Tests for household formatting."""
 
-    def test_basic_household_formatting(self):
+    def test_basic_household_formatting(self, standard_config):
         """Test basic household formatting with all required fields."""
         households = pl.DataFrame(
             [
@@ -289,7 +289,7 @@ class TestHouseholdFormatting:
             ]
         )
         tours = pl.DataFrame([], schema=get_tour_schema())
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         assert len(result) == 1
         assert result["hh_id"][0] == 1
@@ -300,7 +300,7 @@ class TestHouseholdFormatting:
         assert result["workers"][0] == 1
         assert result["jtf_choice"][0] == JTFChoice.NONE_NONE.value
 
-    def test_income_fallback_logic(self):
+    def test_income_fallback_logic(self, standard_config):
         """Test income fallback from detailed to followup."""
         households = pl.DataFrame(
             [
@@ -317,7 +317,7 @@ class TestHouseholdFormatting:
             schema={"hh_id": pl.Int64, "employment": pl.Int64},
         )
         tours = pl.DataFrame([], schema=get_tour_schema())
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         assert result["income"][0] == 62000  # Midpoint of 50-75k from followup rounded to $1000
 
@@ -560,11 +560,11 @@ class TestEndToEndFormatting:
 class TestColumnPresence:
     """Tests to ensure all required CT-RAMP columns are present."""
 
-    def test_household_columns(self):
+    def test_household_columns(self, standard_config):
         """Test that all required household columns are present."""
         households, persons = create_single_adult_household()
         tours = pl.DataFrame([], schema=get_tour_schema())
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         required_columns = get_required_non_null_fields(HouseholdCTRAMPModel)
         for col in required_columns:
@@ -601,7 +601,7 @@ class TestColumnPresence:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -630,7 +630,7 @@ class TestColumnPresence:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_trip(
             trips, tours, persons, households_formatted, config=standard_config
         )
@@ -679,7 +679,7 @@ class TestColumnPresence:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         persons_formatted = format_persons(persons, pl.DataFrame(), standard_config)
         result = format_joint_tour(
             tours, trips, persons_formatted, households_formatted, standard_config
@@ -723,7 +723,7 @@ class TestColumnPresence:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_trip(
             joint_trips, trips, tours, households_formatted, config=standard_config
         )
@@ -770,7 +770,9 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP (tours formatter needs formatted households/persons)
-        households = format_households(households_canonical, persons_canonical, tours_canonical)
+        households = format_households(
+            households_canonical, persons_canonical, tours_canonical, standard_config
+        )
         # Pass canonical persons for person_type and school_type
         tours = tours_canonical
         trips_canonical = pl.DataFrame(
@@ -866,7 +868,7 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP first
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
 
         result = format_individual_tour(
             tours,
@@ -956,7 +958,7 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
 
         result = format_individual_tour(
             tours,
@@ -987,7 +989,7 @@ class TestIndividualTourFormatting:
         trips = pl.DataFrame([])  # No trips!
 
         # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
 
         with pytest.raises(ValueError, match="Found 1 tours with zero trips"):
             format_individual_tour(
@@ -1051,7 +1053,7 @@ class TestIndividualTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         format_persons(persons, pl.DataFrame(), standard_config)
 
         result = format_individual_tour(
@@ -1128,7 +1130,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
 
         result = format_joint_tour(
             tours,
@@ -1197,7 +1199,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
 
         result = format_joint_tour(
             tours,
@@ -1243,7 +1245,7 @@ class TestJointTourFormatting:
         )
 
         # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         persons_formatted = format_persons(persons, pl.DataFrame(), standard_config)
 
         result = format_joint_tour(
@@ -1261,7 +1263,7 @@ class TestJointTourFormatting:
 class TestHouseholdFieldCorrections:
     """Tests for household field corrections."""
 
-    def test_autos_computed_from_vehicles(self):
+    def test_autos_computed_from_vehicles(self, standard_config):
         """Test that autos field is computed from vehicle count, not hardcoded to 0."""
         households = pl.DataFrame(
             [
@@ -1279,7 +1281,7 @@ class TestHouseholdFieldCorrections:
         )
         tours = pl.DataFrame([], schema=get_tour_schema())
 
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         assert result["autos"][0] == 2, "Should match num_vehicles"
         assert result["autos"][1] == 0, "Should be 0 when no vehicles"
@@ -1514,7 +1516,7 @@ class TestPersonFieldCorrections:
 
         # Format to get tour-based statistics
         households = pl.DataFrame([create_household(hh_id=1)])
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         # Create minimal trips for each tour to avoid validation error
         trips = pl.DataFrame(
             [
@@ -1585,7 +1587,7 @@ class TestPersonFieldCorrections:
         )
 
         households = pl.DataFrame([create_household(hh_id=1)])
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         trips = pl.DataFrame(
             [
                 create_linked_trip(
@@ -1641,7 +1643,7 @@ class TestPersonFieldCorrections:
         )
 
         households = pl.DataFrame([create_household(hh_id=1)])
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         trips = pl.DataFrame(
             [
                 create_linked_trip(
@@ -1686,7 +1688,7 @@ class TestPersonFieldCorrections:
         )
 
         households = pl.DataFrame([create_household(hh_id=1)])
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         trips = pl.DataFrame(
             [
                 create_linked_trip(
@@ -1740,7 +1742,7 @@ class TestPersonFieldCorrections:
         )
 
         households = pl.DataFrame([create_household(hh_id=1)])
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         trips = pl.DataFrame(
             [
                 create_linked_trip(
@@ -1797,7 +1799,7 @@ class TestPersonFieldCorrections:
         )
 
         households = pl.DataFrame([create_household(hh_id=1)])
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         trips = pl.DataFrame(
             [
                 create_linked_trip(
@@ -1849,7 +1851,7 @@ class TestIndividualTripFieldCorrections:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_trip(
             trips, tours, persons, households_formatted, config=standard_config
         )
@@ -1886,7 +1888,7 @@ class TestIndividualTripFieldCorrections:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         # Format tours first to get CTRAMP-formatted tours
         tours_formatted = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
@@ -1934,7 +1936,7 @@ class TestIndividualTourFieldCorrections:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -1983,7 +1985,7 @@ class TestIndividualTourFieldCorrections:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2022,7 +2024,7 @@ class TestIndividualTourFieldCorrections:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2078,7 +2080,7 @@ class TestIndividualTourFieldCorrections:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2091,7 +2093,7 @@ class TestIndividualTourFieldCorrections:
 class TestWeightsAndSampleRate:
     """Tests for weight fields and sampleRate calculation in CTRAMP output."""
 
-    def test_household_weight_and_samplerate(self):
+    def test_household_weight_and_samplerate(self, standard_config):
         """Test hh_weight and sampleRate are output when weight exists."""
         households = pl.DataFrame(
             [
@@ -2107,7 +2109,7 @@ class TestWeightsAndSampleRate:
         )
         tours = pl.DataFrame([], schema=get_tour_schema())
 
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         # Verify weight column present
         assert "hh_weight" in result.columns
@@ -2121,7 +2123,7 @@ class TestWeightsAndSampleRate:
         assert result.filter(pl.col("hh_id") == 1)["sampleRate"][0] == pytest.approx(1 / 2.5)
         assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(1 / 4.0)
 
-    def test_household_samplerate_null_when_zero_weight(self):
+    def test_household_samplerate_null_when_zero_weight(self, standard_config):
         """Test sampleRate is None when hh_weight is zero."""
         households = pl.DataFrame(
             [
@@ -2137,13 +2139,13 @@ class TestWeightsAndSampleRate:
         )
         tours = pl.DataFrame([], schema=get_tour_schema())
 
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         # Zero weight should result in None sampleRate
         assert result.filter(pl.col("hh_id") == 1)["sampleRate"][0] is None
         assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(0.5)
 
-    def test_household_samplerate_null_when_null_weight(self):
+    def test_household_samplerate_null_when_null_weight(self, standard_config):
         """Test sampleRate is None when hh_weight is null."""
         households = pl.DataFrame(
             {
@@ -2171,13 +2173,13 @@ class TestWeightsAndSampleRate:
         )
         tours = pl.DataFrame([], schema=get_tour_schema())
 
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         # Null weight should result in None sampleRate
         assert result.filter(pl.col("hh_id") == 1)["sampleRate"][0] is None
         assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(1 / 3.0)
 
-    def test_household_no_weight_columns_when_missing(self):
+    def test_household_no_weight_columns_when_missing(self, standard_config):
         """Test hh_weight and sampleRate absent when not in input."""
         households = pl.DataFrame(
             {
@@ -2200,7 +2202,7 @@ class TestWeightsAndSampleRate:
         persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame([], schema=get_tour_schema())
 
-        result = format_households(households, persons, tours)
+        result = format_households(households, persons, tours, standard_config)
 
         # Weight columns should not be present
         assert "hh_weight" not in result.columns
@@ -2286,7 +2288,7 @@ class TestWeightsAndSampleRate:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2327,7 +2329,7 @@ class TestWeightsAndSampleRate:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2354,7 +2356,7 @@ class TestWeightsAndSampleRate:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2388,7 +2390,7 @@ class TestWeightsAndSampleRate:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         tours_formatted = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2433,7 +2435,7 @@ class TestWeightsAndSampleRate:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         tours_formatted = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2467,7 +2469,7 @@ class TestWeightsAndSampleRate:
             ]
         ).drop("linked_trip_weight")
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         tours_formatted = format_individual_tour(
             tours, trips, persons, households_formatted, standard_config
         )
@@ -2518,7 +2520,7 @@ class TestWeightsAndSampleRate:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_tour(tours, trips, persons, households_formatted, standard_config)
 
         # Joint tours should NOT have weight or sampleRate fields
@@ -2592,7 +2594,7 @@ class TestWeightsAndSampleRate:
             )
         )
 
-        households_formatted = format_households(households, persons, tours)
+        households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_trip(joint_trips, trips, tours, households_formatted, standard_config)
 
         # Joint trips should NOT have trip_weight or sampleRate fields
