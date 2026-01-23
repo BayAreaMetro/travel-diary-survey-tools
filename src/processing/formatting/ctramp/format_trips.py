@@ -61,15 +61,23 @@ def format_individual_trip(
         pl.col("tour_id").is_in(tours_ctramp["_tour_id_canonical"].implode())
     )
 
+    # Get conflicting fields between tours and trips, drop from trips
+    conflicting_fields = set(individual_trips.columns).intersection(
+        {"tour_purpose", "tour_mode", "tour_category"}
+    )
     # Join with tour context (tour fields are already CTRAMP formatted)
     # Rename canonical tour_id temporarily to avoid collision, then join
-    individual_trips = individual_trips.rename({"tour_id": "_canonical_tour_id"}).join(
-        tours_ctramp.select(
-            ["_tour_id_canonical", "tour_id", "tour_purpose", "tour_mode", "tour_category"]
-        ),
-        left_on="_canonical_tour_id",
-        right_on="_tour_id_canonical",
-        how="left",
+    individual_trips = (
+        individual_trips.drop(conflicting_fields)
+        .rename({"tour_id": "_canonical_tour_id"})
+        .join(
+            tours_ctramp.select(
+                ["_tour_id_canonical", "tour_id", "tour_purpose", "tour_mode", "tour_category"]
+            ),
+            left_on="_canonical_tour_id",
+            right_on="_tour_id_canonical",
+            how="left",
+        )
     )
 
     # Join with persons and households

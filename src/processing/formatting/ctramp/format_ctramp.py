@@ -36,64 +36,135 @@ def _drop_missing_taz(
     joint_trips: pl.DataFrame,
     config: CTRAMPConfig,
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    n_og_households = len(households)
-    n_og_persons = len(persons)
+    """Remove records with missing TAZ fields and ensure referential integrity.
 
+    Performs cascading deletions to maintain data consistency:
+    1. Remove households without valid home TAZ
+    2. Remove persons from dropped households
+    3. Remove tours/trips with missing origin or destination TAZ
+    4. Remove tours that have no trips remaining
+    5. Remove joint trips that have no linked trips remaining
+
+    Args:
+        households: Canonical household data
+        persons: Canonical person data
+        tours: Canonical tour data
+        linked_trips: Canonical linked trip data
+        joint_trips: Canonical joint trip data
+        config: CTRAMP configuration with taz_field name
+
+    Returns:
+        Tuple of filtered DataFrames maintaining referential integrity
+    """
+    # Track original counts for logging
+    counts = {
+        "households": len(households),
+        "persons": len(persons),
+        "tours": max(0, len(tours)),
+        "linked_trips": max(0, len(linked_trips)),
+        "joint_trips": max(0, len(joint_trips)),
+    }
+
+    # Step 1: Filter households by home TAZ
     households = households.filter(
-        households[f"home_{config.taz_field}"].is_not_null()
-        & (households[f"home_{config.taz_field}"] != -1)
+        pl.col(f"home_{config.taz_field}").is_not_null()
+        & (pl.col(f"home_{config.taz_field}") != -1)
     )
-    persons = persons.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
+    valid_hh_ids = households["hh_id"]
 
-    # Filter tours and trips (skip if empty to avoid errors)
-    if len(tours) > 0 and "hh_id" in tours.columns:
-        tours = tours.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-    if len(linked_trips) > 0 and "hh_id" in linked_trips.columns:
-        linked_trips = linked_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-    if len(joint_trips) > 0 and "hh_id" in joint_trips.columns:
-        joint_trips = joint_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
+    # Step 2: Remove orphaned persons
+    persons = persons.filter(pl.col("hh_id").is_in(valid_hh_ids))
 
     logger.info(
-        "Dropped %d households without TAZ with %d persons; %d households and %d persons remain",
-        n_og_households - len(households),
-        n_og_persons - len(persons),
+        "Dropped %d households without valid home TAZ (keeping %d households, %d persons)",
+        counts["households"] - len(households),
         len(households),
         len(persons),
     )
 
-    # Drop tours and member trips if either TAZ is missing
-    # Do this as separate step to provide informative logging
-    n_og_tours = 0
-    n_og_trips = 0
-    n_og_joint_trips = 0
+    # Step 3: Filter tours by household and TAZ fields
     if len(tours) > 0:
-        n_og_tours = len(tours)
         tours = tours.filter(
-            (tours[f"o_{config.taz_field}"].is_not_null())
-            & (tours[f"o_{config.taz_field}"] != -1)
-            & (tours[f"d_{config.taz_field}"].is_not_null())
-            & (tours[f"d_{config.taz_field}"] != -1)
+            pl.col("hh_id").is_in(valid_hh_ids)
+            & pl.col(f"o_{config.taz_field}").is_not_null()
+            & (pl.col(f"o_{config.taz_field}") != -1)
+            & pl.col(f"d_{config.taz_field}").is_not_null()
+            & (pl.col(f"d_{config.taz_field}") != -1)
         )
-    if len(linked_trips) > 0 and "hh_id" in linked_trips.columns:
-        n_og_trips = len(linked_trips)
-        linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
+        valid_tour_ids = tours["tour_id"]
+    else:
+        valid_tour_ids = pl.Series("tour_id", [], dtype=pl.Int64)
 
-    if len(joint_trips) > 0 and "hh_id" in joint_trips.columns:
-        n_og_joint_trips = len(joint_trips)
-        joint_trips = joint_trips.filter(
-            pl.col("joint_trip_id").is_in(linked_trips["joint_trip_id"].implode())
+    # Step 4: Filter linked trips by tour and TAZ fields
+    if len(linked_trips) > 0:
+        linked_trips = linked_trips.filter(
+            pl.col("tour_id").is_in(valid_tour_ids)
+            & pl.col(f"o_{config.taz_field}").is_not_null()
+            & (pl.col(f"o_{config.taz_field}") != -1)
+            & pl.col(f"d_{config.taz_field}").is_not_null()
+            & (pl.col(f"d_{config.taz_field}") != -1)
         )
+        # Get tours that still have trips
+        tours_with_trips = linked_trips["tour_id"].unique()
 
+        # Remove tours that lost all their trips
+        if len(tours) > 0:
+            tours_before = len(tours)
+            tours = tours.filter(pl.col("tour_id").is_in(tours_with_trips))
+            if tours_before != len(tours):
+                logger.info(
+                    "Removed %d tours that had no valid trips remaining",
+                    tours_before - len(tours),
+                )
+    # No trips means no tours should remain
+    elif len(tours) > 0:
+        logger.info("Removed all %d tours because no valid trips exist", len(tours))
+        tours = tours.head(0)
+
+    # Step 5: Filter joint trips by linked trips and TAZ fields
+    if len(joint_trips) > 0:
+        # First filter by household
+        joint_trips = joint_trips.filter(pl.col("hh_id").is_in(valid_hh_ids))
+
+        # Filter by TAZ fields if they exist in joint_trips
+        taz_cols = [f"o_{config.taz_field}", f"d_{config.taz_field}"]
+        has_taz = all(col in joint_trips.columns for col in taz_cols)
+        if has_taz:
+            joint_trips = joint_trips.filter(
+                pl.col(f"o_{config.taz_field}").is_not_null()
+                & (pl.col(f"o_{config.taz_field}") != -1)
+                & pl.col(f"d_{config.taz_field}").is_not_null()
+                & (pl.col(f"d_{config.taz_field}") != -1)
+            )
+
+        # Keep only joint trips that have corresponding linked trips
+        if len(linked_trips) > 0 and "joint_trip_id" in linked_trips.columns:
+            valid_joint_trip_ids = linked_trips.filter(pl.col("joint_trip_id").is_not_null())[
+                "joint_trip_id"
+            ].unique()
+            joint_trips = joint_trips.filter(pl.col("joint_trip_id").is_in(valid_joint_trip_ids))
+        else:
+            # No linked trips with joint_trip_id means no joint trips should remain
+            logger.info(
+                "Removed all %d joint trips because no valid linked trips exist", len(joint_trips)
+            )
+            joint_trips = joint_trips.head(0)
+
+    # Final logging
     logger.info(
-        "Dropped %d tours without origin/destination TAZ; %d tours remain.\n"
-        "This also dropped %d linked trips; %d linked trips remain.\n"
-        "This also dropped %d joint trips; %d joint trips remain.",
-        n_og_tours - len(tours),
+        "TAZ filtering complete:\n"
+        "  Tours: %d → %d (dropped %d)\n"
+        "  Linked trips: %d → %d (dropped %d)\n"
+        "  Joint trips: %d → %d (dropped %d)",
+        counts["tours"],
         len(tours),
-        n_og_trips - len(linked_trips),
+        counts["tours"] - len(tours),
+        counts["linked_trips"],
         len(linked_trips),
-        n_og_joint_trips - len(joint_trips),
+        counts["linked_trips"] - len(linked_trips),
+        counts["joint_trips"],
         len(joint_trips),
+        counts["joint_trips"] - len(joint_trips),
     )
 
     return households, persons, tours, linked_trips, joint_trips
