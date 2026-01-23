@@ -139,14 +139,14 @@ steps:
     validate_input: true
     params:
       output_paths:
-        # # Standard Survey Formats
-        # households: "{{ output_dir }}/survey/households.csv"
-        # persons: "{{ output_dir }}/survey/persons.csv"
-        # days: "{{ output_dir }}/survey/days.csv"
-        # unlinked_trips: "{{ output_dir }}/survey/unlinked_trips.csv"
-        # linked_trips: "{{ output_dir }}/survey/linked_trips.csv"
-        # tours: "{{ output_dir }}/survey/tours.csv"
-        # joint_trips: "{{ output_dir }}/survey/joint_trips.csv"
+        # Standard Survey Formats
+        households: "{{ output_dir }}/survey/households.csv"
+        persons: "{{ output_dir }}/survey/persons.csv"
+        days: "{{ output_dir }}/survey/days.csv"
+        unlinked_trips: "{{ output_dir }}/survey/unlinked_trips.csv"
+        linked_trips: "{{ output_dir }}/survey/linked_trips.csv"
+        tours: "{{ output_dir }}/survey/tours.csv"
+        joint_trips: "{{ output_dir }}/survey/joint_trips.csv"
 
         # DaySim Formats
         households_daysim: "{{ output_dir }}/daysim/households.csv"

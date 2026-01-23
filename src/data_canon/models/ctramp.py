@@ -31,74 +31,93 @@ class HouseholdCTRAMPModel(BaseModel):
         le=1454,
         description="Transportation analysis zone of home location",
     )
-    income: int | None = Field(ge=0, description="Annual household income ($2000)")
+    income: int | None = Field(default=None, ge=0, description="Annual household income ($2000)")
     autos: int = Field(ge=0, description="Household automobiles")
     jtf_choice: int = Field(ge=-4, le=21, description="Number and type of household joint tours")
     size: int = Field(ge=1, description="Number of persons in the household")
-    workers: int = Field(
-        ge=0,
-        description="Number of full- or part-time workers in the household",
-    )
+    workers: int = Field(ge=0, description="Number of full- or part-time workers in the household")
     # NOTE: Model output only, not derivable from survey data.
     humanVehicles: int | None = Field(
-        ge=0, description="Household automobiles, human-driven (New in TM1.5)"
+        default=None, ge=0, description="Household automobiles, human-driven (New in TM1.5)"
     )
     autonomousVehicles: int | None = Field(
-        ge=0, description="Household automobiles, autonomous (New in TM1.5)"
+        default=None, ge=0, description="Household automobiles, autonomous (New in TM1.5)"
     )
     walk_subzone: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit sub-zone (0=cannot walk to transit, 1=short-walk, 2=long-walk)",
     )
-    auto_suff: int | None = Field(None, description="Incorrectly coded; ignore")
+    auto_suff: int | None = Field(default=None, description="Incorrectly coded; ignore")
     wfh_choice: WFHChoice | None = Field(
-        description="Work-from-home choice (0=non-worker or workers who don't work from home, 1=workers who work from home)"
+        default=None,
+        description="Work-from-home choice (0=non-worker or workers who don't work from home, 1=workers who work from home)",
     )
     # NOTE: Model output only, not derivable from survey data.
-    ao_rn: int | None = Field(description="Random number for automobile ownership model")
-    fp_rn: int | None = Field(description="Random number for free parking model")
+    ao_rn: int | None = Field(
+        default=None, description="Random number for automobile ownership model"
+    )
+    fp_rn: int | None = Field(default=None, description="Random number for free parking model")
     cdap_rn: int | None = Field(
-        description="Random number for coordinated daily activity pattern model"
+        default=None, description="Random number for coordinated daily activity pattern model"
     )
     imtf_rn: int | None = Field(
-        description="Random number for individual mandatory tour frequency model"
+        default=None, description="Random number for individual mandatory tour frequency model"
     )
     imtod_rn: int | None = Field(
-        description="Random number for individual mandatory tour time-of-day model"
+        default=None, description="Random number for individual mandatory tour time-of-day model"
     )
     immc_rn: int | None = Field(
-        description="Random number for individual mandatory mode choice model"
+        default=None, description="Random number for individual mandatory mode choice model"
     )
-    jtf_rn: int | None = Field(description="Random number for joint tour frequency model")
-    jtl_rn: int | None = Field(description="Random number for joint tour location choice model")
-    jtod_rn: int | None = Field(description="Random number for joint tour time-of-day model")
-    jmc_rn: int | None = Field(description="Random number for joint tour mode choice model")
+    jtf_rn: int | None = Field(
+        default=None, description="Random number for joint tour frequency model"
+    )
+    jtl_rn: int | None = Field(
+        default=None, description="Random number for joint tour location choice model"
+    )
+    jtod_rn: int | None = Field(
+        default=None, description="Random number for joint tour time-of-day model"
+    )
+    jmc_rn: int | None = Field(
+        default=None, description="Random number for joint tour mode choice model"
+    )
     inmtf_rn: int | None = Field(
-        description="Random number for individual non-mandatory tour frequency model"
+        default=None, description="Random number for individual non-mandatory tour frequency model"
     )
     inmtl_rn: int | None = Field(
-        description="Random number for individual non-mandatory location choice model"
+        default=None, description="Random number for individual non-mandatory location choice model"
     )
     inmtod_rn: int | None = Field(
-        description="Random number for individual non-mandatory time-of-day model"
+        default=None, description="Random number for individual non-mandatory time-of-day model"
     )
     inmmc_rn: int | None = Field(
-        description="Random number for individual non-mandatory mode choice model"
+        default=None, description="Random number for individual non-mandatory mode choice model"
     )
-    awf_rn: int | None = Field(description="Random number for at-work frequency model")
-    awl_rn: int | None = Field(description="Random number for at-work location choice model")
-    awtod_rn: int | None = Field(description="Random number for at-work time-of-day model")
-    awmc_rn: int | None = Field(description="Random number for at-work mode choice model")
-    stf_rn: int | None = Field(description="Random number for stop frequency model")
-    stl_rn: int | None = Field(description="Random number for stop location choice model")
+    awf_rn: int | None = Field(
+        default=None, description="Random number for at-work frequency model"
+    )
+    awl_rn: int | None = Field(
+        default=None, description="Random number for at-work location choice model"
+    )
+    awtod_rn: int | None = Field(
+        default=None, description="Random number for at-work time-of-day model"
+    )
+    awmc_rn: int | None = Field(
+        default=None, description="Random number for at-work mode choice model"
+    )
+    stf_rn: int | None = Field(default=None, description="Random number for stop frequency model")
+    stl_rn: int | None = Field(
+        default=None, description="Random number for stop location choice model"
+    )
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
     sampleRate: float | None = Field(
-        None,
+        default=None,
         ge=0,
         description="This household represents 1/sampleRate households, calculate from weights as 1/weight",
     )  # For some reason this wasn't in the original CTRAMP model spec
     hh_weight: float | None = Field(
-        ge=0, description="Survey weight for the household (not part of CT-RAMP spec)"
+        default=None, ge=0, description="Survey weight for the household (not part of CT-RAMP spec)"
     )
 
 
@@ -116,9 +135,11 @@ class PersonCTRAMPModel(BaseModel):
             "Retired, Student of non-driving age, Student of driving age, Child too young for school)"
         )
     )
-    value_of_time: float = Field(ge=0, description="Value of time ($2000 per hour)")
+    value_of_time: float | None = Field(
+        default=None, ge=0, description="Value of time ($2000 per hour)"
+    )
     fp_choice: FreeParkingChoice = Field(
-        description="Free parking eligibility choice (1=park for free, 2=pay to park)",
+        description="Free parking eligibility choice (1=park for free, 2=pay to park)"
     )
     activity_pattern: CTRAMPActivityPattern = Field(
         description="Primary daily activity pattern (M=mandatory, N=non-mandatory, H=home)"
@@ -136,12 +157,12 @@ class PersonCTRAMPModel(BaseModel):
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
     sampleRate: float | None = Field(
-        None,
+        default=None,
         ge=0,
         description="This person represents 1/sampleRate persons, calculate from weights as 1/weight",
     )  # For some reason this wasn't in the original CTRAMP model spec
     person_weight: float | None = Field(
-        ge=0, description="Survey weight for the person (not part of CT-RAMP spec)"
+        default=None, ge=0, description="Survey weight for the person (not part of CT-RAMP spec)"
     )
 
     # For some reason the person type in this model is string not int unlike the other CT-RAMP models
@@ -163,7 +184,7 @@ class MandatoryLocationCTRAMPModel(BaseModel):
 
     HHID: int = Field(description="Unique household ID number")
     HomeTAZ: int = Field(ge=1, le=1454, description="Home transportation analysis zone")
-    Income: int = Field(ge=0, description="Annual household income ($2000)")
+    Income: int | None = Field(default=None, ge=0, description="Annual household income ($2000)")
     PersonID: int = Field(description="Unique person ID number")
     PersonNum: int = Field(ge=1, description="Person number unique to the household")
     PersonType: CTRAMPPersonType = Field(
@@ -192,12 +213,15 @@ class MandatoryLocationCTRAMPModel(BaseModel):
     )
     # NOTE: Model output only, not derivable from survey data.
     HomeSubZone: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit home sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     SchoolSubZone: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit school sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     WorkSubZone: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit work sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
 
@@ -249,39 +273,47 @@ class IndividualTourCTRAMPModel(BaseModel):
     num_ib_stops: int = Field(description="Number of in-bound stops on the tour")
     # NOTE: Derivable from survey weights when available.
     sampleRate: float | None = Field(
-        None,
+        default=None,
         ge=0,
         description="This tour represents 1/sampleRate tours, calculate from weights as 1/weight",
     )
     # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
-        description="Autonomous vehicle available, added in Travel Model 1.5"
+        default=None, description="Autonomous vehicle available, added in Travel Model 1.5"
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     orig_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
-    dcLogsum: float | None = Field(None, description="To document, added in Travel Model 1.5")
-    origTaxiWait: float | None = Field(None, description="To document, added in Travel Model 1.5")
-    destTaxiWait: float | None = Field(None, description="To document, added in Travel Model 1.5")
+    dcLogsum: float | None = Field(
+        default=None, description="To document, added in Travel Model 1.5"
+    )
+    origTaxiWait: float | None = Field(
+        default=None, description="To document, added in Travel Model 1.5"
+    )
+    destTaxiWait: float | None = Field(
+        default=None, description="To document, added in Travel Model 1.5"
+    )
     origSingleTNCWait: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
+        default=None, description="To document, added in Travel Model 1.5"
     )
     destSingleTNCWait: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
+        default=None, description="To document, added in Travel Model 1.5"
     )
     origSharedTNCWait: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
+        default=None, description="To document, added in Travel Model 1.5"
     )
     destSharedTNCWait: float | None = Field(
-        None, description="To document, added in Travel Model 1.5"
+        default=None, description="To document, added in Travel Model 1.5"
     )
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
     tour_weight: float | None = Field(
-        ge=0, description="Survey weight for the tour (not part of CT-RAMP spec)"
+        default=None, ge=0, description="Survey weight for the tour (not part of CT-RAMP spec)"
     )
 
 
@@ -350,27 +382,30 @@ class IndividualTripCTRAMPModel(BaseModel):
     )
     # NOTE: Derivable from survey weights when available.
     sampleRate: float | None = Field(
-        None,
+        default=None,
         ge=0,
         description="This trip represents 1/sampleRate trips, calculate from weights as 1/weight",
     )
     # NOTE: Model output only, not derivable from survey data.
     avAvailable: int | None = Field(
-        None,
+        default=None,
         description="Does the household have an autonomous vehicle available for this tour?",
     )
-    taxiWait: float | None = Field(None, description="TBD")
-    singleTNCWait: float | None = Field(None, description="TBD")
-    sharedTNCWait: float | None = Field(None, description="TBD")
+    taxiWait: float | None = Field(default=None, description="TBD")
+    singleTNCWait: float | None = Field(default=None, description="TBD")
+    sharedTNCWait: float | None = Field(default=None, description="TBD")
     orig_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short walk; 2=long walk)",
     )
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.
     trip_weight: float | None = Field(
+        default=None,
         ge=0,
         description="Survey weight for the trip, aka linked_trip_weight (not part of CT-RAMP spec)",
     )
@@ -413,9 +448,11 @@ class JointTourCTRAMPModel(BaseModel):
     num_ib_stops: int = Field(ge=0, description="Number of in-bound (to home) stops on the tour")
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
 
@@ -467,8 +504,10 @@ class JointTripCTRAMPModel(BaseModel):
     tour_category: str = Field(description='Tour category ("JOINT_NON_MANDATORY")')
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit origin sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
     dest_walk_segment: WalkToTransitSubZone | None = Field(
+        default=None,
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
