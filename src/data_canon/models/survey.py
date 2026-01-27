@@ -5,6 +5,8 @@ This module uses Pydantic for data validation.
 Models represent individual records (rows) rather than entire DataFrames.
 Use the validate_* functions to validate Polars DataFrames by iterating
 through rows.
+
+Any field without None as an allowed type is considered required core data.
 """
 
 from datetime import datetime
@@ -65,26 +67,19 @@ class PersonModel(BaseModel):
     work_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     school_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
     school_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
-    person_type: PersonType = step_field(required_in_steps=[])
+    person_type: PersonType | None = step_field(required_in_steps=[])
     job_type: JobType | None = step_field(required_in_steps=[], default=None)
     employment: Employment = step_field(required_in_steps=["extract_tours"])
     student: Student = step_field(required_in_steps=["extract_tours"])
-    school_type: SchoolType | None = step_field(
-        required_in_steps=["extract_tours"],
-    )
-    work_park: WorkParking | None = step_field(
-        required_in_steps=["format_daysim"],
-    )
-    work_mode: Mode | None = step_field(
-        required_in_steps=["format_daysim"],
-    )
-    commute_subsidy_use_3: BooleanYesNo | None = step_field(
-        required_in_steps=[],
-    )
-    commute_subsidy_use_4: BooleanYesNo | None = step_field(
-        required_in_steps=[],
-    )
-    is_proxy: bool = step_field(required_in_steps=["format_daysim"])
+    school_type: SchoolType | None = step_field(required_in_steps=["extract_tours"])
+    work_park: WorkParking | None = step_field(required_in_steps=["format_daysim"])
+    work_mode: Mode | None = step_field(required_in_steps=["format_daysim"])
+    commute_subsidy_use_3: BooleanYesNo | None = step_field(required_in_steps=[])
+    commute_subsidy_use_4: BooleanYesNo | None = step_field(required_in_steps=[])
+    # NOTE: is proxy is vague.
+    # Better and more flexible would be to have proxy_person_id on the proxied person
+    # This allows for multiple proxy reporters and is more explicit.
+    is_proxy: bool | None = step_field(required_in_steps=["format_daysim"])
     num_days_complete: int = step_field(ge=0, default=0)
     person_weight: float | None = step_field(ge=0, required_in_steps=[])
 
@@ -99,7 +94,8 @@ class PersonDayModel(BaseModel):
     )
     day_id: int = step_field(ge=1, unique=True)
     hh_id: int = step_field(ge=1, fk_to="households.hh_id")
-    travel_dow: TravelDow
+    travel_date: datetime = step_field(required_in_steps=[])
+    travel_dow: TravelDow = step_field(required_in_steps=["format_daysim"])
     day_weight: float | None = step_field(ge=0, required_in_steps=[])
 
 
@@ -107,7 +103,9 @@ class UnlinkedTripModel(BaseModel):
     """Trip data model for validation."""
 
     unlinked_trip_id: int = step_field(ge=1, unique=True)
-    day_id: int = step_field(ge=1, fk_to="days.day_id")
+    day_id: int = step_field(
+        ge=1, fk_to="days.day_id", required_in_steps=["link_trips", "extract_tours"]
+    )
     person_id: int = step_field(ge=1, fk_to="persons.person_id")
     hh_id: int = step_field(ge=1, fk_to="households.hh_id")
     linked_trip_id: int = step_field(
@@ -115,7 +113,7 @@ class UnlinkedTripModel(BaseModel):
         fk_to="linked_trips.linked_trip_id",
         required_in_steps=["extract_tours"],
     )
-    tour_id: int = step_field(
+    tour_id: int | None = step_field(
         ge=1,
         fk_to="tours.tour_id",
         required_in_steps=["format_daysim"],
