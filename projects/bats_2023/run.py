@@ -112,11 +112,11 @@ if __name__ == "__main__":
 
     logger.info("Starting BATS 2023 DaySim Processing Pipeline")
 
-    cache_dir = Path(".cache")
+    cache_dir = Path(".cache_2023")
     pipeline = Pipeline(
         config_path=CONFIG_PATH,
         steps=processing_steps,
-        caching=True,
+        caching=cache_dir,
         data_models=new_models,
     )
 

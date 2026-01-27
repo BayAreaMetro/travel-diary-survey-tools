@@ -103,7 +103,7 @@ if __name__ == "__main__":
     pipeline = Pipeline(
         config_path=CONFIG_PATH,
         steps=processing_steps,
-        caching=True,
+        caching=cache_dir,
     )
 
     # Clear cache if requested
