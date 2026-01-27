@@ -59,23 +59,23 @@ class PersonModel(BaseModel):
         fk_to="households.hh_id",
         required_child=True,
     )
-    person_num: int = step_field(ge=1, required_in_steps=["format_daysim"])
+    person_num: int = step_field(ge=1, required_in_steps=["format_ctramp", "format_daysim"])
     age: AgeCategory = step_field(required_in_steps=["extract_tours"])
-    gender: Gender = step_field(required_in_steps=[])
+    gender: Gender = step_field(required_in_steps=["format_ctramp"])
     # These fields can be None if person is not employed or in school
     work_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
     work_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     school_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
     school_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     person_type: PersonType | None = step_field(required_in_steps=[])
-    job_type: JobType | None = step_field(required_in_steps=[], default=None)
+    job_type: JobType | None = step_field(required_in_steps=["format_ctramp"])
     employment: Employment = step_field(required_in_steps=["extract_tours"])
     student: Student = step_field(required_in_steps=["extract_tours"])
     school_type: SchoolType | None = step_field(required_in_steps=["extract_tours"])
     work_park: WorkParking | None = step_field(required_in_steps=["format_daysim"])
     work_mode: Mode | None = step_field(required_in_steps=["format_daysim"])
-    commute_subsidy_use_3: BooleanYesNo | None = step_field(required_in_steps=[])
-    commute_subsidy_use_4: BooleanYesNo | None = step_field(required_in_steps=[])
+    commute_subsidy_use_3: BooleanYesNo | None = step_field(required_in_steps=["format_ctramp"])
+    commute_subsidy_use_4: BooleanYesNo | None = step_field(required_in_steps=["format_ctramp"])
     # NOTE: is proxy is vague.
     # Better and more flexible would be to have proxy_person_id on the proxied person
     # This allows for multiple proxy reporters and is more explicit.
@@ -177,11 +177,11 @@ class LinkedTripModel(BaseModel):
     )
     tour_id: int = step_field(ge=1, fk_to="tours.tour_id", required_in_steps=["format_daysim"])
     travel_dow: TravelDow = step_field(required_in_steps=["extract_tours"])
-    o_purpose: Purpose = step_field(required_in_steps=[])
+    o_purpose: Purpose = step_field(required_in_steps=["format_ctramp"])
     o_purpose_category: int = step_field()
     o_lat: float = step_field(ge=-90, le=90, required_in_steps=["detect_joint_trips"])
     o_lon: float = step_field(ge=-180, le=180, required_in_steps=["detect_joint_trips"])
-    d_purpose: Purpose = step_field(required_in_steps=[])
+    d_purpose: Purpose = step_field(required_in_steps=["format_ctramp"])
     d_purpose_category: int = step_field(required_in_steps=["extract_tours"])
     d_lat: float = step_field(ge=-90, le=90, required_in_steps=["detect_joint_trips"])
     d_lon: float = step_field(ge=-180, le=180, required_in_steps=["detect_joint_trips"])
@@ -189,10 +189,10 @@ class LinkedTripModel(BaseModel):
     driver: Driver = step_field(required_in_steps=["link_trips", "format_daysim"])
     num_travelers: int = step_field(ge=1)
     access_mode: AccessEgressMode | None = step_field(
-        required_in_steps=["format_daysim"], default=None
+        required_in_steps=["format_daysim", "format_ctramp"], default=None
     )
     egress_mode: AccessEgressMode | None = step_field(
-        required_in_steps=["format_daysim"], default=None
+        required_in_steps=["format_daysim", "format_ctramp"], default=None
     )
 
     duration_minutes: float = step_field(ge=0)
@@ -207,6 +207,7 @@ class TourModel(BaseModel):
     """Tour-level records with clear, descriptive step_field names."""
 
     tour_id: int = step_field(ge=1, unique=True)
+    hh_id: int = step_field(ge=1, fk_to="households.hh_id")
     person_id: int = step_field(ge=1, fk_to="persons.person_id")
     day_id: int = step_field(ge=1, fk_to="days.day_id")
     tour_num: int = step_field(ge=1)
@@ -249,7 +250,7 @@ class TourModel(BaseModel):
     tour_mode: ModeType = step_field()
     outbound_mode: ModeType | None = step_field()
     inbound_mode: ModeType | None = step_field()
-    num_travelers: int = step_field(ge=1, required_in_steps=[], default=1)
+    num_travelers: int = step_field(ge=1, required_in_steps=["format_ctramp"], default=1)
     tour_weight: float | None = step_field(ge=0)
 
     @model_validator(mode="after")
