@@ -24,14 +24,15 @@ steps:
 
   - name: clean_2019_bats
     validate_input: false
-    # cache: true
+    validate_output: true
+    cache: true
 
   # - name: imputation
   #   validate_input: true
 
   - name: link_trips
-    validate_input: false
-    # cache: true
+    validate_input: true
+    cache: true
     params:
       change_mode_code: 11  # Purpose code for 'change_mode'
       transit_mode_codes: [12, 13, 14] # NOTE: this is not elegant
@@ -39,8 +40,8 @@ steps:
       dwell_buffer_distance: 100  # in meters
 
   - name: detect_joint_trips
-    validate_input: false
-    # cache: true
+    validate_input: true
+    cache: true
     params:
       config:
         method: "mahalanobis"
@@ -59,16 +60,16 @@ steps:
         # space_threshold_meters: 100.0
 
   - name: extract_tours
-    validate_input: false
-    # cache: true
+    validate_input: true
+    cache: true
 
   # - name: weighting
   #   validate_input: true
   #   cache: true
 
   - name: add_zone_ids
-    validate_input: false
-    # cache: true
+    validate_input: true
+    cache: true
     params:
       zone_geographies:
         - zone_name: "taz"  # Primary TAZ for DaySim (TM1)

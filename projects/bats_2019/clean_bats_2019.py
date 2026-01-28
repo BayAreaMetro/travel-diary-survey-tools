@@ -6,6 +6,7 @@ from typing import get_args
 
 import polars as pl
 
+from data_canon.codebook.persons import JobType
 from data_canon.codebook.trips import Purpose, PurposeCategory
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
 from pipeline.decoration import step
@@ -121,6 +122,45 @@ def replace_with_code(
     return df
 
 
+def get_work_mode(
+    persons: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
+) -> pl.DataFrame:
+    """Get the primary work mode for persons with fixed work locations."""
+    logger.info("Determining primary work mode for persons with fixed work locations")
+    # Filter persons with single work location
+    single_work_location_persons = (
+        persons.filter(pl.col("job_type") == JobType.FIXED.value)
+        .select("person_id")
+        .unique()
+        .to_series()
+        .implode()
+    )
+
+    # Filter work trips
+    work_trips = unlinked_trips.filter(
+        (pl.col("d_purpose_category") == PurposeCategory.WORK.value)
+        & (pl.col("person_id").is_in(single_work_location_persons))
+    ).select("person_id", "mode_type", "d_lat", "d_lon")
+
+    # Find the most common mode for each person
+    work_mode = (
+        work_trips
+        # Start by getting count of each mode used by each person
+        .group_by(["person_id", "mode_type"])
+        .agg(pl.count().alias("mode_count"))
+        # Then select the mode with the highest count for each person
+        .sort(["person_id", "mode_count"], descending=[False, True])
+        .group_by("person_id")
+        .agg(pl.first("mode_type").alias("work_mode"))
+    )
+
+    # Join back to persons
+    persons = persons.join(work_mode, on="person_id", how="left")
+
+    return persons
+
+
 def clean_households(households: pl.DataFrame) -> pl.DataFrame:
     """Custom cleaning for households."""
     logger.info("Cleaning 2019 household data")
@@ -139,9 +179,11 @@ def clean_households(households: pl.DataFrame) -> pl.DataFrame:
     return households
 
 
-def clean_persons(persons: pl.DataFrame) -> pl.DataFrame:
+def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.DataFrame:
     """Custom cleaning for persons."""
     logger.info("Cleaning 2019 person data")
+
+    # Get weight column
     persons = persons.with_columns(
         person_weight=pl.col("wt_sphone_wkday"),
     )
@@ -156,11 +198,16 @@ def clean_persons(persons: pl.DataFrame) -> pl.DataFrame:
     for col in replace_cols:
         persons = replace_with_code(persons, col, {-9998: 995})
 
+    # Get work mode for persons
+    persons = get_work_mode(persons, unlinked_trips)
+
     return persons
 
 
-def clean_days(days: pl.DataFrame, persons: pl.DataFrame) -> pl.DataFrame:
-    """Custom cleaning for days."""
+def clean_days(
+    unlinked_trips: pl.DataFrame, days: pl.DataFrame, persons: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Clean day_num issues in days and unlinked trips."""
     logger.info("Cleaning 2019 day data")
     days = days.with_columns(
         # to datetime
@@ -169,6 +216,8 @@ def clean_days(days: pl.DataFrame, persons: pl.DataFrame) -> pl.DataFrame:
         travel_dow=pl.col("travel_date_dow"),
         # Create day_id as (person_id * 100 + day_num)
         day_id=(pl.col("person_id") * 100 + pl.col("day_num")),
+        # Weight column
+        day_weight=pl.col("daywt_sphone_wkday"),
     )
 
     # Add day entries for persons without any days recorded
@@ -179,13 +228,13 @@ def clean_days(days: pl.DataFrame, persons: pl.DataFrame) -> pl.DataFrame:
 
     # Get travel_dow from other household members' days
     days_for_dow = (
-        days.select(["hh_id", "travel_dow", "day_num"])
+        days.select(["hh_id", "travel_dow", "travel_date", "day_num"])
         .filter(pl.col("hh_id").is_in(persons_without_days["hh_id"].unique().implode()))
         .unique()
     )
 
     # Which day columns to include
-    day_cols = ["hh_id", "person_id", "day_id", "travel_dow", "day_num"]
+    day_cols = ["hh_id", "person_id", "day_id", "travel_dow", "travel_date", "day_num"]
 
     # Create a default day for each person without days
     dummy_days = (
@@ -197,16 +246,8 @@ def clean_days(days: pl.DataFrame, persons: pl.DataFrame) -> pl.DataFrame:
         .select(day_cols)
     )
     # Add dummy days to days dataframe
-    _days = days.clone()
-    days = pl.concat([_days, dummy_days], how="diagonal")
+    days = pl.concat([days, dummy_days], how="diagonal")
 
-    return days
-
-
-def fix_day_num(
-    unlinked_trips: pl.DataFrame, days: pl.DataFrame
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Fix day_num in unlinked trips based on depart_time."""
     # Fix day_num --------------------------------------------------------
     # day_num is erroneous for miscelleneous reasons
     # E.g., seems like there were inconsistent rules for assigning day_num for trips after midnight,
@@ -397,7 +438,7 @@ def clean_trips(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
     # Num_travelers: replace <0 with None
     unlinked_trips = unlinked_trips.with_columns(
         pl.when(pl.col("num_travelers") < 0)
-        .then(None)
+        .then(1)  # Default to 1 traveler if unknown
         .otherwise(pl.col("num_travelers"))
         .alias("num_travelers")
     )
@@ -496,20 +537,17 @@ def clean_2019_bats(
     unlinked_trips: pl.DataFrame,
 ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline."""
-    # CLEAN HOUSEHOLDS ==================================
-    households = clean_households(households)
-
-    # CLEAN PERSONS ==================================
-    persons = clean_persons(persons)
-
-    # CLEAN DAYS ==================================
-    days = clean_days(days, persons)
-
     # CLEANUP UNLINKED TRIPS =================================
     unlinked_trips = clean_trips(unlinked_trips)
 
-    # FIX DAY NUMBERS IN TRIPS AND DAYS ==============================
-    unlinked_trips, days = fix_day_num(unlinked_trips, days)
+    # CLEAN DAYS ==================================
+    unlinked_trips, days = clean_days(unlinked_trips, days, persons)
+
+    # CLEAN PERSONS ==================================
+    persons = clean_persons(persons, unlinked_trips)
+
+    # CLEAN HOUSEHOLDS ==================================
+    households = clean_households(households)
 
     # Final check
     for df, model in [
