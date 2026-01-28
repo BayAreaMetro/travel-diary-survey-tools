@@ -39,7 +39,7 @@ def load_data(
         # If .csv file, use polars to read
         if path.endswith(".csv"):
             data[table] = pl.read_csv(path, infer_schema_length=10000)
-        if path.endswith(".tsv"):
+        elif path.endswith(".tsv"):
             data[table] = pl.read_csv(path, separator="\t", infer_schema_length=10000)
         elif path.endswith(".parquet"):
             data[table] = pl.read_parquet(path)
