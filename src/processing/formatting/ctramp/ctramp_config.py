@@ -95,6 +95,13 @@ class CTRAMPConfig(BaseModel):
         ),
     )
 
+    # Distance units
+    distance_unit: str = Field(
+        default="miles",
+        pattern="^(miles|kilometers|meters)$",
+        description="Distance unit for CT-RAMP formatting ('miles', 'kilometers', or 'meters').",
+    )
+
     @model_validator(mode="after")
     def validate_income_ordering(self) -> "CTRAMPConfig":
         """Validate that income thresholds are in proper order."""

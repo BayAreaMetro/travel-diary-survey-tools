@@ -14,19 +14,16 @@ logger = logging.getLogger(__name__)
 def calc_fixed_location_distances(
     mandatory_locations: pl.DataFrame,
     linked_trips_canonical: pl.DataFrame,
-    buffer: float = 500,
-    fixed_type: str = "work",
-    unit: str = "miles",
+    fixed_type: str,
+    config: CTRAMPConfig,
 ) -> pl.DataFrame:
     """Calculate fixed work/school location distances for validation.
 
     Args:
         mandatory_locations: DataFrame with person fixed locations and home locations
         linked_trips_canonical: Canonical linked trips DataFrame with trip origins/destinations
-        buffer: Distance buffer in meters to consider a trip origin/destination
-            as being at home or at the fixed location
         fixed_type: Type of fixed location to calculate distances for ("work" or "school")
-        unit: Unit for returned distances ("miles" or "meters")
+        config: CT-RAMP configuration with fixed location buffer and distance unit
 
     Returns:
         DataFrame with person_id and calculated work/school distances
@@ -35,14 +32,28 @@ def calc_fixed_location_distances(
         msg = "fixed_type must be 'work' or 'school'"
         raise ValueError(msg)
 
-    if unit not in ["miles", "meters"]:
-        msg = "unit must be 'miles' or 'meters'"
+    if config.distance_unit not in ["miles", "kilometers", "meters"]:
+        msg = "distance_unit must be 'miles', 'kilometers', or 'meters'"
+        raise ValueError(msg)
+
+    if config.fixed_location_buffer_meters is None:
+        msg = "fixed_location_buffer_meters must be set in config"
         raise ValueError(msg)
 
     # Filter persons to fixed locations for the type we are calculating
     _mandatory_locations = mandatory_locations.filter(
         pl.col(f"{fixed_type}_lat").is_not_null() & pl.col(f"{fixed_type}_lon").is_not_null()
     )
+
+    # If nothing to calculate, return empty DataFrame
+    if _mandatory_locations.height == 0:
+        logger.info("No persons with fixed %s locations to calculate distances for", fixed_type)
+        return pl.DataFrame(
+            schema={
+                "person_id": pl.Int64,
+                f"{fixed_type}_distance_{config.distance_unit}": pl.Float64,
+            }
+        )
 
     logger.info(
         "Calculated fixed location distances for %d persons",
@@ -74,7 +85,7 @@ def calc_fixed_location_distances(
                     pl.col("home_lon"),
                     units="meters",
                 )
-                <= buffer
+                <= config.fixed_location_buffer_meters
             ).alias("origin_is_home"),
             (
                 expr_haversine(
@@ -84,7 +95,7 @@ def calc_fixed_location_distances(
                     pl.col(f"{fixed_type}_lon"),
                     units="meters",
                 )
-                <= buffer
+                <= config.fixed_location_buffer_meters
             ).alias(f"origin_is_{fixed_type}"),
             (
                 expr_haversine(
@@ -94,7 +105,7 @@ def calc_fixed_location_distances(
                     pl.col("home_lon"),
                     units="meters",
                 )
-                <= buffer
+                <= config.fixed_location_buffer_meters
             ).alias("dest_is_home"),
             (
                 expr_haversine(
@@ -104,11 +115,15 @@ def calc_fixed_location_distances(
                     pl.col(f"{fixed_type}_lon"),
                     units="meters",
                 )
-                <= buffer
+                <= config.fixed_location_buffer_meters
             ).alias(f"dest_is_{fixed_type}"),
             # Calculate matching TAZs for origin/destination, used as fallback
-            (pl.col("o_taz") == pl.col(f"{fixed_type}_taz")).alias(f"origin_is_{fixed_type}_taz"),
-            (pl.col("d_taz") == pl.col(f"{fixed_type}_taz")).alias(f"dest_is_{fixed_type}_taz"),
+            (pl.col(f"o_{config.taz_field}") == pl.col(f"{fixed_type}_taz")).alias(
+                f"origin_is_{fixed_type}_taz"
+            ),
+            (pl.col(f"d_{config.taz_field}") == pl.col(f"{fixed_type}_taz")).alias(
+                f"dest_is_{fixed_type}_taz"
+            ),
         ]
     )
 
@@ -120,8 +135,8 @@ def calc_fixed_location_distances(
             | (pl.col(f"origin_is_{fixed_type}") & pl.col("dest_is_home"))
         )
         # Fallback to use matching TAZs
-        | (pl.col("origin_is_" + fixed_type + "_taz") & pl.col("dest_is_home"))
-        | (pl.col("dest_is_" + fixed_type + "_taz") & pl.col("origin_is_home"))
+        | (pl.col(f"origin_is_{fixed_type}_taz") & pl.col("dest_is_home"))
+        | (pl.col(f"dest_is_{fixed_type}_taz") & pl.col("origin_is_home"))
     )
 
     # Extract and average the distance field for these trips
@@ -154,12 +169,19 @@ def calc_fixed_location_distances(
         )
 
     # If unit is miles, convert from meters
-    if unit == "miles":
+    if config.distance_unit == "miles":
         distances = distances.with_columns(
             (pl.col(f"{fixed_type}_distance_meters") / 1609.34).alias(
                 f"{fixed_type}_distance_miles"
             )
         ).select(["person_id", f"{fixed_type}_distance_miles"])
+    elif config.distance_unit == "kilometers":
+        distances = distances.with_columns(
+            (pl.col(f"{fixed_type}_distance_meters") / 1000).alias(
+                f"{fixed_type}_distance_kilometers"
+            )
+        ).select(["person_id", f"{fixed_type}_distance_kilometers"])
+
     return distances
 
 
@@ -201,7 +223,7 @@ def format_mandatory_location(
     # Join persons with households to get income and home TAZ, lat/lon
     mandatory_loc = persons_ctramp.join(
         households_ctramp.select(
-            ["hh_id", f"home_{config.taz_field}", "home_lat", "home_lon", "income"]
+            ["hh_id", "home_lat", "home_lon", f"home_{config.taz_field}", "income"]
         ),
         on="hh_id",
         how="left",
@@ -234,15 +256,14 @@ def format_mandatory_location(
         distances_df = calc_fixed_location_distances(
             mandatory_locations=mandatory_loc,
             linked_trips_canonical=linked_trips_canonical,
-            buffer=config.fixed_location_buffer_meters,
             fixed_type=fixed_type,
-            unit="miles",
+            config=config,
         )
         mandatory_loc = mandatory_loc.join(
             distances_df,
             on="person_id",
             how="left",
-        ).rename({f"{fixed_type}_distance_miles": f"{fixed_type}_distance_survey"})
+        ).rename({f"{fixed_type}_distance_{config.distance_unit}": f"{fixed_type}_distance_survey"})
 
     # Map to CT-RAMP column names
     mandatory_loc = mandatory_loc.select(
