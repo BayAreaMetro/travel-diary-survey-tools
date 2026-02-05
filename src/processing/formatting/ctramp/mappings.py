@@ -503,6 +503,9 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
         "preschool_students": 0,
         "young_college_students": 0,
         "young_retirees": 0,
+        "missing_employment_status": 0,
+        "missing_student_status": 0,
+        "age_inappropriate_school_types": 0,
     }
 
     # Children < 16 with full-time employment
@@ -563,6 +566,95 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
     # Note: We can only check if the input data suggests retirement, not the output
     # The classification logic itself prevents young retirees
 
+    # MISSING employment status
+    missing_employment = df.filter(pl.col("employment") == Employment.MISSING.value)
+    if len(missing_employment) > 0:
+        warnings["missing_employment_status"] = len(missing_employment)
+        person_ids = missing_employment["person_id"].head(5).to_list()
+        logger.warning(
+            "Found %d persons with MISSING employment status. "
+            "Classification will use age-based defaults. Top 5 person_ids: %s",
+            len(missing_employment),
+            person_ids,
+        )
+
+    # MISSING student status when they have a school type
+    missing_student = df.filter(
+        (pl.col("student") == Student.MISSING.value)
+        & pl.col("school_type").is_in(
+            [
+                SchoolType.ELEMENTARY.value,
+                SchoolType.MIDDLE_SCHOOL.value,
+                SchoolType.HIGH_SCHOOL.value,
+                SchoolType.COLLEGE_2YEAR.value,
+                SchoolType.COLLEGE_4YEAR.value,
+                SchoolType.GRADUATE_SCHOOL.value,
+            ]
+        )
+    )
+    if len(missing_student) > 0:
+        warnings["missing_student_status"] = len(missing_student)
+        person_ids = missing_student["person_id"].head(5).to_list()
+        logger.warning(
+            "Found %d persons with school_type but MISSING student status. "
+            "Classification may be incorrect. Top 5 person_ids: %s",
+            len(missing_student),
+            person_ids,
+        )
+
+    # Age-inappropriate school types
+    inappropriate_school = df.filter(
+        # Teens 16-24 in elementary/middle school
+        (
+            pl.col("age").is_in(
+                [
+                    AgeCategory.AGE_16_TO_17.value,
+                    AgeCategory.AGE_18_TO_24.value,
+                ]
+            )
+            & pl.col("school_type").is_in(
+                [SchoolType.ELEMENTARY.value, SchoolType.MIDDLE_SCHOOL.value]
+            )
+        )
+        # Children under 16 in college
+        | (
+            pl.col("age").is_in([AgeCategory.AGE_UNDER_5.value, AgeCategory.AGE_5_TO_15.value])
+            & pl.col("school_type").is_in(
+                [
+                    SchoolType.COLLEGE_2YEAR.value,
+                    SchoolType.COLLEGE_4YEAR.value,
+                    SchoolType.GRADUATE_SCHOOL.value,
+                ]
+            )
+        )
+        # College-age (18+) with HOME_SCHOOL
+        | (
+            pl.col("age").is_in(
+                [
+                    AgeCategory.AGE_18_TO_24.value,
+                    AgeCategory.AGE_25_TO_34.value,
+                    AgeCategory.AGE_35_TO_44.value,
+                    AgeCategory.AGE_45_TO_54.value,
+                    AgeCategory.AGE_55_TO_64.value,
+                    AgeCategory.AGE_65_TO_74.value,
+                    AgeCategory.AGE_75_TO_84.value,
+                    AgeCategory.AGE_85_AND_UP.value,
+                ]
+            )
+            & (pl.col("school_type") == SchoolType.HOME_SCHOOL.value)
+        )
+    )
+    if len(inappropriate_school) > 0:
+        warnings["age_inappropriate_school_types"] = len(inappropriate_school)
+        person_ids = inappropriate_school["person_id"].head(5).to_list()
+        logger.warning(
+            "Found %d persons with age-inappropriate school types "
+            "(e.g., teens in elementary, children in college, adults with HOME_SCHOOL). "
+            "Top 5 person_ids: %s",
+            len(inappropriate_school),
+            person_ids,
+        )
+
     return warnings
 
 
@@ -619,6 +711,7 @@ def person_type_expression(
     ]
 
     # Employment status indicators
+    # Note: Self-employment (EMPLOYED_SELF) is always classified as full-time
     is_full_time = pl.col(employment_col).is_in(
         [
             Employment.EMPLOYED_FULLTIME.value,
@@ -626,12 +719,7 @@ def person_type_expression(
             Employment.EMPLOYED_UNPAID.value,
         ]
     )
-    is_part_time = pl.col(employment_col).is_in(
-        [
-            Employment.EMPLOYED_PARTTIME.value,
-            Employment.EMPLOYED_SELF.value,
-        ]
-    )
+    is_part_time = pl.col(employment_col) == Employment.EMPLOYED_PARTTIME.value
 
     # Student and school status indicators
     is_student = pl.col(student_col).is_in(
@@ -656,6 +744,8 @@ def person_type_expression(
             SchoolType.VOCATIONAL.value,
         ]
     )
+    # Students 18+ with MISSING school_type are assumed to be university students
+    is_student_no_school_type = is_student & (pl.col(school_type_col) == SchoolType.MISSING.value)
 
     # Age indicators
     age = pl.col(age_col)
@@ -693,7 +783,13 @@ def person_type_expression(
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_18_to_24 & is_high_school & is_student)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        # Part-time workers who are college students -> prioritize student status
+        .when(is_18_to_24 & is_part_time & is_college & is_student)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_college & is_student)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        # Students 18+ with MISSING school_type -> assume university
+        .when(is_18_to_24 & is_student_no_school_type)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
@@ -702,7 +798,13 @@ def person_type_expression(
         # Working age: FT workers, students, PT workers, then non-workers
         .when(is_working_age & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
+        # Part-time workers who are college students -> prioritize student status
+        .when(is_working_age & is_part_time & is_college & is_student)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_college & is_student)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        # Students with MISSING school_type -> assume university
+        .when(is_working_age & is_student_no_school_type)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))

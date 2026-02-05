@@ -257,6 +257,124 @@ class TestPersonTypeClassification:
             f"  Got: {person_type}"
         )
 
+    # === PARAMETRIZED TESTS FOR WORKING COLLEGE STUDENTS ===
+
+    @pytest.mark.parametrize("age", [18, 22, 24, 30, 45])
+    @pytest.mark.parametrize(
+        "school_type",
+        [
+            SchoolType.COLLEGE_2YEAR,
+            SchoolType.COLLEGE_4YEAR,
+            SchoolType.VOCATIONAL,
+            SchoolType.GRADUATE_SCHOOL,
+        ],
+    )
+    def test_parttime_worker_college_student_is_university(self, age, school_type):
+        """Part-time workers who are college students should be classified as UNIVERSITY_STUDENT.
+
+        This test validates that student status takes precedence over part-time employment
+        when the student is in college. Tests across multiple ages (18-45) and all college
+        school types to ensure comprehensive coverage.
+        """
+        # Map age to AgeCategory
+        if age <= 17:
+            age_cat = AgeCategory.AGE_16_TO_17
+        elif age <= 24:
+            age_cat = AgeCategory.AGE_18_TO_24
+        elif age <= 34:
+            age_cat = AgeCategory.AGE_25_TO_34
+        elif age <= 44:
+            age_cat = AgeCategory.AGE_35_TO_44
+        elif age <= 54:
+            age_cat = AgeCategory.AGE_45_TO_54
+        else:
+            age_cat = AgeCategory.AGE_55_TO_64
+
+        df = pl.DataFrame(
+            [
+                {
+                    "age": age_cat.value,
+                    "employment": Employment.EMPLOYED_PARTTIME.value,
+                    "student": Student.FULLTIME_INPERSON.value,
+                    "school_type": school_type.value,
+                }
+            ]
+        )
+
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+            f"Part-time worker (age {age}) who is a college student "
+            f"({school_type.name}) should be UNIVERSITY_STUDENT, got {person_type}"
+        )
+
+    @pytest.mark.parametrize("age", [18, 20, 22, 24])
+    def test_student_18_24_missing_school_type_is_university(self, age):
+        """Students age 18-24 with MISSING school_type should be classified as UNIVERSITY_STUDENT.
+
+        When a young adult is marked as a student but school_type is MISSING,
+        we assume they are university students rather than letting them fall through
+        to CHILD_DRIVING_AGE catch-all.
+        """
+        age_cat = AgeCategory.AGE_18_TO_24
+
+        df = pl.DataFrame(
+            [
+                {
+                    "age": age_cat.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.FULLTIME_INPERSON.value,
+                    "school_type": SchoolType.MISSING.value,
+                }
+            ]
+        )
+
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+            f"Student age {age} with MISSING school_type "
+            f"should be UNIVERSITY_STUDENT, got {person_type}"
+        )
+
+    @pytest.mark.parametrize("age", [30, 35, 45, 55])
+    def test_student_working_age_missing_school_type_is_university(self, age):
+        """Students of working age with MISSING school_type should be classified as UNIVERSITY_STUDENT.
+
+        When a working-age adult is marked as a student but school_type is MISSING,
+        we assume they are university students rather than letting them fall through
+        to NON_WORKER catch-all.
+        """  # noqa: E501
+        # Map age to AgeCategory
+        if age <= 34:
+            age_cat = AgeCategory.AGE_25_TO_34
+        elif age <= 44:
+            age_cat = AgeCategory.AGE_35_TO_44
+        elif age <= 54:
+            age_cat = AgeCategory.AGE_45_TO_54
+        else:
+            age_cat = AgeCategory.AGE_55_TO_64
+
+        df = pl.DataFrame(
+            [
+                {
+                    "age": age_cat.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.PARTTIME_INPERSON.value,
+                    "school_type": SchoolType.MISSING.value,
+                }
+            ]
+        )
+
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+            f"Student age {age} with MISSING school_type "
+            f"should be UNIVERSITY_STUDENT, got {person_type}"
+        )
+
     # === PROPERTY-BASED TESTS WITH HYPOTHESIS ===
 
     @given(
@@ -590,10 +708,9 @@ class TestPersonTypeClassification:
 
         # If classified as PART_TIME_WORKER, must have part-time employment
         if person_type == CTRAMPPersonType.PART_TIME_WORKER.value:
-            assert employment in [
-                Employment.EMPLOYED_PARTTIME,
-                Employment.EMPLOYED_SELF,
-            ], f"PART_TIME_WORKER must have part-time employment, got {employment.name}"
+            assert employment == Employment.EMPLOYED_PARTTIME, (
+                f"PART_TIME_WORKER must have part-time employment, got {employment.name}"
+            )
 
         # Young children shouldn't have full-time employment
         # (if they do, age-based rules should override)
@@ -644,13 +761,52 @@ class TestPersonTypeClassification:
                 Student.PARTTIME_ONLINE,
             ], f"UNIVERSITY_STUDENT must be a student, got {student.name}"
 
-            # Must be in college (now enforced by classification logic)
-            assert school_type in [
+            # Must be in college OR have MISSING school_type (if age 18+)
+            if school_type not in [
                 SchoolType.COLLEGE_2YEAR,
                 SchoolType.COLLEGE_4YEAR,
                 SchoolType.GRADUATE_SCHOOL,
                 SchoolType.VOCATIONAL,
-            ], f"UNIVERSITY_STUDENT must be in college/vocational, got {school_type.name}"
+                SchoolType.MISSING,  # Now allowed for 18+
+            ]:
+                msg = (
+                    f"UNIVERSITY_STUDENT must be in college/vocational or "
+                    f"have MISSING school_type, got {school_type.name}"
+                )
+                raise AssertionError(msg)
+
+        # Part-time workers who are college students should be UNIVERSITY_STUDENT
+        # (unless age 65+ which overrides to RETIRED, or young children)
+        if (
+            employment == Employment.EMPLOYED_PARTTIME
+            and student
+            in [
+                Student.FULLTIME_INPERSON,
+                Student.FULLTIME_ONLINE,
+                Student.PARTTIME_INPERSON,
+                Student.PARTTIME_ONLINE,
+            ]
+            and school_type
+            in [
+                SchoolType.COLLEGE_2YEAR,
+                SchoolType.COLLEGE_4YEAR,
+                SchoolType.GRADUATE_SCHOOL,
+                SchoolType.VOCATIONAL,
+            ]
+            and age
+            not in [
+                AgeCategory.AGE_UNDER_5,
+                AgeCategory.AGE_5_TO_15,
+                AgeCategory.AGE_16_TO_17,
+                AgeCategory.AGE_65_TO_74,
+                AgeCategory.AGE_75_TO_84,
+                AgeCategory.AGE_85_AND_UP,
+            ]
+        ):
+            assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+                f"Part-time worker who is a college student (age {age.name}) "
+                f"should be UNIVERSITY_STUDENT, got person_type={person_type}"
+            )
 
         # College students cannot be very young child types (age overrides)
         if school_type in [
@@ -663,6 +819,59 @@ class TestPersonTypeClassification:
             # This means age overrode the impossible school type
             assert age in [AgeCategory.AGE_UNDER_5, AgeCategory.AGE_5_TO_15], (
                 f"College student classified as young child must be young age, got {age.name}"
+            )
+
+    @given(
+        age=st.sampled_from(
+            [
+                AgeCategory.AGE_18_TO_24,
+                AgeCategory.AGE_25_TO_34,
+                AgeCategory.AGE_35_TO_44,
+                AgeCategory.AGE_45_TO_54,
+                AgeCategory.AGE_55_TO_64,
+            ]
+        ),
+        employment=st.sampled_from(list(Employment)),
+        student=st.sampled_from(
+            [
+                Student.FULLTIME_INPERSON,
+                Student.FULLTIME_ONLINE,
+                Student.PARTTIME_INPERSON,
+                Student.PARTTIME_ONLINE,
+            ]
+        ),
+    )
+    def test_property_student_missing_school_type_age_18_plus(self, age, employment, student):
+        """Property: Students age 18+ with MISSING school_type should be UNIVERSITY_STUDENT.
+
+        This validates that students with ambiguous/missing school type data
+        are classified as university students rather than falling through to
+        age-based catch-alls (CHILD_DRIVING_AGE for 18-24, NON_WORKER for 25+).
+        """
+        df = pl.DataFrame(
+            [
+                {
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": SchoolType.MISSING.value,
+                }
+            ]
+        )
+
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        # Exception: Full-time employment overrides student status
+        if employment not in [
+            Employment.EMPLOYED_FULLTIME,
+            Employment.EMPLOYED_SELF,
+            Employment.EMPLOYED_UNPAID,
+        ]:
+            assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+                f"Student age {age.name} with MISSING school_type "
+                f"should be UNIVERSITY_STUDENT (got {person_type}), "
+                f"unless full-time employed"
             )
 
     def test_batch_classification_consistency(self):
