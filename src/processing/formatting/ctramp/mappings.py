@@ -478,6 +478,94 @@ def map_mode_to_ctramp(
     return auto_expr.otherwise(pl.lit(CTRAMPModeType.DA.value))
 
 
+def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
+    """Log warnings for logically impossible person attribute combinations.
+
+    Checks for combinations that are logically impossible in the real world
+    (e.g., 10-year-old full-time workers, 4-year-old college students) and
+    logs warnings to help identify data quality issues.
+
+    Args:
+        df: DataFrame with age, employment, student, school_type columns
+
+    Returns:
+        Dictionary with warning counts by category
+
+    Example:
+        >>> warnings = log_person_type_warnings(persons_df)
+        >>> if sum(warnings.values()) > 0:
+        ...     logger.warning(f"Found {sum(warnings.values())} impossible combinations")
+    """
+    logger = logging.getLogger(__name__)
+
+    warnings = {
+        "child_fulltime_workers": 0,
+        "preschool_students": 0,
+        "young_college_students": 0,
+        "young_retirees": 0,
+    }
+
+    # Children < 16 with full-time employment
+    child_workers = df.filter(
+        (pl.col("age").is_in([AgeCategory.AGE_UNDER_5.value, AgeCategory.AGE_5_TO_15.value]))
+        & pl.col("employment").is_in(
+            [
+                Employment.EMPLOYED_FULLTIME.value,
+                Employment.EMPLOYED_SELF.value,
+                Employment.EMPLOYED_UNPAID.value,
+            ]
+        )
+    )
+    if len(child_workers) > 0:
+        warnings["child_fulltime_workers"] = len(child_workers)
+        logger.warning(
+            "Found %d children under 16 with full-time employment. "
+            "Age-based classification will override employment status.",
+            len(child_workers),
+        )
+
+    # Children < 5 with student status
+    preschool_students = df.filter(
+        (pl.col("age") == AgeCategory.AGE_UNDER_5.value)
+        & pl.col("student").is_in(
+            [
+                Student.FULLTIME_INPERSON.value,
+                Student.FULLTIME_ONLINE.value,
+                Student.PARTTIME_INPERSON.value,
+            ]
+        )
+    )
+    if len(preschool_students) > 0:
+        warnings["preschool_students"] = len(preschool_students)
+        logger.warning(
+            "Found %d children under 5 with student status. "
+            "These will be classified as CHILD_UNDER_5.",
+            len(preschool_students),
+        )
+
+    # College students < 16 years old
+    young_college = df.filter(
+        pl.col("age").is_in([AgeCategory.AGE_UNDER_5.value, AgeCategory.AGE_5_TO_15.value])
+        & pl.col("school_type").is_in(
+            [SchoolType.COLLEGE_2YEAR.value, SchoolType.COLLEGE_4YEAR.value]
+        )
+    )
+    if len(young_college) > 0:
+        warnings["young_college_students"] = len(young_college)
+        logger.warning(
+            "Found %d children under 16 listed as college students. "
+            "Age-based classification will override school type.",
+            len(young_college),
+        )
+
+    # Check if anyone < 65 could be incorrectly classified as RETIRED
+    # (This shouldn't happen with correct logic, but log if it does)
+    # Note: We can only check if the input data suggests retirement, not the output
+    # The classification logic itself prevents young retirees
+
+    return warnings
+
+
 def person_type_expression(
     age_col: str = "age",
     employment_col: str = "employment",
@@ -489,6 +577,23 @@ def person_type_expression(
     This replicates the pptyp logic from the old pipeline's 02a-reformat
     step, converting employment/student/age data into person type categories.
 
+    Classification Precedence Rules (highest to lowest):
+        1. Age 65+ → RETIRED (Type 5) - overrides all other attributes
+        2. Age < 5 → CHILD_UNDER_5 (Type 8) - overrides all other attributes
+        3. Age 5-15 → CHILD_NON_DRIVING_AGE (Type 6) - cannot be workers
+        4. Full-time employment → FULL_TIME_WORKER (Type 1) - beats student status
+        5. Student status + school type → determines child/university types
+        6. Part-time employment → PART_TIME_WORKER (Type 2)
+        7. Default by age group → NON_WORKER (Type 4) or child types
+
+    Edge Case Handling:
+        - Children with impossible employment (e.g., 10-year-old FT worker) are
+          classified by age rules
+        - Young adults (16-24) who are neither students nor employed are
+          classified as CHILD_DRIVING_AGE (Type 7)
+        - Impossible combinations (e.g., 4-year-old college student) should be
+          logged using log_person_type_warnings() before classification
+
     Args:
         age_col: Name of age column (categorical AgeCategory)
         employment_col: Name of employment column
@@ -496,7 +601,10 @@ def person_type_expression(
         school_type_col: Name of school_type column
 
     Returns:
-        Polars expression that evaluates to PersonCategory enum value
+        Polars expression that evaluates to CTRAMPPersonType enum value
+
+    See Also:
+        log_person_type_warnings: Function to detect and log impossible combinations
 
     Note:
         Age is a categorical variable (see AgeCategory enum):
@@ -540,6 +648,14 @@ def person_type_expression(
             SchoolType.HIGH_SCHOOL.value,
         ]
     )
+    is_college = pl.col(school_type_col).is_in(
+        [
+            SchoolType.COLLEGE_2YEAR.value,
+            SchoolType.COLLEGE_4YEAR.value,
+            SchoolType.GRADUATE_SCHOOL.value,
+            SchoolType.VOCATIONAL.value,
+        ]
+    )
 
     # Age indicators
     age = pl.col(age_col)
@@ -577,7 +693,7 @@ def person_type_expression(
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_18_to_24 & is_high_school & is_student)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
-        .when(is_18_to_24 & is_student)
+        .when(is_18_to_24 & is_college & is_student)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
@@ -586,7 +702,7 @@ def person_type_expression(
         # Working age: FT workers, students, PT workers, then non-workers
         .when(is_working_age & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
-        .when(is_working_age & is_student)
+        .when(is_working_age & is_college & is_student)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))

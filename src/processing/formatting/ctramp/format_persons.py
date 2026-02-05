@@ -30,7 +30,12 @@ from data_canon.codebook.persons import AgeCategory, Employment, JobType, School
 from utils.helpers import get_age_midpoint
 
 from .ctramp_config import CTRAMPConfig
-from .mappings import EMPLOYMENT_TO_CTRAMP, GENDER_MAP, person_type_expression
+from .mappings import (
+    EMPLOYMENT_TO_CTRAMP,
+    GENDER_MAP,
+    log_person_type_warnings,
+    person_type_expression,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +317,18 @@ def format_persons(
         - wfh_choice: Work from home indicator (currently always 0)
     """
     logger.info("Formatting person data for CT-RAMP")
+
+    # Check for impossible input combinations and log warnings
+    warnings = log_person_type_warnings(persons_canonical)
+    total_warnings = sum(warnings.values())
+    if total_warnings > 0:
+        logger.warning(
+            "Found %d impossible person attribute combinations. "
+            "Age-based classification rules will handle these gracefully. "
+            "Details: %s",
+            total_warnings,
+            warnings,
+        )
 
     # Calculate person type using expression based on age, employment, and student status
     # Re-derive to ensure we're not pulling in some person_type that may not be in CT-RAMP format

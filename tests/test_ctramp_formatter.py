@@ -384,7 +384,8 @@ class TestPersonTypeClassification:
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value, (
-            f"Full-time employed person (age {age.name}) should be FULL_TIME_WORKER, got {person_type}"  # noqa: E501
+            f"Full-time employed person (age {age.name}) "
+            f"should be FULL_TIME_WORKER, got {person_type}"
         )
 
     @given(
@@ -429,12 +430,19 @@ class TestPersonTypeClassification:
         student=st.sampled_from(
             [Student.FULLTIME_INPERSON, Student.FULLTIME_ONLINE, Student.PARTTIME_INPERSON]
         ),
-        school_type=st.sampled_from([SchoolType.COLLEGE_2YEAR, SchoolType.COLLEGE_4YEAR]),
+        school_type=st.sampled_from(
+            [
+                SchoolType.COLLEGE_2YEAR,
+                SchoolType.COLLEGE_4YEAR,
+                SchoolType.GRADUATE_SCHOOL,
+                SchoolType.VOCATIONAL,
+            ]
+        ),
     )
     def test_property_college_students_are_university_type(
         self, age, employment, student, school_type
     ):
-        """Property: College students (not employed) should be UNIVERSITY_STUDENT."""
+        """Property: College students (not employed full-time) should be UNIVERSITY_STUDENT."""
         df = pl.DataFrame(
             [
                 {
@@ -453,6 +461,209 @@ class TestPersonTypeClassification:
             f"College student (age {age.name}, {school_type.name}) "
             f"should be UNIVERSITY_STUDENT, got {person_type}"
         )
+
+    @given(
+        age=st.sampled_from(list(AgeCategory)),
+        employment=st.sampled_from(list(Employment)),
+        student=st.sampled_from(list(Student)),
+        school_type=st.sampled_from(list(SchoolType)),
+    )
+    def test_property_age_person_type_consistency(self, age, employment, student, school_type):
+        """Property: Age determines valid person types - certain age/type combinations are impossible.
+
+        Age-based constraints:
+        - Age < 5 must be CHILD_UNDER_5
+        - Age 5-15 cannot be FULL_TIME_WORKER, PART_TIME_WORKER, UNIVERSITY_STUDENT, or RETIRED
+        - Age 16-17 cannot be CHILD_UNDER_5, CHILD_NON_DRIVING_AGE, or RETIRED
+        - Age 18-64 cannot be CHILD_UNDER_5, CHILD_NON_DRIVING_AGE, CHILD_DRIVING_AGE, or RETIRED
+        - Age 65+ must be RETIRED
+        """  # noqa: E501
+        df = pl.DataFrame(
+            [
+                {
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
+                }
+            ]
+        )
+
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        # Age < 5: Must be CHILD_UNDER_5
+        if age == AgeCategory.AGE_UNDER_5:
+            assert person_type == CTRAMPPersonType.CHILD_UNDER_5.value, (
+                f"Age < 5 must be CHILD_UNDER_5, got {person_type}"
+            )
+
+        # Age 5-15: Cannot be adult worker types, university, or retired
+        if age == AgeCategory.AGE_5_TO_15:
+            assert person_type not in [
+                CTRAMPPersonType.FULL_TIME_WORKER.value,
+                CTRAMPPersonType.PART_TIME_WORKER.value,
+                CTRAMPPersonType.UNIVERSITY_STUDENT.value,
+                CTRAMPPersonType.RETIRED.value,
+                CTRAMPPersonType.CHILD_UNDER_5.value,
+            ], f"Age 5-15 cannot be FT/PT worker, university student, or retired, got {person_type}"
+
+        # Age 16-17: Cannot be young children or retired
+        if age == AgeCategory.AGE_16_TO_17:
+            assert person_type not in [
+                CTRAMPPersonType.CHILD_UNDER_5.value,
+                CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value,
+                CTRAMPPersonType.RETIRED.value,
+            ], f"Age 16-17 cannot be young children or retired, got {person_type}"
+
+        # Age 18-64: Cannot be any child type or retired
+        if age in [
+            AgeCategory.AGE_18_TO_24,
+            AgeCategory.AGE_25_TO_34,
+            AgeCategory.AGE_35_TO_44,
+            AgeCategory.AGE_45_TO_54,
+            AgeCategory.AGE_55_TO_64,
+        ]:
+            # Exception: 18-24 can be CHILD_DRIVING_AGE if they're in high school
+            if (
+                age == AgeCategory.AGE_18_TO_24
+                and person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value
+            ):
+                # This is allowed for high school students
+                pass
+            else:
+                assert person_type not in [
+                    CTRAMPPersonType.CHILD_UNDER_5.value,
+                    CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value,
+                    CTRAMPPersonType.RETIRED.value,
+                ], f"Age {age.name} cannot be young children or retired, got {person_type}"
+
+                if age != AgeCategory.AGE_18_TO_24:
+                    assert person_type != CTRAMPPersonType.CHILD_DRIVING_AGE.value, (
+                        f"Age {age.name} cannot be CHILD_DRIVING_AGE, got {person_type}"
+                    )
+
+        # Age 65+: Must be RETIRED
+        if age in [AgeCategory.AGE_65_TO_74, AgeCategory.AGE_75_TO_84, AgeCategory.AGE_85_AND_UP]:
+            assert person_type == CTRAMPPersonType.RETIRED.value, (
+                f"Age 65+ must be RETIRED, got {person_type}"
+            )
+
+    @given(
+        age=st.sampled_from(list(AgeCategory)),
+        employment=st.sampled_from(list(Employment)),
+        student=st.sampled_from(list(Student)),
+        school_type=st.sampled_from(list(SchoolType)),
+    )
+    def test_property_employment_person_type_consistency(
+        self, age, employment, student, school_type
+    ):
+        """Property: Employment status and person type must be consistent.
+
+        Employment-based constraints:
+        - FULL_TIME_WORKER must have full-time employment (unless age overrides)
+        - PART_TIME_WORKER must have part-time employment (unless age overrides)
+        - Child types generally shouldn't have full-time employment
+        """
+        df = pl.DataFrame(
+            [
+                {
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
+                }
+            ]
+        )
+
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        # If classified as FULL_TIME_WORKER, must have full-time employment
+        # (unless it's an impossible combination where age overrides)
+        if person_type == CTRAMPPersonType.FULL_TIME_WORKER.value:
+            assert employment in [
+                Employment.EMPLOYED_FULLTIME,
+                Employment.EMPLOYED_SELF,
+                Employment.EMPLOYED_UNPAID,
+            ], f"FULL_TIME_WORKER must have full-time employment, got {employment.name}"
+
+        # If classified as PART_TIME_WORKER, must have part-time employment
+        if person_type == CTRAMPPersonType.PART_TIME_WORKER.value:
+            assert employment in [
+                Employment.EMPLOYED_PARTTIME,
+                Employment.EMPLOYED_SELF,
+            ], f"PART_TIME_WORKER must have part-time employment, got {employment.name}"
+
+        # Young children shouldn't have full-time employment
+        # (if they do, age-based rules should override)
+        if person_type in [
+            CTRAMPPersonType.CHILD_UNDER_5.value,
+            CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value,
+        ]:
+            # These types should never have been workers - age overrides employment
+            assert age in [AgeCategory.AGE_UNDER_5, AgeCategory.AGE_5_TO_15], (
+                f"Child types should only appear for young ages, got age {age.name}"
+            )
+
+    @given(
+        age=st.sampled_from(list(AgeCategory)),
+        employment=st.sampled_from(list(Employment)),
+        student=st.sampled_from(list(Student)),
+        school_type=st.sampled_from(list(SchoolType)),
+    )
+    def test_property_student_person_type_consistency(self, age, employment, student, school_type):
+        """Property: Student status and person type must be consistent.
+
+        Student-based constraints:
+        - UNIVERSITY_STUDENT must be a college student
+        - College students cannot be CHILD_UNDER_5 or CHILD_NON_DRIVING_AGE
+        - High school students should be appropriate child types
+        """
+        df = pl.DataFrame(
+            [
+                {
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
+                }
+            ]
+        )
+
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        # If classified as UNIVERSITY_STUDENT, must be a college student with valid school_type
+        if person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value:
+            # Must be a student
+            assert student in [
+                Student.FULLTIME_INPERSON,
+                Student.FULLTIME_ONLINE,
+                Student.PARTTIME_INPERSON,
+                Student.PARTTIME_ONLINE,
+            ], f"UNIVERSITY_STUDENT must be a student, got {student.name}"
+
+            # Must be in college (now enforced by classification logic)
+            assert school_type in [
+                SchoolType.COLLEGE_2YEAR,
+                SchoolType.COLLEGE_4YEAR,
+                SchoolType.GRADUATE_SCHOOL,
+                SchoolType.VOCATIONAL,
+            ], f"UNIVERSITY_STUDENT must be in college/vocational, got {school_type.name}"
+
+        # College students cannot be very young child types (age overrides)
+        if school_type in [
+            SchoolType.COLLEGE_2YEAR,
+            SchoolType.COLLEGE_4YEAR,
+        ] and person_type in [
+            CTRAMPPersonType.CHILD_UNDER_5.value,
+            CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value,
+        ]:
+            # This means age overrode the impossible school type
+            assert age in [AgeCategory.AGE_UNDER_5, AgeCategory.AGE_5_TO_15], (
+                f"College student classified as young child must be young age, got {age.name}"
+            )
 
     def test_batch_classification_consistency(self):
         """Test that batch classification produces same results as individual classification."""
