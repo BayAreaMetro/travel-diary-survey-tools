@@ -16,20 +16,16 @@ from data_canon.codebook.ctramp import (
     CTRAMPPurpose,
     CTRAMPStudentCategory,
 )
-from data_canon.codebook.persons import Employment, Gender, SchoolType, Student
-from data_canon.codebook.persons import PersonType as CanonicalPersonType
+from data_canon.codebook.persons import (
+    AgeCategory,
+    Employment,
+    Gender,
+    SchoolType,
+    Student,
+)
 from data_canon.codebook.trips import AccessEgressMode, ModeType, Purpose, PurposeCategory
 
 logger = logging.getLogger(__name__)
-
-# Canonical PersonType to CT-RAMP PersonType mapping
-PERSON_TYPE_TO_CTRAMP = {}
-for c in CanonicalPersonType:
-    if hasattr(CTRAMPPersonType, c.name):
-        PERSON_TYPE_TO_CTRAMP[c.value] = getattr(CTRAMPPersonType, c.name).value
-    else:
-        msg = f"No matching CT-RAMP PersonType for {c.name}"
-        raise ValueError(msg)
 
 
 GENDER_MAP = {
@@ -50,41 +46,6 @@ EMPLOYMENT_TO_CTRAMP = {
     Employment.EMPLOYED_UNPAID.value: CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value,
 }
 
-# Employment to person type component
-EMPLOYMENT_MAP = {
-    Employment.EMPLOYED_FULLTIME.value: "full_time",
-    Employment.EMPLOYED_PARTTIME.value: "part_time",
-    Employment.UNEMPLOYED_NOT_LOOKING.value: "not_employed",
-    Employment.MISSING.value: "not_employed",
-    -1: "not_employed",
-}
-
-# Student to person type component
-STUDENT_MAP = {
-    Student.NONSTUDENT.value: "not_student",
-    Student.FULLTIME_INPERSON.value: "student",
-    Student.PARTTIME_INPERSON.value: "student",
-    Student.FULLTIME_ONLINE.value: "student",
-    Student.PARTTIME_ONLINE.value: "student",
-    Student.MISSING.value: "not_student",
-    -1: "not_student",
-}
-
-# School type to student category
-SCHOOL_TYPE_MAP = {
-    SchoolType.PRESCHOOL.value: "not_student",
-    SchoolType.ELEMENTARY.value: "grade_school",
-    SchoolType.MIDDLE_SCHOOL.value: "grade_school",
-    SchoolType.HIGH_SCHOOL.value: "high_school",
-    SchoolType.VOCATIONAL.value: "college",
-    SchoolType.COLLEGE_2YEAR.value: "college",
-    SchoolType.COLLEGE_4YEAR.value: "college",
-    SchoolType.GRADUATE_SCHOOL.value: "college",
-    SchoolType.HOME_SCHOOL.value: "grade_school",
-    SchoolType.OTHER.value: "not_student",
-    SchoolType.MISSING.value: "not_student",
-    -1: "not_student",
-}
 
 # PurposeCategory to Joint Tour Frequency (JTF) group mapping
 # Maps canonical tour purposes to JTF category strings used for joint tour classification
@@ -515,6 +476,123 @@ def map_mode_to_ctramp(
 
     # Default to drive alone (DA=1) for OTHER, LONG_DISTANCE, MISSING, and any unknown modes
     return auto_expr.otherwise(pl.lit(CTRAMPModeType.DA.value))
+
+
+def person_type_expression(
+    age_col: str = "age",
+    employment_col: str = "employment",
+    student_col: str = "student",
+    school_type_col: str = "school_type",
+) -> pl.Expr:
+    """Create expression to derive person category from person attributes.
+
+    This replicates the pptyp logic from the old pipeline's 02a-reformat
+    step, converting employment/student/age data into person type categories.
+
+    Args:
+        age_col: Name of age column (categorical AgeCategory)
+        employment_col: Name of employment column
+        student_col: Name of student column
+        school_type_col: Name of school_type column
+
+    Returns:
+        Polars expression that evaluates to PersonCategory enum value
+
+    Note:
+        Age is a categorical variable (see AgeCategory enum):
+        1=under 5, 2=5-15, 3=16-17, 4=18-24, 5=25-34, etc.
+    """
+    # Define age group categories
+    working_age = [
+        AgeCategory.AGE_25_TO_34.value,
+        AgeCategory.AGE_35_TO_44.value,
+        AgeCategory.AGE_45_TO_54.value,
+        AgeCategory.AGE_55_TO_64.value,
+    ]
+
+    # Employment status indicators
+    is_full_time = pl.col(employment_col).is_in(
+        [
+            Employment.EMPLOYED_FULLTIME.value,
+            Employment.EMPLOYED_SELF.value,
+            Employment.EMPLOYED_UNPAID.value,
+        ]
+    )
+    is_part_time = pl.col(employment_col).is_in(
+        [
+            Employment.EMPLOYED_PARTTIME.value,
+            Employment.EMPLOYED_SELF.value,
+        ]
+    )
+
+    # Student and school status indicators
+    is_student = pl.col(student_col).is_in(
+        [
+            Student.FULLTIME_INPERSON.value,
+            Student.PARTTIME_INPERSON.value,
+            Student.PARTTIME_ONLINE.value,
+            Student.FULLTIME_ONLINE.value,
+        ]
+    )
+    is_high_school = pl.col(school_type_col).is_in(
+        [
+            SchoolType.HOME_SCHOOL.value,
+            SchoolType.HIGH_SCHOOL.value,
+        ]
+    )
+
+    # Age indicators
+    age = pl.col(age_col)
+    is_under_5 = age == AgeCategory.AGE_UNDER_5.value
+    is_5_to_15 = age == AgeCategory.AGE_5_TO_15.value
+    is_16_to_17 = age == AgeCategory.AGE_16_TO_17.value
+    is_18_to_24 = age == AgeCategory.AGE_18_TO_24.value
+    is_working_age = age.is_in(working_age)
+
+    # Must have these categories to match CT-RAMP person types:
+    # FULL_TIME_WORKER = 1, "Full-time worker"
+    # PART_TIME_WORKER = 2, "Part-time worker"
+    # UNIVERSITY_STUDENT = 3, "University student"
+    # NON_WORKER = 4, "Nonworker"
+    # RETIRED = 5, "Retired"
+    # CHILD_NON_DRIVING_AGE = 6, "Child of non-driving age"
+    # CHILD_DRIVING_AGE = 7, "Child of driving age"
+    # CHILD_UNDER_5 = 8, "Child too young for school"
+
+    # Build classification expression
+    _expr = (
+        pl.when(is_under_5)
+        .then(pl.lit(CTRAMPPersonType.CHILD_UNDER_5))
+        .when(is_5_to_15)
+        .then(pl.lit(CTRAMPPersonType.CHILD_NON_DRIVING_AGE))
+        # Teens: workers first, then students
+        .when(is_16_to_17 & is_full_time)
+        .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
+        .when(is_16_to_17 & is_student)
+        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        # Young adults: workers first, then HS students, then college, then PT
+        .when(is_18_to_24 & is_full_time)
+        .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
+        .when(is_18_to_24 & is_high_school & is_student)
+        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        .when(is_18_to_24 & is_student)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        .when(is_18_to_24 & is_part_time)
+        .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
+        # Working age: FT workers, students, PT workers, then non-workers
+        .when(is_working_age & is_full_time)
+        .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
+        .when(is_working_age & is_student)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        .when(is_working_age & is_part_time)
+        .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
+        .when(is_working_age)
+        .then(pl.lit(CTRAMPPersonType.NON_WORKER))
+        # Seniors (65+)
+        .otherwise(pl.lit(CTRAMPPersonType.RETIRED))
+    )
+
+    return _expr
 
 
 # Validate mapping completeness at module load time

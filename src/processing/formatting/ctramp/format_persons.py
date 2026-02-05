@@ -19,7 +19,6 @@ from data_canon.codebook.ctramp import (
     _INMF_MAXES,
     _INMF_REVERSE_LOOKUP,
     CTRAMPEmploymentCategory,
-    CTRAMPPersonType,
     CTRAMPPurpose,
     CTRAMPStudentCategory,
     FreeParkingChoice,
@@ -30,13 +29,7 @@ from data_canon.codebook.persons import AgeCategory, Employment, JobType, School
 from utils.helpers import get_age_midpoint
 
 from .ctramp_config import CTRAMPConfig
-from .mappings import (
-    EMPLOYMENT_MAP,
-    EMPLOYMENT_TO_CTRAMP,
-    GENDER_MAP,
-    SCHOOL_TYPE_MAP,
-    STUDENT_MAP,
-)
+from .mappings import EMPLOYMENT_TO_CTRAMP, GENDER_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -275,76 +268,8 @@ def aggregate_tour_statistics(
     )
 
 
-def classify_person_type(
-    age: int,
-    employment: int,
-    student: int,
-    school_type: int,
-) -> int:
-    """Classify person type based on age, employment, and student status.
-
-    CT-RAMP person type classification:
-    1. Full-time worker
-    2. Part-time worker
-    3. University student
-    4. Nonworker
-    5. Retired
-    6. Child of non-driving age
-    7. Child of driving age
-    8. Child too young for school
-
-    Args:
-        age: AgeCategory enum value (1-11)
-        employment: Employment status code
-        student: Student status code
-        school_type: School type code
-
-    Returns:
-        int: CT-RAMP person type code
-
-    Note:
-        Age is an AgeCategory enum:
-        1=UNDER_5, 2=5_TO_15, 3=16_TO_17, 4=18_TO_24, 5=25_TO_34,
-        6=35_TO_44, 7=45_TO_54, 8=55_TO_64, 9=65_TO_74, 10=75_TO_84,
-        11=85_AND_UP
-    """
-    # Map to intermediate categories
-    emp_status = EMPLOYMENT_MAP.get(employment, "not_employed")
-    is_student = STUDENT_MAP.get(student, "not_student") == "student"
-    school_cat = SCHOOL_TYPE_MAP.get(school_type, "not_student")
-
-    # Classification based on AgeCategory enum
-    if age == AgeCategory.AGE_UNDER_5.value:
-        person_type = CTRAMPPersonType.CHILD_UNDER_5.value
-    elif age == AgeCategory.AGE_5_TO_15.value:
-        person_type = (
-            CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value
-            if is_student
-            else CTRAMPPersonType.NON_WORKER.value
-        )
-    elif age == AgeCategory.AGE_16_TO_17.value:
-        if is_student:
-            person_type = CTRAMPPersonType.CHILD_DRIVING_AGE.value
-        else:
-            person_type = CTRAMPPersonType.NON_WORKER.value
-    elif emp_status == "full_time":
-        person_type = CTRAMPPersonType.FULL_TIME_WORKER.value
-    elif emp_status == "part_time":
-        person_type = CTRAMPPersonType.PART_TIME_WORKER.value
-    elif is_student and school_cat in ("grade_school", "high_school"):
-        person_type = CTRAMPPersonType.CHILD_DRIVING_AGE.value
-    elif age >= AgeCategory.AGE_65_TO_74.value:  # Retired
-        person_type = CTRAMPPersonType.RETIRED.value
-    elif school_cat == "college":
-        person_type = CTRAMPPersonType.UNIVERSITY_STUDENT.value
-    else:
-        person_type = CTRAMPPersonType.NON_WORKER.value
-
-    return person_type
-
-
 def format_persons(
-    persons_canonical: pl.DataFrame,
+    persons_with_type: pl.DataFrame,
     tours_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
 ) -> pl.DataFrame:
@@ -358,8 +283,7 @@ def format_persons(
     - Aggregate activity patterns and tour frequencies from tour data
 
     Args:
-        persons_canonical: Canonical persons DataFrame with person_id, hh_id, person_num,
-            age, gender, employment, student, school_type, commute_subsidy_use_3
+        persons_with_type: Canonical persons DataFrame with derived person_type field
             (free parking), commute_subsidy_use_4 (discounted parking), value_of_time
         tours_ctramp: Formatted CT-RAMP tours DataFrame with person_id and tour_purpose
             (CTRAMP-formatted purpose strings like 'work_low', 'school_grade', etc.)
@@ -388,39 +312,15 @@ def format_persons(
     """
     logger.info("Formatting person data for CT-RAMP")
 
-    # Apply person type classification
-    persons_ctramp = persons_canonical.with_columns(
-        pl.struct(["age", "employment", "student", "school_type"])
-        .map_elements(
-            lambda x: classify_person_type(
-                x["age"],
-                x["employment"],
-                x["student"],
-                x["school_type"],
-            ),
-            return_dtype=pl.Int64,
-        )
-        .alias("type_code")
-    )
-
-    # Convert person type code to string label (raises if invalid)
-    persons_ctramp = persons_ctramp.with_columns(
-        pl.col("type_code")
-        .map_elements(
-            lambda code: CTRAMPPersonType.from_value(code).label,
-            return_dtype=pl.String,
-        )
-        .alias("type")
-    )
-
     # Convert age category to continuous midpoint
-    persons_ctramp = persons_ctramp.with_columns(
+    persons_ctramp = persons_with_type.with_columns(
+        pl.col("person_type").alias("type"),  # Rename for CT-RAMP spec
         pl.col("age")
         .map_elements(
             lambda code: (get_age_midpoint(ac) if (ac := AgeCategory.from_value(code)) else code),
             return_dtype=pl.Int64,
         )
-        .alias("age")
+        .alias("age"),
     )
 
     # Map gender (convert int enum to string "m"/"f")

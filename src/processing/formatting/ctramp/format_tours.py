@@ -14,7 +14,6 @@ from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.mappings import (
-    PERSON_TYPE_TO_CTRAMP,
     map_mode_to_ctramp,
     map_purpose_category_to_ctramp,
 )
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 def format_individual_tour(
     tours_canonical: pl.DataFrame,
     linked_trips_canonical: pl.DataFrame,
-    persons_canonical: pl.DataFrame,
+    persons_with_type: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
 ) -> pl.DataFrame:
@@ -42,8 +41,7 @@ def format_individual_tour(
             (for subtour counting)
         linked_trips_canonical: Canonical trips DataFrame with tour_id, tour_direction
             (1=outbound, 2=inbound, 3=subtour)
-        persons_canonical: Canonical persons DataFrame with person_id, person_num,
-            person_type, school_type
+        persons_with_type: DataFrame with person_id, person_num, person_type, school_type
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds
 
@@ -63,24 +61,21 @@ def format_individual_tour(
     """
     logger.info("Formatting individual tour data for CT-RAMP")
 
+    # Prepare person_type mapping to CTRAMP integer codes
+
     # Filter to individual tours only (not joint)
     individual_tours = tours_canonical.filter(pl.col("joint_tour_id").is_null())
 
     # Join with persons for person_type and school_type,
     # and households for income
     individual_tours = individual_tours.join(
-        persons_canonical.select(["person_id", "person_num", "person_type", "school_type"]),
+        persons_with_type.select(["person_id", "person_num", "person_type", "school_type"]),
         on="person_id",
         how="left",
     ).join(
         households_ctramp.select(["hh_id", "income"]),
         on="hh_id",
         how="left",
-    )
-
-    # Remap person_type to CTRAMP format (keep as integer enum value)
-    individual_tours = individual_tours.with_columns(
-        pl.col("person_type").replace_strict(PERSON_TYPE_TO_CTRAMP).alias("person_type_ctramp")
     )
 
     # Calculate subtour count (at-work tours)
@@ -219,7 +214,6 @@ def format_individual_tour(
     # Format columns to CTRAMP specifications
     individual_tours = individual_tours.with_columns(
         [
-            pl.col("person_type_ctramp").alias("person_type"),
             pl.col("tour_num").alias("tour_id"),  # CTRAMP tour_id is tour_num
             pl.col("tour_id").alias("_tour_id_canonical"),  # Temp column for joining with trips
             pl.col("tour_category_ctramp").alias("tour_category"),

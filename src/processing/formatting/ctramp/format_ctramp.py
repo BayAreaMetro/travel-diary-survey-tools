@@ -16,6 +16,7 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.ctramp import CTRAMPPersonType
 from data_canon.models.ctramp import (
     HouseholdCTRAMPModel,
     IndividualTourCTRAMPModel,
@@ -33,6 +34,7 @@ from .format_mandatory_location import format_mandatory_location
 from .format_persons import format_persons
 from .format_tours import format_individual_tour, format_joint_tour
 from .format_trips import format_individual_trip, format_joint_trip
+from .mappings import person_type_expression
 
 logger = logging.getLogger(__name__)
 
@@ -291,8 +293,20 @@ def format_ctramp(
             joint_trips,
         ) = _drop_missing_taz(households, persons, tours, linked_trips, joint_trips, config)
 
-    # Format each table
+    # Format each table ----------------------------------------------------
+    # Format households first since it has no derived field dependencies
     households_ctramp = format_households(households, persons, tours, config)
+
+    # Derive person_type for ctramp
+    persons_with_person_type = (
+        persons
+        # Derive person type using expression based on age, employment, and student status;
+        .with_columns(person_type_expression().alias("person_type"))
+        # Convert from categorical integer to string label per spec
+        .with_columns(
+            pl.col("person_type").replace_strict(CTRAMPPersonType.to_dict()).alias("PersonType")
+        )
+    )
 
     # Format tours - use empty DataFrame with proper schema if no tours exist
     if len(tours) == 0:
@@ -306,14 +320,14 @@ def format_ctramp(
         individual_tours_ctramp = format_individual_tour(
             tours_canonical=tours,
             linked_trips_canonical=linked_trips,
-            persons_canonical=persons,
+            persons_with_type=persons_with_person_type,
             households_ctramp=households_ctramp,
             config=config,
         )
 
     # Format persons with tour statistics (works with empty or populated tours)
     persons_ctramp = format_persons(
-        persons_canonical=persons,
+        persons_with_type=persons_with_person_type,
         tours_ctramp=individual_tours_ctramp,
         config=config,
     )
