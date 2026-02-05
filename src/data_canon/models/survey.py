@@ -19,7 +19,6 @@ from data_canon.codebook.persons import (
     Employment,
     Gender,
     JobType,
-    PersonType,
     SchoolType,
     Student,
     WorkParking,
@@ -65,7 +64,6 @@ class PersonModel(BaseModel):
     work_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     school_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
     school_lon: float | None = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
-    person_type: PersonType = step_field(required_in_steps=[])
     job_type: JobType | None = step_field(required_in_steps=["format_ctramp"], default=None)
     employment: Employment = step_field(required_in_steps=["extract_tours"])
     student: Student = step_field(required_in_steps=["extract_tours"])
