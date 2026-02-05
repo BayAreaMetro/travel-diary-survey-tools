@@ -565,12 +565,14 @@ def person_type_expression(
         .then(pl.lit(CTRAMPPersonType.CHILD_UNDER_5))
         .when(is_5_to_15)
         .then(pl.lit(CTRAMPPersonType.CHILD_NON_DRIVING_AGE))
-        # Teens: workers first, then students
+        # Teens: workers first, then students, then catch-all for driving age
         .when(is_16_to_17 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_16_to_17 & is_student)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
-        # Young adults: workers first, then HS students, then college, then PT
+        .when(is_16_to_17)
+        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        # Young adults: workers first, then HS students, then college, then PT, then catch-all
         .when(is_18_to_24 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_18_to_24 & is_high_school & is_student)
@@ -579,6 +581,8 @@ def person_type_expression(
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
+        .when(is_18_to_24)
+        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
         # Working age: FT workers, students, PT workers, then non-workers
         .when(is_working_age & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))

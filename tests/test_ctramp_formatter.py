@@ -11,6 +11,8 @@ from typing import get_args
 
 import polars as pl
 import pytest
+from hypothesis import assume, given
+from hypothesis import strategies as st
 
 from data_canon.codebook.ctramp import (
     CTRAMPPersonType,
@@ -105,128 +107,394 @@ def standard_config():
 
 
 class TestPersonTypeClassification:
-    """Tests for person type classification logic."""
+    """Comprehensive tests for CTRAMP person type classification.
 
-    def test_full_time_worker(self):
-        """Test classification of full-time worker."""
+    Uses a hybrid approach:
+    - Critical explicit test cases for known bugs and priority rules
+    - Property-based tests with Hypothesis for invariant checking
+    """
+
+    @pytest.mark.parametrize(
+        ("age", "employment", "student", "school_type", "expected_type", "description"),
+        [
+            # === CRITICAL BUG CASES - Age 16-17 ===
+            # These test the bug where 16-17 were classified as NON_WORKER/RETIRED
+            (
+                AgeCategory.AGE_16_TO_17,
+                Employment.UNEMPLOYED_NOT_LOOKING,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.CHILD_DRIVING_AGE,
+                "BUG FIX: Age 16-17, not student/not employed → CHILD_DRIVING_AGE",
+            ),
+            (
+                AgeCategory.AGE_16_TO_17,
+                Employment.EMPLOYED_FULLTIME,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.FULL_TIME_WORKER,
+                "Age 16-17, full-time worker → employment wins",
+            ),
+            # === CRITICAL BUG CASES - Age 18-24 ===
+            (
+                AgeCategory.AGE_18_TO_24,
+                Employment.UNEMPLOYED_NOT_LOOKING,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.CHILD_DRIVING_AGE,
+                "BUG FIX: Age 18-24, not student/not worker → CHILD_DRIVING_AGE",
+            ),
+            (
+                AgeCategory.AGE_18_TO_24,
+                Employment.UNEMPLOYED_NOT_LOOKING,
+                Student.FULLTIME_INPERSON,
+                SchoolType.HIGH_SCHOOL,
+                CTRAMPPersonType.CHILD_DRIVING_AGE,
+                "Age 18-24, high school → CHILD_DRIVING_AGE",
+            ),
+            (
+                AgeCategory.AGE_18_TO_24,
+                Employment.UNEMPLOYED_NOT_LOOKING,
+                Student.FULLTIME_INPERSON,
+                SchoolType.COLLEGE_4YEAR,
+                CTRAMPPersonType.UNIVERSITY_STUDENT,
+                "Age 18-24, college → UNIVERSITY_STUDENT",
+            ),
+            # === PRIORITY RULES - Employment vs Student ===
+            (
+                AgeCategory.AGE_18_TO_24,
+                Employment.EMPLOYED_FULLTIME,
+                Student.FULLTIME_INPERSON,
+                SchoolType.COLLEGE_4YEAR,
+                CTRAMPPersonType.FULL_TIME_WORKER,
+                "FT worker + college student → employment wins",
+            ),
+            (
+                AgeCategory.AGE_35_TO_44,
+                Employment.EMPLOYED_FULLTIME,
+                Student.FULLTIME_ONLINE,
+                SchoolType.COLLEGE_4YEAR,
+                CTRAMPPersonType.FULL_TIME_WORKER,
+                "Working adult in college → employment wins",
+            ),
+            # === PRIORITY RULES - Age 65+ always RETIRED ===
+            (
+                AgeCategory.AGE_65_TO_74,
+                Employment.EMPLOYED_FULLTIME,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.RETIRED,
+                "Age 65+, working FT → RETIRED (age wins)",
+            ),
+            (
+                AgeCategory.AGE_75_TO_84,
+                Employment.EMPLOYED_PARTTIME,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.RETIRED,
+                "Age 75+, working PT → RETIRED (age wins)",
+            ),
+            # === REPRESENTATIVE CASES - Each person type ===
+            (
+                AgeCategory.AGE_UNDER_5,
+                Employment.UNEMPLOYED_NOT_LOOKING,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.CHILD_UNDER_5,
+                "Under 5",
+            ),
+            (
+                AgeCategory.AGE_5_TO_15,
+                Employment.UNEMPLOYED_NOT_LOOKING,
+                Student.FULLTIME_INPERSON,
+                SchoolType.ELEMENTARY,
+                CTRAMPPersonType.CHILD_NON_DRIVING_AGE,
+                "Elementary student",
+            ),
+            (
+                AgeCategory.AGE_35_TO_44,
+                Employment.EMPLOYED_PARTTIME,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.PART_TIME_WORKER,
+                "Part-time worker",
+            ),
+            (
+                AgeCategory.AGE_35_TO_44,
+                Employment.UNEMPLOYED_LOOKING,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
+                CTRAMPPersonType.NON_WORKER,
+                "Unemployed looking",
+            ),
+        ],
+    )
+    def test_critical_person_type_cases(
+        self, age, employment, student, school_type, expected_type, description
+    ):
+        """Test critical edge cases and known bugs with explicit test cases."""
         df = pl.DataFrame(
             [
                 {
-                    "age": AgeCategory.AGE_35_TO_44.value,
-                    "employment": Employment.EMPLOYED_FULLTIME.value,
-                    "student": Student.NONSTUDENT.value,
-                    "school_type": SchoolType.MISSING.value,
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
                 }
             ]
         )
 
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
 
-    def test_part_time_worker(self):
-        """Test classification of part-time worker."""
+        assert person_type == expected_type.value, (
+            f"Failed: {description}\n"
+            f"  Age: {age.name} ({age.value})\n"
+            f"  Employment: {employment.name}\n"
+            f"  Student: {student.name}\n"
+            f"  School Type: {school_type.name}\n"
+            f"  Expected: {expected_type.name} ({expected_type.value})\n"
+            f"  Got: {person_type}"
+        )
+
+    # === PROPERTY-BASED TESTS WITH HYPOTHESIS ===
+
+    @given(
+        age=st.just(AgeCategory.AGE_UNDER_5),
+        employment=st.sampled_from(list(Employment)),
+        student=st.sampled_from(list(Student)),
+        school_type=st.sampled_from(list(SchoolType)),
+    )
+    def test_property_age_under_5_always_child_under_5(self, age, employment, student, school_type):
+        """Property: Anyone under 5 must always be classified as CHILD_UNDER_5."""
         df = pl.DataFrame(
             [
                 {
-                    "age": AgeCategory.AGE_25_TO_34.value,
-                    "employment": Employment.EMPLOYED_PARTTIME.value,
-                    "student": Student.NONSTUDENT.value,
-                    "school_type": SchoolType.MISSING.value,
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
                 }
             ]
         )
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.PART_TIME_WORKER.value
 
-    def test_university_student(self):
-        """Test classification of university student."""
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.CHILD_UNDER_5.value, (
+            f"Age under 5 must be CHILD_UNDER_5, got {person_type}"
+        )
+
+    @given(
+        age=st.sampled_from(
+            [AgeCategory.AGE_65_TO_74, AgeCategory.AGE_75_TO_84, AgeCategory.AGE_85_AND_UP]
+        ),
+        employment=st.sampled_from(list(Employment)),
+        student=st.sampled_from(list(Student)),
+        school_type=st.sampled_from(list(SchoolType)),
+    )
+    def test_property_age_65_plus_always_retired(self, age, employment, student, school_type):
+        """Property: Anyone 65+ must always be classified as RETIRED, regardless of other attributes."""  # noqa: E501
         df = pl.DataFrame(
             [
                 {
-                    "age": AgeCategory.AGE_18_TO_24.value,
-                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
-                    "student": Student.FULLTIME_INPERSON.value,
-                    "school_type": SchoolType.COLLEGE_4YEAR.value,
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
                 }
             ]
         )
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value
 
-    def test_retired_person(self):
-        """Test classification of retired person."""
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.RETIRED.value, (
+            f"Age {age.name} must be RETIRED regardless of "
+            f"employment/student status, got {person_type}"
+        )
+
+    @given(
+        age=st.sampled_from([AgeCategory.AGE_16_TO_17, AgeCategory.AGE_18_TO_24]),
+        employment=st.sampled_from(
+            [Employment.UNEMPLOYED_NOT_LOOKING, Employment.UNEMPLOYED_LOOKING]
+        ),
+        student=st.just(Student.NONSTUDENT),
+        school_type=st.just(SchoolType.MISSING),
+    )
+    def test_property_youth_non_employed_non_student_is_child_driving_age(
+        self, age, employment, student, school_type
+    ):
+        """Property: 16-24 year olds who are neither employed nor students must be CHILD_DRIVING_AGE.
+
+        This is the critical bug case where they were incorrectly classified as NON_WORKER or RETIRED.
+        """  # noqa: E501
         df = pl.DataFrame(
             [
                 {
-                    "age": AgeCategory.AGE_65_TO_74.value,
-                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
-                    "student": Student.NONSTUDENT.value,
-                    "school_type": SchoolType.MISSING.value,
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
                 }
             ]
         )
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.RETIRED.value
 
-    def test_nonworker(self):
-        """Test classification of non-worker (under 65)."""
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value, (
+            f"Age {age.name}, unemployed, non-student must be CHILD_DRIVING_AGE, got {person_type}"
+        )
+
+    @given(
+        age=st.sampled_from(list(AgeCategory)),
+        employment=st.sampled_from(
+            [Employment.EMPLOYED_FULLTIME, Employment.EMPLOYED_SELF, Employment.EMPLOYED_UNPAID]
+        ),
+        student=st.sampled_from(list(Student)),
+        school_type=st.sampled_from(list(SchoolType)),
+    )
+    def test_property_fulltime_employment_precedence(self, age, employment, student, school_type):
+        """Property: Full-time employment takes precedence over student status (except for age rules)."""  # noqa: E501
+        # Skip if age forces different classification
+        assume(
+            age
+            not in [
+                AgeCategory.AGE_UNDER_5,
+                AgeCategory.AGE_5_TO_15,
+                AgeCategory.AGE_65_TO_74,
+                AgeCategory.AGE_75_TO_84,
+                AgeCategory.AGE_85_AND_UP,
+            ]
+        )
+
         df = pl.DataFrame(
             [
                 {
-                    "age": AgeCategory.AGE_45_TO_54.value,
-                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
-                    "student": Student.NONSTUDENT.value,
-                    "school_type": SchoolType.MISSING.value,
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
                 }
             ]
         )
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.NON_WORKER.value
 
-    def test_driving_age_student(self):
-        """Test classification of driving age student."""
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value, (
+            f"Full-time employed person (age {age.name}) should be FULL_TIME_WORKER, got {person_type}"  # noqa: E501
+        )
+
+    @given(
+        age=st.sampled_from(list(AgeCategory)),
+        employment=st.sampled_from(list(Employment)),
+        student=st.sampled_from(list(Student)),
+        school_type=st.sampled_from(list(SchoolType)),
+    )
+    def test_property_all_persons_classified(self, age, employment, student, school_type):
+        """Property: Every valid combination must be classified into one of the 8 person types."""
         df = pl.DataFrame(
             [
                 {
-                    "age": AgeCategory.AGE_16_TO_17.value,
-                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
-                    "student": Student.FULLTIME_INPERSON.value,
-                    "school_type": SchoolType.HIGH_SCHOOL.value,
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
                 }
             ]
         )
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value
 
-    def test_non_driving_age_student(self):
-        """Test classification of non-driving age student."""
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        valid_types = {t.value for t in CTRAMPPersonType}
+        assert person_type in valid_types, (
+            f"Person type {person_type} is not a valid CTRAMPPersonType"
+        )
+
+    @given(
+        age=st.sampled_from(
+            [
+                AgeCategory.AGE_18_TO_24,
+                AgeCategory.AGE_25_TO_34,
+                AgeCategory.AGE_35_TO_44,
+                AgeCategory.AGE_45_TO_54,
+            ]
+        ),
+        employment=st.sampled_from(
+            [Employment.UNEMPLOYED_NOT_LOOKING, Employment.UNEMPLOYED_LOOKING]
+        ),
+        student=st.sampled_from(
+            [Student.FULLTIME_INPERSON, Student.FULLTIME_ONLINE, Student.PARTTIME_INPERSON]
+        ),
+        school_type=st.sampled_from([SchoolType.COLLEGE_2YEAR, SchoolType.COLLEGE_4YEAR]),
+    )
+    def test_property_college_students_are_university_type(
+        self, age, employment, student, school_type
+    ):
+        """Property: College students (not employed) should be UNIVERSITY_STUDENT."""
         df = pl.DataFrame(
             [
                 {
-                    "age": AgeCategory.AGE_5_TO_15.value,
-                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
-                    "student": Student.FULLTIME_INPERSON.value,
-                    "school_type": SchoolType.ELEMENTARY.value,
+                    "age": age.value,
+                    "employment": employment.value,
+                    "student": student.value,
+                    "school_type": school_type.value,
                 }
             ]
         )
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value
 
-    def test_child_too_young(self):
-        """Test classification of child too young for school."""
-        df = pl.DataFrame(
-            [
-                {
-                    "age": AgeCategory.AGE_UNDER_5.value,
-                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
-                    "student": Student.NONSTUDENT.value,
-                    "school_type": SchoolType.PRESCHOOL.value,
-                }
-            ]
+        result = df.with_columns(person_type_expression())
+        person_type = result["literal"][0]
+
+        assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+            f"College student (age {age.name}, {school_type.name}) "
+            f"should be UNIVERSITY_STUDENT, got {person_type}"
         )
-        person_type = df.with_columns(person_type_expression())["literal"][0]
-        assert person_type == CTRAMPPersonType.CHILD_UNDER_5.value
+
+    def test_batch_classification_consistency(self):
+        """Test that batch classification produces same results as individual classification."""
+        test_cases = [
+            {
+                "age": AgeCategory.AGE_16_TO_17.value,
+                "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                "student": Student.FULLTIME_INPERSON.value,
+                "school_type": SchoolType.HIGH_SCHOOL.value,
+                "expected": CTRAMPPersonType.CHILD_DRIVING_AGE.value,
+            },
+            {
+                "age": AgeCategory.AGE_35_TO_44.value,
+                "employment": Employment.EMPLOYED_FULLTIME.value,
+                "student": Student.NONSTUDENT.value,
+                "school_type": SchoolType.MISSING.value,
+                "expected": CTRAMPPersonType.FULL_TIME_WORKER.value,
+            },
+            {
+                "age": AgeCategory.AGE_5_TO_15.value,
+                "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                "student": Student.FULLTIME_INPERSON.value,
+                "school_type": SchoolType.ELEMENTARY.value,
+                "expected": CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value,
+            },
+            {
+                "age": AgeCategory.AGE_65_TO_74.value,
+                "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                "student": Student.NONSTUDENT.value,
+                "school_type": SchoolType.MISSING.value,
+                "expected": CTRAMPPersonType.RETIRED.value,
+            },
+        ]
+
+        df = pl.DataFrame(test_cases)
+        result = df.with_columns(person_type_expression())
+
+        for i, row in enumerate(result.iter_rows(named=True)):
+            assert row["literal"] == row["expected"], (
+                f"Row {i} failed batch classification:  "
+                f"expected {row['expected']}, got {row['literal']}"
+            )
 
 
 class TestFreeParkingChoice:
