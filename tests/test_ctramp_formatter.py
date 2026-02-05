@@ -45,10 +45,7 @@ from data_canon.models.ctramp import (
 from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.format_ctramp import format_ctramp
 from processing.formatting.ctramp.format_households import format_households
-from processing.formatting.ctramp.format_persons import (
-    classify_person_type,
-    format_persons,
-)
+from processing.formatting.ctramp.format_persons import format_persons
 from processing.formatting.ctramp.format_tours import (
     format_individual_tour,
     format_joint_tour,
@@ -57,6 +54,7 @@ from processing.formatting.ctramp.format_trips import (
     format_individual_trip,
     format_joint_trip,
 )
+from processing.formatting.ctramp.mappings import person_type_expression
 from tests.fixtures import (
     create_family_household,
     create_household,
@@ -111,82 +109,123 @@ class TestPersonTypeClassification:
 
     def test_full_time_worker(self):
         """Test classification of full-time worker."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_35_TO_44.value,
-            employment=Employment.EMPLOYED_FULLTIME.value,
-            student=Student.NONSTUDENT.value,
-            school_type=SchoolType.MISSING.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_35_TO_44.value,
+                    "employment": Employment.EMPLOYED_FULLTIME.value,
+                    "student": Student.NONSTUDENT.value,
+                    "school_type": SchoolType.MISSING.value,
+                }
+            ]
         )
+
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value
 
     def test_part_time_worker(self):
         """Test classification of part-time worker."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_25_TO_34.value,
-            employment=Employment.EMPLOYED_PARTTIME.value,
-            student=Student.NONSTUDENT.value,
-            school_type=SchoolType.MISSING.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_25_TO_34.value,
+                    "employment": Employment.EMPLOYED_PARTTIME.value,
+                    "student": Student.NONSTUDENT.value,
+                    "school_type": SchoolType.MISSING.value,
+                }
+            ]
         )
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.PART_TIME_WORKER.value
 
     def test_university_student(self):
         """Test classification of university student."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_18_TO_24.value,
-            employment=Employment.UNEMPLOYED_NOT_LOOKING.value,
-            student=Student.FULLTIME_INPERSON.value,
-            school_type=SchoolType.COLLEGE_4YEAR.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_18_TO_24.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.FULLTIME_INPERSON.value,
+                    "school_type": SchoolType.COLLEGE_4YEAR.value,
+                }
+            ]
         )
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value
 
     def test_retired_person(self):
         """Test classification of retired person."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_65_TO_74.value,
-            employment=Employment.UNEMPLOYED_NOT_LOOKING.value,
-            student=Student.NONSTUDENT.value,
-            school_type=SchoolType.MISSING.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_65_TO_74.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.NONSTUDENT.value,
+                    "school_type": SchoolType.MISSING.value,
+                }
+            ]
         )
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.RETIRED.value
 
     def test_nonworker(self):
         """Test classification of non-worker (under 65)."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_45_TO_54.value,
-            employment=Employment.UNEMPLOYED_NOT_LOOKING.value,
-            student=Student.NONSTUDENT.value,
-            school_type=SchoolType.MISSING.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_45_TO_54.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.NONSTUDENT.value,
+                    "school_type": SchoolType.MISSING.value,
+                }
+            ]
         )
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.NON_WORKER.value
 
     def test_driving_age_student(self):
         """Test classification of driving age student."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_16_TO_17.value,
-            employment=Employment.UNEMPLOYED_NOT_LOOKING.value,
-            student=Student.FULLTIME_INPERSON.value,
-            school_type=SchoolType.HIGH_SCHOOL.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_16_TO_17.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.FULLTIME_INPERSON.value,
+                    "school_type": SchoolType.HIGH_SCHOOL.value,
+                }
+            ]
         )
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value
 
     def test_non_driving_age_student(self):
         """Test classification of non-driving age student."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_5_TO_15.value,
-            employment=Employment.UNEMPLOYED_NOT_LOOKING.value,
-            student=Student.FULLTIME_INPERSON.value,
-            school_type=SchoolType.ELEMENTARY.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_5_TO_15.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.FULLTIME_INPERSON.value,
+                    "school_type": SchoolType.ELEMENTARY.value,
+                }
+            ]
         )
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.CHILD_NON_DRIVING_AGE.value
 
     def test_child_too_young(self):
         """Test classification of child too young for school."""
-        person_type = classify_person_type(
-            age=AgeCategory.AGE_UNDER_5.value,
-            employment=Employment.UNEMPLOYED_NOT_LOOKING.value,
-            student=Student.NONSTUDENT.value,
-            school_type=SchoolType.PRESCHOOL.value,
+        df = pl.DataFrame(
+            [
+                {
+                    "age": AgeCategory.AGE_UNDER_5.value,
+                    "employment": Employment.UNEMPLOYED_NOT_LOOKING.value,
+                    "student": Student.NONSTUDENT.value,
+                    "school_type": SchoolType.PRESCHOOL.value,
+                }
+            ]
         )
+        person_type = df.with_columns(person_type_expression())["literal"][0]
         assert person_type == CTRAMPPersonType.CHILD_UNDER_5.value
 
 
@@ -754,6 +793,7 @@ class TestIndividualTourFormatting:
                     person_id=101,
                     hh_id=1,
                     employment=Employment.EMPLOYED_FULLTIME,
+                    person_type=CTRAMPPersonType.FULL_TIME_WORKER.value,
                 )
             ]
         )

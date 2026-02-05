@@ -16,6 +16,7 @@ from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.mappings import (
     map_mode_to_ctramp,
     map_purpose_category_to_ctramp,
+    person_type_expression,
 )
 
 from .ctramp_config import CTRAMPConfig
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 def format_individual_tour(
     tours_canonical: pl.DataFrame,
     linked_trips_canonical: pl.DataFrame,
-    persons_with_type: pl.DataFrame,
+    persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
 ) -> pl.DataFrame:
@@ -41,7 +42,7 @@ def format_individual_tour(
             (for subtour counting)
         linked_trips_canonical: Canonical trips DataFrame with tour_id, tour_direction
             (1=outbound, 2=inbound, 3=subtour)
-        persons_with_type: DataFrame with person_id, person_num, person_type, school_type
+        persons_canonical: DataFrame with person_id, person_num, person_type, school_type
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds
 
@@ -65,6 +66,11 @@ def format_individual_tour(
 
     # Filter to individual tours only (not joint)
     individual_tours = tours_canonical.filter(pl.col("joint_tour_id").is_null())
+
+    # Derive person type for CTRAMP using expression based on age, employment, and student status;
+    persons_with_type = persons_canonical.with_columns(
+        person_type_expression().alias("person_type")
+    )
 
     # Join with persons for person_type and school_type,
     # and households for income

@@ -19,6 +19,7 @@ from data_canon.codebook.ctramp import (
     _INMF_MAXES,
     _INMF_REVERSE_LOOKUP,
     CTRAMPEmploymentCategory,
+    CTRAMPPersonType,
     CTRAMPPurpose,
     CTRAMPStudentCategory,
     FreeParkingChoice,
@@ -29,7 +30,7 @@ from data_canon.codebook.persons import AgeCategory, Employment, JobType, School
 from utils.helpers import get_age_midpoint
 
 from .ctramp_config import CTRAMPConfig
-from .mappings import EMPLOYMENT_TO_CTRAMP, GENDER_MAP
+from .mappings import EMPLOYMENT_TO_CTRAMP, GENDER_MAP, person_type_expression
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +270,7 @@ def aggregate_tour_statistics(
 
 
 def format_persons(
-    persons_with_type: pl.DataFrame,
+    persons_canonical: pl.DataFrame,
     tours_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
 ) -> pl.DataFrame:
@@ -283,7 +284,7 @@ def format_persons(
     - Aggregate activity patterns and tour frequencies from tour data
 
     Args:
-        persons_with_type: Canonical persons DataFrame with derived person_type field
+        persons_canonical: Canonical persons DataFrame with derived person_type field
             (free parking), commute_subsidy_use_4 (discounted parking), value_of_time
         tours_ctramp: Formatted CT-RAMP tours DataFrame with person_id and tour_purpose
             (CTRAMP-formatted purpose strings like 'work_low', 'school_grade', etc.)
@@ -312,9 +313,15 @@ def format_persons(
     """
     logger.info("Formatting person data for CT-RAMP")
 
+    # Calculate person type using expression based on age, employment, and student status
+    # Re-derive to ensure we're not pulling in some person_type that may not be in CT-RAMP format
+    # Convert from categorical integer to string label per spec
+    persons_with_type = persons_canonical.with_columns(
+        person_type_expression().replace_strict(CTRAMPPersonType.to_dict()).alias("type")
+    )
+
     # Convert age category to continuous midpoint
     persons_ctramp = persons_with_type.with_columns(
-        pl.col("person_type").alias("type"),  # Rename for CT-RAMP spec
         pl.col("age")
         .map_elements(
             lambda code: (get_age_midpoint(ac) if (ac := AgeCategory.from_value(code)) else code),
