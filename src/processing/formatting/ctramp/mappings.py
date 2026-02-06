@@ -518,13 +518,14 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
                 Employment.EMPLOYED_UNPAID.value,
             ]
         )
-    )
+    ).select("person_id", "age", "employment")
     if len(child_workers) > 0:
         warnings["child_fulltime_workers"] = len(child_workers)
         logger.warning(
             "Found %d children under 16 with full-time employment. "
-            "Age-based classification will override employment status.",
+            "Age-based classification will override employment status. Sample rows:\n%s",
             len(child_workers),
+            child_workers.unique(subset=["age", "employment"]).head(5),
         )
 
     # Children < 5 with student status
@@ -537,13 +538,14 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
                 Student.PARTTIME_INPERSON.value,
             ]
         )
-    )
+    ).select("person_id", "age", "student")
     if len(preschool_students) > 0:
         warnings["preschool_students"] = len(preschool_students)
         logger.warning(
             "Found %d children under 5 with student status. "
-            "These will be classified as CHILD_UNDER_5.",
+            "These will be classified as CHILD_UNDER_5. Sample rows:\n%s",
             len(preschool_students),
+            preschool_students.unique(subset=["age", "student"]).head(5),
         )
 
     # College students < 16 years old
@@ -552,35 +554,54 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
         & pl.col("school_type").is_in(
             [SchoolType.COLLEGE_2YEAR.value, SchoolType.COLLEGE_4YEAR.value]
         )
-    )
+    ).select("person_id", "age", "school_type")
     if len(young_college) > 0:
         warnings["young_college_students"] = len(young_college)
         logger.warning(
             "Found %d children under 16 listed as college students. "
-            "Age-based classification will override school type.",
+            "Age-based classification will override school type. Sample rows:\n%s",
             len(young_college),
+            young_college.unique(subset=["age", "school_type"]).head(5),
         )
 
-    # Check if anyone < 65 could be incorrectly classified as RETIRED
+    # Check if anyone < 65 and >16 have no employment code.
     # (This shouldn't happen with correct logic, but log if it does)
     # Note: We can only check if the input data suggests retirement, not the output
     # The classification logic itself prevents young retirees
 
     # MISSING employment status
-    missing_employment = df.filter(pl.col("employment") == Employment.MISSING.value)
+    missing_employment = df.filter(
+        (pl.col("employment") == Employment.MISSING.value)
+        & ~pl.col("age").is_in(
+            [
+                AgeCategory.AGE_UNDER_5.value,
+                AgeCategory.AGE_5_TO_15.value,
+                AgeCategory.AGE_65_TO_74.value,
+                AgeCategory.AGE_75_TO_84.value,
+                AgeCategory.AGE_85_AND_UP.value,
+            ]
+        )
+    ).select("person_id", "age", "employment")
     if len(missing_employment) > 0:
         warnings["missing_employment_status"] = len(missing_employment)
-        person_ids = missing_employment["person_id"].head(5).to_list()
         logger.warning(
             "Found %d persons with MISSING employment status. "
-            "Classification will use age-based defaults. Top 5 person_ids: %s",
+            "Classification will use age-based defaults. Sample rows:\n%s",
             len(missing_employment),
-            person_ids,
+            missing_employment.unique(subset=["age", "employment"]).head(5),
         )
 
+    # Check if anyone <18 has missing student status. Over 18 we expect them to be non-students.
     # MISSING student status when they have a school type
     missing_student = df.filter(
-        (pl.col("student") == Student.MISSING.value)
+        pl.col("age").is_in(
+            [
+                AgeCategory.AGE_UNDER_5.value,
+                AgeCategory.AGE_5_TO_15.value,
+                AgeCategory.AGE_16_TO_17.value,
+            ]
+        )
+        & (pl.col("student") == Student.MISSING.value)
         & pl.col("school_type").is_in(
             [
                 SchoolType.ELEMENTARY.value,
@@ -591,15 +612,15 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
                 SchoolType.GRADUATE_SCHOOL.value,
             ]
         )
-    )
+    ).select("person_id", "age", "student", "school_type")
     if len(missing_student) > 0:
         warnings["missing_student_status"] = len(missing_student)
-        person_ids = missing_student["person_id"].head(5).to_list()
+        # Get a sample of unique offenders
         logger.warning(
             "Found %d persons with school_type but MISSING student status. "
-            "Classification may be incorrect. Top 5 person_ids: %s",
+            "Classification may be incorrect. Sample rows:\n%s",
             len(missing_student),
-            person_ids,
+            missing_student.unique(subset=["age", "student", "school_type"]).head(5),
         )
 
     # Age-inappropriate school types
@@ -643,22 +664,21 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
             )
             & (pl.col("school_type") == SchoolType.HOME_SCHOOL.value)
         )
-    )
+    ).select("person_id", "age", "school_type")
     if len(inappropriate_school) > 0:
         warnings["age_inappropriate_school_types"] = len(inappropriate_school)
-        person_ids = inappropriate_school["person_id"].head(5).to_list()
         logger.warning(
             "Found %d persons with age-inappropriate school types "
             "(e.g., teens in elementary, children in college, adults with HOME_SCHOOL). "
-            "Top 5 person_ids: %s",
+            "Sample rows:\n%s",
             len(inappropriate_school),
-            person_ids,
+            inappropriate_school.unique(subset=["age", "school_type"]).head(5),
         )
 
     return warnings
 
 
-def person_type_expression(
+def ctramp_person_type_expression(
     age_col: str = "age",
     employment_col: str = "employment",
     student_col: str = "student",

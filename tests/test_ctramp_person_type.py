@@ -17,7 +17,7 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from processing.formatting.ctramp.mappings import person_type_expression
+from processing.formatting.ctramp.mappings import ctramp_person_type_expression
 
 
 class TestPersonTypeClassification:
@@ -158,7 +158,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == expected_type.value, (
@@ -215,7 +215,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
@@ -244,7 +244,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
@@ -281,7 +281,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
@@ -310,7 +310,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.CHILD_UNDER_5.value, (
@@ -338,7 +338,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.RETIRED.value, (
@@ -372,7 +372,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value, (
@@ -412,7 +412,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value, (
@@ -439,7 +439,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         valid_types = {t.value for t in CTRAMPPersonType}
@@ -486,7 +486,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
@@ -521,7 +521,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         # Age < 5: Must be CHILD_UNDER_5
@@ -608,7 +608,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         # If classified as FULL_TIME_WORKER, must have full-time employment
@@ -662,7 +662,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         # If classified as UNIVERSITY_STUDENT, must be a college student with valid school_type
@@ -773,7 +773,7 @@ class TestPersonTypeClassification:
             ]
         )
 
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
         # Exception: Full-time employment overrides student status
@@ -822,7 +822,7 @@ class TestPersonTypeClassification:
         ]
 
         df = pl.DataFrame(test_cases)
-        result = df.with_columns(person_type_expression())
+        result = df.with_columns(ctramp_person_type_expression())
 
         for i, row in enumerate(result.iter_rows(named=True)):
             assert row["literal"] == row["expected"], (

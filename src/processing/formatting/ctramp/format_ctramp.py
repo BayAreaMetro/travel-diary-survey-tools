@@ -30,7 +30,7 @@ from pipeline.decoration import step
 from .ctramp_config import CTRAMPConfig
 from .format_households import format_households
 from .format_mandatory_location import format_mandatory_location
-from .format_persons import format_persons
+from .format_persons import enrich_persons_with_person_type, format_persons
 from .format_tours import format_individual_tour, format_joint_tour
 from .format_trips import format_individual_trip, format_joint_trip
 
@@ -295,6 +295,9 @@ def format_ctramp(
     # Format households first since it has no derived field dependencies
     households_ctramp = format_households(households, persons, tours, config)
 
+    # Derive/validate person_type and type for use in tour/trip formatting
+    persons_with_type = enrich_persons_with_person_type(persons)
+
     # Format tours - use empty DataFrame with proper schema if no tours exist
     if len(tours) == 0:
         individual_tours_ctramp = pl.DataFrame(
@@ -307,14 +310,14 @@ def format_ctramp(
         individual_tours_ctramp = format_individual_tour(
             tours_canonical=tours,
             linked_trips_canonical=linked_trips,
-            persons_canonical=persons,
+            persons_canonical=persons_with_type,
             households_ctramp=households_ctramp,
             config=config,
         )
 
     # Format persons with tour statistics (works with empty or populated tours)
     persons_ctramp = format_persons(
-        persons_canonical=persons,
+        persons_canonical=persons_with_type,
         tours_ctramp=individual_tours_ctramp,
         config=config,
     )

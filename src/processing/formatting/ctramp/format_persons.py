@@ -33,8 +33,8 @@ from .ctramp_config import CTRAMPConfig
 from .mappings import (
     EMPLOYMENT_TO_CTRAMP,
     GENDER_MAP,
+    ctramp_person_type_expression,
     log_person_type_warnings,
-    person_type_expression,
 )
 
 logger = logging.getLogger(__name__)
@@ -274,6 +274,74 @@ def aggregate_tour_statistics(
     )
 
 
+def enrich_persons_with_person_type(
+    persons_canonical: pl.DataFrame,
+) -> pl.DataFrame:
+    """Enrich persons DataFrame with person_type and type fields.
+
+    Derives person_type (integer code) and type (string label) based on age,
+    employment, and student status using the ctramp_person_type_expression.
+
+    Args:
+        persons_canonical: Canonical persons DataFrame
+
+    Returns:
+        DataFrame with added person_type and type fields
+    """
+    # Validate age column using AgeCategory enum from canonical model
+    # This is not a perfect validation since it's young ages could erroneously match an enum,
+    # but it provides a reasonable check that age codes are within expected categories.
+    invalid_ages = set(persons_canonical["age"]) - {x.value for x in AgeCategory}
+    if invalid_ages:
+        msg = (
+            f"Found invalid age codes in input data: {invalid_ages}. "
+            f"Expected values are: {[x.value for x in AgeCategory]}"
+        )
+        raise ValueError(msg)
+
+    # Check if person_type and type columns already exist and are valid
+    # If they are invalid, drop them to be re-derived
+    # in case some other person_type vestige was present in the data.
+    if "person_type" in persons_canonical.columns and "type" in persons_canonical.columns:
+        valid_person_types = set(CTRAMPPersonType.to_dict().keys())
+        existing_person_types = set(persons_canonical["person_type"].drop_nulls().unique())
+        if not existing_person_types.issubset(valid_person_types):
+            logger.warning(
+                "Existing person_type column contains invalid values: %s. "
+                "Dropping person_type and type columns to re-derive from attributes.",
+                existing_person_types - valid_person_types,
+            )
+            persons_canonical = persons_canonical.drop(["person_type", "type"])
+
+    # If person_type or type is missing, or does not match expected values, re-derive it
+    if "person_type" not in persons_canonical.columns or "type" not in persons_canonical.columns:
+        logger.info("person_type or type column missing, deriving person type from attributes")
+        persons_with_type = persons_canonical.with_columns(
+            # Integer person_type code
+            ctramp_person_type_expression().alias("person_type"),
+            # String type (e.g. "full_time_worker"), derived from person_type code
+            ctramp_person_type_expression()
+            .replace_strict(CTRAMPPersonType.to_dict())
+            .alias("type"),
+        )
+
+        # Check for impossible input combinations and log warnings
+        warnings = log_person_type_warnings(persons_with_type)
+        total_warnings = sum(warnings.values())
+        if total_warnings > 0:
+            msg = (
+                f"Found {total_warnings} problematic person attribute combinations. "
+                "Will rely on age-based defaults."
+            )
+            for category, count in warnings.items():
+                msg += f"\n  {category}: {count}"
+            logger.warning(msg)
+    else:
+        persons_with_type = persons_canonical
+
+    return persons_with_type
+
+
 def format_persons(
     persons_canonical: pl.DataFrame,
     tours_ctramp: pl.DataFrame,
@@ -318,24 +386,8 @@ def format_persons(
     """
     logger.info("Formatting person data for CT-RAMP")
 
-    # Check for impossible input combinations and log warnings
-    warnings = log_person_type_warnings(persons_canonical)
-    total_warnings = sum(warnings.values())
-    if total_warnings > 0:
-        logger.warning(
-            "Found %d impossible person attribute combinations. "
-            "Age-based classification rules will handle these gracefully. "
-            "Details: %s",
-            total_warnings,
-            warnings,
-        )
-
-    # Calculate person type using expression based on age, employment, and student status
-    # Re-derive to ensure we're not pulling in some person_type that may not be in CT-RAMP format
-    # Convert from categorical integer to string label per spec
-    persons_with_type = persons_canonical.with_columns(
-        person_type_expression().replace_strict(CTRAMPPersonType.to_dict()).alias("type")
-    )
+    # Derive/validate person_type and type fields
+    persons_with_type = enrich_persons_with_person_type(persons_canonical)
 
     # Convert age category to continuous midpoint
     persons_ctramp = persons_with_type.with_columns(

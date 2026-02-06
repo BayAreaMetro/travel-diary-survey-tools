@@ -4,7 +4,6 @@ import logging
 
 import polars as pl
 
-from processing.formatting.ctramp.mappings import person_type_expression
 from utils.helpers import expr_haversine
 
 from .ctramp_config import CTRAMPConfig
@@ -199,8 +198,8 @@ def format_mandatory_location(
 
     Args:
         persons_ctramp: Formatted CT-RAMP persons DataFrame with person_id, hh_id,
-            person_num, person_type (converted), age (converted), employment_category,
-            student_category, work_taz, school_taz
+            person_num, person_type (integer code), age (non-binned continuous),
+            employment_category, student_category, work_taz, school_taz
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income,
             home_taz (for HomeTAZ field)
         linked_trips_canonical: Canonical linked trips DataFrame for distance calculations
@@ -221,13 +220,8 @@ def format_mandatory_location(
     """
     logger.info("Formatting mandatory location data for CT-RAMP")
 
-    # Calculate person type using expression based on age, employment, and student status
-    # Re-derive to ensure we're not pulling in some person_type that may not be in CT-RAMP format
-    # Convert from categorical integer to string label per spec
-    persons_with_type = persons_ctramp.with_columns(person_type_expression().alias("person_type"))
-
     # Join persons with households to get income and home TAZ, lat/lon
-    mandatory_loc = persons_with_type.join(
+    mandatory_loc = persons_ctramp.join(
         households_ctramp.select(
             ["hh_id", "home_lat", "home_lon", f"home_{config.taz_field}", "income"]
         ),

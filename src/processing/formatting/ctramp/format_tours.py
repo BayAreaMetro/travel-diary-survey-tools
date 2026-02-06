@@ -16,10 +16,10 @@ from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.mappings import (
     map_mode_to_ctramp,
     map_purpose_category_to_ctramp,
-    person_type_expression,
 )
 
 from .ctramp_config import CTRAMPConfig
+from .format_persons import enrich_persons_with_person_type
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,9 @@ def format_individual_tour(
             (for subtour counting)
         linked_trips_canonical: Canonical trips DataFrame with tour_id, tour_direction
             (1=outbound, 2=inbound, 3=subtour)
-        persons_canonical: DataFrame with person_id, person_num, person_type, school_type
+        persons_canonical: Canonical persons DataFrame with person_id, person_num,
+            person_type (for mode mapping), school_type (for purpose mapping) are optional
+            but re-derived if missing or invalid
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds
 
@@ -62,20 +64,18 @@ def format_individual_tour(
     """
     logger.info("Formatting individual tour data for CT-RAMP")
 
-    # Prepare person_type mapping to CTRAMP integer codes
+    # Derive/validate person_type in persons_with_type before joining to tours
+    if "person_type" not in persons_canonical.columns or "type" not in persons_canonical.columns:
+        logger.info("Deriving person_type for tour formatting")
+        persons_canonical = enrich_persons_with_person_type(persons_canonical)
 
     # Filter to individual tours only (not joint)
     individual_tours = tours_canonical.filter(pl.col("joint_tour_id").is_null())
 
-    # Derive person type for CTRAMP using expression based on age, employment, and student status;
-    persons_with_type = persons_canonical.with_columns(
-        person_type_expression().alias("person_type")
-    )
-
     # Join with persons for person_type and school_type,
     # and households for income
     individual_tours = individual_tours.join(
-        persons_with_type.select(["person_id", "person_num", "person_type", "school_type"]),
+        persons_canonical.select(["person_id", "person_num", "person_type", "school_type"]),
         on="person_id",
         how="left",
     ).join(
