@@ -1,14 +1,14 @@
-# DaySim Processing Pipeline Configuration for BATS 2023
-# This config file demonstrates the full pipeline with DaySim formatting
+# Processing Pipeline Configuration for BATS 2019
+# This config file demonstrates the full pipeline with DaySim and CTRAMP formatting
 
 # config.yaml
 
 # Define directory shorthands
 survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2018-2019/Data/Final Version with Imputations/Final Updated Dataset as of 10-18-2021"
-output_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2018-2019/Data/Processed"
+output_dir: "M:/Data/HomeInterview/Bay Area Travel Study (across-years)/pipeline_lmz_20260209"
 TM1_shapefile_dir: "E:/GitHub/travel-model-one/utilities/geographies"
 TM2_shapefile_dir: "E:/GitHub/TM2/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles"
-log_file: "{{ output_dir }}/pipeline.log" # If not set, logs just to console, if not absolute saves to .cache directory
+log_file: "{{ output_dir }}/pipeline_2019.log" # If not set, logs just to console, if not absolute saves to .cache directory
 
 # Pipeline configuration
 steps:
@@ -88,10 +88,10 @@ steps:
     params:
       output_paths:
         # Standard Survey Formats
-        households: "{{ output_dir }}/survey/households.csv"
-        persons: "{{ output_dir }}/survey/persons.csv"
-        days: "{{ output_dir }}/survey/days.csv"
-        unlinked_trips: "{{ output_dir }}/survey/unlinked_trips.csv"
-        linked_trips: "{{ output_dir }}/survey/linked_trips.csv"
-        tours: "{{ output_dir }}/survey/tours.csv"
-        joint_trips: "{{ output_dir }}/survey/joint_trips.csv"
+        households: "{{ output_dir }}/survey/households_2019.csv"
+        persons: "{{ output_dir }}/survey/persons_2019.csv"
+        days: "{{ output_dir }}/survey/days_2019.csv"
+        unlinked_trips: "{{ output_dir }}/survey/unlinked_trips_2019.csv"
+        linked_trips: "{{ output_dir }}/survey/linked_trips_2019.csv"
+        tours: "{{ output_dir }}/survey/tours_2019.csv"
+        joint_trips: "{{ output_dir }}/survey/joint_trips_2019.csv"

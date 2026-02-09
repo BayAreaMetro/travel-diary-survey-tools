@@ -1,4 +1,4 @@
-"""Custom cleaning steps for the DaySim pipeline."""
+"""Custom cleaning steps for the  Bay Area Travel Study (BATS) 2023 pipeline."""
 
 import logging
 
