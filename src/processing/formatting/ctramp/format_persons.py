@@ -21,12 +21,11 @@ from data_canon.codebook.ctramp import (
     CTRAMPEmploymentCategory,
     CTRAMPPersonType,
     CTRAMPPurpose,
-    CTRAMPStudentCategory,
     FreeParkingChoice,
     IMFChoice,
 )
 from data_canon.codebook.generic import BooleanYesNo
-from data_canon.codebook.persons import AgeCategory, Employment, JobType, SchoolType, Student
+from data_canon.codebook.persons import AgeCategory, Employment, JobType
 from utils.helpers import get_age_midpoint
 
 from .ctramp_config import CTRAMPConfig
@@ -34,7 +33,9 @@ from .mappings import (
     EMPLOYMENT_TO_CTRAMP,
     GENDER_MAP,
     ctramp_person_type_expression,
+    ctramp_student_category_expression,
     log_person_type_warnings,
+    log_student_category_warnings,
 )
 
 logger = logging.getLogger(__name__)
@@ -389,6 +390,24 @@ def format_persons(
     # Derive/validate person_type and type fields
     persons_with_type = enrich_persons_with_person_type(persons_canonical)
 
+    # Compute student_category BEFORE converting age to continuous values
+    # This allows us to work with original AgeCategory bins directly
+    persons_with_type = persons_with_type.with_columns(
+        ctramp_student_category_expression().alias("student_category")
+    )
+
+    # Check for problematic student/school type combinations
+    student_warnings = log_student_category_warnings(persons_with_type)
+    total_student_warnings = sum(student_warnings.values())
+    if total_student_warnings > 0:
+        msg = (
+            f"Found {total_student_warnings} problematic student/school type combinations. "
+            "Using age-based defaults where appropriate."
+        )
+        for category, count in student_warnings.items():
+            msg += f"\n  {category}: {count}"
+        logger.warning(msg)
+
     # Convert age category to continuous midpoint
     persons_ctramp = persons_with_type.with_columns(
         pl.col("age")
@@ -458,48 +477,6 @@ def format_persons(
             default=CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
         )
         .alias("employment_category")
-    )
-
-    # Compute student_category from student and school_type for mandatory locations
-    persons_ctramp = persons_ctramp.with_columns(
-        pl.when(
-            pl.col("student").is_in(
-                [
-                    Student.FULLTIME_INPERSON.value,
-                    Student.PARTTIME_INPERSON.value,
-                    Student.FULLTIME_ONLINE.value,
-                    Student.PARTTIME_ONLINE.value,
-                ]
-            )
-            & pl.col("school_type").is_in(
-                [
-                    SchoolType.COLLEGE_2YEAR.value,
-                    SchoolType.COLLEGE_4YEAR.value,
-                    SchoolType.GRADUATE_SCHOOL.value,
-                ]
-            )
-        )
-        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
-        .when(
-            pl.col("student").is_in(
-                [
-                    Student.FULLTIME_INPERSON.value,
-                    Student.PARTTIME_INPERSON.value,
-                    Student.FULLTIME_ONLINE.value,
-                    Student.PARTTIME_ONLINE.value,
-                ]
-            )
-            & pl.col("school_type").is_in(
-                [
-                    SchoolType.ELEMENTARY.value,
-                    SchoolType.MIDDLE_SCHOOL.value,
-                    SchoolType.HIGH_SCHOOL.value,
-                ]
-            )
-        )
-        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
-        .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
-        .alias("student_category")
     )
 
     # Note: value_of_time is model output, not survey data

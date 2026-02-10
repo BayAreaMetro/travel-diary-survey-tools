@@ -23,7 +23,7 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from data_canon.codebook.trips import AccessEgressMode, ModeType, Purpose, PurposeCategory
+from data_canon.codebook.trips import AccessEgressMode, ModeType, PurposeCategory
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,11 @@ EMPLOYMENT_TO_CTRAMP = {
 # Maps canonical tour purposes to JTF category strings used for joint tour classification
 # This is an internal mapping used in CTRAMP processing to get joint tour frequencies
 # based on tour purpose categories.
+# S = Shopping
+# M = Maintenance/errands
+# E = Eating out
+# V = Visiting/social/recreational
+# D = Discretionary
 PURPOSECATEGORY_TO_JTF_GROUP = {
     # Shopping
     PurposeCategory.SHOP.value: "S",
@@ -81,168 +86,7 @@ PURPOSECATEGORY_TO_JTF_GROUP = {
 }
 
 
-def map_purpose_to_ctramp(
-    purpose: pl.Expr,
-    income: pl.Expr,
-    school_type: pl.Expr,
-    income_low_threshold: int,
-    income_med_threshold: int,
-    income_high_threshold: int,
-) -> pl.Expr:
-    """Map canonical trip purpose to CTRAMP purpose string.
-
-    CTRAMP requires detailed purpose strings that distinguish work income
-    levels (low/med/high/very high) and school types (grade/high/university).
-
-    Args:
-        purpose: Polars expression for canonical purpose
-            (from trips.Purpose enum)
-        income: Polars expression for household income (absolute dollars)
-        school_type: Polars expression for school type
-            (from persons.SchoolType enum):
-              - K12: 5-7
-              - College/Grad: 11-13
-              - Not student/Missing: other values
-        income_low_threshold: Income threshold for low bracket
-        income_med_threshold: Income threshold for med bracket
-        income_high_threshold: Income threshold for high bracket
-
-    Returns:
-        Polars expression resolving to CTRAMP purpose string
-    """
-    # Compute student category from student and school_type enums
-    # College/grad -> "College or higher"
-    # K-12 -> "Grade or high school"
-    # Not student or missing -> "Not student"
-    student_category = (
-        pl.when(
-            school_type.is_in(
-                [
-                    SchoolType.COLLEGE_2YEAR.value,
-                    SchoolType.COLLEGE_4YEAR.value,
-                    SchoolType.GRADUATE_SCHOOL.value,
-                ]
-            )
-        )
-        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
-        .when(
-            school_type.is_in(
-                [
-                    SchoolType.ELEMENTARY.value,
-                    SchoolType.MIDDLE_SCHOOL.value,
-                    SchoolType.HIGH_SCHOOL.value,
-                ]
-            )
-        )
-        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
-        .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
-    )
-    # Home purpose
-    home_expr = pl.when(purpose == Purpose.HOME.value).then(pl.lit(CTRAMPPurpose.HOME.value))
-
-    # Work purposes - segmented by income
-    work_purposes = [
-        Purpose.PRIMARY_WORKPLACE.value,
-        Purpose.WORK_ACTIVITY.value,
-    ]
-    work_income_segmentation = (
-        pl.when(income < income_low_threshold)
-        .then(pl.lit(CTRAMPPurpose.WORK_LOW.value))
-        .when(income < income_med_threshold)
-        .then(pl.lit(CTRAMPPurpose.WORK_MED.value))
-        .when(income < income_high_threshold)
-        .then(pl.lit(CTRAMPPurpose.WORK_HIGH.value))
-        .otherwise(pl.lit(CTRAMPPurpose.WORK_VERY_HIGH.value))
-    )
-    work_expr = home_expr.when(purpose.is_in(work_purposes)).then(work_income_segmentation)
-
-    # School purposes - segmented by student type
-    k12_purposes = [Purpose.K12_SCHOOL.value, Purpose.DAYCARE.value, Purpose.SCHOOL.value]
-    school_segmentation_expr = (
-        pl.when(student_category == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value)
-        .then(pl.lit(CTRAMPPurpose.UNIVERSITY.value))
-        .when(student_category == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value)
-        .then(pl.lit(CTRAMPPurpose.SCHOOL_HIGH.value))
-        .otherwise(pl.lit(CTRAMPPurpose.SCHOOL_GRADE.value))
-    )
-    school_expr = work_expr.when(purpose.is_in(k12_purposes)).then(school_segmentation_expr)
-    university_expr = school_expr.when(purpose == Purpose.COLLEGE.value).then(
-        pl.lit(CTRAMPPurpose.UNIVERSITY.value)
-    )
-
-    # At-work sub-tour purposes
-    atwork_expr = university_expr.when(purpose == Purpose.WORK_ACTIVITY.value).then(
-        pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value)
-    )
-    eatout_expr = atwork_expr.when(purpose == Purpose.DINING.value).then(
-        pl.lit(CTRAMPPurpose.EATOUT.value)
-    )
-
-    # Escort purposes
-    escort_purposes = [
-        Purpose.DROP_OFF.value,
-        Purpose.PICK_UP.value,
-        Purpose.ACCOMPANY.value,
-    ]
-    escort_segmentation_expr = (
-        pl.when(
-            student_category.is_in(
-                [
-                    CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value,
-                    CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value,
-                ]
-            )
-        )
-        .then(pl.lit(CTRAMPPurpose.ESCORT_KIDS.value))
-        .otherwise(pl.lit(CTRAMPPurpose.ESCORT_NO_KIDS.value))
-    )
-    escort_expr = eatout_expr.when(purpose.is_in(escort_purposes)).then(escort_segmentation_expr)
-
-    # Shopping
-    shopping_purposes = [
-        Purpose.GROCERY.value,
-        Purpose.ROUTINE_SHOPPING.value,
-        Purpose.MAJOR_SHOPPING.value,
-        Purpose.SHOPPING_ERRANDS.value,
-    ]
-    shopping_expr = escort_expr.when(purpose.is_in(shopping_purposes)).then(
-        pl.lit(CTRAMPPurpose.SHOPPING.value)
-    )
-
-    # Social/recreation
-    social_purposes = [
-        Purpose.SOCIAL.value,
-        Purpose.ENTERTAINMENT.value,
-        Purpose.EXERCISE.value,
-    ]
-    social_expr = shopping_expr.when(purpose.is_in(social_purposes)).then(
-        pl.lit(CTRAMPPurpose.SOCIAL.value)
-    )
-
-    # Maintenance/errands
-    maintenance_purposes = [
-        Purpose.MEDICAL.value,
-        Purpose.ERRAND_NO_APPT.value,
-        Purpose.ERRAND_WITH_APPT.value,
-    ]
-    maintenance_expr = social_expr.when(purpose.is_in(maintenance_purposes)).then(
-        pl.lit(CTRAMPPurpose.OTHMAINT.value)
-    )
-
-    # Discretionary
-    discretionary_purposes = [
-        Purpose.RELIGIOUS_CIVIC.value,
-        Purpose.FAMILY_ACTIVITY.value,
-    ]
-    discretionary_expr = maintenance_expr.when(purpose.is_in(discretionary_purposes)).then(
-        pl.lit(CTRAMPPurpose.OTHDISCR.value)
-    )
-
-    # Default fallback
-    return discretionary_expr.otherwise(pl.lit(CTRAMPPurpose.OTHDISCR.value))
-
-
-def map_purpose_category_to_ctramp(
+def ctramp_purpose_category_expression(
     purpose_category: pl.Expr,
     income: pl.Expr,
     school_type: pl.Expr,
@@ -370,7 +214,7 @@ def map_purpose_category_to_ctramp(
     return maintenance_expr.otherwise(pl.lit(CTRAMPPurpose.OTHDISCR.value))
 
 
-def map_mode_to_ctramp(
+def ctramp_mode_expression(
     mode_type: pl.Expr,
     num_travelers: pl.Expr,
     access_mode: pl.Expr | None = None,
@@ -835,6 +679,277 @@ def ctramp_person_type_expression(
     )
 
     return _expr
+
+
+def ctramp_student_category_expression(
+    age_col: str = "age",
+    student_col: str = "student",
+    school_type_col: str = "school_type",
+) -> pl.Expr:
+    """Create expression to derive student category from person attributes.
+
+    Derives CT-RAMP student category using a three-tier classification system:
+    1. Valid student status + valid school type → map by school level
+    2. Missing student OR missing school type → age-based fallback
+    3. Non-student with any school type → NOT_STUDENT
+
+    Classification Rules:
+        Tier 1 - Valid Data (student status present + school type present):
+            - ELEMENTARY/MIDDLE_SCHOOL/HIGH_SCHOOL/HOME_SCHOOL → GRADE_OR_HIGH_SCHOOL
+            - COLLEGE_2YEAR/COLLEGE_4YEAR/GRADUATE_SCHOOL/VOCATIONAL → COLLEGE_OR_HIGHER
+            - DAYCARE/PRESCHOOL/ATHOME → NOT_STUDENT (early childhood)
+
+        Tier 2 - Age-Based Fallback (student=MISSING OR school_type=MISSING/PNTA/OTHER):
+            - Age 5-15 (AGE_5_TO_15) → GRADE_OR_HIGH_SCHOOL (compulsory education age)
+            - Age 16-17 (AGE_16_TO_17) → GRADE_OR_HIGH_SCHOOL (still in school likely)
+            - All other ages → NOT_STUDENT (under 5 or adult)
+
+        Tier 3 - Catch-all:
+            - NONSTUDENT with any school type → NOT_STUDENT
+
+    Edge Case Handling:
+        - Children age 5-17 with missing student/school data are assumed to be
+          in school, preventing incorrect NOT_STUDENT classification
+        - Adults 18+ with missing data are assumed NOT_STUDENT (most adults)
+        - Early childhood programs (daycare/preschool) are classified as NOT_STUDENT
+          since CT-RAMP doesn't model school travel for ages <5
+
+    Args:
+        age_col: Name of age column (AgeCategory enum values)
+        student_col: Name of student column (Student enum)
+        school_type_col: Name of school_type column (SchoolType enum)
+
+    Returns:
+        Polars expression that evaluates to CTRAMPStudentCategory enum value
+
+    See Also:
+        log_student_category_warnings: Function to detect and log data quality issues
+
+    Note:
+        Age should be AgeCategory enum values (e.g., AGE_5_TO_15=2, AGE_16_TO_17=3).
+        Applied before age category conversion to continuous in format_persons.py.
+
+    Examples:
+        >>> df = df.with_columns(
+        ...     ctramp_student_category_expression().alias("student_category")
+        ... )
+    """
+    # Define valid student statuses (active students)
+    is_student = pl.col(student_col).is_in(
+        [
+            Student.FULLTIME_INPERSON.value,
+            Student.PARTTIME_INPERSON.value,
+            Student.FULLTIME_ONLINE.value,
+            Student.PARTTIME_ONLINE.value,
+        ]
+    )
+
+    # Define missing indicators
+    is_student_missing = (
+        pl.col(student_col).is_in([Student.MISSING.value, Student.NONSTUDENT.value])
+        | pl.col(student_col).is_null()
+    )
+
+    is_school_type_missing = (
+        pl.col(school_type_col).is_in(
+            [SchoolType.MISSING.value, SchoolType.PNTA.value, SchoolType.OTHER.value]
+        )
+        | pl.col(school_type_col).is_null()
+    )
+
+    # Define school type categories
+    is_grade_or_high_school = pl.col(school_type_col).is_in(
+        [
+            SchoolType.ELEMENTARY.value,
+            SchoolType.MIDDLE_SCHOOL.value,
+            SchoolType.HIGH_SCHOOL.value,
+            SchoolType.HOME_SCHOOL.value,
+        ]
+    )
+
+    is_college = pl.col(school_type_col).is_in(
+        [
+            SchoolType.COLLEGE_2YEAR.value,
+            SchoolType.COLLEGE_4YEAR.value,
+            SchoolType.GRADUATE_SCHOOL.value,
+            SchoolType.VOCATIONAL.value,
+        ]
+    )
+
+    is_early_childhood = pl.col(school_type_col).is_in(
+        [
+            SchoolType.DAYCARE.value,
+            SchoolType.PRESCHOOL.value,
+            SchoolType.ATHOME.value,
+        ]
+    )
+
+    # Age-based fallback categories
+    # Use AgeCategory enum values (school age = 5-15 and 16-17)
+    age = pl.col(age_col)
+    is_school_age = age.is_in(
+        [
+            AgeCategory.AGE_5_TO_15.value,
+            AgeCategory.AGE_16_TO_17.value,
+        ]
+    )
+
+    # Build three-tier classification expression
+    _expr = (
+        # Tier 1: Valid student status + valid school type
+        pl.when(is_student & is_grade_or_high_school)
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        .when(is_student & is_college)
+        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
+        .when(is_student & is_early_childhood)
+        .then(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
+        # Tier 2: Age-based fallback for missing data
+        .when((is_student_missing | is_school_type_missing) & is_school_age)
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        # Tier 3: Catch-all (non-students, adults with missing data, etc.)
+        .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
+    )
+
+    return _expr
+
+
+def log_student_category_warnings(df: pl.DataFrame) -> dict[str, int]:
+    """Detect and log problematic student/school type combinations.
+
+    Identifies data quality issues where student status, school type, and age
+    are inconsistent or missing. These combinations may result in incorrect
+    student_category classification or reliance on age-based fallbacks.
+
+    Warning Categories:
+        - missing_data_used_fallback: Students age 5-17 with missing student
+          status or school type who received GRADE_OR_HIGH_SCHOOL via age fallback
+        - preschool_students: Children under 5 with active student status (impossible)
+        - age_inappropriate_school_types: Mismatched age/school_type combinations
+          (e.g., teens in elementary, children in college, adults in HOME_SCHOOL)
+
+    Args:
+        df: DataFrame with person_id, age, student, school_type, and
+            student_category columns
+
+    Returns:
+        Dictionary mapping warning category names to counts of affected persons
+
+    See Also:
+        ctramp_student_category_expression: Expression that derives student_category
+        log_person_type_warnings: Similar validation for person_type
+
+    Note:
+        This function logs warnings but does not modify the DataFrame. It should
+        be called after student_category has been derived to audit data quality.
+    """
+    warnings = {}
+
+    # Missing data that triggered age-based fallback
+    # Children 5-17 with GRADE_OR_HIGH_SCHOOL but missing student/school data
+    missing_data_fallback = df.filter(
+        (
+            pl.col("age").is_in(
+                [
+                    AgeCategory.AGE_5_TO_15.value,
+                    AgeCategory.AGE_16_TO_17.value,
+                ]
+            )
+        )
+        & (pl.col("student_category") == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value)
+        & (
+            pl.col("student").is_in([Student.MISSING.value, Student.NONSTUDENT.value])
+            | pl.col("student").is_null()
+            | pl.col("school_type").is_in(
+                [SchoolType.MISSING.value, SchoolType.PNTA.value, SchoolType.OTHER.value]
+            )
+            | pl.col("school_type").is_null()
+        )
+    ).select("person_id", "age", "student", "school_type", "student_category")
+
+    if len(missing_data_fallback) > 0:
+        warnings["missing_data_used_fallback"] = len(missing_data_fallback)
+        logger.warning(
+            "Applied age-based fallback for student_category to %d persons age 5-17 "
+            "with missing student status or school type. Sample rows:\n%s",
+            len(missing_data_fallback),
+            missing_data_fallback.unique(subset=["age", "student", "school_type"]).head(5),
+        )
+
+    # Preschool students (impossible)
+    preschool_students = df.filter(
+        (pl.col("age") == AgeCategory.AGE_UNDER_5.value)
+        & pl.col("student").is_in(
+            [
+                Student.FULLTIME_INPERSON.value,
+                Student.PARTTIME_INPERSON.value,
+                Student.FULLTIME_ONLINE.value,
+                Student.PARTTIME_ONLINE.value,
+            ]
+        )
+    ).select("person_id", "age", "student", "school_type")
+
+    if len(preschool_students) > 0:
+        warnings["preschool_students"] = len(preschool_students)
+        logger.warning(
+            "Found %d children under 5 with active student status (impossible). "
+            "Will be classified as NOT_STUDENT. Sample rows:\n%s",
+            len(preschool_students),
+            preschool_students.unique(subset=["age", "student"]).head(5),
+        )
+
+    # Age-inappropriate school types
+    inappropriate_school = df.filter(
+        # Teens 16-24 in elementary/middle school
+        (
+            pl.col("age").is_in(
+                [
+                    AgeCategory.AGE_16_TO_17.value,
+                    AgeCategory.AGE_18_TO_24.value,
+                ]
+            )
+            & pl.col("school_type").is_in(
+                [SchoolType.ELEMENTARY.value, SchoolType.MIDDLE_SCHOOL.value]
+            )
+        )
+        # Children under 16 in college
+        | (
+            pl.col("age").is_in([AgeCategory.AGE_UNDER_5.value, AgeCategory.AGE_5_TO_15.value])
+            & pl.col("school_type").is_in(
+                [
+                    SchoolType.COLLEGE_2YEAR.value,
+                    SchoolType.COLLEGE_4YEAR.value,
+                    SchoolType.GRADUATE_SCHOOL.value,
+                ]
+            )
+        )
+        # Adults (25+) with HOME_SCHOOL
+        | (
+            pl.col("age").is_in(
+                [
+                    AgeCategory.AGE_25_TO_34.value,
+                    AgeCategory.AGE_35_TO_44.value,
+                    AgeCategory.AGE_45_TO_54.value,
+                    AgeCategory.AGE_55_TO_64.value,
+                    AgeCategory.AGE_65_TO_74.value,
+                    AgeCategory.AGE_75_TO_84.value,
+                    AgeCategory.AGE_85_AND_UP.value,
+                ]
+            )
+            & (pl.col("school_type") == SchoolType.HOME_SCHOOL.value)
+        )
+    ).select("person_id", "age", "school_type", "student_category")
+
+    if len(inappropriate_school) > 0:
+        warnings["age_inappropriate_school_types"] = len(inappropriate_school)
+        logger.warning(
+            "Found %d persons with age-inappropriate school types "
+            "(e.g., teens in elementary, children in college, adults with HOME_SCHOOL). "
+            "Classification may be questionable. Sample rows:\n%s",
+            len(inappropriate_school),
+            inappropriate_school.unique(subset=["age", "school_type"]).head(5),
+        )
+
+    return warnings
 
 
 # Validate mapping completeness at module load time

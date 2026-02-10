@@ -14,8 +14,8 @@ from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.mappings import (
-    map_mode_to_ctramp,
-    map_purpose_category_to_ctramp,
+    ctramp_mode_expression,
+    ctramp_purpose_category_expression,
 )
 
 from .ctramp_config import CTRAMPConfig
@@ -102,7 +102,7 @@ def format_individual_tour(
 
     # Map tour purpose to CTRAMP format
     individual_tours = individual_tours.with_columns(
-        map_purpose_category_to_ctramp(
+        ctramp_purpose_category_expression(
             pl.col("tour_purpose"),
             pl.col("income"),
             pl.col("school_type"),
@@ -149,7 +149,7 @@ def format_individual_tour(
         num_travelers_expr = pl.lit(1)
 
     individual_tours = individual_tours.with_columns(
-        map_mode_to_ctramp(
+        ctramp_mode_expression(
             pl.col("tour_mode"),
             num_travelers_expr,
             None,  # Tours don't have access/egress modes
@@ -411,7 +411,7 @@ def format_joint_tour(
     # Map purpose and mode
     joint_tours_formatted = joint_tours_formatted.with_columns(
         [
-            map_purpose_category_to_ctramp(
+            ctramp_purpose_category_expression(
                 pl.col("tour_purpose"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),  # Joint tours not for school
@@ -419,7 +419,7 @@ def format_joint_tour(
                 config.income_med_threshold,
                 config.income_high_threshold,
             ).alias("tour_purpose_ctramp"),
-            map_mode_to_ctramp(
+            ctramp_mode_expression(
                 pl.col("tour_mode"),
                 pl.col("num_travelers"),
                 None,  # Tours don't have access/egress modes
