@@ -475,32 +475,36 @@ class TestStudentCategoryWarnings:
         assert len(warnings) == 0
 
     def test_fulltime_workers_no_work_location_warning(self, standard_config) -> None:
-        """Test warning for full-time workers without work location."""
+        """Test warning for full-time workers (dual status) without work location."""
         df = pl.DataFrame(
             {
-                "person_id": [1, 2, 3],
+                "person_id": [1, 2, 3, 4],
                 "age": [
                     AgeCategory.AGE_18_TO_24.value,
                     AgeCategory.AGE_25_TO_34.value,
                     AgeCategory.AGE_18_TO_24.value,
+                    AgeCategory.AGE_25_TO_34.value,
                 ],
                 "employment": [
+                    Employment.EMPLOYED_FULLTIME.value,
                     Employment.EMPLOYED_FULLTIME.value,
                     Employment.EMPLOYED_FULLTIME.value,
                     Employment.EMPLOYED_FULLTIME.value,
                 ],
                 "student": [
                     Student.FULLTIME_INPERSON.value,
+                    Student.PARTTIME_INPERSON.value,  # Part-time student
                     Student.NONSTUDENT.value,
                     Student.NONSTUDENT.value,
                 ],
                 "school_type": [
                     SchoolType.COLLEGE_4YEAR.value,
+                    SchoolType.COLLEGE_2YEAR.value,  # Part-time at college
                     SchoolType.MISSING.value,
                     SchoolType.MISSING.value,
                 ],
-                "school_taz": [100, 0, 0],  # First has school location
-                "work_taz": [0, 0, 200],  # Only third has work location
+                "school_taz": [100, 150, 0, 0],  # First two have school locations
+                "work_taz": [0, 0, 0, 200],  # Only fourth has work location
             }
         )
 
@@ -514,10 +518,11 @@ class TestStudentCategoryWarnings:
 
         warnings = log_student_category_warnings(df, standard_config)
 
-        # Should find 1 full-time worker without work location
+        # Should find 1 full-time worker with student status without work location
         # Person 1 is now UNIVERSITY_STUDENT (full-time student beats full-time employment)
-        # Person 2 is FULL_TIME_WORKER without work location
-        # Person 3 has work_taz=200, so no warning
+        # Person 2 is FULL_TIME_WORKER + part-time student without work location (triggers warning)
+        # Person 3 is FULL_TIME_WORKER + non-student without work location (doesn't trigger warning)
+        # Person 4 has work_taz=200, so no warning
         assert warnings.get("fulltime_workers_no_work_location", 0) == 1
 
 
