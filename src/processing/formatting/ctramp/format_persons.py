@@ -393,11 +393,13 @@ def format_persons(
     # Compute student_category BEFORE converting age to continuous values
     # This allows us to work with original AgeCategory bins directly
     persons_with_type = persons_with_type.with_columns(
-        ctramp_student_category_expression().alias("student_category")
+        ctramp_student_category_expression(school_taz_col=f"school_{config.taz_field}").alias(
+            "student_category"
+        )
     )
 
     # Check for problematic student/school type combinations
-    student_warnings = log_student_category_warnings(persons_with_type)
+    student_warnings = log_student_category_warnings(persons_with_type, config)
     total_student_warnings = sum(student_warnings.values())
     if total_student_warnings > 0:
         msg = (

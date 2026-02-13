@@ -25,6 +25,8 @@ from data_canon.codebook.persons import (
 )
 from data_canon.codebook.trips import AccessEgressMode, ModeType, PurposeCategory
 
+from .ctramp_config import CTRAMPConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -682,6 +684,7 @@ def ctramp_person_type_expression(
 
 
 def ctramp_student_category_expression(
+    school_taz_col: str,
     age_col: str = "age",
     student_col: str = "student",
     school_type_col: str = "school_type",
@@ -715,6 +718,8 @@ def ctramp_student_category_expression(
           since CT-RAMP doesn't model school travel for ages <5
 
     Args:
+        school_taz_col: Name of school location TAZ column
+            (used to detect if person has a school location)
         age_col: Name of age column (AgeCategory enum values)
         student_col: Name of student column (Student enum)
         school_type_col: Name of school_type column (SchoolType enum)
@@ -744,11 +749,10 @@ def ctramp_student_category_expression(
         ]
     )
 
-    # Define missing indicators
-    is_student_missing = (
-        pl.col(student_col).is_in([Student.MISSING.value, Student.NONSTUDENT.value])
-        | pl.col(student_col).is_null()
-    )
+    # Define missing indicators - only truly missing, NOT explicit non-students
+    is_student_missing = (pl.col(student_col) == Student.MISSING.value) | pl.col(
+        student_col
+    ).is_null()
 
     is_school_type_missing = (
         pl.col(school_type_col).is_in(
@@ -794,26 +798,73 @@ def ctramp_student_category_expression(
         ]
     )
 
-    # Build three-tier classification expression
+    # SCHOOL LOCATION INFERENCE:
+    # If person has a school location, they ARE a student (location is strongest signal)
+    # EXCEPT: Under 5 are always NOT_STUDENT (we don't model early childhood school travel)
+    # Priority: 1) Under 5 → NOT_STUDENT
+    #          2) If school age (5-17) → grade school (overrides school_type)
+    #          3) Otherwise use school_type if valid, 4) Fall back to age if missing
+
+    # Check if person has a school location (TAZ-based, non-zero/non-null)
+    has_school_location = pl.col(school_taz_col).is_not_null() & (pl.col(school_taz_col) > 0)
+
+    # HIGHEST PRIORITY: School age (5-17) with school location → GRADE_OR_HIGH_SCHOOL
+    # (overrides any school_type including DAYCARE/PRESCHOOL which may be data errors)
+    inferred_grade_by_age = has_school_location & is_school_age
+
+    # For non-school-age: School location + valid school type → use school type
+    inferred_college_by_school_type = has_school_location & ~is_school_age & is_college
+    inferred_grade_by_school_type = has_school_location & ~is_school_age & is_grade_or_high_school
+    inferred_early_childhood_by_school_type = (
+        has_school_location & ~is_school_age & is_early_childhood
+    )
+
+    # For non-school-age: School location + missing school type → infer by age
+    inferred_college_by_age = (
+        has_school_location
+        & ~is_school_age
+        & is_school_type_missing
+        & ~(pl.col(age_col) == AgeCategory.AGE_UNDER_5.value)
+    )
+
+    # Build classification expression
     _expr = (
-        # Tier 1: Valid student status + valid school type
-        pl.when(is_student & is_grade_or_high_school)
+        # HIGHEST PRIORITY: Under 5 with school location → NOT_STUDENT
+        # (We don't model school travel for children under 5, even if they have a location)
+        pl.when(has_school_location & (pl.col(age_col) == AgeCategory.AGE_UNDER_5.value))
+        .then(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
+        # School location + school age (5-17) → GRADE_OR_HIGH_SCHOOL
+        # (Overrides any school_type including DAYCARE/PRESCHOOL which are likely errors)
+        .when(inferred_grade_by_age)
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        # School location + non-school-age (18+) + valid school type → use school type
+        .when(inferred_grade_by_school_type)
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        .when(inferred_college_by_school_type)
+        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
+        .when(inferred_early_childhood_by_school_type)
+        .then(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
+        # School location + non-school-age (18+) + missing school type → infer college by age
+        .when(inferred_college_by_age)
+        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
+        # Active student status + valid school type → use school type
+        .when(is_student & is_grade_or_high_school)
         .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
         .when(is_student & is_college)
         .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
         .when(is_student & is_early_childhood)
         .then(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
-        # Tier 2: Age-based fallback for missing data
-        .when((is_student_missing | is_school_type_missing) & is_school_age)
+        # Missing student/school data + school age + no location → assume student
+        .when((is_student_missing | is_school_type_missing) & is_school_age & ~has_school_location)
         .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
-        # Tier 3: Catch-all (non-students, adults with missing data, etc.)
+        # Everything else → not student
         .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
     )
 
     return _expr
 
 
-def log_student_category_warnings(df: pl.DataFrame) -> dict[str, int]:
+def log_student_category_warnings(df: pl.DataFrame, config: CTRAMPConfig) -> dict[str, int]:
     """Detect and log problematic student/school type combinations.
 
     Identifies data quality issues where student status, school type, and age
@@ -830,6 +881,7 @@ def log_student_category_warnings(df: pl.DataFrame) -> dict[str, int]:
     Args:
         df: DataFrame with person_id, age, student, school_type, and
             student_category columns
+        config: CTRAMPConfig object containing taz_field name for school location
 
     Returns:
         Dictionary mapping warning category names to counts of affected persons
@@ -857,7 +909,7 @@ def log_student_category_warnings(df: pl.DataFrame) -> dict[str, int]:
         )
         & (pl.col("student_category") == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value)
         & (
-            pl.col("student").is_in([Student.MISSING.value, Student.NONSTUDENT.value])
+            (pl.col("student") == Student.MISSING.value)
             | pl.col("student").is_null()
             | pl.col("school_type").is_in(
                 [SchoolType.MISSING.value, SchoolType.PNTA.value, SchoolType.OTHER.value]
@@ -947,6 +999,21 @@ def log_student_category_warnings(df: pl.DataFrame) -> dict[str, int]:
             "Classification may be questionable. Sample rows:\n%s",
             len(inappropriate_school),
             inappropriate_school.unique(subset=["age", "school_type"]).head(5),
+        )
+
+    # Check for for non-students with school locations
+    nonstudents_with_school = df.filter(
+        (pl.col("student_category") == CTRAMPStudentCategory.NOT_STUDENT.value)
+        & pl.col(f"school_{config.taz_field}").is_not_null()
+    ).select("person_id", "age", "school_type", "student_category", f"school_{config.taz_field}")
+
+    if len(nonstudents_with_school) > 0:
+        warnings["nonstudents_with_school_location"] = len(nonstudents_with_school)
+        logger.warning(
+            "Found %d persons classified as NOT_STUDENT but with a school location. "
+            "This may indicate data quality issues. Sample rows:\n%s",
+            len(nonstudents_with_school),
+            nonstudents_with_school.unique(subset=[f"school_{config.taz_field}"]).head(5),
         )
 
     return warnings
