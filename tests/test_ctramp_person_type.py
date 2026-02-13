@@ -75,21 +75,39 @@ class TestPersonTypeClassification:
                 "Age 18-24, college → UNIVERSITY_STUDENT",
             ),
             # === PRIORITY RULES - Employment vs Student ===
+            # Full-time student beats full-time employment (primary activity)
             (
                 AgeCategory.AGE_18_TO_24,
                 Employment.EMPLOYED_FULLTIME,
                 Student.FULLTIME_INPERSON,
                 SchoolType.COLLEGE_4YEAR,
-                CTRAMPPersonType.FULL_TIME_WORKER,
-                "FT worker + college student → employment wins",
+                CTRAMPPersonType.UNIVERSITY_STUDENT,
+                "FT worker + FT college student → full-time student wins",
             ),
             (
                 AgeCategory.AGE_35_TO_44,
                 Employment.EMPLOYED_FULLTIME,
                 Student.FULLTIME_ONLINE,
                 SchoolType.COLLEGE_4YEAR,
+                CTRAMPPersonType.UNIVERSITY_STUDENT,
+                "Working adult + FT college → full-time student wins",
+            ),
+            # Full-time employment beats part-time student
+            (
+                AgeCategory.AGE_18_TO_24,
+                Employment.EMPLOYED_FULLTIME,
+                Student.PARTTIME_INPERSON,
+                SchoolType.COLLEGE_4YEAR,
                 CTRAMPPersonType.FULL_TIME_WORKER,
-                "Working adult in college → employment wins",
+                "FT worker + PT college student → employment wins",
+            ),
+            (
+                AgeCategory.AGE_35_TO_44,
+                Employment.EMPLOYED_FULLTIME,
+                Student.PARTTIME_ONLINE,
+                SchoolType.COLLEGE_4YEAR,
+                CTRAMPPersonType.FULL_TIME_WORKER,
+                "FT worker + PT college student → employment wins",
             ),
             # === PRIORITY RULES - Age 65+ always RETIRED ===
             (
@@ -388,7 +406,10 @@ class TestPersonTypeClassification:
         school_type=st.sampled_from(list(SchoolType)),
     )
     def test_property_fulltime_employment_precedence(self, age, employment, student, school_type):
-        """Property: Full-time employment takes precedence over student status (except for age rules)."""  # noqa: E501
+        """Property: Full-time employment precedence over student status (with exceptions).
+
+        Exception: Full-time student + college beats full-time employment (primary activity rule).
+        """
         # Skip if age forces different classification
         assume(
             age
@@ -415,10 +436,25 @@ class TestPersonTypeClassification:
         result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
-        assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value, (
-            f"Full-time employed person (age {age.name}) "
-            f"should be FULL_TIME_WORKER, got {person_type}"
-        )
+        # Exception: Full-time student + college → UNIVERSITY_STUDENT (not FULL_TIME_WORKER)
+        is_fulltime_student = student in [Student.FULLTIME_INPERSON, Student.FULLTIME_ONLINE]
+        is_college_type = school_type in [
+            SchoolType.COLLEGE_2YEAR,
+            SchoolType.COLLEGE_4YEAR,
+            SchoolType.GRADUATE_SCHOOL,
+            SchoolType.VOCATIONAL,
+        ]
+
+        if is_fulltime_student and is_college_type:
+            assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+                f"Full-time employed + full-time college student (age {age.name}) "
+                f"should be UNIVERSITY_STUDENT, got {person_type}"
+            )
+        else:
+            assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value, (
+                f"Full-time employed person (age {age.name}) "
+                f"should be FULL_TIME_WORKER, got {person_type}"
+            )
 
     @given(
         age=st.sampled_from(list(AgeCategory)),

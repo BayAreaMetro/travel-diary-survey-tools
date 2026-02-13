@@ -13,9 +13,10 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.ctramp import CTRAMPStudentCategory
-from data_canon.codebook.persons import AgeCategory, SchoolType, Student
+from data_canon.codebook.persons import AgeCategory, Employment, SchoolType, Student
 from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.mappings import (
+    ctramp_person_type_expression,
     ctramp_student_category_expression,
     log_student_category_warnings,
 )
@@ -472,6 +473,52 @@ class TestStudentCategoryWarnings:
         warnings = log_student_category_warnings(df, standard_config)
 
         assert len(warnings) == 0
+
+    def test_fulltime_workers_no_work_location_warning(self, standard_config) -> None:
+        """Test warning for full-time workers without work location."""
+        df = pl.DataFrame(
+            {
+                "person_id": [1, 2, 3],
+                "age": [
+                    AgeCategory.AGE_18_TO_24.value,
+                    AgeCategory.AGE_25_TO_34.value,
+                    AgeCategory.AGE_18_TO_24.value,
+                ],
+                "employment": [
+                    Employment.EMPLOYED_FULLTIME.value,
+                    Employment.EMPLOYED_FULLTIME.value,
+                    Employment.EMPLOYED_FULLTIME.value,
+                ],
+                "student": [
+                    Student.FULLTIME_INPERSON.value,
+                    Student.NONSTUDENT.value,
+                    Student.NONSTUDENT.value,
+                ],
+                "school_type": [
+                    SchoolType.COLLEGE_4YEAR.value,
+                    SchoolType.MISSING.value,
+                    SchoolType.MISSING.value,
+                ],
+                "school_taz": [100, 0, 0],  # First has school location
+                "work_taz": [0, 0, 200],  # Only third has work location
+            }
+        )
+
+        # Derive person_type and student_category
+        df = df.with_columns(
+            [
+                ctramp_person_type_expression().alias("person_type"),
+                ctramp_student_category_expression().alias("student_category"),
+            ]
+        )
+
+        warnings = log_student_category_warnings(df, standard_config)
+
+        # Should find 1 full-time worker without work location
+        # Person 1 is now UNIVERSITY_STUDENT (full-time student beats full-time employment)
+        # Person 2 is FULL_TIME_WORKER without work location
+        # Person 3 has work_taz=200, so no warning
+        assert warnings.get("fulltime_workers_no_work_location", 0) == 1
 
 
 class TestStudentCategoryNullHandling:

@@ -539,10 +539,12 @@ def ctramp_person_type_expression(
         1. Age 65+ → RETIRED (Type 5) - overrides all other attributes
         2. Age < 5 → CHILD_UNDER_5 (Type 8) - overrides all other attributes
         3. Age 5-15 → CHILD_NON_DRIVING_AGE (Type 6) - cannot be workers
-        4. Full-time employment → FULL_TIME_WORKER (Type 1) - beats student status
-        5. Student status + school type → determines child/university types
-        6. Part-time employment → PART_TIME_WORKER (Type 2)
-        7. Default by age group → NON_WORKER (Type 4) or child types
+        4. Full-time student + full-time employment → UNIVERSITY_STUDENT (Type 3)
+           - Full-time beats part-time: prioritize primary activity
+        5. Full-time employment (alone) → FULL_TIME_WORKER (Type 1)
+        6. Student status + school type → determines child/university types
+        7. Part-time employment → PART_TIME_WORKER (Type 2)
+        8. Default by age group → NON_WORKER (Type 4) or child types
 
     Edge Case Handling:
         - Children with impossible employment (e.g., 10-year-old FT worker) are
@@ -596,6 +598,13 @@ def ctramp_person_type_expression(
             Student.FULLTIME_ONLINE.value,
         ]
     )
+    # Full-time student indicator (for tie-breaking with full-time employment)
+    is_fulltime_student = pl.col(student_col).is_in(
+        [
+            Student.FULLTIME_INPERSON.value,
+            Student.FULLTIME_ONLINE.value,
+        ]
+    )
     is_high_school = pl.col(school_type_col).is_in(
         [
             SchoolType.HOME_SCHOOL.value,
@@ -637,14 +646,19 @@ def ctramp_person_type_expression(
         .then(pl.lit(CTRAMPPersonType.CHILD_UNDER_5))
         .when(is_5_to_15)
         .then(pl.lit(CTRAMPPersonType.CHILD_NON_DRIVING_AGE))
-        # Teens: workers first, then students, then catch-all for driving age
+        # Teens: full-time student + college beats full-time worker
+        .when(is_16_to_17 & is_full_time & is_fulltime_student & is_college)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_16_to_17 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_16_to_17 & is_student)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
         .when(is_16_to_17)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
-        # Young adults: workers first, then HS students, then college, then PT, then catch-all
+        # Young adults: full-time student beats full-time worker, then other cases
+        # Full-time student + full-time employed -> prioritize student (primary activity)
+        .when(is_18_to_24 & is_full_time & is_fulltime_student & is_college)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_18_to_24 & is_high_school & is_student)
@@ -661,7 +675,10 @@ def ctramp_person_type_expression(
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
         .when(is_18_to_24)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
-        # Working age: FT workers, students, PT workers, then non-workers
+        # Working age: full-time student beats full-time worker, then other cases
+        # Full-time student + full-time employed -> prioritize student (primary activity)
+        .when(is_working_age & is_full_time & is_fulltime_student & is_college)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         # Part-time workers who are college students -> prioritize student status
@@ -883,11 +900,15 @@ def log_student_category_warnings(df: pl.DataFrame, config: CTRAMPConfig) -> dic
         - preschool_students: Children under 5 with active student status (impossible)
         - age_inappropriate_school_types: Mismatched age/school_type combinations
           (e.g., teens in elementary, children in college, adults in HOME_SCHOOL)
+        - nonstudents_with_school_location: Persons classified as NOT_STUDENT but
+          with a school location TAZ (contradictory data)
+        - fulltime_workers_no_work_location: Full-time workers without work location,
+          including those with school location (college students misclassified as workers)
 
     Args:
-        df: DataFrame with person_id, age, student, school_type, and
-            student_category columns
-        config: CTRAMPConfig object containing taz_field name for school location
+        df: DataFrame with person_id, age, student, school_type, student_category,
+            person_type, work_taz, and school_taz columns
+        config: CTRAMPConfig object containing taz_field name for school/work locations
 
     Returns:
         Dictionary mapping warning category names to counts of affected persons
@@ -898,7 +919,8 @@ def log_student_category_warnings(df: pl.DataFrame, config: CTRAMPConfig) -> dic
 
     Note:
         This function logs warnings but does not modify the DataFrame. It should
-        be called after student_category has been derived to audit data quality.
+        be called after student_category and person_type have been derived to audit
+        data quality.
     """
     warnings = {}
 
@@ -1022,6 +1044,55 @@ def log_student_category_warnings(df: pl.DataFrame, config: CTRAMPConfig) -> dic
             len(nonstudents_with_school),
             nonstudents_with_school.unique(subset=[f"school_{config.taz_field}"]).head(5),
         )
+
+    # Check for college students with school location but full-time worker status
+    # These people are classified as FULL_TIME_WORKER (employment beats student status)
+    # but they only have school_taz, not work_taz - problematic for mandatory location modeling
+    if f"work_{config.taz_field}" in df.columns and "person_type" in df.columns:
+        has_work_taz = pl.col(f"work_{config.taz_field}").is_not_null() & (
+            pl.col(f"work_{config.taz_field}") > 0
+        )
+        has_school_taz = pl.col(f"school_{config.taz_field}").is_not_null() & (
+            pl.col(f"school_{config.taz_field}") > 0
+        )
+
+        # Full-time workers without work location
+        fulltime_no_work_location = df.filter(
+            (pl.col("person_type") == CTRAMPPersonType.FULL_TIME_WORKER.value)
+            & (pl.col("student_category") != CTRAMPStudentCategory.NOT_STUDENT.value)
+            & ~has_work_taz
+        ).select(
+            "person_id",
+            "age",
+            "student_category",
+            "person_type",
+            f"work_{config.taz_field}",
+            f"school_{config.taz_field}",
+        )
+
+        if len(fulltime_no_work_location) > 0:
+            warnings["fulltime_workers_no_work_location"] = len(fulltime_no_work_location)
+
+            # Count how many have school location (dual status - full-time worker + college student)
+            dual_status = fulltime_no_work_location.filter(has_school_taz)
+            if len(dual_status) > 0:
+                logger.warning(
+                    "Found %d full-time workers that are ALSO students "
+                    "without work location (%d also have school location). "
+                    "CT-RAMP expects mandatory work locations for full-time workers. "
+                    "These may be college students misclassified as workers. Sample rows:\n%s",
+                    len(fulltime_no_work_location),
+                    len(dual_status),
+                    dual_status.head(5),
+                )
+            else:
+                logger.warning(
+                    "Found %d full-time workers without work location. "
+                    "CT-RAMP expects mandatory work locations for full-time workers. "
+                    "Sample rows:\n%s",
+                    len(fulltime_no_work_location),
+                    fulltime_no_work_location.head(5),
+                )
 
     return warnings
 
