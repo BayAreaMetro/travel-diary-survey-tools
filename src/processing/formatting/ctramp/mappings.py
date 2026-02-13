@@ -684,7 +684,7 @@ def ctramp_person_type_expression(
 
 
 def ctramp_student_category_expression(
-    school_taz_col: str,
+    school_taz_col: str = "school_taz",
     age_col: str = "age",
     student_col: str = "student",
     school_type_col: str = "school_type",
@@ -857,6 +857,12 @@ def ctramp_student_category_expression(
         # Missing student/school data + school age + no location → assume student
         .when((is_student_missing | is_school_type_missing) & is_school_age & ~has_school_location)
         .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
+        # NONSTUDENT + school age + no location → contradictory data, use age fallback
+        # (If the data says non-student but they're school age, assume data quality issue)
+        .when(
+            (pl.col(student_col) == Student.NONSTUDENT.value) & is_school_age & ~has_school_location
+        )
+        .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))
         # Everything else → not student
         .otherwise(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
     )
@@ -1005,6 +1011,7 @@ def log_student_category_warnings(df: pl.DataFrame, config: CTRAMPConfig) -> dic
     nonstudents_with_school = df.filter(
         (pl.col("student_category") == CTRAMPStudentCategory.NOT_STUDENT.value)
         & pl.col(f"school_{config.taz_field}").is_not_null()
+        & (pl.col(f"school_{config.taz_field}") > 0)
     ).select("person_id", "age", "school_type", "student_category", f"school_{config.taz_field}")
 
     if len(nonstudents_with_school) > 0:

@@ -14,10 +14,22 @@ import pytest
 
 from data_canon.codebook.ctramp import CTRAMPStudentCategory
 from data_canon.codebook.persons import AgeCategory, SchoolType, Student
+from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.mappings import (
     ctramp_student_category_expression,
     log_student_category_warnings,
 )
+
+
+@pytest.fixture
+def standard_config():
+    """Standard test configuration."""
+    return CTRAMPConfig(
+        income_low_threshold=60000,
+        income_med_threshold=150000,
+        income_high_threshold=240000,
+        income_base_year_dollars=2023,
+    )
 
 
 class TestStudentCategoryClassification:
@@ -49,6 +61,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_18_TO_24.value],
                 "student": [Student.FULLTIME_INPERSON.value],
                 "school_type": [school_type.value],
+                "school_taz": [0],
             }
         )
 
@@ -94,6 +107,7 @@ class TestStudentCategoryClassification:
                 "age": [age.value],
                 "student": [Student.MISSING.value],
                 "school_type": [SchoolType.MISSING.value],
+                "school_taz": [0],
             }
         )
 
@@ -109,6 +123,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_5_TO_15.value],
                 "student": [Student.MISSING.value],
                 "school_type": [SchoolType.ELEMENTARY.value],
+                "school_taz": [0],
             }
         )
         # Child with valid student, missing school_type
@@ -117,6 +132,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_16_TO_17.value],
                 "student": [Student.FULLTIME_INPERSON.value],
                 "school_type": [SchoolType.MISSING.value],
+                "school_taz": [0],
             }
         )
 
@@ -141,6 +157,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_5_TO_15.value],  # Age bin for 5-15 (includes age 10)
                 "student": [Student.MISSING.value],  # 995
                 "school_type": [SchoolType.MIDDLE_SCHOOL.value],  # 6
+                "school_taz": [0],
             }
         )
 
@@ -162,6 +179,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_5_TO_15.value, AgeCategory.AGE_16_TO_17.value],
                 "student": [Student.NONSTUDENT.value, Student.NONSTUDENT.value],
                 "school_type": [SchoolType.MISSING.value, SchoolType.MISSING.value],
+                "school_taz": [0, 0],
             }
         )
 
@@ -225,6 +243,7 @@ class TestStudentCategoryClassification:
                     "age": [age.value],
                     "student": [student.value],
                     "school_type": [school_type.value],
+                    "school_taz": [0],
                 }
             )
 
@@ -252,6 +271,7 @@ class TestStudentCategoryClassification:
                     "age": [age.value],
                     "student": [Student.MISSING.value],
                     "school_type": [SchoolType.MISSING.value],
+                    "school_taz": [0],
                 }
             )
 
@@ -271,6 +291,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_UNDER_5.value],
                 "student": [Student.MISSING.value],
                 "school_type": [SchoolType.MISSING.value],
+                "school_taz": [0],
             }
         )
 
@@ -295,6 +316,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_5_TO_15.value],
                 "student": [student.value],
                 "school_type": [school_type.value],
+                "school_taz": [0],
             }
         )
         # Test with adult age
@@ -303,6 +325,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_25_TO_34.value],
                 "student": [student.value],
                 "school_type": [school_type.value],
+                "school_taz": [0],
             }
         )
 
@@ -335,6 +358,7 @@ class TestStudentCategoryClassification:
                 "age": [AgeCategory.AGE_5_TO_15.value, AgeCategory.AGE_18_TO_24.value],
                 "student": [Student.FULLTIME_INPERSON.value, Student.FULLTIME_INPERSON.value],
                 "school_type": [SchoolType.COLLEGE_4YEAR.value, SchoolType.ELEMENTARY.value],
+                "school_taz": [0, 0],
             }
         )
 
@@ -348,7 +372,7 @@ class TestStudentCategoryClassification:
 class TestStudentCategoryWarnings:
     """Tests for student category warning detection."""
 
-    def test_missing_data_fallback_warning(self) -> None:
+    def test_missing_data_fallback_warning(self, standard_config) -> None:
         """Test warning for children 5-17 using age-based fallback."""
         df = pl.DataFrame(
             {
@@ -364,16 +388,17 @@ class TestStudentCategoryWarnings:
                     SchoolType.MISSING.value,
                     SchoolType.MISSING.value,
                 ],
+                "school_taz": [0, 0, 0],
             }
         )
 
         df = df.with_columns(ctramp_student_category_expression().alias("student_category"))
-        warnings = log_student_category_warnings(df)
+        warnings = log_student_category_warnings(df, standard_config)
 
         # Two children (age 5-15 and 16-17) should trigger fallback warning
         assert warnings.get("missing_data_used_fallback", 0) == 2
 
-    def test_preschool_students_warning(self) -> None:
+    def test_preschool_students_warning(self, standard_config) -> None:
         """Test warning for children under 5 with student status."""
         df = pl.DataFrame(
             {
@@ -381,15 +406,16 @@ class TestStudentCategoryWarnings:
                 "age": [AgeCategory.AGE_UNDER_5.value, AgeCategory.AGE_UNDER_5.value],
                 "student": [Student.FULLTIME_INPERSON.value, Student.PARTTIME_INPERSON.value],
                 "school_type": [SchoolType.PRESCHOOL.value, SchoolType.DAYCARE.value],
+                "school_taz": [0, 0],
             }
         )
 
         df = df.with_columns(ctramp_student_category_expression().alias("student_category"))
-        warnings = log_student_category_warnings(df)
+        warnings = log_student_category_warnings(df, standard_config)
 
         assert warnings.get("preschool_students", 0) == 2
 
-    def test_age_inappropriate_school_types_warning(self) -> None:
+    def test_age_inappropriate_school_types_warning(self, standard_config) -> None:
         """Test warning for age-inappropriate school type combinations."""
         df = pl.DataFrame(
             {
@@ -409,15 +435,16 @@ class TestStudentCategoryWarnings:
                     SchoolType.COLLEGE_4YEAR.value,
                     SchoolType.HOME_SCHOOL.value,
                 ],
+                "school_taz": [0, 0, 0],
             }
         )
 
         df = df.with_columns(ctramp_student_category_expression().alias("student_category"))
-        warnings = log_student_category_warnings(df)
+        warnings = log_student_category_warnings(df, standard_config)
 
         assert warnings.get("age_inappropriate_school_types", 0) == 3
 
-    def test_no_warnings_for_valid_data(self) -> None:
+    def test_no_warnings_for_valid_data(self, standard_config) -> None:
         """Test that valid data produces no warnings."""
         df = pl.DataFrame(
             {
@@ -437,11 +464,12 @@ class TestStudentCategoryWarnings:
                     SchoolType.COLLEGE_4YEAR.value,
                     SchoolType.MISSING.value,
                 ],
+                "school_taz": [0, 0, 0],
             }
         )
 
         df = df.with_columns(ctramp_student_category_expression().alias("student_category"))
-        warnings = log_student_category_warnings(df)
+        warnings = log_student_category_warnings(df, standard_config)
 
         assert len(warnings) == 0
 
@@ -457,6 +485,7 @@ class TestStudentCategoryNullHandling:
                 "age": [AgeCategory.AGE_5_TO_15.value, AgeCategory.AGE_25_TO_34.value],
                 "student": [None, None],
                 "school_type": [SchoolType.ELEMENTARY.value, SchoolType.MISSING.value],
+                "school_taz": [0, 0],
             }
         )
 
@@ -474,6 +503,7 @@ class TestStudentCategoryNullHandling:
                 "age": [AgeCategory.AGE_16_TO_17.value, AgeCategory.AGE_18_TO_24.value],
                 "student": [Student.FULLTIME_INPERSON.value, Student.FULLTIME_INPERSON.value],
                 "school_type": [None, None],
+                "school_taz": [0, 0],
             }
         )
 
@@ -495,6 +525,7 @@ class TestStudentCategoryNullHandling:
                 ],
                 "student": [None, None, None],
                 "school_type": [None, None, None],
+                "school_taz": [0, 0, 0],
             }
         )
 
