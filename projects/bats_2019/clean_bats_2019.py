@@ -1,6 +1,7 @@
 """Custom cleaning steps for the Bay Area Travel Study (BATS) 2019 ."""
 
 import logging
+from pathlib import Path
 from types import NoneType
 from typing import get_args
 
@@ -15,7 +16,7 @@ from utils.helpers import expr_haversine
 logger = logging.getLogger(__name__)
 
 
-NEW_DAY_TIME = 3  # 3 AM
+NEW_DAY_TIME = 3  # 3 AM``
 
 
 def check_fields(df: pl.DataFrame, model: type) -> None:
@@ -167,7 +168,6 @@ def clean_households(households: pl.DataFrame) -> pl.DataFrame:
     households = households.with_columns(
         home_lat=pl.col("reported_home_lat"),
         home_lon=pl.col("reported_home_lon"),
-        hh_weight=pl.col("wt_sphone_wkday"),
         residence_type=pl.col("res_type"),
         residence_rent_own=pl.col("rent_own"),
     )
@@ -182,11 +182,6 @@ def clean_households(households: pl.DataFrame) -> pl.DataFrame:
 def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.DataFrame:
     """Custom cleaning for persons."""
     logger.info("Cleaning 2019 person data")
-
-    # Get weight column
-    persons = persons.with_columns(
-        person_weight=pl.col("wt_sphone_wkday"),
-    )
 
     replace_cols = [
         "gender",
@@ -205,7 +200,9 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
 
 
 def clean_days(
-    unlinked_trips: pl.DataFrame, days: pl.DataFrame, persons: pl.DataFrame
+    unlinked_trips: pl.DataFrame,
+    days: pl.DataFrame,
+    persons: pl.DataFrame,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Clean day_num issues in days and unlinked trips."""
     logger.info("Cleaning 2019 day data")
@@ -216,8 +213,6 @@ def clean_days(
         travel_dow=pl.col("travel_date_dow"),
         # Create day_id as (person_id * 100 + day_num)
         day_id=(pl.col("person_id") * 100 + pl.col("day_num")),
-        # Weight column
-        day_weight=pl.col("daywt_sphone_wkday"),
     )
 
     # Add day entries for persons without any days recorded
@@ -535,6 +530,8 @@ def clean_2019_bats(
     persons: pl.DataFrame,
     days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
+    weights_dir: str,
+    weight_col_suffix: str | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline."""
     # CLEANUP UNLINKED TRIPS =================================
@@ -549,18 +546,63 @@ def clean_2019_bats(
     # CLEAN HOUSEHOLDS ==================================
     households = clean_households(households)
 
-    # Final check
-    for df, model in [
-        (households, HouseholdModel),
-        (persons, PersonModel),
-        (unlinked_trips, UnlinkedTripModel),
-        (days, PersonDayModel),
-    ]:
-        check_fields(df, model)
+    # PREPARE WEIGHT COLUMNS ==================================
+    # Weights are assumed not to be in the data and are appended/calculated after core processing
+    # Thus, extract the weights from each table and save them as separate CSVs in the input dir
 
-    return {
+    # Check if weights_dir exists if weight_suffix provided, if not create it
+    Path(weights_dir).mkdir(parents=True, exist_ok=True)
+
+    # Canonical weight naming
+    weight_names = {
+        "households": ("hh_id", "hh_weight"),
+        "persons": ("person_id", "person_weight"),
+        "days": ("day_id", "day_weight"),
+        "unlinked_trips": ("unlinked_trip_id", "unlinked_trip_weight"),
+    }
+    models = {
+        "households": HouseholdModel,
+        "persons": PersonModel,
+        "days": PersonDayModel,
+        "unlinked_trips": UnlinkedTripModel,
+    }
+    results = {
         "households": households,
         "persons": persons,
-        "unlinked_trips": unlinked_trips,
         "days": days,
+        "unlinked_trips": unlinked_trips,
     }
+    for df_name, (id_col, canon_weight_col) in weight_names.items():
+        # Get the dataframe by name
+        df = results[df_name]
+
+        # If weight suffix provided, find matching weight column name
+        if weight_col_suffix:
+            weight_col = next(col for col in df.columns if col.endswith(weight_col_suffix))
+        else:
+            weight_col = canon_weight_col
+
+        # Save the weights as separate CSVs in the input directory
+        weights_df = df.rename({weight_col: canon_weight_col}).select([id_col, canon_weight_col])
+
+        # If NULLs are found, WARN, but fill them with 0 to avoid issues with missing weights later
+        n_null_weights = weights_df.filter(pl.col(canon_weight_col).is_null()).height
+        if n_null_weights > 0:
+            logger.warning(
+                "Found %d null weights in %s.\n"
+                "They will be filled with 0 for now, but please investigate.",
+                n_null_weights,
+                df_name,
+            )
+
+        weights_df = weights_df.fill_null(0)
+
+        weights_df.write_csv(f"{weights_dir}/{df_name}_weights.csv")
+        results[df_name] = df.drop(weight_col)
+
+        weights_df.filter(pl.col(canon_weight_col).is_null())
+
+        # Final check
+        check_fields(results[df_name], models[df_name])
+
+    return results

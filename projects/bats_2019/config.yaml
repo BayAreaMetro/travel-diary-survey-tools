@@ -26,6 +26,9 @@ steps:
     validate_input: false
     validate_output: true
     cache: true
+    params:
+      weight_col_suffix: sphone_wkday  # This will look for weight columns with the suffix "_sphone_wkday" in each dataframe, e.g. "daywt_sphone_wkday"
+      weights_dir: "{{ survey_dir }}/weights"
 
   # - name: imputation
   #   validate_input: true
@@ -82,6 +85,21 @@ steps:
         - zone_name: "TAZ1454"
           shapefile: "{{ TM1_shapefile_dir }}/bayarea_rtaz1454_rev1_WGS84.shp"
           zone_id_field: "TAZ1454"
+
+  - name: add_existing_weights
+    validate_input: false
+    cache: false
+    params:
+      derive_missing_weights: true
+      weights:
+        household_weights:
+          weight_path: "{{ survey_dir }}/weights/households_weights.csv"
+        person_weights:
+          weight_path: "{{ survey_dir }}/weights/persons_weights.csv"
+        day_weights:
+          weight_path: "{{ survey_dir }}/weights/days_weights.csv"
+        unlinked_trip_weights:
+          weight_path: "{{ survey_dir }}/weights/unlinked_trips_weights.csv"
 
   - name: write_data
     validate_input: true
