@@ -7,6 +7,7 @@ and temporal patterns.
 Algorithm Overview:
 -------------------
 The tour building process follows a four-stage pipeline:
+
 1. Location Classification
     - Calculates haversine distances from trip endpoints to known locations
       (home, work, school) using person-specific coordinates
@@ -48,6 +49,7 @@ The tour building process follows a four-stage pipeline:
 Configuration:
 -------------
 Tour building behavior is controlled by TourConfig which defines:
+
 - distance_thresholds: Maximum distances (meters) for location matching
 - purpose_priority_by_person_category: Purpose hierarchies by person type
 - mode_hierarchy: Ordered list of modes (ascending priority)
@@ -56,10 +58,13 @@ Tour building behavior is controlled by TourConfig which defines:
 Output:
 -------
 Returns two DataFrames:
+
 1. linked_trips_with_tour_ids: Input trips with tour_id, subtour_id, and
     tour attributes joined for analysis
 2. tours: Aggregated tour records with computed attributes (one row per tour)
+
 The algorithm handles edge cases including:
+
 - Incomplete tours (no return home at end of day)
 - Multi-day tours (spanning survey boundaries)
 - Missing work/school locations (null coordinates)
@@ -105,6 +110,7 @@ def extract_tours(
     """Extract tours from linked trip data.
 
     Pipeline processes linked trip data through tour building steps:
+
     1. Classify trip locations (home, work, school, other)
     2. Identify home-based tours (assigns tour_id)
     3. Expand anchor periods and detect subtours (assigns subtour_id)

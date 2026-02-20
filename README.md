@@ -443,6 +443,7 @@ def new_processing_step(
 
 ## Additional Documentation
 For more details, see:
+* [API Documentation](https://bayareametro.github.io/travel-diary-survey-tools/) - Auto-generated API documentation for data models, pipeline, and processing functions (deployed to GitHub Pages).
 * [Validation Framework Documentation](docs/VALIDATION_README.md) - Which goes into more detail on the validation framework architecture and usage.
 * [Column Requirements Documentation](docs/COLUMN_REQUIREMENTS.md) - Contains auto-generated tables and enums for easy reference on which fields are required for each processing step. Essentially summarizes the data models in a table.
 

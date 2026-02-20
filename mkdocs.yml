@@ -1,0 +1,70 @@
+site_name: Travel Diary Survey Tools
+site_description: Documentation for travel diary survey data models and codebooks
+repo_url: https://github.com/BATS/travel-diary-survey-tools
+
+theme:
+  name: material
+  palette:
+    primary: indigo
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      handlers:
+        python:
+          import:
+            - https://docs.pydantic.dev/latest/objects.inv
+          options:
+            docstring_style: google
+            group_by_category: true
+            show_source: false
+            show_root_heading: true
+            show_symbol_type_heading: false
+            show_symbol_type_toc: false
+            members_order: source
+            show_bases: false
+            show_if_no_docstring: true
+            inherited_members: false
+            show_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            separate_signature: false
+            show_root_members_full_path: false
+            heading_level: 3
+            # Show class attributes for Pydantic models
+            show_root_toc_entry: true
+            show_category_heading: false
+            annotations_path: source
+            line_length: 80
+            members: true
+            extensions:
+              - griffe_pydantic
+            filters:
+              - "!^_"
+              - "!^LabeledEnum$"
+              - "!^Enum$"
+              - "!^[a-z_]+$"  # Exclude lowercase module variables
+
+nav:
+  - Home: index.md
+  - Codebook: codebook.md
+  - Data Models:
+      - Survey Data Models: models/index.md
+      - Travel Model-Formatted Data Models:
+          - DaySim: models/daysim.md
+          - CTRAMP: models/ctramp.md
+  - Pipeline: pipeline.md
+  - Processing: processing.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - tables
