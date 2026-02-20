@@ -181,7 +181,7 @@ The data processing pipeline consists of modular steps that transform raw survey
 
 1. **[Load Data](src/processing/read_write/README.md)** - Loads canonical survey tables from CSV, Parquet, or geospatial files into memory
 2. **[Cleaning](src/processing/cleaning/README.md)** - Project-specific data cleaning operations (e.g., fixing time/distance errors, adding missing records)
-3. **Imputation** *(placeholder)* - Imputes missing values for key variables (e.g., mode, purpose, locations)
+3. **[Imputation](src/processing/imputation/README.md)** - Imputes missing values using KNN and MICE methods with optional quality validation
 4. **[Link Trips](src/processing/link_trips/README.md)** - Aggregates individual trip segments into complete journey records by detecting mode changes and transfers
 5. **[Detect Joint Trips](src/processing/joint_trips/README.md)** - Identifies shared household trips using spatial-temporal similarity matching
 6. **[Extract Tours](src/processing/tours/README.md)** - Builds hierarchical tour structures (home-based tours and work-based subtours) from linked trips
@@ -466,7 +466,7 @@ For more details, see:
   - [x] Implement joint trips detection algorithm processing step
   - [x] Implement tour extraction processing step
     - [x] enhanced tour extraction to handle joint tours/trips
-  - [ ] Implement imputation processing step
+  - [x] Implement imputation processing step (KNN and MICE methods)
   - [ ] Implement weighting processing step
   - [ ] Implement bespoke output formats
     - [x] Implement Daysim output format

@@ -27,8 +27,36 @@ steps:
     validate_input: false
     cache: true
 
-  # - name: imputation
-  #   validate_input: true
+  - name: impute
+    validate_input: false
+    cache: true
+    params:
+      # KNN: impute single columns using similar records
+      knn_columns:
+        households:
+          - column: income
+            n_neighbors: 5
+            neighbor_weights: distance
+        persons:
+          - column: gender
+            n_neighbors: 5
+            neighbor_weights: distance
+
+      # MICE: impute correlated column groups together
+      mice_groups:
+        persons:
+          - columns: [race, ethnicity]
+            max_iter: 10
+
+      # Optional: create diagnostic flags (default: true)
+      create_flags: true
+      random_state: 42     # For reproducibility
+
+      # Optional: k-fold validation to assess quality
+      validate_imputation:
+        enabled: true
+        n_folds: 5           # Number of cross-validation folds
+        sample_pct: 5.0      # % of non-missing values to test
 
   - name: link_trips
     validate_input: false
