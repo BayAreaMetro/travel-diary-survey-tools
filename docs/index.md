@@ -17,7 +17,7 @@ Enumerated value labels and coding schemes for survey data fields. Includes defi
 - Tour patterns
 - Model-specific codes (DaySim, CTRAMP)
 
-### [Data Models](models\index.md)
+### [Data Models](models/index.md)
 Pydantic data models for validation and processing:
 
 - Survey data models (households, persons, trips, tours)
