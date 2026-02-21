@@ -22,7 +22,13 @@ def test_imputation_step_knn_no_validation():
     )
 
     original_df = unlinked_trips.clone()
-    result_df, stats = impute_knn(unlinked_trips, "mode", n_neighbors=2, neighbor_weights="uniform")
+    result_df, stats = impute_knn(
+        unlinked_trips,
+        "mode",
+        n_neighbors=2,
+        neighbor_weights="uniform",
+        numeric_features=["distance", "duration"],
+    )
 
     # Check results
     assert result_df["mode"].null_count() == 0
@@ -46,7 +52,14 @@ def test_imputation_step_mice_no_validation():
     )
 
     original_df = data.clone()
-    result_df, stats = impute_mice(data, columns=["col1", "col2"], max_iter=5, random_state=42)
+    result_df, stats = impute_mice(
+        data,
+        columns=["col1", "col2"],
+        max_iter=5,
+        random_state=42,
+        numeric_features=["col1", "col2"],
+        categorical_features=["col3"],
+    )
 
     # Check results
     assert result_df["col1"].null_count() == 0
@@ -79,6 +92,7 @@ def test_knn_with_validation_quality():
         n_neighbors=3,
         neighbor_weights="uniform",
         random_state=42,
+        numeric_features=["feature"],
     )
 
     # Should have reasonable accuracy
@@ -99,7 +113,13 @@ def test_mice_with_validation_quality():
 
     # Validate imputation quality
     metrics = validate_mice_imputation(
-        df, columns=["col1", "col2"], n_folds=3, sample_pct=10.0, max_iter=5, random_state=42
+        df,
+        columns=["col1", "col2"],
+        n_folds=3,
+        sample_pct=10.0,
+        max_iter=5,
+        random_state=42,
+        numeric_features=["col1", "col2"],
     )
 
     # Should have good metrics for highly correlated data

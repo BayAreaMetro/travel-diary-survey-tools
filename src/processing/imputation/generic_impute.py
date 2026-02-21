@@ -1,7 +1,7 @@
 """Generic imputation step using KNN and MICE methods."""
 
 import logging
-from typing import Any
+from typing import Any, Never
 
 import polars as pl
 
@@ -14,9 +14,16 @@ from processing.imputation.validation import (
     validate_knn_imputation,
     validate_mice_imputation,
 )
-from utils.enum_helpers import resolve_enum_labels
+
+from .impute_utils import prepare_column_for_imputation
 
 logger = logging.getLogger(__name__)
+
+
+def _process_randomforest_imputation() -> Never:
+    """Placeholder for future Random Forest imputation implementation."""
+    msg = "Random Forest imputation not yet implemented"
+    raise NotImplementedError(msg)
 
 
 def _process_knn_imputation(
@@ -58,13 +65,21 @@ def _process_knn_imputation(
             raise ValueError(msg)
 
         # Prepare column: replace enum-labeled missing values with null
-        df, _ = _prepare_column_for_imputation(df, table_name, column, missing_value_labels)
+        df, _ = prepare_column_for_imputation(df, table_name, column, missing_value_labels)
 
         # Perform KNN imputation
-        df, _ = impute_knn(
+        df, stats = impute_knn(
             df, column, n_neighbors, neighbor_weights, numeric_features, categorical_features
         )
         imputed_columns.append(column)
+
+        logger.info(
+            "Column '%s': Imputed %d/%d (%.1f%%) missing values using KNN",
+            column,
+            stats["n_imputed"],
+            stats["n_missing"],
+            stats["pct_imputed"],
+        )
 
         # Optional validation
         if validate_imputation and validate_imputation.get("enabled", False):
@@ -73,7 +88,7 @@ def _process_knn_imputation(
             sample_pct = validate_imputation.get("sample_pct", 5.0)
 
             # Prepare original data for validation
-            original_prepared, _ = _prepare_column_for_imputation(
+            original_prepared, _ = prepare_column_for_imputation(
                 original_df, table_name, column, missing_value_labels
             )
 
@@ -120,6 +135,15 @@ def _process_mice_imputation(
         columns = group_config["columns"]
         max_iter = group_config.get("max_iter", 10)
         missing_values_config = group_config.get("missing_values", {})
+        numeric_features = group_config.get("numeric_features")
+        categorical_features = group_config.get("categorical_features")
+
+        if not numeric_features and not categorical_features:
+            msg = (
+                f"Columns {columns}: At least one of numeric_features or "
+                "categorical_features required"
+            )
+            raise ValueError(msg)
 
         # Prepare columns: replace enum-labeled missing values with null
         for column in columns:
@@ -129,10 +153,12 @@ def _process_mice_imputation(
                 missing_value_labels = missing_values_config
 
             if missing_value_labels:
-                df, _ = _prepare_column_for_imputation(df, table_name, column, missing_value_labels)
+                df, _ = prepare_column_for_imputation(df, table_name, column, missing_value_labels)
 
         # Perform MICE imputation
-        df, _ = impute_mice(df, columns, max_iter, random_state)
+        df, _ = impute_mice(
+            df, columns, max_iter, random_state, numeric_features, categorical_features
+        )
         imputed_columns.extend(columns)
 
         # Optional validation
@@ -149,77 +175,23 @@ def _process_mice_imputation(
                     missing_value_labels = missing_values_config
 
                 if missing_value_labels:
-                    original_prepared, _ = _prepare_column_for_imputation(
+                    original_prepared, _ = prepare_column_for_imputation(
                         original_prepared, table_name, column, missing_value_labels
                     )
 
             metrics = validate_mice_imputation(
-                original_prepared, columns, n_folds, sample_pct, max_iter, random_state
+                original_prepared,
+                columns,
+                n_folds,
+                sample_pct,
+                max_iter,
+                random_state,
+                numeric_features,
+                categorical_features,
             )
             log_validation_results(metrics)
 
     return df, imputed_columns
-
-
-def _prepare_column_for_imputation(
-    df: pl.DataFrame,
-    table_name: str,
-    column: str,
-    missing_value_labels: list[str] | None = None,
-) -> tuple[pl.DataFrame, list[Any]]:
-    """Prepare a column for imputation by replacing missing values with null.
-
-    This function resolves enum labels to their numeric values and replaces
-    them with null, making the column ready for imputation algorithms.
-
-    Args:
-        df: DataFrame containing the column
-        table_name: Name of the table (for enum resolution)
-        column: Column name to prepare
-        missing_value_labels: Optional list of enum labels to treat as missing
-                            (e.g., ['MISSING', 'PNTA'])
-
-    Returns:
-        Tuple of (prepared_df, resolved_values) where resolved_values is the list
-        of numeric/string values that were replaced with null
-
-    Example:
-        >>> df = pl.DataFrame({'income_broad': [1, 2, 995, 999, 3]})
-        >>> df_prep, values = prepare_column_for_imputation(
-        ...     df, 'households', 'income_broad', ['MISSING', 'PNTA']
-        ... )
-        >>> values
-        [995, 999]
-    """
-    if not missing_value_labels:
-        return df, []
-
-    # Resolve enum labels to values
-    missing_values = resolve_enum_labels(table_name, column, missing_value_labels)
-
-    if not missing_values:
-        logger.warning(
-            "No missing values resolved for column '%s' in table '%s'",
-            column,
-            table_name,
-        )
-        return df, []
-
-    # Log what we're doing
-    logger.info(
-        "Replacing missing values %s with null for column '%s' (from labels %s)",
-        missing_values,
-        column,
-        missing_value_labels,
-    )
-
-    # Replace missing values with null inline
-    expr = pl.col(column)
-    for value in missing_values:
-        expr = expr.replace(value, None)
-    df_prepared = df.with_columns(expr)
-
-    return df_prepared, missing_values
 
 
 @step()

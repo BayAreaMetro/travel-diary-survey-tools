@@ -7,6 +7,8 @@ import numpy as np
 import polars as pl
 from sklearn.impute import KNNImputer
 
+from .impute_utils import validate_features_exist
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,9 +37,10 @@ def impute_knn(
         msg = f"Column '{column}' not found in DataFrame"
         raise ValueError(msg)
 
-    if not numeric_features and not categorical_features:
-        msg = "At least one of numeric_features or categorical_features must be specified"
-        raise ValueError(msg)
+    # Validate features
+    validate_features_exist(df, numeric_features, categorical_features)
+    numeric_features = numeric_features or []
+    categorical_features = categorical_features or []
 
     # Count missing values and handle edge cases
     n_missing = df[column].null_count()
@@ -53,8 +56,6 @@ def impute_knn(
         return df, {"n_missing": n_missing, "n_imputed": 0, "pct_imputed": 100.0}
 
     original_dtype = df[column].dtype
-    numeric_features = numeric_features or []
-    categorical_features = categorical_features or []
 
     # Build feature matrix: continuous features
     continuous = [f for f in numeric_features if f in df.columns and df[f].dtype.is_numeric()]
@@ -88,14 +89,6 @@ def impute_knn(
         pl.Series(column, imputed_values).round().cast(original_dtype)
         if original_dtype.is_integer()
         else pl.Series(column, imputed_values)
-    )
-
-    logger.info(
-        "Column '%s': Imputed %d/%d (%.1f%%) missing values using KNN",
-        column,
-        n_missing,
-        n_total,
-        pct_imputed,
     )
 
     return df.with_columns(imputed_series), {

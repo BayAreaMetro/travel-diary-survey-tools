@@ -19,9 +19,11 @@ from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, Reside
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
+    Ethnicity,
     Gender,
     JobType,
     PersonType,
+    Race,
     SchoolType,
     Student,
     WorkParking,
@@ -48,7 +50,7 @@ class HouseholdModel(BaseModel):
     residence_rent_own: ResidenceRentOwn = step_field(required_in_steps=["format_daysim"])
     residence_type: ResidenceType = step_field(required_in_steps=["format_daysim"])
     income: int | None = step_field(ge=0, required_in_steps=["format_ctramp", "format_daysim"])
-    income_bin: IncomeBroad = step_field(equired_in_steps=[])
+    income_bin: IncomeBroad = step_field(required_in_steps=["imputation"])
     hh_weight: float | None = step_field(ge=0, required_in_steps=[])
 
 
@@ -62,7 +64,7 @@ class PersonModel(BaseModel):
         required_child=True,
     )
     person_num: int = step_field(ge=1, required_in_steps=["format_ctramp", "format_daysim"])
-    age: AgeCategory = step_field(required_in_steps=["extract_tours"])
+    age: AgeCategory = step_field(required_in_steps=["extract_tours", "imputation"])
     gender: Gender = step_field(required_in_steps=["format_ctramp"])
     # These fields can be None if person is not employed or in school
     work_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
@@ -76,6 +78,9 @@ class PersonModel(BaseModel):
     school_type: SchoolType | None = step_field(required_in_steps=["extract_tours"])
     work_park: WorkParking | None = step_field(required_in_steps=["format_daysim"])
     work_mode: Mode | None = step_field(required_in_steps=["format_daysim"])
+    race: Race = step_field(required_in_steps=["imputation"])
+    ethnicity: Ethnicity = step_field(required_in_steps=["imputation"])
+
     # NOTE: These commute subsidy fields are only used in CTRAMP format
     # But might be useful elsewhere, consider standardizing to be less vague
     # and/or moved into a data model extension.

@@ -158,6 +158,8 @@ def validate_mice_imputation(
     sample_pct: float,
     max_iter: int,
     random_state: int | None = None,
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Validate MICE imputation quality using k-fold cross-validation.
 
@@ -168,6 +170,8 @@ def validate_mice_imputation(
         sample_pct: Percentage of values to mask and test (0-100)
         max_iter: Maximum iterations for MICE
         random_state: Random state for reproducibility
+        numeric_features: List of numeric feature columns for imputation
+        categorical_features: List of categorical feature columns for imputation
 
     Returns:
         Dictionary mapping column names to validation metrics
@@ -209,7 +213,14 @@ def validate_mice_imputation(
             )
 
         # Impute
-        df_imputed, _ = impute_mice(df_masked, columns, max_iter, random_state)
+        df_imputed, _ = impute_mice(
+            df_masked,
+            columns,
+            max_iter=max_iter,
+            random_state=random_state,
+            numeric_features=numeric_features,
+            categorical_features=categorical_features,
+        )
 
         # Collect predictions for test set
         for col in columns:

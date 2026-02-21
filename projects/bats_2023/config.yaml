@@ -43,9 +43,10 @@ steps:
 
       # MICE: impute correlated column groups together
       mice_groups:
-        households:
-          - columns: [income_bin]
-            max_iter: 10
+        # households:
+        #   - columns: [income_bin]
+        #     categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, num_trips, work_mode]
+        #     max_iter: 10
         persons:
           - columns: [race, ethnicity]
             # numeric_features: [age] # Optional if you have them.

@@ -22,12 +22,12 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `residence_rent_own` | ResidenceRentOwn |  |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `residence_type` | ResidenceType |  |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `income` | int or None | ≥ 0 |  |  |  |  |  |  |  |  | ✓ | ✓ |  |
-|  | `income_bin` | IncomeBroad |  |  |  |  |  |  |  |  |  |  |  |  |
+|  | `income_bin` | IncomeBroad |  |  |  | ✓ |  |  |  |  |  |  |  |  |
 |  | `hh_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |  |
 | **persons** | `person_id` | int | ≥ 1, UNIQUE |  |  |  |  |  | ✓ |  |  |  |  |  |
 |  | `hh_id` | int | ≥ 1, FK → `households.hh_id`, REQ_CHILD |  |  |  |  |  |  |  |  |  |  |  |
 |  | `person_num` | int | ≥ 1 |  |  |  |  |  |  |  |  | ✓ | ✓ |  |
-|  | `age` | AgeCategory |  |  |  |  |  |  | ✓ |  |  |  |  |  |
+|  | `age` | AgeCategory |  |  |  | ✓ |  |  | ✓ |  |  |  |  |  |
 |  | `gender` | Gender |  |  |  |  |  |  |  |  |  | ✓ |  |  |
 |  | `work_lat` | float or None | ≥ -90, ≤ 90 |  |  |  |  |  | ✓ |  |  |  |  |  |
 |  | `work_lon` | float or None | ≥ -180, ≤ 180 |  |  |  |  |  | ✓ |  |  |  |  |  |
@@ -40,6 +40,8 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `school_type` | data_canon.codebook.persons.SchoolType or None |  |  |  |  |  |  | ✓ |  |  |  |  |  |
 |  | `work_park` | data_canon.codebook.persons.WorkParking or None |  |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `work_mode` | data_canon.codebook.trips.Mode or None |  |  |  |  |  |  |  |  |  |  | ✓ |  |
+|  | `race` | Race |  |  |  | ✓ |  |  |  |  |  |  |  |  |
+|  | `ethnicity` | Ethnicity |  |  |  | ✓ |  |  |  |  |  |  |  |  |
 |  | `commute_subsidy_use_3` | data_canon.codebook.generic.BooleanYesNo or None |  |  |  |  |  |  |  |  |  | ✓ |  |  |
 |  | `commute_subsidy_use_4` | data_canon.codebook.generic.BooleanYesNo or None |  |  |  |  |  |  |  |  |  | ✓ |  |  |
 |  | `is_proxy` | bool or None |  |  |  |  |  |  |  |  |  |  | ✓ |  |

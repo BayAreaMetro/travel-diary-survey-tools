@@ -27,7 +27,13 @@ class TestKNNImputation:
             }
         )
 
-        result_df, stats = impute_knn(df, "target", n_neighbors=2, neighbor_weights="uniform")
+        result_df, stats = impute_knn(
+            df,
+            "target",
+            n_neighbors=2,
+            neighbor_weights="uniform",
+            numeric_features=["feature1", "feature2"],
+        )
 
         # Should have imputed 2 values
         assert stats["n_missing"] == 2
@@ -46,7 +52,7 @@ class TestKNNImputation:
             }
         )
 
-        result_df, stats = impute_knn(df, "value", n_neighbors=2)
+        result_df, stats = impute_knn(df, "value", n_neighbors=2, numeric_features=["value"])
 
         assert stats["n_missing"] == 0
         assert stats["n_imputed"] == 0
@@ -62,7 +68,7 @@ class TestKNNImputation:
             }
         )
 
-        _, stats = impute_knn(df, "target", n_neighbors=2)
+        _, stats = impute_knn(df, "target", n_neighbors=2, numeric_features=["feature"])
 
         assert stats["n_missing"] == 3
         assert stats["n_imputed"] == 0
@@ -78,7 +84,7 @@ class TestKNNImputation:
             }
         )
 
-        result_df, stats = impute_knn(df, "mode", n_neighbors=2)
+        result_df, stats = impute_knn(df, "mode", n_neighbors=2, numeric_features=["feature"])
 
         assert stats["n_imputed"] == 2
         assert result_df["mode"].null_count() == 0
@@ -101,7 +107,13 @@ class TestMICEImputation:
             }
         )
 
-        result_df, stats = impute_mice(df, columns=["col1", "col2"], max_iter=5, random_state=42)
+        result_df, stats = impute_mice(
+            df,
+            columns=["col1", "col2"],
+            max_iter=5,
+            random_state=42,
+            numeric_features=["col1", "col2", "col3"],
+        )
 
         # Should have imputed values
         assert stats["col1"]["n_imputed"] == 1
@@ -118,7 +130,9 @@ class TestMICEImputation:
             }
         )
 
-        result_df, stats = impute_mice(df, columns=["col1", "col2"])
+        result_df, stats = impute_mice(
+            df, columns=["col1", "col2"], numeric_features=["col1", "col2"]
+        )
 
         assert stats["col1"]["n_imputed"] == 0
         assert stats["col2"]["n_imputed"] == 0
@@ -207,6 +221,7 @@ class TestValidation:
             n_neighbors=3,
             neighbor_weights="uniform",
             random_state=42,
+            numeric_features=["feature"],
         )
 
         assert metrics["type"] == "categorical"
@@ -233,6 +248,7 @@ class TestValidation:
             n_neighbors=3,
             neighbor_weights="distance",
             random_state=42,
+            numeric_features=["feature"],
         )
 
         assert metrics["type"] == "continuous"
@@ -251,7 +267,13 @@ class TestValidation:
         )
 
         metrics = validate_mice_imputation(
-            df, columns=["col1", "col2"], n_folds=3, sample_pct=10.0, max_iter=5, random_state=42
+            df,
+            columns=["col1", "col2"],
+            n_folds=3,
+            sample_pct=10.0,
+            max_iter=5,
+            random_state=42,
+            numeric_features=["col1", "col2"],
         )
 
         assert "col1" in metrics
@@ -272,7 +294,7 @@ class TestEdgeCases:
             }
         )
 
-        _, stats = impute_knn(df, "target", n_neighbors=1)
+        _, stats = impute_knn(df, "target", n_neighbors=1, numeric_features=["feature"])
         # Cannot impute with only one row
         assert stats["n_imputed"] == 0
 
@@ -285,7 +307,7 @@ class TestEdgeCases:
             }
         )
 
-        result_df, _ = impute_mice(df, columns=["col1", "col2"])
+        result_df, _ = impute_mice(df, columns=["col1", "col2"], numeric_features=["col1", "col2"])
         # Should attempt imputation but may not be accurate
         assert result_df is not None
 

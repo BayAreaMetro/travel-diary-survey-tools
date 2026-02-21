@@ -344,8 +344,21 @@ mice_groups:
 
 ### Other Potential Enhancements
 
+- **Random Forest imputation**: Alternative to KNN and MICE using `RandomForestRegressor`/`RandomForestClassifier`
+  - Better handling of mixed categorical/continuous data types (handles categoricals natively without one-hot encoding)
+  - Captures non-linear relationships better than MICE's default BayesianRidge estimator
+  - More robust to outliers and missing data patterns
+  - Configuration example:
+    ```yaml
+    random_forest:
+      persons:
+        - column: income_broad
+          n_estimators: 100
+          max_depth: 10
+          categorical_features: [employment, education]
+          numeric_features: [age, num_trips]
+    ```
 - **Survey weight integration**: Optionally weight donor pool by survey weights during KNN/MICE
-- **Model-based imputation**: Regression, random forest, or other ML approaches
 - **Multiple imputation**: Create multiple imputed datasets for uncertainty quantification
 - **String/categorical support**: Native handling of string columns (currently numeric only)
 - **Custom donor pools**: Restrict imputation to specific subsets (e.g., only impute from same region/time period)
