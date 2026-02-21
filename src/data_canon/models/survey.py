@@ -15,7 +15,7 @@ from pydantic import BaseModel, model_validator
 
 from data_canon.codebook.days import TravelDow
 from data_canon.codebook.generic import BooleanYesNo, LocationType
-from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
+from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
@@ -47,6 +47,8 @@ class HouseholdModel(BaseModel):
     home_lon: float = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     residence_rent_own: ResidenceRentOwn = step_field(required_in_steps=["format_daysim"])
     residence_type: ResidenceType = step_field(required_in_steps=["format_daysim"])
+    income: int | None = step_field(ge=0, required_in_steps=["format_ctramp", "format_daysim"])
+    income_bin: IncomeBroad = step_field(equired_in_steps=[])
     hh_weight: float | None = step_field(ge=0, required_in_steps=[])
 
 

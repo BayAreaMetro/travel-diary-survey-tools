@@ -1,7 +1,7 @@
 """K-fold cross-validation for imputation quality assessment."""
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import polars as pl
@@ -53,8 +53,10 @@ def validate_knn_imputation(
     n_folds: int,
     sample_pct: float,
     n_neighbors: int,
-    neighbor_weights: str,
+    neighbor_weights: Literal["uniform", "distance"],
     random_state: int | None = None,
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
 ) -> dict[str, Any]:
     """Validate KNN imputation quality using k-fold cross-validation.
 
@@ -66,6 +68,8 @@ def validate_knn_imputation(
         n_neighbors: Number of neighbors for KNN
         neighbor_weights: How to weight neighbors ('uniform' or 'distance')
         random_state: Random state for reproducibility
+        numeric_features: Optional list of numeric feature columns to use
+        categorical_features: Optional list of categorical feature columns to use
 
     Returns:
         Dictionary with validation metrics
@@ -76,6 +80,9 @@ def validate_knn_imputation(
 
     if n_complete == 0:
         return {"error": "No complete values to validate"}
+
+    if not numeric_features and not categorical_features:
+        return {"error": "At least one of numeric_features or categorical_features required"}
 
     # Sample rows to test
     n_sample = max(1, int(n_complete * sample_pct / 100))
@@ -102,7 +109,9 @@ def validate_knn_imputation(
         )
 
         # Impute
-        df_imputed, _ = impute_knn(df_masked, column, n_neighbors, neighbor_weights, random_state)
+        df_imputed, _ = impute_knn(
+            df_masked, column, n_neighbors, neighbor_weights, numeric_features, categorical_features
+        )
 
         # Collect predictions for test set
         test_predictions = df_imputed[test_idx][column].to_numpy()

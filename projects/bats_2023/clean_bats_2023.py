@@ -163,6 +163,11 @@ def clean_2023_bats(
     # Join to households
     households = households.join(hh_attributes, on="hh_id", how="left")
 
+    # Copy income_broad to canonical income
+    households = households.with_columns(
+        pl.col("income_broad").alias("income_bin"),
+    )
+
     return {
         "households": households,
         "persons": persons,

@@ -37,6 +37,12 @@ steps:
     params:
       # KNN: impute single columns using similar records
       knn_columns:
+        households:
+          - column: income_broad
+            missing_values: [MISSING, PNTA]  # Enum labels to treat as missing
+            n_neighbors: 5
+            neighbor_weights: distance
+
         unlinked_trips:
           - column: mode
             n_neighbors: 5
@@ -52,6 +58,13 @@ steps:
 
       # MICE: impute correlated column groups together
       mice_groups:
+        persons:
+          - columns: [race, ethnicity]
+            missing_values:
+              race: [MISSING]
+              ethnicity: [MISSING, PNTA]
+            max_iter: 10
+
         unlinked_trips:
           - columns: [depart_hour, arrive_hour, duration]
             max_iter: 10
@@ -68,6 +81,60 @@ steps:
         n_folds: 5           # Number of cross-validation folds
         sample_pct: 5.0      # % of non-missing values to test
 ```
+
+## Handling Missing Values with Enum Labels
+
+Survey data often uses special codes for missing values (e.g., 995 for "Missing Response", 999 for "Prefer not to answer"). The imputation module automatically resolves enum labels to their numeric values and replaces them with nulls before imputation.
+
+**Specifying Missing Values:**
+
+Use enum member names (labels) rather than numeric values in the config:
+
+```yaml
+knn_columns:
+  households:
+    - column: income_broad
+      missing_values: [MISSING, PNTA]  # Enum labels
+      n_neighbors: 5
+```
+
+This will:
+1. Look up the `IncomeBroad` enum from the codebook
+2. Resolve `MISSING` → 995 and `PNTA` → 999
+3. Replace those values with null before imputation
+4. Impute the nulls using KNN
+
+**For MICE with multiple columns:**
+
+```yaml
+mice_groups:
+  persons:
+    - columns: [race, ethnicity]
+      missing_values:
+        race: [MISSING]            # Only MISSING for race
+        ethnicity: [MISSING, PNTA]  # Both MISSING and PNTA for ethnicity
+      max_iter: 10
+```
+
+Or use a single list to apply the same missing values to all columns:
+
+```yaml
+mice_groups:
+  persons:
+    - columns: [race, ethnicity]
+      missing_values: [MISSING, PNTA]  # Applied to all columns
+      max_iter: 10
+```
+
+**Enum Resolution:**
+
+The module automatically:
+- Maps the table name to the appropriate codebook module (e.g., `households` → `data_canon.codebook.households`)
+- Finds the enum class with matching `canonical_field_name` (e.g., `income_broad` → `IncomeBroad`)
+- Resolves enum member names to their values (e.g., `MISSING` → 995)
+- Replaces those values with null in the DataFrame
+
+
 
 ## Imputation Methods
 

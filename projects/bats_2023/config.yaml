@@ -27,25 +27,29 @@ steps:
     validate_input: false
     cache: true
 
-  - name: impute
+  - name: imputation
     validate_input: false
     cache: true
     params:
       # KNN: impute single columns using similar records
       knn_columns:
-        households:
-          - column: income
-            n_neighbors: 5
-            neighbor_weights: distance
         persons:
           - column: gender
             n_neighbors: 5
+            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting
             neighbor_weights: distance
+            # numeric_features: [age] # Optional if you have them.
+            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, num_trips, work_mode]
 
       # MICE: impute correlated column groups together
       mice_groups:
+        households:
+          - columns: [income_bin]
+            max_iter: 10
         persons:
           - columns: [race, ethnicity]
+            # numeric_features: [age] # Optional if you have them.
+            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, num_trips, work_mode]
             max_iter: 10
 
       # Optional: create diagnostic flags (default: true)

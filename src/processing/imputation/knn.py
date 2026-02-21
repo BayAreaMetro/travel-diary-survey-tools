@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Literal
 
+import numpy as np
 import polars as pl
 from sklearn.impute import KNNImputer
 
@@ -14,6 +15,8 @@ def impute_knn(
     column: str,
     n_neighbors: int = 5,
     neighbor_weights: Literal["uniform", "distance"] = "distance",
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
 ) -> tuple[pl.DataFrame, dict[str, Any]]:
     """Impute missing values in a single column using K-Nearest Neighbors.
 
@@ -22,20 +25,24 @@ def impute_knn(
         column: Name of the column to impute
         n_neighbors: Number of neighbors to use for imputation
         neighbor_weights: How to weight neighbors ('uniform' or 'distance')
+        numeric_features: List of numeric/continuous feature columns
+        categorical_features: List of categorical features (one-hot encoded for distance)
 
     Returns:
-        Tuple of (imputed_df, stats_dict) where stats_dict contains:
-            - n_missing: Number of missing values
-            - n_imputed: Number of values imputed
-            - pct_imputed: Percentage of values imputed
+        Tuple of (imputed_df, stats_dict) with imputation statistics
     """
     if column not in df.columns:
         msg = f"Column '{column}' not found in DataFrame"
         raise ValueError(msg)
 
-    # Count missing values before imputation
+    if not numeric_features and not categorical_features:
+        msg = "At least one of numeric_features or categorical_features must be specified"
+        raise ValueError(msg)
+
+    # Count missing values and handle edge cases
     n_missing = df[column].null_count()
     n_total = len(df)
+    pct_imputed = (n_missing / n_total) * 100
 
     if n_missing == 0:
         logger.info("Column '%s': No missing values, skipping imputation", column)
@@ -45,46 +52,54 @@ def impute_knn(
         logger.warning("Column '%s': All values are missing, cannot impute", column)
         return df, {"n_missing": n_missing, "n_imputed": 0, "pct_imputed": 100.0}
 
-    # Convert to numpy for sklearn (use all numeric columns as features)
-    numeric_cols = [col for col in df.columns if df[col].dtype.is_numeric()]
-    if not numeric_cols:
-        msg = "No numeric columns available for KNN imputation"
-        raise ValueError(msg)
+    original_dtype = df[column].dtype
+    numeric_features = numeric_features or []
+    categorical_features = categorical_features or []
 
-    # Create feature matrix (use only numeric columns)
-    feature_matrix = df.select(numeric_cols).to_numpy()
+    # Build feature matrix: continuous features
+    continuous = [f for f in numeric_features if f in df.columns and df[f].dtype.is_numeric()]
+    if column not in continuous:
+        continuous.append(column)
 
-    # Get index of target column in feature matrix
-    target_idx = numeric_cols.index(column)
+    matrices = [df.select(continuous).to_numpy()]
+    target_idx = continuous.index(column)
 
-    # Perform KNN imputation
+    # Add one-hot encoded categorical features
+    categorical = [
+        f
+        for f in categorical_features
+        if f in df.columns and df[f].dtype.is_numeric() and f != column
+    ]
+
+    for cat_col in categorical:
+        unique_vals = df[cat_col].drop_nulls().unique().sort().to_list()
+        one_hot_cols = [
+            (df[cat_col] == val).cast(pl.Float64).to_numpy().reshape(-1, 1) for val in unique_vals
+        ]
+        matrices.extend(one_hot_cols)
+
+    feature_matrix = np.hstack(matrices) if len(matrices) > 1 else matrices[0]
+
+    # Run KNN imputation and cast back to original dtype
     imputer = KNNImputer(n_neighbors=n_neighbors, weights=neighbor_weights)
-    imputed_matrix = imputer.fit_transform(feature_matrix)
+    imputed_values = imputer.fit_transform(feature_matrix)[:, target_idx]
 
-    # Extract imputed column
-    imputed_values = imputed_matrix[:, target_idx]
-
-    # Update DataFrame with imputed values
-    df_imputed = df.with_columns(pl.Series(column, imputed_values))
-
-    # Calculate statistics
-    n_imputed = n_missing
-    pct_imputed = (n_imputed / n_total) * 100
-
-    stats = {
-        "n_missing": n_missing,
-        "n_imputed": n_imputed,
-        "pct_imputed": pct_imputed,
-    }
-
-    logger.info(
-        "Column '%s': Imputed %d/%d (%.1f%%) missing values using KNN (n_neighbors=%d, neighbor_weights=%s)",  # noqa: E501
-        column,
-        n_imputed,
-        n_total,
-        pct_imputed,
-        n_neighbors,
-        neighbor_weights,
+    imputed_series = (
+        pl.Series(column, imputed_values).round().cast(original_dtype)
+        if original_dtype.is_integer()
+        else pl.Series(column, imputed_values)
     )
 
-    return df_imputed, stats
+    logger.info(
+        "Column '%s': Imputed %d/%d (%.1f%%) missing values using KNN",
+        column,
+        n_missing,
+        n_total,
+        pct_imputed,
+    )
+
+    return df.with_columns(imputed_series), {
+        "n_missing": n_missing,
+        "n_imputed": n_missing,
+        "pct_imputed": pct_imputed,
+    }
