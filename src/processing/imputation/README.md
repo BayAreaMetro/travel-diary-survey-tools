@@ -55,6 +55,8 @@ steps:
           - column: age
             n_neighbors: 5
             neighbor_weights: distance
+            join_tables: [households]  # Include household features
+            categorical_features: [income_bin, residence_type]
 
       # MICE: impute correlated column groups together
       mice_groups:
@@ -133,6 +135,92 @@ The module automatically:
 - Finds the enum class with matching `canonical_field_name` (e.g., `income_broad` → `IncomeBroad`)
 - Resolves enum member names to their values (e.g., `MISSING` → 995)
 - Replaces those values with null in the DataFrame
+
+
+## Cross-Table Features (`join_tables`)
+
+By default, imputation models only use features from the same table. The `join_tables` option allows you to incorporate features from parent tables (e.g., household attributes when imputing person-level fields), which can significantly improve imputation quality.
+
+**How it works:**
+
+1. Before imputation, columns from the specified parent table(s) are left-joined onto the child table using known foreign key relationships (e.g., `persons` → `households` via `hh_id`)
+2. For each target column, a `hh_mode_{column}` feature is auto-generated — the mode of that column among *other* household members (exclude-self). This captures within-household correlation (e.g., siblings sharing race/ethnicity).
+3. The auto-generated `hh_mode_*` columns are automatically appended to `categorical_features`.
+4. After imputation, all joined/aggregated columns are stripped — the output schema is unchanged.
+
+**Configuration:**
+
+Add `join_tables` to a KNN or MICE config block, and reference the parent columns in your feature lists:
+
+```yaml
+knn_columns:
+  persons:
+    - column: gender
+      n_neighbors: 5
+      join_tables: [households]
+      categorical_features: [age, employment, income_bin, residence_type]
+      #                                       ^^^^^^^^^^  ^^^^^^^^^^^^^^
+      #                              These come from the households table
+
+mice_groups:
+  persons:
+    - columns: [race, ethnicity]
+      join_tables: [households]
+      categorical_features: [age, employment, income_bin, residence_type]
+      max_iter: 10
+```
+
+**Supported relationships:**
+
+| Child Table | Parent Table | Join Key |
+|---|---|---|
+| persons | households | hh_id |
+| days | persons | person_id |
+| days | households | hh_id |
+| unlinked_trips | days / persons / households | day_id / person_id / hh_id |
+| linked_trips | days / persons / households | day_id / person_id / hh_id |
+| tours | persons / households | person_id / hh_id |
+
+**Notes:**
+- Joined columns that already exist on the child table are skipped (no duplicates)
+- `hh_mode_*` features are only generated when `person_id` and `hh_id` columns exist
+- For single-person households, `hh_mode_*` will be null (no other members to reference)
+- Validation also uses the same joins, so cross-validation metrics reflect the full feature set
+
+
+## Child-to-Parent Aggregation (`aggregate_from`)
+
+The reverse of `join_tables`: aggregate child table data up to a parent table. This is useful when imputing parent-level fields that depend on household composition (e.g., predicting household income from the employment/education mix of its members).
+
+**How it works:**
+
+1. For each child table and each field listed under `pivot_count`, the module groups child rows by the parent's foreign key and creates one column per unique value, counting occurrences.
+2. Generated columns are named `{child_table}_count_{field}_{value}` (e.g., `persons_count_employment_1`, `persons_count_employment_2`).
+3. All generated columns are automatically added to `numeric_features` — you don't reference them in your config.
+4. The sum of a field's pivot columns equals the household size, so a separate count is unnecessary.
+5. After imputation, all generated columns are stripped — the output schema is unchanged.
+
+**Configuration:**
+
+```yaml
+mice_groups:
+  households:
+    - columns: [income_bin]
+      aggregate_from:
+        persons:
+          pivot_count: [employment, education, student]
+      categorical_features: [residence_type, residence_rent_own]
+      max_iter: 10
+```
+
+This creates columns like `persons_count_employment_1`, `persons_count_employment_2`, `persons_count_education_1`, etc. — all auto-added to `numeric_features`.
+
+**Notes:**
+- Uses the same FK relationships as `join_tables` (looked up in reverse)
+- Parent rows with no children get 0 for all pivot columns
+- Be mindful of feature explosion: a field with 20 unique values creates 20 columns
+- Can be combined with `join_tables` in the same config block if needed
+- Validation also uses the same aggregation, so cross-validation metrics reflect the full feature set
 
 
 
@@ -241,13 +329,15 @@ Column: distance (continuous, n=250 test samples)
 
 ### Data Type Handling
 - **Numeric columns**: Imputed directly using KNN/MICE
-- **Categorical columns** (integer codes): Treated as numeric, rounded after imputation
-- **String columns**: Not yet supported (convert to numeric codes first)
+- **Categorical integer columns** (e.g., enum codes 1-6): Automatically encoded to dense 0..N codes before imputation, decoded back to original codes after. This ensures non-contiguous codes (e.g., 1, 2, 3, 995, 999) don't distort distance calculations.
+- **Categorical string columns** (e.g., `"Hispanic"`, `"White"`): Automatically encoded to integer codes for MICE, decoded back to original labels after imputation. No manual pre-processing required.
 
 ### Feature Selection
-- KNN/MICE use **all numeric columns** in the table as features
-- More features generally improve imputation quality
-- Consider pre-processing to ensure relevant features are numeric
+- Features are explicitly configured per imputation block using `numeric_features` and `categorical_features`
+- `numeric_features`: Used as-is (continuous values — e.g., `num_trips`, `num_vehicles`)
+- `categorical_features`: One-hot encoded into binary columns for distance/regression calculations
+- Cross-table features can be pulled in via `join_tables` (parent→child) or `aggregate_from` (child→parent)
+- **Tip**: Use `numeric_features` for ordinal/count variables and `categorical_features` for unordered enums. Putting high-cardinality integers (e.g., raw age) in `categorical_features` causes feature explosion and slow performance.
 
 ### Missing Data Assumptions
 - **KNN**: Assumes similar records (based on other features) have similar missing values
@@ -281,90 +371,21 @@ steps:
 ## Limitations and Future Enhancements
 
 **Current limitations:**
-- No hierarchical imputation (tables imputed independently)
-- No cross-table feature joins
-- No stratified imputation (uses all records as donor pool)
+- No stratified imputation (uses all records as donor pool; no `group_by` option)
 - No support for exogenous data sources (PUMS, land use data)
-- Categorical string columns must be pre-converted to numeric codes
+- One-hot encoding of high-cardinality categoricals can cause feature explosion and slow MICE convergence (move ordinal/count variables to `numeric_features` to mitigate)
 
-### Hierarchical Survey Imputation
+### Potential Enhancements
 
-A more advanced imputation mode that respects the hierarchical structure of survey data (Households → Persons → Days → Trips) and leverages cross-table relationships.
-
-**Use case:** Demographics fields like income, race, and ethnicity have strong household-level correlation. For example:
-- Household income relates to person income, number of workers, dwelling type
-- Children's race/ethnicity should match parents within same household
-- Trip mode choice influenced by person demographics and household characteristics
-
-**Proposed approach:**
-
-```yaml
-mice_groups:
-  persons:
-    - columns: [race, ethnicity, income]
-      mode: hierarchical          # Opt-in hierarchical mode
-      join_features:              # User-specified parent features
-        households: [household_income, dwelling_type, num_workers]
-      group_by: household_id      # Stratify imputation by household
-      max_iter: 10
-
-  unlinked_trips:
-    - columns: [mode, purpose]
-      mode: hierarchical
-      join_features:
-        persons: [age, has_license, income]
-        households: [household_income, num_vehicles]
-      group_by: person_id         # Stratify by person
-      max_iter: 10
-```
-
-**Key features:**
-1. **Cross-table feature joins**: Automatically join parent table columns as additional predictors for MICE models (uses canonical foreign key relationships)
-2. **Stratified imputation**: Fit separate models within groups (e.g., by household_id) to maintain within-group consistency
-3. **Hierarchical cross-validation**: Hold out entire groups (households/persons) during validation, not individual records
-4. **Integrity validation**: Fail fast if orphaned records detected (e.g., person without household_id)
-
-**Design decisions:**
-- **Opt-in**: `mode: hierarchical` required; default `mode: standard` behaves like current implementation
-- **User-specified joins**: Explicit `join_features` configuration prevents unexpected feature explosion
-- **Configurable grouping**: User controls stratification level (`group_by: household_id`, `person_id`, `day_id`, or none)
-- **Referential integrity**: Check foreign key constraints before imputation, error on violations
-
-**Benefits:**
-- Preserves household/person consistency (siblings get similar demographics)
-- Leverages known relationships for better imputation quality
-- More realistic validation (tests ability to impute entire households/persons)
-- Aligns with survey statistical best practices
-
-**Limitations:**
-- More complex configuration
-- Higher memory usage (joined features)
-- Requires clean referential integrity in data
-- May be slower for large datasets with many joins
-
-### Other Potential Enhancements
-
-- **Random Forest imputation**: Alternative to KNN and MICE using `RandomForestRegressor`/`RandomForestClassifier`
-  - Better handling of mixed categorical/continuous data types (handles categoricals natively without one-hot encoding)
-  - Captures non-linear relationships better than MICE's default BayesianRidge estimator
-  - More robust to outliers and missing data patterns
-  - Configuration example:
-    ```yaml
-    random_forest:
-      persons:
-        - column: income_broad
-          n_estimators: 100
-          max_depth: 10
-          categorical_features: [employment, education]
-          numeric_features: [age, num_trips]
-    ```
-- **Survey weight integration**: Optionally weight donor pool by survey weights during KNN/MICE
-- **Multiple imputation**: Create multiple imputed datasets for uncertainty quantification
-- **String/categorical support**: Native handling of string columns (currently numeric only)
-- **Custom donor pools**: Restrict imputation to specific subsets (e.g., only impute from same region/time period)
-- **Exogenous data sources**: Incorporate external data (PUMS, land use) for imputation
-- **Hot-deck methods**: Alternative imputation approaches for specific use cases
-- **Parallel processing**: Speed up validation and large-table imputation
+- **Stratified imputation**: Fit separate models within groups (e.g., by `hh_id`) to enforce within-group consistency (e.g., siblings share race/ethnicity). Would add a `group_by` option to config blocks.
+- **Hierarchical cross-validation**: Hold out entire groups (households/persons) during validation instead of individual records, for more realistic quality assessment.
+- **Random Forest imputation**: Alternative to BayesianRidge as the MICE estimator — handles mixed types natively without one-hot encoding and captures non-linear relationships.
+- **Survey weight integration**: Weight the donor pool by survey expansion weights during KNN/MICE.
+- **Multiple imputation**: Generate multiple imputed datasets for uncertainty quantification.
+- **Custom donor pools**: Restrict imputation to specific subsets (e.g., same region or time period).
+- **Exogenous data sources**: Incorporate external data (PUMS, land use) as additional features.
+- **Hot-deck methods**: Alternative imputation approaches for specific use cases.
+- **Parallel processing**: Speed up validation and large-table imputation.
 
 ## Dependencies
 

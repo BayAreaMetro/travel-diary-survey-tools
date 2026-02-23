@@ -1,6 +1,7 @@
 """K-fold cross-validation for imputation quality assessment."""
 
 import logging
+from collections.abc import Callable
 from typing import Any, Literal
 
 import numpy as np
@@ -33,7 +34,6 @@ def is_categorical(df: pl.DataFrame, column: str) -> bool:
         True if column is categorical (non-float numeric or string), False otherwise
     """
     dtype = df[column].dtype
-    # Treat integers and strings as categorical
     return dtype in (
         pl.Int8,
         pl.Int16,
@@ -47,6 +47,117 @@ def is_categorical(df: pl.DataFrame, column: str) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _run_kfold(
+    df: pl.DataFrame,
+    target_columns: list[str],
+    n_folds: int,
+    sample_pct: float,
+    random_state: int | None,
+    impute_fn: Callable[[pl.DataFrame], pl.DataFrame],
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], int]:
+    """Run k-fold cross-validation, masking *target_columns* in each fold.
+
+    Args:
+        df: DataFrame with complete values for the target columns
+        target_columns: Columns to mask and evaluate
+        n_folds: Number of KFold splits
+        sample_pct: Percentage of complete rows to sample (0-100)
+        random_state: Random seed
+        impute_fn: ``df_masked -> df_imputed`` callback (KNN or MICE)
+
+    Returns:
+        ``(predictions, true_vals, n_sample)`` - dicts keyed by column name
+        containing numpy arrays; *n_sample* is 0 when no complete rows exist.
+    """
+    # Filter to rows where every target column is non-null
+    df_complete = df
+    for col in target_columns:
+        df_complete = df_complete.filter(pl.col(col).is_not_null())
+
+    n_complete = len(df_complete)
+    if n_complete == 0:
+        return {}, {}, 0
+
+    n_sample = min(max(1, int(n_complete * sample_pct / 100)), n_complete)
+
+    rng = np.random.default_rng(random_state)
+    sample_indices = rng.choice(n_complete, size=n_sample, replace=False)
+    df_sample = df_complete[sample_indices]
+
+    true_values = {col: df_sample[col].to_numpy() for col in target_columns}
+
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+    predictions: dict[str, list] = {col: [] for col in target_columns}
+    true_vals: dict[str, list] = {col: [] for col in target_columns}
+
+    for _, test_idx in kf.split(df_sample.to_numpy()):
+        # Mask test rows for every target column
+        df_masked = df_sample.clone()
+        mask = pl.Series([i in test_idx for i in range(len(df_masked))])
+        for col in target_columns:
+            df_masked = df_masked.with_columns(
+                pl.when(mask).then(None).otherwise(pl.col(col)).alias(col)
+            )
+
+        df_imputed = impute_fn(df_masked)
+
+        for col in target_columns:
+            predictions[col].extend(df_imputed[test_idx][col].to_numpy())
+            true_vals[col].extend(true_values[col][test_idx])
+
+    return (
+        {col: np.array(v) for col, v in predictions.items()},
+        {col: np.array(v) for col, v in true_vals.items()},
+        n_sample,
+    )
+
+
+def _compute_metrics(
+    true_vals: np.ndarray,
+    predictions: np.ndarray,
+    categorical: bool,
+    column: str,
+    n_sample: int,
+    n_folds: int,
+) -> dict[str, Any]:
+    """Compute classification or regression metrics for one column."""
+    metrics: dict[str, Any] = {
+        "column": column,
+        "n_samples": n_sample,
+        "n_folds": n_folds,
+    }
+
+    if categorical:
+        rounded = predictions.round()
+        metrics["type"] = "categorical"
+        metrics["accuracy"] = accuracy_score(true_vals, rounded)
+        metrics["precision"] = precision_score(
+            true_vals,
+            rounded,
+            average="weighted",
+            zero_division=0,
+        )
+        metrics["recall"] = recall_score(true_vals, rounded, average="weighted", zero_division=0)
+        metrics["f1"] = f1_score(true_vals, rounded, average="weighted", zero_division=0)
+    else:
+        metrics["type"] = "continuous"
+        metrics["rmse"] = np.sqrt(mean_squared_error(true_vals, predictions))
+        metrics["mae"] = mean_absolute_error(true_vals, predictions)
+        metrics["r2"] = r2_score(true_vals, predictions)
+
+    return metrics
+
+
+# ---------------------------------------------------------------------------
+# Public validation entry-points
+# ---------------------------------------------------------------------------
+
+
 def validate_knn_imputation(
     df: pl.DataFrame,
     column: str,
@@ -58,97 +169,41 @@ def validate_knn_imputation(
     numeric_features: list[str] | None = None,
     categorical_features: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Validate KNN imputation quality using k-fold cross-validation.
-
-    Args:
-        df: DataFrame with complete (non-missing) values
-        column: Column to validate
-        n_folds: Number of cross-validation folds
-        sample_pct: Percentage of values to mask and test (0-100)
-        n_neighbors: Number of neighbors for KNN
-        neighbor_weights: How to weight neighbors ('uniform' or 'distance')
-        random_state: Random state for reproducibility
-        numeric_features: Optional list of numeric feature columns to use
-        categorical_features: Optional list of categorical feature columns to use
-
-    Returns:
-        Dictionary with validation metrics
-    """
-    # Filter to non-missing values
-    df_complete = df.filter(pl.col(column).is_not_null())
-    n_complete = len(df_complete)
-
-    if n_complete == 0:
-        return {"error": "No complete values to validate"}
-
+    """Validate KNN imputation quality using k-fold cross-validation."""
     if not numeric_features and not categorical_features:
         return {"error": "At least one of numeric_features or categorical_features required"}
 
-    # Sample rows to test
-    n_sample = max(1, int(n_complete * sample_pct / 100))
-    n_sample = min(n_sample, n_complete)
-
-    rng = np.random.default_rng(random_state)
-    sample_indices = rng.choice(n_complete, size=n_sample, replace=False)
-    df_sample = df_complete[sample_indices]
-
-    # Extract true values
-    true_values = df_sample[column].to_numpy()
-
-    # K-fold validation
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
-    predictions = []
-    true_vals = []
-
-    for _, test_idx in kf.split(df_sample.to_numpy()):
-        # Create masked version (set test values to null)
-        df_masked = df_sample.clone()
-        mask = pl.Series([i in test_idx for i in range(len(df_masked))])
-        df_masked = df_masked.with_columns(
-            pl.when(mask).then(None).otherwise(pl.col(column)).alias(column)
+    def _impute(df_masked: pl.DataFrame) -> pl.DataFrame:
+        result, _ = impute_knn(
+            df_masked,
+            column,
+            n_neighbors,
+            neighbor_weights,
+            numeric_features,
+            categorical_features,
         )
+        return result
 
-        # Impute
-        df_imputed, _ = impute_knn(
-            df_masked, column, n_neighbors, neighbor_weights, numeric_features, categorical_features
-        )
+    preds, trues, n_sample = _run_kfold(
+        df,
+        [column],
+        n_folds,
+        sample_pct,
+        random_state,
+        _impute,
+    )
 
-        # Collect predictions for test set
-        test_predictions = df_imputed[test_idx][column].to_numpy()
-        test_true = true_values[test_idx]
+    if n_sample == 0:
+        return {"error": "No complete values to validate"}
 
-        predictions.extend(test_predictions)
-        true_vals.extend(test_true)
-
-    predictions = np.array(predictions)
-    true_vals = np.array(true_vals)
-
-    # Calculate metrics based on data type
-    metrics = {
-        "column": column,
-        "n_samples": n_sample,
-        "n_folds": n_folds,
-    }
-
-    if is_categorical(df, column):
-        metrics["type"] = "categorical"
-        metrics["accuracy"] = accuracy_score(true_vals, predictions.round())
-        metrics["precision"] = precision_score(
-            true_vals, predictions.round(), average="weighted", zero_division=0
-        )
-        metrics["recall"] = recall_score(
-            true_vals, predictions.round(), average="weighted", zero_division=0
-        )
-        metrics["f1"] = f1_score(
-            true_vals, predictions.round(), average="weighted", zero_division=0
-        )
-    else:
-        metrics["type"] = "continuous"
-        metrics["rmse"] = np.sqrt(mean_squared_error(true_vals, predictions))
-        metrics["mae"] = mean_absolute_error(true_vals, predictions)
-        metrics["r2"] = r2_score(true_vals, predictions)
-
-    return metrics
+    return _compute_metrics(
+        trues[column],
+        preds[column],
+        is_categorical(df, column),
+        column,
+        n_sample,
+        n_folds,
+    )
 
 
 def validate_mice_imputation(
@@ -161,59 +216,10 @@ def validate_mice_imputation(
     numeric_features: list[str] | None = None,
     categorical_features: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Validate MICE imputation quality using k-fold cross-validation.
+    """Validate MICE imputation quality using k-fold cross-validation."""
 
-    Args:
-        df: DataFrame with complete (non-missing) values
-        columns: Columns to validate
-        n_folds: Number of cross-validation folds
-        sample_pct: Percentage of values to mask and test (0-100)
-        max_iter: Maximum iterations for MICE
-        random_state: Random state for reproducibility
-        numeric_features: List of numeric feature columns for imputation
-        categorical_features: List of categorical feature columns for imputation
-
-    Returns:
-        Dictionary mapping column names to validation metrics
-    """
-    # Filter to rows with all target columns non-missing
-    df_complete = df
-    for col in columns:
-        df_complete = df_complete.filter(pl.col(col).is_not_null())
-
-    n_complete = len(df_complete)
-
-    if n_complete == 0:
-        return {col: {"error": "No complete values to validate"} for col in columns}
-
-    # Sample rows to test
-    n_sample = max(1, int(n_complete * sample_pct / 100))
-    n_sample = min(n_sample, n_complete)
-
-    rng = np.random.default_rng(random_state)
-    sample_indices = rng.choice(n_complete, size=n_sample, replace=False)
-    df_sample = df_complete[sample_indices]
-
-    # Extract true values for each column
-    true_values = {col: df_sample[col].to_numpy() for col in columns}
-
-    # K-fold validation
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
-    predictions = {col: [] for col in columns}
-    true_vals = {col: [] for col in columns}
-
-    for _, test_idx in kf.split(df_sample.to_numpy()):
-        # Create masked version (set test values to null for all target columns)
-        df_masked = df_sample.clone()
-        mask = pl.Series([i in test_idx for i in range(len(df_masked))])
-
-        for col in columns:
-            df_masked = df_masked.with_columns(
-                pl.when(mask).then(None).otherwise(pl.col(col)).alias(col)
-            )
-
-        # Impute
-        df_imputed, _ = impute_mice(
+    def _impute(df_masked: pl.DataFrame) -> pl.DataFrame:
+        result, _ = impute_mice(
             df_masked,
             columns,
             max_iter=max_iter,
@@ -222,46 +228,31 @@ def validate_mice_imputation(
             categorical_features=categorical_features,
             verbose=False,
         )
+        return result
 
-        # Collect predictions for test set
-        for col in columns:
-            test_predictions = df_imputed[test_idx][col].to_numpy()
-            test_true = true_values[col][test_idx]
+    preds, trues, n_sample = _run_kfold(
+        df,
+        columns,
+        n_folds,
+        sample_pct,
+        random_state,
+        _impute,
+    )
 
-            predictions[col].extend(test_predictions)
-            true_vals[col].extend(test_true)
+    if n_sample == 0:
+        return {col: {"error": "No complete values to validate"} for col in columns}
 
-    # Calculate metrics for each column
-    results = {}
-    for col in columns:
-        preds = np.array(predictions[col])
-        trues = np.array(true_vals[col])
-
-        metrics = {
-            "column": col,
-            "n_samples": n_sample,
-            "n_folds": n_folds,
-        }
-
-        if is_categorical(df, col):
-            metrics["type"] = "categorical"
-            metrics["accuracy"] = accuracy_score(trues, preds.round())
-            metrics["precision"] = precision_score(
-                trues, preds.round(), average="weighted", zero_division=0
-            )
-            metrics["recall"] = recall_score(
-                trues, preds.round(), average="weighted", zero_division=0
-            )
-            metrics["f1"] = f1_score(trues, preds.round(), average="weighted", zero_division=0)
-        else:
-            metrics["type"] = "continuous"
-            metrics["rmse"] = np.sqrt(mean_squared_error(trues, preds))
-            metrics["mae"] = mean_absolute_error(trues, preds)
-            metrics["r2"] = r2_score(trues, preds)
-
-        results[col] = metrics
-
-    return results
+    return {
+        col: _compute_metrics(
+            trues[col],
+            preds[col],
+            is_categorical(df, col),
+            col,
+            n_sample,
+            n_folds,
+        )
+        for col in columns
+    }
 
 
 def log_validation_results(metrics: dict[str, Any] | dict[str, dict[str, Any]]) -> None:

@@ -3,12 +3,18 @@
 import logging
 from typing import Any
 
-import numpy as np
 import polars as pl
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.impute import IterativeImputer
 
-from .impute_utils import decode_integer_to_string, encode_string_columns, validate_features_exist
+from .impute_utils import (
+    build_feature_matrix,
+    decode_dense_to_integer,
+    decode_integer_to_string,
+    encode_integer_categoricals,
+    encode_string_columns,
+    validate_features_exist,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +45,6 @@ def impute_mice(
     Returns:
         Tuple of (imputed_df, stats_dict) with per-column statistics
     """
-    # Validate inputs
     missing_cols = [col for col in columns if col not in df.columns]
     if missing_cols:
         msg = f"Columns not found in DataFrame: {missing_cols}"
@@ -47,7 +52,6 @@ def impute_mice(
 
     validate_features_exist(df, numeric_features, categorical_features)
 
-    # Initialize statistics
     stats = {
         col: {"n_missing": df[col].null_count(), "n_imputed": 0, "pct_imputed": 0.0}
         for col in columns
@@ -61,8 +65,11 @@ def impute_mice(
     # Encode string target columns to integers for MICE
     df_work, encodings = encode_string_columns(df, columns, verbose=verbose)
 
-    # Build and impute feature matrix
-    feature_matrix, column_indices = _build_feature_matrix(
+    # Encode non-contiguous integer categoricals to dense 0..N codes
+    df_work, int_encodings = encode_integer_categoricals(df_work, columns, verbose=verbose)
+
+    # Build feature matrix (shared helper)
+    feature_matrix, column_indices = build_feature_matrix(
         df_work, columns, numeric_features or [], categorical_features or []
     )
 
@@ -87,10 +94,18 @@ def impute_mice(
         imputed_values = imputed_matrix[:, col_idx]
 
         if col in encodings:
-            # Decode back to string labels
             decoded = decode_integer_to_string(imputed_values, encodings[col])
             imputed_series = pl.Series(col, decoded)
-            # Preserve original non-null values
+            original_series = df[col]
+            imputed_series = (
+                pl.when(original_series.is_null())
+                .then(imputed_series)
+                .otherwise(original_series)
+                .alias(col)
+            )
+        elif col in int_encodings:
+            decoded = decode_dense_to_integer(imputed_values, int_encodings[col])
+            imputed_series = pl.Series(col, decoded).cast(df[col].dtype)
             original_series = df[col]
             imputed_series = (
                 pl.when(original_series.is_null())
@@ -110,66 +125,4 @@ def impute_mice(
         stats[col]["n_imputed"] = n_missing
         stats[col]["pct_imputed"] = (n_missing / len(df)) * 100
 
-    # Log results
-    if verbose:
-        _log_imputation_results(columns, stats, len(df), max_iter)
-
     return df_imputed, stats
-
-
-def _build_feature_matrix(
-    df: pl.DataFrame,
-    columns: list[str],
-    numeric_features: list[str],
-    categorical_features: list[str],
-) -> tuple[np.ndarray, dict[str, int]]:
-    """Build feature matrix for MICE imputation."""
-    matrices = []
-
-    # Add continuous features
-    continuous = [f for f in numeric_features if f in df.columns and df[f].dtype.is_numeric()]
-    continuous.extend(
-        [
-            col
-            for col in columns
-            if col not in continuous and col in df.columns and df[col].dtype.is_numeric()
-        ]
-    )
-
-    if continuous:
-        matrices.append(df.select(continuous).to_numpy())
-
-    column_indices = {col: continuous.index(col) for col in columns if col in continuous}
-
-    # One-hot encode categorical features (excluding target columns)
-    categorical = [
-        f
-        for f in categorical_features
-        if f in df.columns and f not in columns and df[f].dtype.is_numeric()
-    ]
-
-    if categorical:
-        for cat_col in categorical:
-            unique_vals = df[cat_col].drop_nulls().unique().sort().to_list()
-            matrices.extend(
-                [
-                    (df[cat_col] == val).cast(pl.Float64).to_numpy().reshape(-1, 1)
-                    for val in unique_vals
-                ]
-            )
-
-    return np.hstack(matrices) if len(matrices) > 1 else matrices[0], column_indices
-
-
-def _log_imputation_results(
-    columns: list[str], stats: dict[str, Any], n_total: int, max_iter: int
-) -> None:
-    """Log MICE imputation results."""
-    imputed_cols = [col for col in columns if stats[col]["n_imputed"] > 0]
-    if imputed_cols:
-        logger.info("Columns %s: Imputed using MICE (max_iter=%d)", imputed_cols, max_iter)
-        for col in imputed_cols:
-            s = stats[col]
-            logger.info(
-                "  - %s imputed: %d/%d (%.1f%%)", col, s["n_imputed"], n_total, s["pct_imputed"]
-            )

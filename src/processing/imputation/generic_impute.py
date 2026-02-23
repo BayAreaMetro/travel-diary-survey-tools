@@ -1,7 +1,7 @@
 """Generic imputation step using KNN and MICE methods."""
 
 import logging
-from typing import Any, Never
+from typing import Any, Literal
 
 import polars as pl
 
@@ -15,184 +15,241 @@ from processing.imputation.validation import (
     validate_mice_imputation,
 )
 
-from .impute_utils import prepare_column_for_imputation
+from .impute_utils import (
+    add_household_agg_features,
+    aggregate_from_children,
+    join_parent_tables,
+    log_imputation_stats,
+    prepare_column_for_imputation,
+    strip_joined_columns,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _process_randomforest_imputation() -> Never:
-    """Placeholder for future Random Forest imputation implementation."""
-    msg = "Random Forest imputation not yet implemented"
-    raise NotImplementedError(msg)
+def _enrich_dataframe(
+    df: pl.DataFrame,
+    table_name: str,
+    tables: dict[str, pl.DataFrame] | None,
+    join_tables_list: list[str],
+    target_columns: list[str],
+    categorical_features: list[str] | None,
+    aggregate_from_config: dict[str, dict[str, list[str]]] | None = None,
+) -> tuple[pl.DataFrame, list[str], list[str] | None]:
+    """Enrich a DataFrame with parent joins and child aggregations.
+
+    Handles both directions:
+      - Parent→child joins via ``join_tables`` config
+      - Child→parent aggregations via ``aggregate_from`` config
+
+    Returns:
+        Tuple of (enriched_df, added_column_names, updated_categorical_features)
+    """
+    added_columns: list[str] = []
+
+    # Parent joins (e.g. persons joining household columns)
+    if join_tables_list and tables:
+        df, joined_cols = join_parent_tables(df, table_name, tables, join_tables_list)
+        added_columns.extend(joined_cols)
+
+        df, agg_cols = add_household_agg_features(df, target_columns)
+        added_columns.extend(agg_cols)
+        if agg_cols:
+            categorical_features = list(categorical_features or []) + agg_cols
+
+    # Child aggregations (e.g. households aggregating from persons)
+    if aggregate_from_config and tables:
+        df, child_cols = aggregate_from_children(df, table_name, tables, aggregate_from_config)
+        added_columns.extend(child_cols)
+        if child_cols:
+            categorical_features = list(categorical_features or []) + child_cols
+
+    return df, added_columns, categorical_features
 
 
-def _process_knn_imputation(
+def _process_imputation(
     df: pl.DataFrame,
     original_df: pl.DataFrame,
     table_name: str,
-    knn_configs: list[dict[str, Any]],
+    configs: list[dict[str, Any]],
+    method: Literal["knn", "mice"],
     validate_imputation: dict[str, Any] | None,
     random_state: int | None,
+    tables: dict[str, pl.DataFrame] | None = None,
 ) -> tuple[pl.DataFrame, list[str]]:
-    """Process KNN imputation for a table.
+    """Process imputation for a table using the specified method.
+
+    Shared scaffold: enrich → prepare missing → impute → strip → validate.
+    The *method* parameter selects the imputation strategy (KNN or MICE).
 
     Args:
         df: Current DataFrame to impute
         original_df: Original DataFrame (for validation)
         table_name: Name of the table
-        knn_configs: List of KNN column configurations
+        configs: List of column/group configurations
+        method: Imputation method - ``"knn"`` or ``"mice"``
         validate_imputation: Optional validation config
         random_state: Random seed for reproducibility
+        tables: Dict of all canonical tables (for cross-table joins)
 
     Returns:
         Tuple of (imputed_df, list of imputed column names)
     """
-    imputed_columns = []
+    imputed_columns: list[str] = []
 
-    for col_config in knn_configs:
-        column = col_config["column"]
-        missing_value_labels = col_config.get("missing_values", [])
-        n_neighbors = col_config.get("n_neighbors", 5)
-        neighbor_weights = col_config.get("neighbor_weights", "distance")
-        numeric_features = col_config.get("numeric_features")
-        categorical_features = col_config.get("categorical_features")
+    for config in configs:
+        # Normalise target columns: KNN uses 'column', MICE uses 'columns'
+        target_columns = [config["column"]] if method == "knn" else config["columns"]
+
+        # Common config extraction
+        numeric_features = config.get("numeric_features")
+        categorical_features = config.get("categorical_features")
+        join_tables_list = config.get("join_tables", [])
+        aggregate_from_config = config.get("aggregate_from")
+        missing_values_config = config.get("missing_values", [] if method == "knn" else {})
 
         if not numeric_features and not categorical_features:
-            msg = (
-                f"Column '{column}': At least one of numeric_features "
-                "or categorical_features required"
+            label = (
+                f"Column '{target_columns[0]}'" if method == "knn" else f"Columns {target_columns}"
             )
+            msg = f"{label}: At least one of numeric_features or categorical_features required"
             raise ValueError(msg)
 
-        # Prepare column: replace enum-labeled missing values with null
-        df, _ = prepare_column_for_imputation(df, table_name, column, missing_value_labels)
-
-        # Perform KNN imputation
-        df, stats = impute_knn(
-            df, column, n_neighbors, neighbor_weights, numeric_features, categorical_features
-        )
-        imputed_columns.append(column)
-
-        logger.info(
-            "Column '%s': Imputed %d/%d (%.1f%%) missing values using KNN",
-            column,
-            stats["n_imputed"],
-            stats["n_missing"],
-            stats["pct_imputed"],
+        # 1. Enrich (parent joins + child aggregations)
+        df, added_columns, categorical_features = _enrich_dataframe(
+            df,
+            table_name,
+            tables,
+            join_tables_list,
+            target_columns,
+            categorical_features,
+            aggregate_from_config,
         )
 
-        # Optional validation
-        if validate_imputation and validate_imputation.get("enabled", False):
-            logger.info("Validating KNN imputation for %s.%s", table_name, column)
-            n_folds = validate_imputation.get("n_folds", 5)
-            sample_pct = validate_imputation.get("sample_pct", 5.0)
-
-            # Prepare original data for validation
-            original_prepared, _ = prepare_column_for_imputation(
-                original_df, table_name, column, missing_value_labels
+        # 2. Prepare missing values (replace enum labels with null)
+        for column in target_columns:
+            labels = (
+                missing_values_config.get(column, [])
+                if isinstance(missing_values_config, dict)
+                else missing_values_config
             )
+            if labels:
+                df, _ = prepare_column_for_imputation(df, table_name, column, labels)
 
-            metrics = validate_knn_imputation(
-                original_prepared,
-                column,
-                n_folds,
-                sample_pct,
-                n_neighbors,
-                neighbor_weights,
+        # 3. Impute (strategy dispatch)
+        # NOTE: This is kind of hacky to hard-code, but its hard to conform the interfaces
+        # Plus we may not need and infinite number of impute methods.
+        if method == "knn":
+            df, stats = impute_knn(
+                df,
+                target_columns[0],
+                config.get("n_neighbors", 5),
+                config.get("neighbor_weights", "distance"),
+                numeric_features,
+                categorical_features,
+            )
+        else:
+            df, stats = impute_mice(
+                df,
+                target_columns,
+                config.get("max_iter", 10),
                 random_state,
                 numeric_features,
                 categorical_features,
             )
-            log_validation_results(metrics)
+
+        log_imputation_stats(method.upper(), target_columns, stats, len(df))
+        imputed_columns.extend(target_columns)
+
+        # 4. Strip temporary joined columns
+        if added_columns:
+            df = strip_joined_columns(df, added_columns)
+
+        # 5. Optional validation
+        if validate_imputation and validate_imputation.get("enabled", False):
+            _validate_config(
+                original_df,
+                table_name,
+                target_columns,
+                config,
+                method,
+                missing_values_config,
+                validate_imputation,
+                random_state,
+                tables,
+                categorical_features,
+            )
 
     return df, imputed_columns
 
 
-def _process_mice_imputation(
-    df: pl.DataFrame,
+def _validate_config(
     original_df: pl.DataFrame,
     table_name: str,
-    mice_configs: list[dict[str, Any]],
-    validate_imputation: dict[str, Any] | None,
+    target_columns: list[str],
+    config: dict[str, Any],
+    method: Literal["knn", "mice"],
+    missing_values_config: dict | list,
+    validate_imputation: dict[str, Any],
     random_state: int | None,
-) -> tuple[pl.DataFrame, list[str]]:
-    """Process MICE imputation for a table.
+    tables: dict[str, pl.DataFrame] | None,
+    categorical_features: list[str] | None,
+) -> None:
+    """Run k-fold cross-validation for a single imputation config block."""
+    n_folds = validate_imputation.get("n_folds", 5)
+    sample_pct = validate_imputation.get("sample_pct", 5.0)
+    join_tables_list = config.get("join_tables", [])
+    aggregate_from_config = config.get("aggregate_from")
+    numeric_features = config.get("numeric_features")
 
-    Args:
-        df: Current DataFrame to impute
-        original_df: Original DataFrame (for validation)
-        table_name: Name of the table
-        mice_configs: List of MICE group configurations
-        validate_imputation: Optional validation config
-        random_state: Random seed for reproducibility
-
-    Returns:
-        Tuple of (imputed_df, list of imputed column names)
-    """
-    imputed_columns = []
-
-    for group_config in mice_configs:
-        columns = group_config["columns"]
-        max_iter = group_config.get("max_iter", 10)
-        missing_values_config = group_config.get("missing_values", {})
-        numeric_features = group_config.get("numeric_features")
-        categorical_features = group_config.get("categorical_features")
-
-        if not numeric_features and not categorical_features:
-            msg = (
-                f"Columns {columns}: At least one of numeric_features or "
-                "categorical_features required"
-            )
-            raise ValueError(msg)
-
-        # Prepare columns: replace enum-labeled missing values with null
-        for column in columns:
-            if isinstance(missing_values_config, dict):
-                missing_value_labels = missing_values_config.get(column, [])
-            else:
-                missing_value_labels = missing_values_config
-
-            if missing_value_labels:
-                df, _ = prepare_column_for_imputation(df, table_name, column, missing_value_labels)
-
-        # Perform MICE imputation
-        df, _ = impute_mice(
-            df, columns, max_iter, random_state, numeric_features, categorical_features
+    # Prepare the original for validation (same enrichment as imputation)
+    prepared = original_df.clone()
+    for column in target_columns:
+        labels = (
+            missing_values_config.get(column, [])
+            if isinstance(missing_values_config, dict)
+            else missing_values_config
         )
-        imputed_columns.extend(columns)
+        if labels:
+            prepared, _ = prepare_column_for_imputation(prepared, table_name, column, labels)
 
-        # Optional validation
-        if validate_imputation and validate_imputation.get("enabled", False):
-            logger.info("Validating MICE imputation for %s.%s", table_name, columns)
-            n_folds = validate_imputation.get("n_folds", 5)
-            sample_pct = validate_imputation.get("sample_pct", 5.0)
+    prepared, _, val_cat_features = _enrich_dataframe(
+        prepared,
+        table_name,
+        tables,
+        join_tables_list,
+        target_columns,
+        categorical_features,
+        aggregate_from_config,
+    )
 
-            # Prepare original data for validation
-            original_prepared = original_df.clone()
-            for column in columns:
-                if isinstance(missing_values_config, dict):
-                    missing_value_labels = missing_values_config.get(column, [])
-                else:
-                    missing_value_labels = missing_values_config
+    if method == "knn":
+        logger.info("Validating KNN imputation for %s.%s", table_name, target_columns[0])
+        metrics = validate_knn_imputation(
+            prepared,
+            target_columns[0],
+            n_folds,
+            sample_pct,
+            config.get("n_neighbors", 5),
+            config.get("neighbor_weights", "distance"),
+            random_state,
+            numeric_features,
+            val_cat_features,
+        )
+    else:
+        logger.info("Validating MICE imputation for %s.%s", table_name, target_columns)
+        metrics = validate_mice_imputation(
+            prepared,
+            target_columns,
+            n_folds,
+            sample_pct,
+            config.get("max_iter", 10),
+            random_state,
+            numeric_features,
+            val_cat_features,
+        )
 
-                if missing_value_labels:
-                    original_prepared, _ = prepare_column_for_imputation(
-                        original_prepared, table_name, column, missing_value_labels
-                    )
-
-            metrics = validate_mice_imputation(
-                original_prepared,
-                columns,
-                n_folds,
-                sample_pct,
-                max_iter,
-                random_state,
-                numeric_features,
-                categorical_features,
-            )
-            log_validation_results(metrics)
-
-    return df, imputed_columns
+    log_validation_results(metrics)
 
 
 @step()
@@ -302,13 +359,15 @@ def imputation(
         logger.info("Phase 1: KNN imputation")
         for table_name in tables:
             if table_name in knn_columns:
-                current_dfs[table_name], knn_cols = _process_knn_imputation(
+                current_dfs[table_name], knn_cols = _process_imputation(
                     current_dfs[table_name],
                     originals[table_name],
                     table_name,
                     knn_columns[table_name],
+                    "knn",
                     validate_imputation,
                     random_state,
+                    tables=current_dfs,
                 )
                 all_imputed_columns[table_name].extend(knn_cols)
 
@@ -318,13 +377,15 @@ def imputation(
         for table_name in tables:
             if table_name in mice_groups:
                 logger.info("  MICE imputation for %s", table_name)
-                current_dfs[table_name], mice_cols = _process_mice_imputation(
+                current_dfs[table_name], mice_cols = _process_imputation(
                     current_dfs[table_name],
                     originals[table_name],
                     table_name,
                     mice_groups[table_name],
+                    "mice",
                     validate_imputation,
                     random_state,
+                    tables=current_dfs,
                 )
                 all_imputed_columns[table_name].extend(mice_cols)
 

@@ -1,9 +1,14 @@
 """Tests for imputation module."""
 
+import numpy as np
 import polars as pl
 import pytest
 
 from processing.imputation.flags import create_flag_column, create_flag_columns
+from processing.imputation.impute_utils import (
+    decode_dense_to_integer,
+    encode_integer_categoricals,
+)
 from processing.imputation.knn import impute_knn
 from processing.imputation.mice import impute_mice
 from processing.imputation.validation import (
@@ -91,6 +96,33 @@ class TestKNNImputation:
         # Values should be reasonable (between 1 and 2)
         assert result_df["mode"].min() >= 1  # pyright: ignore[reportOperatorIssue]
         assert result_df["mode"].max() <= 2  # pyright: ignore[reportOperatorIssue]
+
+    def test_knn_with_non_contiguous_integer_codes(self):
+        """KNN should produce valid category codes for non-contiguous integers."""
+        rng = np.random.default_rng(42)
+        n = 40
+        feature = rng.normal(size=n)
+
+        # Use non-contiguous codes: 10, 20, 30
+        codes = np.array([10, 20, 30])
+        target = codes[np.digitize(feature, bins=[-0.5, 0.5]) % 3]
+        target_list = target.tolist()
+        # Introduce nulls
+        target_list[0] = None
+        target_list[5] = None
+
+        df = pl.DataFrame(
+            {
+                "feature": feature.tolist(),
+                "cat": pl.Series("cat", target_list, dtype=pl.Int64),
+            }
+        )
+        result, stats = impute_knn(df, "cat", n_neighbors=3, numeric_features=["feature"])
+
+        assert stats["n_imputed"] == 2
+        assert result["cat"].null_count() == 0
+        # ALL values must be one of the valid original codes
+        assert set(result["cat"].to_list()).issubset({10, 20, 30})
 
 
 class TestMICEImputation:
@@ -324,3 +356,85 @@ class TestEdgeCases:
 
         with pytest.raises(ValueError, match="Columns not found"):
             impute_mice(df, columns=["missing1", "missing2"])
+
+
+class TestDenseIntegerEncoding:
+    """Tests for integer categorical dense encoding / decoding."""
+
+    def test_encodes_non_contiguous_codes(self):
+        """Non-contiguous integer codes should be mapped to dense 0..N."""
+        df = pl.DataFrame({"income_bin": [1, 2, 5, 6, None]})
+        encoded, encodings = encode_integer_categoricals(df, ["income_bin"])
+
+        assert "income_bin" in encodings
+        # Dense codes should be 0..3 for the four unique values
+        assert encodings["income_bin"] == {0: 1, 1: 2, 2: 5, 3: 6}
+        vals = encoded["income_bin"].drop_nulls().to_list()
+        assert sorted(vals) == [0.0, 1.0, 2.0, 3.0]
+        # Null should be preserved
+        assert encoded["income_bin"].null_count() == 1
+
+    def test_skips_already_dense_columns(self):
+        """Columns coded 0..N-1 should not be re-encoded."""
+        df = pl.DataFrame({"status": [0, 1, 2, 3]})
+        encoded, encodings = encode_integer_categoricals(df, ["status"])
+
+        assert "status" not in encodings
+        assert encoded["status"].to_list() == [0, 1, 2, 3]
+
+    def test_skips_non_integer_columns(self):
+        """Float/string columns should be ignored entirely."""
+        df = pl.DataFrame({"val": [1.5, 2.5, 3.5]})
+        _, encodings = encode_integer_categoricals(df, ["val"])
+
+        assert encodings == {}
+
+    def test_decode_dense_to_integer_basic(self):
+        """Dense float predictions should round and decode to original codes."""
+        mapping = {0: 1, 1: 2, 2: 5, 3: 6}
+        values = np.array([0.3, 0.7, 2.1, 2.9])
+        decoded = decode_dense_to_integer(values, mapping)
+
+        assert decoded == [1, 2, 5, 6]
+
+    def test_decode_dense_clamps_out_of_range(self):
+        """Values outside [0, N-1] should be clamped to the nearest valid key."""
+        mapping = {0: 10, 1: 20, 2: 30}
+        values = np.array([-1.0, 5.0])
+        decoded = decode_dense_to_integer(values, mapping)
+
+        assert decoded == [10, 30]
+
+    def test_mice_with_non_contiguous_integer_codes(self):
+        """MICE should produce valid category codes for non-contiguous integers."""
+        rng = np.random.default_rng(42)
+        n = 60
+        feature = rng.normal(size=n)
+
+        # Use non-contiguous codes: 10, 20, 30
+        codes = np.array([10, 20, 30])
+        target = codes[np.digitize(feature, bins=[-0.5, 0.5]) % 3]
+        target_list = target.tolist()
+        # Introduce nulls
+        target_list[0] = None
+        target_list[5] = None
+        target_list[10] = None
+
+        df = pl.DataFrame(
+            {
+                "feature": feature.tolist(),
+                "cat": pl.Series("cat", target_list, dtype=pl.Int64),
+            }
+        )
+        result, _ = impute_mice(
+            df,
+            columns=["cat"],
+            max_iter=5,
+            random_state=42,
+            numeric_features=["feature"],
+        )
+
+        assert result["cat"].null_count() == 0
+        # ALL imputed values must be one of the valid original codes
+        imputed_vals = set(result["cat"].to_list())
+        assert imputed_vals.issubset({10, 20, 30})

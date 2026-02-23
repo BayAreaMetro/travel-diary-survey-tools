@@ -3,11 +3,15 @@
 import logging
 from typing import Any, Literal
 
-import numpy as np
 import polars as pl
 from sklearn.impute import KNNImputer
 
-from .impute_utils import validate_features_exist
+from .impute_utils import (
+    build_feature_matrix,
+    decode_dense_to_integer,
+    encode_integer_categoricals,
+    validate_features_exist,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +41,8 @@ def impute_knn(
         msg = f"Column '{column}' not found in DataFrame"
         raise ValueError(msg)
 
-    # Validate features
     validate_features_exist(df, numeric_features, categorical_features)
-    numeric_features = numeric_features or []
-    categorical_features = categorical_features or []
 
-    # Count missing values and handle edge cases
     n_missing = df[column].null_count()
     n_total = len(df)
     pct_imputed = (n_missing / n_total) * 100
@@ -57,39 +57,27 @@ def impute_knn(
 
     original_dtype = df[column].dtype
 
-    # Build feature matrix: continuous features
-    continuous = [f for f in numeric_features if f in df.columns and df[f].dtype.is_numeric()]
-    if column not in continuous:
-        continuous.append(column)
+    # Encode non-contiguous integer codes to dense 0..N for distance calc
+    df_work, int_encodings = encode_integer_categoricals(df, [column])
 
-    matrices = [df.select(continuous).to_numpy()]
-    target_idx = continuous.index(column)
+    # Build feature matrix (shared helper)
+    feature_matrix, column_indices = build_feature_matrix(
+        df_work, [column], numeric_features or [], categorical_features or []
+    )
+    target_idx = column_indices[column]
 
-    # Add one-hot encoded categorical features
-    categorical = [
-        f
-        for f in categorical_features
-        if f in df.columns and df[f].dtype.is_numeric() and f != column
-    ]
-
-    for cat_col in categorical:
-        unique_vals = df[cat_col].drop_nulls().unique().sort().to_list()
-        one_hot_cols = [
-            (df[cat_col] == val).cast(pl.Float64).to_numpy().reshape(-1, 1) for val in unique_vals
-        ]
-        matrices.extend(one_hot_cols)
-
-    feature_matrix = np.hstack(matrices) if len(matrices) > 1 else matrices[0]
-
-    # Run KNN imputation and cast back to original dtype
+    # Run KNN imputation
     imputer = KNNImputer(n_neighbors=n_neighbors, weights=neighbor_weights)
     imputed_values = imputer.fit_transform(feature_matrix)[:, target_idx]
 
-    imputed_series = (
-        pl.Series(column, imputed_values).round().cast(original_dtype)
-        if original_dtype.is_integer()
-        else pl.Series(column, imputed_values)
-    )
+    # Decode back to original codes
+    if column in int_encodings:
+        decoded = decode_dense_to_integer(imputed_values, int_encodings[column])
+        imputed_series = pl.Series(column, decoded).cast(original_dtype)
+    elif original_dtype.is_integer():
+        imputed_series = pl.Series(column, imputed_values).round().cast(original_dtype)
+    else:
+        imputed_series = pl.Series(column, imputed_values)
 
     return df.with_columns(imputed_series), {
         "n_missing": n_missing,

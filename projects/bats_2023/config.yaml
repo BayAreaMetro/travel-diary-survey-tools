@@ -33,23 +33,39 @@ steps:
     params:
       # KNN: impute single columns using similar records
       knn_columns:
+        households:
+          - column: income_bin
+            n_neighbors: 5
+            missing_values: [MISSING, PNTA]
+            categorical_features: [residence_type, residence_rent_own]
+            aggregate_from:
+              persons:
+                pivot_count: [employment, education, student, occupation, industry]
         persons:
           - column: gender
             n_neighbors: 5
             missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting
             neighbor_weights: distance
+            join_tables: [households]
             # numeric_features: [age] # Optional if you have them.
-            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, num_trips, work_mode]
+            numeric_features: [num_trips]
+            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
 
       # MICE: impute correlated column groups together
       mice_groups:
-        households:
-          - columns: [income_bin]
-            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, num_trips, work_mode]
-            max_iter: 10
+        # households:
+        #   - columns: [income_bin]
+        #     missing_values: [MISSING, PNTA]
+        #     aggregate_from:
+        #       persons:
+        #         pivot_count: [employment, education, student, occupation, industry]
+        #     categorical_features: [residence_type, residence_rent_own]
+        #     max_iter: 10
         persons:
           - columns: [race, ethnicity]
-            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, num_trips, work_mode]
+            join_tables: [households]
+            numeric_features: [num_trips]
+            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
             max_iter: 10
 
       # Optional: create diagnostic flags (default: true)
