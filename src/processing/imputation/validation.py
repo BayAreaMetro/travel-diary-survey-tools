@@ -17,34 +17,12 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import KFold
 
+from .impute_utils import is_categorical
 from .knn import impute_knn
 from .mice import impute_mice
+from .random_forest import impute_random_forest
 
 logger = logging.getLogger(__name__)
-
-
-def is_categorical(df: pl.DataFrame, column: str) -> bool:
-    """Determine if a column should be treated as categorical.
-
-    Args:
-        df: DataFrame containing the column
-        column: Column name to check
-
-    Returns:
-        True if column is categorical (non-float numeric or string), False otherwise
-    """
-    dtype = df[column].dtype
-    return dtype in (
-        pl.Int8,
-        pl.Int16,
-        pl.Int32,
-        pl.Int64,
-        pl.UInt8,
-        pl.UInt16,
-        pl.UInt32,
-        pl.UInt64,
-        pl.Utf8,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +231,55 @@ def validate_mice_imputation(
         )
         for col in columns
     }
+
+
+def validate_rf_imputation(
+    df: pl.DataFrame,
+    column: str,
+    n_folds: int,
+    sample_pct: float,
+    n_estimators: int = 100,
+    max_depth: int | None = None,
+    random_state: int | None = None,
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
+) -> dict[str, Any]:
+    """Validate Random Forest imputation quality using k-fold cross-validation."""
+    if not numeric_features and not categorical_features:
+        return {"error": "At least one of numeric_features or categorical_features required"}
+
+    def _impute(df_masked: pl.DataFrame) -> pl.DataFrame:
+        result, _ = impute_random_forest(
+            df_masked,
+            column,
+            n_estimators,
+            max_depth,
+            random_state,
+            numeric_features,
+            categorical_features,
+        )
+        return result
+
+    preds, trues, n_sample = _run_kfold(
+        df,
+        [column],
+        n_folds,
+        sample_pct,
+        random_state,
+        _impute,
+    )
+
+    if n_sample == 0:
+        return {"error": "No complete values to validate"}
+
+    return _compute_metrics(
+        trues[column],
+        preds[column],
+        is_categorical(df, column),
+        column,
+        n_sample,
+        n_folds,
+    )
 
 
 def log_validation_results(metrics: dict[str, Any] | dict[str, dict[str, Any]]) -> None:

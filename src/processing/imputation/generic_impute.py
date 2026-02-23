@@ -9,10 +9,12 @@ from pipeline.decoration import step
 from processing.imputation.flags import create_flag_columns
 from processing.imputation.knn import impute_knn
 from processing.imputation.mice import impute_mice
+from processing.imputation.random_forest import impute_random_forest
 from processing.imputation.validation import (
     log_validation_results,
     validate_knn_imputation,
     validate_mice_imputation,
+    validate_rf_imputation,
 )
 
 from .impute_utils import (
@@ -72,7 +74,7 @@ def _process_imputation(
     original_df: pl.DataFrame,
     table_name: str,
     configs: list[dict[str, Any]],
-    method: Literal["knn", "mice"],
+    method: Literal["knn", "mice", "rf"],
     validate_imputation: dict[str, Any] | None,
     random_state: int | None,
     tables: dict[str, pl.DataFrame] | None = None,
@@ -80,14 +82,14 @@ def _process_imputation(
     """Process imputation for a table using the specified method.
 
     Shared scaffold: enrich → prepare missing → impute → strip → validate.
-    The *method* parameter selects the imputation strategy (KNN or MICE).
+    The *method* parameter selects the imputation strategy (KNN, RF, or MICE).
 
     Args:
         df: Current DataFrame to impute
         original_df: Original DataFrame (for validation)
         table_name: Name of the table
         configs: List of column/group configurations
-        method: Imputation method - ``"knn"`` or ``"mice"``
+        method: Imputation method - ``"knn"``, ``"rf"``, or ``"mice"``
         validate_imputation: Optional validation config
         random_state: Random seed for reproducibility
         tables: Dict of all canonical tables (for cross-table joins)
@@ -98,19 +100,19 @@ def _process_imputation(
     imputed_columns: list[str] = []
 
     for config in configs:
-        # Normalise target columns: KNN uses 'column', MICE uses 'columns'
-        target_columns = [config["column"]] if method == "knn" else config["columns"]
+        # Normalise target columns: KNN/RF use 'column', MICE uses 'columns'
+        target_columns = config["columns"] if method == "mice" else [config["column"]]
 
         # Common config extraction
         numeric_features = config.get("numeric_features")
         categorical_features = config.get("categorical_features")
         join_tables_list = config.get("join_tables", [])
         aggregate_from_config = config.get("aggregate_from")
-        missing_values_config = config.get("missing_values", [] if method == "knn" else {})
+        missing_values_config = config.get("missing_values", {} if method == "mice" else [])
 
         if not numeric_features and not categorical_features:
             label = (
-                f"Column '{target_columns[0]}'" if method == "knn" else f"Columns {target_columns}"
+                f"Columns {target_columns}" if method == "mice" else f"Column '{target_columns[0]}'"
             )
             msg = f"{label}: At least one of numeric_features or categorical_features required"
             raise ValueError(msg)
@@ -145,6 +147,16 @@ def _process_imputation(
                 target_columns[0],
                 config.get("n_neighbors", 5),
                 config.get("neighbor_weights", "distance"),
+                numeric_features,
+                categorical_features,
+            )
+        elif method == "rf":
+            df, stats = impute_random_forest(
+                df,
+                target_columns[0],
+                config.get("n_estimators", 100),
+                config.get("max_depth"),
+                random_state,
                 numeric_features,
                 categorical_features,
             )
@@ -188,7 +200,7 @@ def _validate_config(
     table_name: str,
     target_columns: list[str],
     config: dict[str, Any],
-    method: Literal["knn", "mice"],
+    method: Literal["knn", "mice", "rf"],
     missing_values_config: dict | list,
     validate_imputation: dict[str, Any],
     random_state: int | None,
@@ -236,6 +248,19 @@ def _validate_config(
             numeric_features,
             val_cat_features,
         )
+    elif method == "rf":
+        logger.info("Validating RF imputation for %s.%s", table_name, target_columns[0])
+        metrics = validate_rf_imputation(
+            prepared,
+            target_columns[0],
+            n_folds,
+            sample_pct,
+            config.get("n_estimators", 100),
+            config.get("max_depth"),
+            random_state,
+            numeric_features,
+            val_cat_features,
+        )
     else:
         logger.info("Validating MICE imputation for %s.%s", table_name, target_columns)
         metrics = validate_mice_imputation(
@@ -252,6 +277,34 @@ def _validate_config(
     log_validation_results(metrics)
 
 
+# Fixed execution order: KNN --> RF --> MICE, so later phases can use earlier results
+_METHOD_ORDER: list[Literal["knn", "rf", "mice"]] = ["knn", "rf", "mice"]
+
+
+def _group_configs_by_method(
+    impute_columns: dict[str, list[dict[str, Any]]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Group per-table configs by imputation method.
+
+    Returns a ``{method: {table: [configs]}}`` structure ordered by
+    ``_METHOD_ORDER``.
+    """
+    grouped: dict[str, dict[str, list[dict[str, Any]]]] = {m: {} for m in _METHOD_ORDER}
+
+    for table_name, configs in impute_columns.items():
+        for config in configs:
+            method = config.get("method")
+            if method not in _METHOD_ORDER:
+                msg = (
+                    f"Invalid imputation method '{method}' for table '{table_name}'. "
+                    f"Must be one of {_METHOD_ORDER}."
+                )
+                raise ValueError(msg)
+            grouped[method].setdefault(table_name, []).append(config)
+
+    return grouped
+
+
 @step()
 def imputation(
     # Optional canonical tables
@@ -262,13 +315,17 @@ def imputation(
     linked_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
     # Config parameters
-    knn_columns: dict[str, list[dict[str, Any]]] | None = None,
-    mice_groups: dict[str, list[dict[str, Any]]] | None = None,
+    impute_columns: dict[str, list[dict[str, Any]]] | None = None,
     create_flags: bool = True,
     random_state: int | None = None,
     validate_imputation: dict[str, Any] | None = None,
 ) -> dict[str, pl.DataFrame]:
-    """Impute missing values using KNN and/or MICE methods.
+    """Impute missing values using KNN, Random Forest, and/or MICE methods.
+
+    Each config block specifies its ``method`` (``knn``, ``rf``, or ``mice``)
+    along with the method-specific parameters.  Configs are grouped by method
+    and executed in a fixed order (KNN, RF, MICE) across all tables so that
+    later phases can benefit from values filled in earlier phases.
 
     Args:
         households: Households table (optional)
@@ -277,23 +334,36 @@ def imputation(
         unlinked_trips: Unlinked trips table (optional)
         linked_trips: Linked trips table (optional)
         tours: Tours table (optional)
-        knn_columns: Dict mapping table names to list of KNN column configs.
-            Each config can include:
+        impute_columns: Dict mapping table names to list of imputation configs.
+            Every config dict **must** include a ``method`` key (``knn``, ``rf``,
+            or ``mice``).  The remaining keys are method-specific:
+
+            **KNN** (``method: knn``):
             - column: Column name to impute
-            - missing_values: List of enum labels to treat as missing (e.g., ['MISSING', 'PNTA'])
+            - missing_values: List of enum labels to treat as missing
             - n_neighbors: Number of neighbors (default: 5)
             - neighbor_weights: 'uniform' or 'distance' (default: 'distance')
-            - numeric_features: List of numeric/continuous feature columns (required)
-            - categorical_features: Optional list of categorical feature columns to one-hot encode
-                       Recommended to specify for performance with many columns
-        mice_groups: Dict mapping table names to list of MICE column group configs.
-            Each config can include:
+            - numeric_features: List of numeric feature columns (required)
+            - categorical_features: Optional categorical feature columns
+
+            **Random Forest** (``method: rf``):
+            - column: Column name to impute
+            - missing_values: List of enum labels to treat as missing
+            - n_estimators: Number of trees (default: 100)
+            - max_depth: Maximum tree depth (default: None, unlimited)
+            - numeric_features: List of numeric feature columns (required)
+            - categorical_features: Optional categorical feature columns
+
+            **MICE** (``method: mice``):
             - columns: List of column names to impute together
             - missing_values: Dict mapping column names to lists of enum labels,
                             or a single list to apply to all columns
             - max_iter: Maximum iterations (default: 10)
+            - numeric_features: List of numeric feature columns (required)
+            - categorical_features: Optional categorical feature columns
+
         create_flags: Whether to create imputation flag columns (default: True)
-        random_state: Random seed for reproducibility across all imputation (default: None)
+        random_state: Random seed for reproducibility across all imputation
         validate_imputation: Optional validation config with keys:
             - enabled: Whether to run validation (default: False)
             - n_folds: Number of k-folds (default: 5)
@@ -303,26 +373,35 @@ def imputation(
         Dictionary of imputed tables
 
     Example config:
-        knn_columns:
+        impute_columns:
           households:
-            - column: income_broad
-              missing_values: [MISSING, PNTA]  # Enum labels
+            - method: knn
+              column: income_broad
+              missing_values: [MISSING, PNTA]
               n_neighbors: 5
               neighbor_weights: distance
-              numeric_features: [num_persons, num_vehicles, num_workers]  # Continuous features
+              numeric_features: [num_persons, num_vehicles, num_workers]
           persons:
-            - column: gender
+            - method: knn
+              column: gender
               missing_values: [MISSING]
               n_neighbors: 5
-              numeric_features: [age]  # Continuous features only
-              categorical_features: [relationship, employment, occupation, education]
-        mice_groups:
-          persons:
-            - columns: [race, ethnicity]
+              numeric_features: [age]
+              categorical_features: [relationship, employment]
+            - method: rf
+              column: education
+              missing_values: [MISSING]
+              n_estimators: 200
+              max_depth: 15
+              numeric_features: [age]
+              categorical_features: [employment, occupation]
+            - method: mice
+              columns: [race, ethnicity]
               missing_values:
                 race: [MISSING]
                 ethnicity: [MISSING, PNTA]
               max_iter: 10
+              numeric_features: [age]
         random_state: 42
         create_flags: true
         validate_imputation:
@@ -349,45 +428,43 @@ def imputation(
 
     logger.info("Starting imputation for tables: %s", list(tables.keys()))
 
+    if not impute_columns:
+        logger.warning("No impute_columns configs provided")
+        return dict(tables.items())
+
     # Clone all tables and track originals for validation/flags
     originals = {name: df.clone() for name, df in tables.items()}
     current_dfs = dict(tables.items())
-    all_imputed_columns = {name: [] for name in tables}
+    all_imputed_columns: dict[str, list[str]] = {name: [] for name in tables}
 
-    # Process ALL KNN imputation first (across all tables)
-    if knn_columns:
-        logger.info("Phase 1: KNN imputation")
-        for table_name in tables:
-            if table_name in knn_columns:
-                current_dfs[table_name], knn_cols = _process_imputation(
-                    current_dfs[table_name],
-                    originals[table_name],
-                    table_name,
-                    knn_columns[table_name],
-                    "knn",
-                    validate_imputation,
-                    random_state,
-                    tables=current_dfs,
-                )
-                all_imputed_columns[table_name].extend(knn_cols)
+    # Group configs by method (KNN → RF → MICE)
+    method_configs = _group_configs_by_method(impute_columns)
 
-    # Then process ALL MICE imputation (across all tables)
-    if mice_groups:
-        logger.info("Phase 2: MICE imputation")
-        for table_name in tables:
-            if table_name in mice_groups:
-                logger.info("  MICE imputation for %s", table_name)
-                current_dfs[table_name], mice_cols = _process_imputation(
-                    current_dfs[table_name],
-                    originals[table_name],
-                    table_name,
-                    mice_groups[table_name],
-                    "mice",
-                    validate_imputation,
-                    random_state,
-                    tables=current_dfs,
+    # Process each method phase across all tables
+    for phase_num, method in enumerate(_METHOD_ORDER, 1):
+        configs_by_table = method_configs[method]
+        if not configs_by_table:
+            continue
+
+        logger.info("Phase %d: %s imputation", phase_num, method.upper())
+        for table_name, configs in configs_by_table.items():
+            if table_name not in current_dfs:
+                logger.warning(
+                    "Table '%s' referenced in impute_columns but not provided", table_name
                 )
-                all_imputed_columns[table_name].extend(mice_cols)
+                continue
+            logger.info("  %s imputation for %s", method.upper(), table_name)
+            current_dfs[table_name], cols = _process_imputation(
+                current_dfs[table_name],
+                originals[table_name],
+                table_name,
+                configs,
+                method,
+                validate_imputation,
+                random_state,
+                tables=current_dfs,
+            )
+            all_imputed_columns[table_name].extend(cols)
 
     # Create flag columns for all tables
     result_tables = {}

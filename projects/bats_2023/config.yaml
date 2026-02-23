@@ -31,42 +31,52 @@ steps:
     validate_input: false
     cache: true
     params:
-      # KNN: impute single columns using similar records
-      knn_columns:
+      impute_columns:
+        # KNN/RF: impute single columns using similar records
+        # RF tends to be better for categoricals, thus tends to be faster/better in this context.
+        # KNN/MICE tend to be better for numeric columns, but RF can still work well if you have good predictive features.
         households:
           - column: income_bin
-            n_neighbors: 5
+            method: rf
             missing_values: [MISSING, PNTA]
             categorical_features: [residence_type, residence_rent_own]
             aggregate_from:
               persons:
                 pivot_count: [employment, education, student, occupation, industry]
+
         persons:
           - column: gender
-            n_neighbors: 5
+            method: rf
             missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting
-            neighbor_weights: distance
             join_tables: [households]
             # numeric_features: [age] # Optional if you have them.
             numeric_features: [num_trips]
             categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
 
-      # MICE: impute correlated column groups together
-      mice_groups:
-        # households:
-        #   - columns: [income_bin]
-        #     missing_values: [MISSING, PNTA]
-        #     aggregate_from:
-        #       persons:
-        #         pivot_count: [employment, education, student, occupation, industry]
-        #     categorical_features: [residence_type, residence_rent_own]
-        #     max_iter: 10
-        persons:
-          - columns: [race, ethnicity]
+          - method: rf
+            column: race
+            missing_values: [MISSING, PNTA]
             join_tables: [households]
-            numeric_features: [num_trips]
+            # numeric_features: [num_trips]
             categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
-            max_iter: 10
+
+          - method: rf
+            column: ethnicity
+            missing_values: [MISSING, PNTA]
+            join_tables: [households]
+            # numeric_features: [num_trips]
+            categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
+
+          # # MICE: impute correlated column groups together
+          # - method: mice
+          #   columns: [race, ethnicity]
+          #   missing_values:
+          #     race: [MISSING, PNTA]
+          #     ethnicity: [MISSING, PNTA]
+          #   join_tables: [households]
+          #   numeric_features: [num_trips]
+          #   categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
+          #   max_iter: 10
 
       # Optional: create diagnostic flags (default: true)
       create_flags: true

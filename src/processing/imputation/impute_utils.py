@@ -75,6 +75,30 @@ def validate_features_exist(
         raise ValueError(msg)
 
 
+def is_categorical(df: pl.DataFrame, column: str) -> bool:
+    """Determine if a column should be treated as categorical.
+
+    Args:
+        df: DataFrame containing the column
+        column: Column name to check
+
+    Returns:
+        True if column is categorical (non-float numeric or string), False otherwise
+    """
+    dtype = df[column].dtype
+    return dtype in (
+        pl.Int8,
+        pl.Int16,
+        pl.Int32,
+        pl.Int64,
+        pl.UInt8,
+        pl.UInt16,
+        pl.UInt32,
+        pl.UInt64,
+        pl.Utf8,
+    )
+
+
 def prepare_column_for_imputation(
     df: pl.DataFrame,
     table_name: str,

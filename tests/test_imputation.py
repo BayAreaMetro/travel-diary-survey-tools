@@ -8,13 +8,15 @@ from processing.imputation.flags import create_flag_column, create_flag_columns
 from processing.imputation.impute_utils import (
     decode_dense_to_integer,
     encode_integer_categoricals,
+    is_categorical,
 )
 from processing.imputation.knn import impute_knn
 from processing.imputation.mice import impute_mice
+from processing.imputation.random_forest import impute_random_forest
 from processing.imputation.validation import (
-    is_categorical,
     validate_knn_imputation,
     validate_mice_imputation,
+    validate_rf_imputation,
 )
 
 
@@ -171,6 +173,152 @@ class TestMICEImputation:
         assert result_df.equals(df)
 
 
+class TestRandomForestImputation:
+    """Tests for Random Forest imputation."""
+
+    def test_basic_rf_categorical_imputation(self):
+        """Should impute categorical values using Random Forest classifier."""
+        rng = np.random.default_rng(42)
+        n = 50
+        feature = rng.normal(size=n).tolist()
+        # Deterministic categories based on feature
+        target = [1 if f > 0 else 2 for f in feature]
+        # Null out some
+        target[0] = None
+        target[5] = None
+        target[10] = None
+
+        df = pl.DataFrame(
+            {
+                "feature": feature,
+                "mode": pl.Series("mode", target, dtype=pl.Int64),
+            }
+        )
+
+        result_df, stats = impute_random_forest(
+            df, "mode", n_estimators=50, random_state=42, numeric_features=["feature"]
+        )
+
+        assert stats["n_missing"] == 3
+        assert stats["n_imputed"] == 3
+        assert result_df["mode"].null_count() == 0
+        # Values should be valid categories
+        assert set(result_df["mode"].to_list()).issubset({1, 2})
+
+    def test_basic_rf_continuous_imputation(self):
+        """Should impute continuous values using Random Forest regressor."""
+        df = pl.DataFrame(
+            {
+                "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+                "y": [2.0, 4.0, None, 8.0, 10.0, 12.0, None, 16.0, 18.0, 20.0],
+            }
+        )
+
+        result_df, stats = impute_random_forest(
+            df, "y", n_estimators=50, random_state=42, numeric_features=["x"]
+        )
+
+        assert stats["n_missing"] == 2
+        assert stats["n_imputed"] == 2
+        assert result_df["y"].null_count() == 0
+
+    def test_rf_no_missing_values(self):
+        """Should skip imputation when no missing values."""
+        df = pl.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "value": [1.0, 2.0, 3.0],
+            }
+        )
+
+        result_df, stats = impute_random_forest(df, "value", numeric_features=["value"])
+
+        assert stats["n_missing"] == 0
+        assert stats["n_imputed"] == 0
+        assert result_df.equals(df)
+
+    def test_rf_all_missing_values(self):
+        """Should handle all missing values gracefully."""
+        df = pl.DataFrame(
+            {
+                "feature": [1.0, 2.0, 3.0],
+                "target": [None, None, None],
+            }
+        )
+
+        _, stats = impute_random_forest(df, "target", numeric_features=["feature"])
+
+        assert stats["n_missing"] == 3
+        assert stats["n_imputed"] == 0
+        assert stats["pct_imputed"] == 100.0
+
+    def test_rf_with_non_contiguous_integer_codes(self):
+        """RF should produce valid category codes for non-contiguous integers."""
+        rng = np.random.default_rng(42)
+        n = 60
+        feature = rng.normal(size=n)
+
+        # Use non-contiguous codes: 10, 20, 30
+        codes = np.array([10, 20, 30])
+        target = codes[np.digitize(feature, bins=[-0.5, 0.5]) % 3]
+        target_list = target.tolist()
+        # Introduce nulls
+        target_list[0] = None
+        target_list[5] = None
+        target_list[10] = None
+
+        df = pl.DataFrame(
+            {
+                "feature": feature.tolist(),
+                "cat": pl.Series("cat", target_list, dtype=pl.Int64),
+            }
+        )
+        result, stats = impute_random_forest(
+            df, "cat", n_estimators=50, random_state=42, numeric_features=["feature"]
+        )
+
+        assert stats["n_imputed"] == 3
+        assert result["cat"].null_count() == 0
+        # ALL values must be one of the valid original codes
+        assert set(result["cat"].to_list()).issubset({10, 20, 30})
+
+    def test_rf_with_categorical_features(self):
+        """RF should handle one-hot encoded categorical features."""
+        rng = np.random.default_rng(42)
+        n = 50
+        df = pl.DataFrame(
+            {
+                "age": rng.normal(40, 10, size=n).tolist(),
+                "gender": rng.choice([1, 2], size=n).tolist(),
+                "income": pl.Series(
+                    "income",
+                    [*rng.choice([1, 2, 3], size=n - 3).tolist(), None, None, None],
+                    dtype=pl.Int64,
+                ),
+            }
+        )
+
+        result_df, stats = impute_random_forest(
+            df,
+            "income",
+            n_estimators=50,
+            random_state=42,
+            numeric_features=["age"],
+            categorical_features=["gender"],
+        )
+
+        assert stats["n_imputed"] == 3
+        assert result_df["income"].null_count() == 0
+        assert set(result_df["income"].to_list()).issubset({1, 2, 3})
+
+    def test_rf_missing_column_raises(self):
+        """Should raise error for missing column."""
+        df = pl.DataFrame({"a": [1, 2, 3]})
+
+        with pytest.raises(ValueError, match="Column 'missing' not found"):
+            impute_random_forest(df, "missing", numeric_features=["a"])
+
+
 class TestFlagColumns:
     """Tests for imputation flag columns."""
 
@@ -312,6 +460,52 @@ class TestValidation:
         assert "col2" in metrics
         assert metrics["col1"]["type"] == "continuous"
         assert "rmse" in metrics["col1"]
+
+    def test_rf_validation_categorical(self):
+        """Should validate RF imputation on categorical data."""
+        df = pl.DataFrame(
+            {
+                "feature": [1.0, 2.0, 3.0, 4.0, 5.0] * 20,
+                "mode": [1, 1, 2, 2, 1] * 20,
+            }
+        )
+
+        metrics = validate_rf_imputation(
+            df,
+            column="mode",
+            n_folds=3,
+            sample_pct=10.0,
+            n_estimators=50,
+            random_state=42,
+            numeric_features=["feature"],
+        )
+
+        assert metrics["type"] == "categorical"
+        assert "accuracy" in metrics
+        assert 0 <= metrics["accuracy"] <= 1
+
+    def test_rf_validation_continuous(self):
+        """Should validate RF imputation on continuous data."""
+        df = pl.DataFrame(
+            {
+                "feature": [1.0, 2.0, 3.0, 4.0, 5.0] * 20,
+                "distance": [10.5, 20.3, 15.7, 25.1, 18.9] * 20,
+            }
+        )
+
+        metrics = validate_rf_imputation(
+            df,
+            column="distance",
+            n_folds=3,
+            sample_pct=10.0,
+            n_estimators=50,
+            random_state=42,
+            numeric_features=["feature"],
+        )
+
+        assert metrics["type"] == "continuous"
+        assert "rmse" in metrics
+        assert metrics["rmse"] >= 0
 
 
 class TestEdgeCases:

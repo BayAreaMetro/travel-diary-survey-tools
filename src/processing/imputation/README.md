@@ -8,6 +8,7 @@ This module provides data imputation capabilities for handling missing values in
 
 Missing data is common in travel surveys (e.g., missing income, race, ethnicity, etc.). This module provides:
 - **KNN Imputation**: Single-column imputation using K-Nearest Neighbors similarity matching
+- **Random Forest Imputation**: Single-column imputation using supervised Random Forest models (auto-selects classifier vs regressor)
 - **MICE Imputation**: Multi-column imputation using Multiple Imputation by Chained Equations (handles correlated variables)
 - **Diagnostic Tracking**: Optional flag columns to track which values were imputed
 - **Quality Validation**: Optional k-fold cross-validation to assess imputation accuracy
@@ -20,8 +21,7 @@ Imputes missing values across any canonical data tables (households, persons, da
 
 **Inputs:**
 - Any canonical tables (pl.DataFrame, optional)
-- `knn_columns`: Configuration for KNN imputation by table (dict, optional)
-- `mice_groups`: Configuration for MICE imputation by table (dict, optional)
+- `impute_columns`: Configuration for imputation by table — each config includes a `method` key (`knn`, `rf`, or `mice`) and method-specific parameters (dict, optional)
 - `create_flags`: Whether to create `{column}_imputed` flag columns (bool, default: True)
 - `validate_imputation`: Optional validation configuration (dict, optional)
 
@@ -35,54 +35,57 @@ steps:
   - name: imputation
     validate: true
     params:
-      # KNN: impute single columns using similar records
-      knn_columns:
+      impute_columns:
         households:
-          - column: income_broad
-            missing_values: [MISSING, PNTA]  # Enum labels to treat as missing
+          - method: knn
+            column: income_broad
+            missing_values: [MISSING, PNTA]
             n_neighbors: 5
             neighbor_weights: distance
-
-        unlinked_trips:
-          - column: mode
-            n_neighbors: 5
-            neighbor_weights: distance  # or 'uniform'
-          - column: distance
-            n_neighbors: 10
-            neighbor_weights: uniform
 
         persons:
-          - column: age
+          - method: knn
+            column: gender
             n_neighbors: 5
             neighbor_weights: distance
-            join_tables: [households]  # Include household features
+            join_tables: [households]
             categorical_features: [income_bin, residence_type]
-
-      # MICE: impute correlated column groups together
-      mice_groups:
-        persons:
-          - columns: [race, ethnicity]
+          - method: rf
+            column: education
+            missing_values: [MISSING]
+            n_estimators: 200
+            max_depth: 15
+            numeric_features: [age]
+            categorical_features: [employment, occupation]
+          - method: mice
+            columns: [race, ethnicity]
             missing_values:
               race: [MISSING]
               ethnicity: [MISSING, PNTA]
             max_iter: 10
 
         unlinked_trips:
-          - columns: [depart_hour, arrive_hour, duration]
-            max_iter: 10
-          - columns: [origin_lat, origin_lon]
+          - method: knn
+            column: mode
+            n_neighbors: 5
+            neighbor_weights: distance
+          - method: mice
+            columns: [depart_hour, arrive_hour, duration]
             max_iter: 10
 
       # Global settings
-      random_state: 42          # Random seed for reproducibility
-      create_flags: true        # Create diagnostic columns (default: true)
+      random_state: 42
+      create_flags: true
 
       # Optional: k-fold validation to assess quality
       validate_imputation:
         enabled: true
-        n_folds: 5           # Number of cross-validation folds
-        sample_pct: 5.0      # % of non-missing values to test
+        n_folds: 5
+        sample_pct: 5.0
 ```
+
+Configs are grouped by method and executed in a fixed order (KNN → RF → MICE)
+across all tables, so later phases can use values filled in earlier phases.
 
 ## Handling Missing Values with Enum Labels
 
@@ -93,9 +96,10 @@ Survey data often uses special codes for missing values (e.g., 995 for "Missing 
 Use enum member names (labels) rather than numeric values in the config:
 
 ```yaml
-knn_columns:
+impute_columns:
   households:
-    - column: income_broad
+    - method: knn
+      column: income_broad
       missing_values: [MISSING, PNTA]  # Enum labels
       n_neighbors: 5
 ```
@@ -109,9 +113,10 @@ This will:
 **For MICE with multiple columns:**
 
 ```yaml
-mice_groups:
+impute_columns:
   persons:
-    - columns: [race, ethnicity]
+    - method: mice
+      columns: [race, ethnicity]
       missing_values:
         race: [MISSING]            # Only MISSING for race
         ethnicity: [MISSING, PNTA]  # Both MISSING and PNTA for ethnicity
@@ -121,9 +126,10 @@ mice_groups:
 Or use a single list to apply the same missing values to all columns:
 
 ```yaml
-mice_groups:
+impute_columns:
   persons:
-    - columns: [race, ethnicity]
+    - method: mice
+      columns: [race, ethnicity]
       missing_values: [MISSING, PNTA]  # Applied to all columns
       max_iter: 10
 ```
@@ -153,18 +159,17 @@ By default, imputation models only use features from the same table. The `join_t
 Add `join_tables` to a KNN or MICE config block, and reference the parent columns in your feature lists:
 
 ```yaml
-knn_columns:
+impute_columns:
   persons:
-    - column: gender
+    - method: knn
+      column: gender
       n_neighbors: 5
       join_tables: [households]
       categorical_features: [age, employment, income_bin, residence_type]
       #                                       ^^^^^^^^^^  ^^^^^^^^^^^^^^
       #                              These come from the households table
-
-mice_groups:
-  persons:
-    - columns: [race, ethnicity]
+    - method: mice
+      columns: [race, ethnicity]
       join_tables: [households]
       categorical_features: [age, employment, income_bin, residence_type]
       max_iter: 10
@@ -203,9 +208,10 @@ The reverse of `join_tables`: aggregate child table data up to a parent table. T
 **Configuration:**
 
 ```yaml
-mice_groups:
+impute_columns:
   households:
-    - columns: [income_bin]
+    - method: mice
+      columns: [income_bin]
       aggregate_from:
         persons:
           pivot_count: [employment, education, student]
@@ -262,12 +268,33 @@ This creates columns like `persons_count_employment_1`, `persons_count_employmen
 **Parameters:**
 - `columns`: List of column names to impute together
 - `max_iter`: Maximum number of imputation rounds (default: 10)
-- `random_state`: Random seed for reproducibility (default: None)
 
 **Example use cases:**
 - Missing time fields (depart_hour, arrive_hour, duration) - highly correlated
 - Missing spatial coordinates (origin_lat, origin_lon) - spatially correlated
 - Missing sociodemographic variables (income, education, employment) - often correlated
+
+### Random Forest
+
+**Best for:** Single columns with complex non-linear relationships or mixed feature types
+
+**How it works:**
+1. Split rows into known (have value) and missing (need imputation)
+2. Train a Random Forest model on the known rows using all features
+3. Automatically selects `RandomForestClassifier` for categorical targets (integer/string)
+   or `RandomForestRegressor` for continuous targets (float)
+4. Predict missing values using the trained model
+5. Handles NaN in features by filling with column medians
+
+**Parameters:**
+- `column`: Name of column to impute
+- `n_estimators`: Number of trees in the forest (default: 100)
+- `max_depth`: Maximum tree depth (default: None = unlimited)
+
+**Example use cases:**
+- Missing education level when employment, occupation, and age are available
+- Missing income category with many mixed-type predictors
+- Cases where KNN struggles with non-linear decision boundaries
 
 ## Diagnostic Flags
 
@@ -328,7 +355,7 @@ Column: distance (continuous, n=250 test samples)
 ## Technical Details
 
 ### Data Type Handling
-- **Numeric columns**: Imputed directly using KNN/MICE
+- **Numeric columns**: Imputed directly using KNN/RF/MICE
 - **Categorical integer columns** (e.g., enum codes 1-6): Automatically encoded to dense 0..N codes before imputation, decoded back to original codes after. This ensures non-contiguous codes (e.g., 1, 2, 3, 995, 999) don't distort distance calculations.
 - **Categorical string columns** (e.g., `"Hispanic"`, `"White"`): Automatically encoded to integer codes for MICE, decoded back to original labels after imputation. No manual pre-processing required.
 
@@ -346,6 +373,7 @@ Column: distance (continuous, n=250 test samples)
 
 ### Performance Considerations
 - KNN: O(n log n) complexity, scales well to medium-large datasets
+- Random Forest: Trains on known values only; handles mixed types well but can be memory-intensive with many trees
 - MICE: Iterative, can be slow for many columns or large datasets
 - Validation: Adds computational overhead (k-fold = k times the imputation time)
 
@@ -379,8 +407,7 @@ steps:
 
 - **Stratified imputation**: Fit separate models within groups (e.g., by `hh_id`) to enforce within-group consistency (e.g., siblings share race/ethnicity). Would add a `group_by` option to config blocks.
 - **Hierarchical cross-validation**: Hold out entire groups (households/persons) during validation instead of individual records, for more realistic quality assessment.
-- **Random Forest imputation**: Alternative to BayesianRidge as the MICE estimator — handles mixed types natively without one-hot encoding and captures non-linear relationships.
-- **Survey weight integration**: Weight the donor pool by survey expansion weights during KNN/MICE.
+- **Survey weight integration**: Weight the donor pool by survey expansion weights during KNN/RF/MICE.
 - **Multiple imputation**: Generate multiple imputed datasets for uncertainty quantification.
 - **Custom donor pools**: Restrict imputation to specific subsets (e.g., same region or time period).
 - **Exogenous data sources**: Incorporate external data (PUMS, land use) as additional features.
@@ -389,7 +416,7 @@ steps:
 
 ## Dependencies
 
-- `scikit-learn>=1.5.0`: Core imputation algorithms (KNNImputer, IterativeImputer)
+- `scikit-learn>=1.5.0`: Core imputation algorithms (KNNImputer, IterativeImputer, RandomForest)
 - `polars`: DataFrame operations
 - `numpy`: Numerical operations
 
