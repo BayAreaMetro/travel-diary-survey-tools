@@ -163,6 +163,7 @@ def _process_mice_imputation(
 
         # Optional validation
         if validate_imputation and validate_imputation.get("enabled", False):
+            logger.info("Validating MICE imputation for %s.%s", table_name, columns)
             n_folds = validate_imputation.get("n_folds", 5)
             sample_pct = validate_imputation.get("sample_pct", 5.0)
 

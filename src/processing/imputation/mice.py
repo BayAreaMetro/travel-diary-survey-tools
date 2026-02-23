@@ -8,7 +8,7 @@ import polars as pl
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.impute import IterativeImputer
 
-from .impute_utils import validate_features_exist
+from .impute_utils import decode_integer_to_string, encode_string_columns, validate_features_exist
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ def impute_mice(
     random_state: int | None = None,
     numeric_features: list[str] | None = None,
     categorical_features: list[str] | None = None,
+    verbose: bool = True,
 ) -> tuple[pl.DataFrame, dict[str, Any]]:
     """Impute missing values in multiple correlated columns using MICE.
 
@@ -33,6 +34,7 @@ def impute_mice(
         random_state: Random state for reproducibility
         numeric_features: List of numeric/continuous feature columns
         categorical_features: List of categorical features (one-hot encoded)
+        verbose: Whether to provide logging output about the imputation process
 
     Returns:
         Tuple of (imputed_df, stats_dict) with per-column statistics
@@ -56,22 +58,51 @@ def impute_mice(
         logger.info("Columns %s: No missing values, skipping imputation", columns)
         return df, stats
 
+    # Encode string target columns to integers for MICE
+    df_work, encodings = encode_string_columns(df, columns, verbose=verbose)
+
     # Build and impute feature matrix
     feature_matrix, column_indices = _build_feature_matrix(
-        df, columns, numeric_features or [], categorical_features or []
+        df_work, columns, numeric_features or [], categorical_features or []
     )
-    imputer = IterativeImputer(max_iter=max_iter, random_state=random_state, verbose=0)
+
+    if not column_indices:
+        logger.warning(
+            "Columns %s: No target columns in feature matrix. "
+            "Ensure target columns are numeric (or string columns will be auto-encoded).",
+            columns,
+        )
+        return df, stats
+
+    imputer = IterativeImputer(
+        max_iter=max_iter, random_state=random_state, verbose=2 if verbose else 0
+    )
     imputed_matrix = imputer.fit_transform(feature_matrix)
 
     # Update DataFrame with imputed values
     df_imputed = df
     for col, col_idx in column_indices.items():
+        if verbose:
+            logger.info("Imputing column '%s' with MICE (max_iter=%d)", col, max_iter)
         imputed_values = imputed_matrix[:, col_idx]
-        original_dtype = df[col].dtype
 
-        imputed_series = pl.Series(col, imputed_values)
-        if original_dtype.is_integer():
-            imputed_series = imputed_series.round().cast(original_dtype)
+        if col in encodings:
+            # Decode back to string labels
+            decoded = decode_integer_to_string(imputed_values, encodings[col])
+            imputed_series = pl.Series(col, decoded)
+            # Preserve original non-null values
+            original_series = df[col]
+            imputed_series = (
+                pl.when(original_series.is_null())
+                .then(imputed_series)
+                .otherwise(original_series)
+                .alias(col)
+            )
+        else:
+            original_dtype = df[col].dtype
+            imputed_series = pl.Series(col, imputed_values)
+            if original_dtype.is_integer():
+                imputed_series = imputed_series.round().cast(original_dtype)
 
         df_imputed = df_imputed.with_columns(imputed_series)
 
@@ -80,7 +111,9 @@ def impute_mice(
         stats[col]["pct_imputed"] = (n_missing / len(df)) * 100
 
     # Log results
-    _log_imputation_results(columns, stats, len(df), max_iter)
+    if verbose:
+        _log_imputation_results(columns, stats, len(df), max_iter)
+
     return df_imputed, stats
 
 
@@ -137,4 +170,6 @@ def _log_imputation_results(
         logger.info("Columns %s: Imputed using MICE (max_iter=%d)", imputed_cols, max_iter)
         for col in imputed_cols:
             s = stats[col]
-            logger.info("  - %s: %d/%d (%.1f%%)", col, s["n_imputed"], n_total, s["pct_imputed"])
+            logger.info(
+                "  - %s imputed: %d/%d (%.1f%%)", col, s["n_imputed"], n_total, s["pct_imputed"]
+            )

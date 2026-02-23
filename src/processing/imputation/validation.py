@@ -220,6 +220,7 @@ def validate_mice_imputation(
             random_state=random_state,
             numeric_features=numeric_features,
             categorical_features=categorical_features,
+            verbose=False,
         )
 
         # Collect predictions for test set

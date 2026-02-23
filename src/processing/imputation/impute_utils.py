@@ -3,6 +3,7 @@
 import logging
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 from utils.enum_helpers import resolve_enum_labels
@@ -96,3 +97,73 @@ def prepare_column_for_imputation(
     df_prepared = df.with_columns(expr)
 
     return df_prepared, missing_values
+
+
+def encode_string_columns(
+    df: pl.DataFrame,
+    columns: list[str],
+    verbose: bool = False,
+) -> tuple[pl.DataFrame, dict[str, dict[int, str]]]:
+    """Encode string columns to integer values for use in numeric imputation.
+
+    Maps each unique non-null string value to an integer, preserving nulls.
+    Returns the modified DataFrame and a mapping to decode back to strings.
+
+    Args:
+        df: DataFrame containing the columns to encode
+        columns: List of column names to check and encode
+        verbose: Whether to log encoding details
+
+    Returns:
+        Tuple of (encoded_df, encodings) where encodings is a dict mapping
+        column name -> {int: label} for each encoded column
+    """
+    encodings: dict[str, dict[int, str]] = {}
+    df_encoded = df.clone()
+
+    for col in columns:
+        if df_encoded[col].dtype not in (pl.Utf8, pl.String):
+            continue
+
+        unique_vals = df_encoded[col].drop_nulls().unique().sort().to_list()
+        label_to_int = {label: i for i, label in enumerate(unique_vals)}
+        int_to_label = {i: label for label, i in label_to_int.items()}
+        encodings[col] = int_to_label
+
+        df_encoded = df_encoded.with_columns(
+            pl.col(col).replace_strict(label_to_int, default=None).cast(pl.Float64).alias(col)
+        )
+
+        if verbose:
+            logger.info(
+                "Encoded string column '%s' to integers: %s",
+                col,
+                {v: k for k, v in int_to_label.items()},
+            )
+
+    return df_encoded, encodings
+
+
+def decode_integer_to_string(
+    imputed_values: np.ndarray,
+    int_to_label: dict[int, str],
+) -> list[str]:
+    """Decode imputed float values back to string labels.
+
+    Rounds each value to the nearest integer and clamps to the valid
+    range of encoded labels.
+
+    Args:
+        imputed_values: 1-D array of imputed float values
+        int_to_label: Mapping from integer codes to string labels
+
+    Returns:
+        List of decoded string labels
+    """
+    max_key = max(int_to_label.keys())
+    min_key = min(int_to_label.keys())
+    fallback = int_to_label[min_key]
+
+    return [
+        int_to_label.get(max(min_key, min(round(v), max_key)), fallback) for v in imputed_values
+    ]
