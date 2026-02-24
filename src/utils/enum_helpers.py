@@ -122,7 +122,7 @@ def resolve_enum_labels(
         List of resolved values (integers or strings)
 
     Example:
-        >>> resolve_enum_labels('households', 'income_broad', ['MISSING', 'PNTA'])
+        >>> resolve_enum_labels('households', 'income_bin', ['MISSING', 'PNTA'])
         [995, 999]
     """
     enum_class = get_enum_class_for_field(table_name, field_name)

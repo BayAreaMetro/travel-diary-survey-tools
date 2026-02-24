@@ -19,7 +19,7 @@ def get_income_midpoint(income_enum: LabeledEnum) -> int:
     For "or more" categories, uses 1.25x multiplier to estimate upper bound.
 
     Args:
-        income_enum: Income category enum (IncomeDetailed or IncomeFollowup)
+        income_enum: Income category enum (IncomeBroad, IncomeDetailed, or IncomeFollowup)
 
     Returns:
         Midpoint dollar value for the income bracket

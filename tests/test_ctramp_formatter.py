@@ -23,7 +23,7 @@ from data_canon.codebook.ctramp import (
     load_alternatives_from_csv,
 )
 from data_canon.codebook.generic import BooleanYesNo
-from data_canon.codebook.households import IncomeDetailed, IncomeFollowup
+from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
@@ -272,7 +272,7 @@ class TestHouseholdFormatting:
                     num_people=2,
                     num_vehicles=1,
                     num_workers=1,
-                    income_detailed=IncomeDetailed.INCOME_75TO100,
+                    income_bin=IncomeBroad.INCOME_75TO100,
                 )
             ]
         )
@@ -303,14 +303,13 @@ class TestHouseholdFormatting:
         assert result["workers"][0] == 1
         assert result["jtf_choice"][0] == JTFChoice.NONE_NONE.value
 
-    def test_income_fallback_logic(self, standard_config):
-        """Test income fallback from detailed to followup."""
+    def test_income_bin_midpoint(self, standard_config):
+        """Test income is derived from income_bin midpoint when income is not set."""
         households = pl.DataFrame(
             [
                 create_household(
                     hh_id=1,
-                    income_detailed=None,
-                    income_followup=IncomeFollowup.INCOME_50TO75,
+                    income_bin=IncomeBroad.INCOME_50TO75,
                 )
             ]
         )
@@ -322,7 +321,7 @@ class TestHouseholdFormatting:
         tours = pl.DataFrame([], schema=get_tour_schema())
         result = format_households(households, persons, tours, standard_config)
 
-        assert result["income"][0] == 62000  # Midpoint of 50-75k from followup rounded to $1000
+        assert result["income"][0] == 62000  # Midpoint of $50,000-$74,999 rounded to $1000
 
 
 class TestPersonFormatting:
@@ -746,7 +745,7 @@ class TestIndividualTourFormatting:
         """Test formatting of a basic work tour with outbound/inbound trips."""
         # Create canonical data
         households_canonical = pl.DataFrame(
-            [create_household(hh_id=1, income_detailed=IncomeDetailed.INCOME_100TO150)]
+            [create_household(hh_id=1, income_bin=IncomeBroad.INCOME_75TO100)]
         )
         persons_canonical = pl.DataFrame(
             [
@@ -1876,9 +1875,7 @@ class TestIndividualTripFieldCorrections:
 
     def test_tour_purpose_string_not_int(self, standard_config):
         """Test that tour_purpose is string, not integer."""
-        households = pl.DataFrame(
-            [create_household(hh_id=1, income_detailed=IncomeDetailed.INCOME_50TO75)]
-        )
+        households = pl.DataFrame([create_household(hh_id=1, income_bin=IncomeBroad.INCOME_50TO75)])
         persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
             [
@@ -2018,7 +2015,7 @@ class TestIndividualTourFieldCorrections:
     def test_tour_purpose_not_all_othdisc(self, standard_config):
         """Test that tour_purpose correctly maps various purposes, not all to 'othdisc'."""
         households = pl.DataFrame(
-            [create_household(hh_id=1, income_detailed=IncomeDetailed.INCOME_100TO150)]
+            [create_household(hh_id=1, income_bin=IncomeBroad.INCOME_75TO100)]
         )
         persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame(
@@ -2171,8 +2168,7 @@ class TestWeightsAndSampleRate:
                 "num_people": [1, 2],
                 "num_vehicles": [1, 1],
                 "num_workers": [1, 1],
-                "income_detailed": [IncomeDetailed.INCOME_75TO100.value] * 2,
-                "income_followup": [None, None],
+                "income_bin": [IncomeBroad.INCOME_75TO100.value] * 2,
                 "hh_weight": [None, 3.0],
                 "home_lat": [37.7, 37.8],
                 "home_lon": [-122.4, -122.5],
@@ -2205,8 +2201,7 @@ class TestWeightsAndSampleRate:
                 "num_people": [1],
                 "num_vehicles": [1],
                 "num_workers": [1],
-                "income_detailed": [IncomeDetailed.INCOME_75TO100.value],
-                "income_followup": [None],
+                "income_bin": [IncomeBroad.INCOME_75TO100.value],
                 "home_lat": [37.7],
                 "home_lon": [-122.4],
                 "home_maz": [None],
