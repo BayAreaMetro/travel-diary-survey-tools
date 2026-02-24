@@ -4,6 +4,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from processing.imputation.comparison import compare_imputation_methods
 from processing.imputation.flags import create_flag_column, create_flag_columns
 from processing.imputation.impute_utils import (
     decode_dense_to_integer,
@@ -632,3 +633,146 @@ class TestDenseIntegerEncoding:
         # ALL imputed values must be one of the valid original codes
         imputed_vals = set(result["cat"].to_list())
         assert imputed_vals.issubset({10, 20, 30})
+
+
+class TestMethodComparison:
+    """Tests for head-to-head method comparison."""
+
+    def _make_comparison_data(self) -> tuple[dict[str, pl.DataFrame], dict]:
+        """Build a small dataset plus config for comparison tests."""
+        df = pl.DataFrame(
+            {
+                "feature": [1.0, 2.0, 3.0, 4.0, 5.0] * 20,
+                "mode": [1, 1, 2, 2, 1] * 20,
+            }
+        )
+        tables = {"persons": df}
+        config: dict = {
+            "persons": [
+                {
+                    "method": "knn",
+                    "column": "mode",
+                    "numeric_features": ["feature"],
+                    "n_neighbors": 3,
+                }
+            ]
+        }
+        return tables, config
+
+    def test_comparison_returns_all_methods(self):
+        """Comparison should produce rows for KNN, RF, and MICE."""
+        tables, config = self._make_comparison_data()
+        result = compare_imputation_methods(
+            config,
+            tables,
+            n_folds=3,
+            sample_pct=10.0,
+            random_state=42,
+        )
+
+        assert isinstance(result, pl.DataFrame)
+        assert len(result) == 3
+        methods = set(result["method"].to_list())
+        assert methods == {"knn", "rf", "mice"}
+
+        # All rows should reference the same column
+        assert result["variable"].unique().to_list() == ["mode"]
+        assert result["table"].unique().to_list() == ["persons"]
+
+    def test_comparison_deduplicates_columns(self):
+        """Same column configured twice should only produce one set of rows."""
+        tables, config = self._make_comparison_data()
+        # Add a duplicate config block with RF method
+        config["persons"].append(
+            {
+                "method": "rf",
+                "column": "mode",
+                "numeric_features": ["feature"],
+            }
+        )
+
+        result = compare_imputation_methods(
+            config,
+            tables,
+            n_folds=3,
+            sample_pct=10.0,
+            random_state=42,
+        )
+
+        # Still 3 rows (one per method), not 6
+        assert len(result) == 3
+
+    def test_comparison_splits_mice_columns(self):
+        """MICE columns:[a,b] should produce two sets of 3 method rows."""
+        df = pl.DataFrame(
+            {
+                "feature": [1.0, 2.0, 3.0, 4.0, 5.0] * 20,
+                "col_a": [1, 2, 1, 2, 1] * 20,
+                "col_b": [10, 20, 30, 10, 20] * 20,
+            }
+        )
+        config = {
+            "persons": [
+                {
+                    "method": "mice",
+                    "columns": ["col_a", "col_b"],
+                    "numeric_features": ["feature"],
+                }
+            ]
+        }
+        result = compare_imputation_methods(
+            config,
+            {"persons": df},
+            n_folds=3,
+            sample_pct=10.0,
+            random_state=42,
+        )
+
+        # 2 columns x 3 methods = 6 rows
+        assert len(result) == 6
+        assert set(result["variable"].to_list()) == {"col_a", "col_b"}
+        for var in ("col_a", "col_b"):
+            subset = result.filter(pl.col("variable") == var)
+            assert set(subset["method"].to_list()) == {"knn", "rf", "mice"}
+
+    def test_comparison_has_expected_columns(self):
+        """Result DataFrame should contain the expected metric columns."""
+        tables, config = self._make_comparison_data()
+        result = compare_imputation_methods(
+            config,
+            tables,
+            n_folds=3,
+            sample_pct=10.0,
+            random_state=42,
+        )
+
+        expected = {
+            "table",
+            "variable",
+            "method",
+            "type",
+            "n_samples",
+            "n_folds",
+            "accuracy",
+            "precision",
+            "recall",
+            "f1",
+        }
+        assert expected.issubset(set(result.columns))
+
+    def test_comparison_saves_csv(self, tmp_path):
+        """Should write CSV when output_path is provided."""
+        tables, config = self._make_comparison_data()
+        csv_path = str(tmp_path / "comparison.csv")
+        compare_imputation_methods(
+            config,
+            tables,
+            n_folds=3,
+            sample_pct=10.0,
+            random_state=42,
+            output_path=csv_path,
+        )
+
+        saved = pl.read_csv(csv_path)
+        assert len(saved) == 3
+        assert "method" in saved.columns

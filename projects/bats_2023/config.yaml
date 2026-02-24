@@ -87,6 +87,9 @@ steps:
         enabled: true
         n_folds: 5           # Number of cross-validation folds
         sample_pct: 5.0      # % of non-missing values to test
+        output_path: "{{ output_dir }}/imputation_validation.csv"
+        # Optional: benchmark every column against all three methods
+        compare_methods: false
 
   - name: link_trips
     validate_input: false

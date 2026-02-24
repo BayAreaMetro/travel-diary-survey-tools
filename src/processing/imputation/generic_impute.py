@@ -6,6 +6,7 @@ from typing import Any, Literal
 import polars as pl
 
 from pipeline.decoration import step
+from processing.imputation.comparison import compare_imputation_methods
 from processing.imputation.flags import create_flag_columns
 from processing.imputation.knn import impute_knn
 from processing.imputation.mice import impute_mice
@@ -18,55 +19,13 @@ from processing.imputation.validation import (
 )
 
 from .impute_utils import (
-    add_household_agg_features,
-    aggregate_from_children,
-    join_parent_tables,
+    enrich_dataframe,
     log_imputation_stats,
     prepare_column_for_imputation,
     strip_joined_columns,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _enrich_dataframe(
-    df: pl.DataFrame,
-    table_name: str,
-    tables: dict[str, pl.DataFrame] | None,
-    join_tables_list: list[str],
-    target_columns: list[str],
-    categorical_features: list[str] | None,
-    aggregate_from_config: dict[str, dict[str, list[str]]] | None = None,
-) -> tuple[pl.DataFrame, list[str], list[str] | None]:
-    """Enrich a DataFrame with parent joins and child aggregations.
-
-    Handles both directions:
-      - Parent→child joins via ``join_tables`` config
-      - Child→parent aggregations via ``aggregate_from`` config
-
-    Returns:
-        Tuple of (enriched_df, added_column_names, updated_categorical_features)
-    """
-    added_columns: list[str] = []
-
-    # Parent joins (e.g. persons joining household columns)
-    if join_tables_list and tables:
-        df, joined_cols = join_parent_tables(df, table_name, tables, join_tables_list)
-        added_columns.extend(joined_cols)
-
-        df, agg_cols = add_household_agg_features(df, target_columns)
-        added_columns.extend(agg_cols)
-        if agg_cols:
-            categorical_features = list(categorical_features or []) + agg_cols
-
-    # Child aggregations (e.g. households aggregating from persons)
-    if aggregate_from_config and tables:
-        df, child_cols = aggregate_from_children(df, table_name, tables, aggregate_from_config)
-        added_columns.extend(child_cols)
-        if child_cols:
-            categorical_features = list(categorical_features or []) + child_cols
-
-    return df, added_columns, categorical_features
 
 
 def _process_imputation(
@@ -78,7 +37,7 @@ def _process_imputation(
     validate_imputation: dict[str, Any] | None,
     random_state: int | None,
     tables: dict[str, pl.DataFrame] | None = None,
-) -> tuple[pl.DataFrame, list[str]]:
+) -> tuple[pl.DataFrame, list[str], list[dict[str, Any]]]:
     """Process imputation for a table using the specified method.
 
     Shared scaffold: enrich → prepare missing → impute → strip → validate.
@@ -95,9 +54,11 @@ def _process_imputation(
         tables: Dict of all canonical tables (for cross-table joins)
 
     Returns:
-        Tuple of (imputed_df, list of imputed column names)
+        Tuple of (imputed_df, list of imputed column names, list of validation
+        metric dicts — one per column validated)
     """
     imputed_columns: list[str] = []
+    validation_results: list[dict[str, Any]] = []
 
     for config in configs:
         # Normalise target columns: KNN/RF use 'column', MICE uses 'columns'
@@ -118,7 +79,7 @@ def _process_imputation(
             raise ValueError(msg)
 
         # 1. Enrich (parent joins + child aggregations)
-        df, added_columns, categorical_features = _enrich_dataframe(
+        df, added_columns, categorical_features = enrich_dataframe(
             df,
             table_name,
             tables,
@@ -177,9 +138,14 @@ def _process_imputation(
         if added_columns:
             df = strip_joined_columns(df, added_columns)
 
-        # 5. Optional validation
-        if validate_imputation and validate_imputation.get("enabled", False):
-            _validate_config(
+        # 5. Optional per-method validation (skipped when compare_methods
+        #    is active because the comparison already benchmarks every method)
+        if (
+            validate_imputation
+            and validate_imputation.get("enabled", False)
+            and not validate_imputation.get("compare_methods", False)
+        ):
+            val_metrics = _validate_config(
                 original_df,
                 table_name,
                 target_columns,
@@ -191,8 +157,9 @@ def _process_imputation(
                 tables,
                 categorical_features,
             )
+            validation_results.extend(val_metrics)
 
-    return df, imputed_columns
+    return df, imputed_columns, validation_results
 
 
 def _validate_config(
@@ -206,8 +173,14 @@ def _validate_config(
     random_state: int | None,
     tables: dict[str, pl.DataFrame] | None,
     categorical_features: list[str] | None,
-) -> None:
-    """Run k-fold cross-validation for a single imputation config block."""
+) -> list[dict[str, Any]]:
+    """Run k-fold cross-validation for a single imputation config block.
+
+    Returns:
+        List of per-column metric dicts, each containing ``table``, ``variable``,
+        ``method``, and the computed metrics (accuracy/precision/recall/f1 for
+        categoricals, rmse/mae/r2 for continuous).
+    """
     n_folds = validate_imputation.get("n_folds", 5)
     sample_pct = validate_imputation.get("sample_pct", 5.0)
     join_tables_list = config.get("join_tables", [])
@@ -225,7 +198,7 @@ def _validate_config(
         if labels:
             prepared, _ = prepare_column_for_imputation(prepared, table_name, column, labels)
 
-    prepared, _, val_cat_features = _enrich_dataframe(
+    prepared, _, val_cat_features = enrich_dataframe(
         prepared,
         table_name,
         tables,
@@ -276,6 +249,31 @@ def _validate_config(
 
     log_validation_results(metrics)
 
+    # Normalise single-column metrics to per-column dict
+    per_col = {str(metrics["column"]): metrics} if "column" in metrics else metrics
+
+    results: list[dict[str, Any]] = []
+    for col, m in per_col.items():
+        if "error" in m:
+            continue
+        row: dict[str, Any] = {
+            "table": table_name,
+            "variable": col,
+            "method": method,
+            "type": m.get("type", "unknown"),
+            "n_samples": m.get("n_samples", 0),
+            "n_folds": m.get("n_folds", 0),
+        }
+        # Categorical metrics
+        for key in ("accuracy", "precision", "recall", "f1"):
+            row[key] = m.get(key)
+        # Continuous metrics
+        for key in ("rmse", "mae", "r2"):
+            row[key] = m.get(key)
+        results.append(row)
+
+    return results
+
 
 # Fixed execution order: KNN --> RF --> MICE, so later phases can use earlier results
 _METHOD_ORDER: list[Literal["knn", "rf", "mice"]] = ["knn", "rf", "mice"]
@@ -306,7 +304,7 @@ def _group_configs_by_method(
 
 
 @step()
-def imputation(
+def imputation(  # noqa: C901
     # Optional canonical tables
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -368,9 +366,20 @@ def imputation(
             - enabled: Whether to run validation (default: False)
             - n_folds: Number of k-folds (default: 5)
             - sample_pct: % of non-missing values to test (default: 5.0)
+            - output_path: Path to save validation or comparison CSV
+            - compare_methods: When True, run all three methods (KNN, RF,
+              MICE) against every column instead of validating only the
+              configured method (default: False)
 
     Returns:
-        Dictionary of imputed tables
+        Dictionary of imputed tables.  When validation is enabled, an extra
+        key ``_validation_summary`` contains a Polars DataFrame with columns:
+        table, variable, method, type, n_samples, n_folds, accuracy,
+        precision, recall, f1, rmse, mae, r2.
+
+        When ``compare_methods`` is True, an extra key
+        ``_method_comparison`` contains a Polars DataFrame comparing
+        KNN, RF, and MICE for every imputed column.
 
     Example config:
         impute_columns:
@@ -436,6 +445,7 @@ def imputation(
     originals = {name: df.clone() for name, df in tables.items()}
     current_dfs = dict(tables.items())
     all_imputed_columns: dict[str, list[str]] = {name: [] for name in tables}
+    all_validation_results: list[dict[str, Any]] = []
 
     # Group configs by method (KNN → RF → MICE)
     method_configs = _group_configs_by_method(impute_columns)
@@ -454,7 +464,7 @@ def imputation(
                 )
                 continue
             logger.info("  %s imputation for %s", method.upper(), table_name)
-            current_dfs[table_name], cols = _process_imputation(
+            current_dfs[table_name], cols, val_rows = _process_imputation(
                 current_dfs[table_name],
                 originals[table_name],
                 table_name,
@@ -465,6 +475,7 @@ def imputation(
                 tables=current_dfs,
             )
             all_imputed_columns[table_name].extend(cols)
+            all_validation_results.extend(val_rows)
 
     # Create flag columns for all tables
     result_tables = {}
@@ -481,6 +492,26 @@ def imputation(
             current_df = create_flag_columns(current_df, originals[table_name], imputed_columns)
 
         result_tables[table_name] = current_df
+
+    # Run either per-method validation summary or full method comparison
+    if validate_imputation and validate_imputation.get("compare_methods", False):
+        logger.info("Running head-to-head method comparison for all imputed columns")
+        comparison_df = compare_imputation_methods(
+            impute_columns,
+            current_dfs,
+            n_folds=validate_imputation.get("n_folds", 5),
+            sample_pct=validate_imputation.get("sample_pct", 5.0),
+            random_state=random_state,
+            output_path=validate_imputation.get("output_path"),
+        )
+        result_tables["_method_comparison"] = comparison_df
+    elif all_validation_results:
+        summary_df = pl.DataFrame(all_validation_results)
+        output_path = validate_imputation.get("output_path") if validate_imputation else None
+        if output_path:
+            summary_df.write_csv(output_path)
+            logger.info("Validation summary saved to %s", output_path)
+        result_tables["_validation_summary"] = summary_df
 
     logger.info("Imputation complete for %d tables", len(result_tables))
     return result_tables

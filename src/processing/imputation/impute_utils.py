@@ -675,3 +675,43 @@ def strip_joined_columns(
     if cols_to_drop:
         df = df.drop(cols_to_drop)
     return df
+
+
+def enrich_dataframe(
+    df: pl.DataFrame,
+    table_name: str,
+    tables: dict[str, pl.DataFrame] | None,
+    join_tables_list: list[str],
+    target_columns: list[str],
+    categorical_features: list[str] | None,
+    aggregate_from_config: dict[str, dict[str, list[str]]] | None = None,
+) -> tuple[pl.DataFrame, list[str], list[str] | None]:
+    """Enrich a DataFrame with parent joins and child aggregations.
+
+    Handles both directions:
+      - Parent→child joins via ``join_tables`` config
+      - Child→parent aggregations via ``aggregate_from`` config
+
+    Returns:
+        Tuple of (enriched_df, added_column_names, updated_categorical_features)
+    """
+    added_columns: list[str] = []
+
+    # Parent joins (e.g. persons joining household columns)
+    if join_tables_list and tables:
+        df, joined_cols = join_parent_tables(df, table_name, tables, join_tables_list)
+        added_columns.extend(joined_cols)
+
+        df, agg_cols = add_household_agg_features(df, target_columns)
+        added_columns.extend(agg_cols)
+        if agg_cols:
+            categorical_features = list(categorical_features or []) + agg_cols
+
+    # Child aggregations (e.g. households aggregating from persons)
+    if aggregate_from_config and tables:
+        df, child_cols = aggregate_from_children(df, table_name, tables, aggregate_from_config)
+        added_columns.extend(child_cols)
+        if child_cols:
+            categorical_features = list(categorical_features or []) + child_cols
+
+    return df, added_columns, categorical_features
