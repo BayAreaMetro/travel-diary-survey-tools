@@ -16,6 +16,7 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.ctramp import CTRAMPEmploymentCategory
 from data_canon.models.ctramp import (
     HouseholdCTRAMPModel,
     IndividualTourCTRAMPModel,
@@ -33,6 +34,7 @@ from .format_mandatory_location import format_mandatory_location
 from .format_persons import enrich_persons_with_person_type, format_persons
 from .format_tours import format_individual_tour, format_joint_tour
 from .format_trips import format_individual_trip, format_joint_trip
+from .mappings import EMPLOYMENT_TO_CTRAMP, ctramp_student_category_expression
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +298,23 @@ def format_ctramp(
     households_ctramp = format_households(households, persons, tours, config)
 
     # Derive/validate person_type and type for use in tour/trip formatting
+    # Pre-compute student_category and employment_category so person_type
+    # expression can use them for consistent classification
+    if "student_category" not in persons.columns:
+        persons = persons.with_columns(
+            ctramp_student_category_expression(school_taz_col=f"school_{config.taz_field}").alias(
+                "student_category"
+            )
+        )
+    if "employment_category" not in persons.columns:
+        persons = persons.with_columns(
+            pl.col("employment")
+            .replace_strict(
+                EMPLOYMENT_TO_CTRAMP,
+                default=CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
+            )
+            .alias("employment_category")
+        )
     persons_with_type = enrich_persons_with_person_type(persons)
 
     # Format tours - use empty DataFrame with proper schema if no tours exist

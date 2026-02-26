@@ -9,13 +9,15 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPTourCategory, TourComposition
+from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPTourCategory, TourComposition
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.mappings import (
+    EMPLOYMENT_TO_CTRAMP,
     ctramp_mode_expression,
     ctramp_purpose_category_expression,
+    ctramp_student_category_expression,
 )
 
 from .ctramp_config import CTRAMPConfig
@@ -67,6 +69,22 @@ def format_individual_tour(
     # Derive/validate person_type in persons_with_type before joining to tours
     if "person_type" not in persons_canonical.columns or "type" not in persons_canonical.columns:
         logger.info("Deriving person_type for tour formatting")
+        # Pre-compute student_category and employment_category for consistency
+        if "student_category" not in persons_canonical.columns:
+            persons_canonical = persons_canonical.with_columns(
+                ctramp_student_category_expression(school_taz_col="school_taz").alias(
+                    "student_category"
+                )
+            )
+        if "employment_category" not in persons_canonical.columns:
+            persons_canonical = persons_canonical.with_columns(
+                pl.col("employment")
+                .replace_strict(
+                    EMPLOYMENT_TO_CTRAMP,
+                    default=CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
+                )
+                .alias("employment_category")
+            )
         persons_canonical = enrich_persons_with_person_type(persons_canonical)
 
     # Filter to individual tours only (not joint)

@@ -355,13 +355,13 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
     }
 
     # Children < 16 with full-time employment
+    # Note: EMPLOYED_UNPAID is treated as part-time (consistent with EMPLOYMENT_TO_CTRAMP)
     child_workers = df.filter(
         (pl.col("age").is_in([AgeCategory.AGE_UNDER_5.value, AgeCategory.AGE_5_TO_15.value]))
         & pl.col("employment").is_in(
             [
                 Employment.EMPLOYED_FULLTIME.value,
                 Employment.EMPLOYED_SELF.value,
-                Employment.EMPLOYED_UNPAID.value,
             ]
         )
     ).select("person_id", "age", "employment")
@@ -529,6 +529,8 @@ def ctramp_person_type_expression(
     employment_col: str = "employment",
     student_col: str = "student",
     school_type_col: str = "school_type",
+    employment_category_col: str | None = None,
+    student_category_col: str | None = None,
 ) -> pl.Expr:
     """Create expression to derive person category from person attributes.
 
@@ -536,29 +538,38 @@ def ctramp_person_type_expression(
     step, converting employment/student/age data into person type categories.
 
     Classification Precedence Rules (highest to lowest):
-        1. Age 65+ → RETIRED (Type 5) - overrides all other attributes
-        2. Age < 5 → CHILD_UNDER_5 (Type 8) - overrides all other attributes
-        3. Age 5-15 → CHILD_NON_DRIVING_AGE (Type 6) - cannot be workers
-        4. Full-time student + full-time employment → UNIVERSITY_STUDENT (Type 3)
-           - Full-time beats part-time: prioritize primary activity
-        5. Full-time employment (alone) → FULL_TIME_WORKER (Type 1)
-        6. Student status + school type → determines child/university types
-        7. Part-time employment → PART_TIME_WORKER (Type 2)
+        1. Age < 5 → CHILD_UNDER_5 (Type 8) - overrides all other attributes
+        2. Age 5-15 → CHILD_NON_DRIVING_AGE (Type 6) - cannot be workers
+        3. Grade/high school student (16-17) → CHILD_DRIVING_AGE (Type 7)
+           - Children stay children regardless of employment
+        4. Full-time employment → FULL_TIME_WORKER (Type 1)
+           - Beats student status even for full-time college students
+        5. Student status + school type → determines child/university types
+        6. Part-time employment → PART_TIME_WORKER (Type 2)
+           - Unless also a college student → UNIVERSITY_STUDENT (Type 3)
+        7. Age 65+ without employment → RETIRED (Type 5)
         8. Default by age group → NON_WORKER (Type 4) or child types
 
     Edge Case Handling:
         - Children with impossible employment (e.g., 10-year-old FT worker) are
           classified by age rules
         - Young adults (16-24) who are neither students nor employed are
-          classified as CHILD_DRIVING_AGE (Type 7)
+          classified as NON_WORKER (Type 4), except 16-17 → CHILD_DRIVING_AGE
+        - Seniors 65+ with employment are classified as workers, not RETIRED
         - Impossible combinations (e.g., 4-year-old college student) should be
           logged using log_person_type_warnings() before classification
 
     Args:
         age_col: Name of age column (categorical AgeCategory)
-        employment_col: Name of employment column
-        student_col: Name of student column
-        school_type_col: Name of school_type column
+        employment_col: Name of employment column (raw Employment enum)
+        student_col: Name of student column (raw Student enum)
+        school_type_col: Name of school_type column (raw SchoolType enum)
+        employment_category_col: Optional name of pre-derived employment category
+            column (CTRAMPEmploymentCategory values). If provided, used instead
+            of raw employment for FT/PT classification.
+        student_category_col: Optional name of pre-derived student category column
+            (CTRAMPStudentCategory values). If provided, used instead of raw
+            school_type for college/grade school classification.
 
     Returns:
         Polars expression that evaluates to CTRAMPPersonType enum value
@@ -569,8 +580,18 @@ def ctramp_person_type_expression(
     Note:
         Age is a categorical variable (see AgeCategory enum):
         1=under 5, 2=5-15, 3=16-17, 4=18-24, 5=25-34, etc.
+
+        When employment_category_col and student_category_col are provided,
+        classification uses the pre-derived categories for consistency with
+        the rest of the CT-RAMP pipeline. EMPLOYED_UNPAID is treated as
+        part-time via the EMPLOYMENT_TO_CTRAMP mapping.
     """
     # Define age group categories
+    senior_age = [
+        AgeCategory.AGE_65_TO_74.value,
+        AgeCategory.AGE_75_TO_84.value,
+        AgeCategory.AGE_85_AND_UP.value,
+    ]
     working_age = [
         AgeCategory.AGE_25_TO_34.value,
         AgeCategory.AGE_35_TO_44.value,
@@ -579,48 +600,78 @@ def ctramp_person_type_expression(
     ]
 
     # Employment status indicators
-    # Note: Self-employment (EMPLOYED_SELF) is always classified as full-time
-    is_full_time = pl.col(employment_col).is_in(
-        [
-            Employment.EMPLOYED_FULLTIME.value,
-            Employment.EMPLOYED_SELF.value,
-            Employment.EMPLOYED_UNPAID.value,
-        ]
-    )
-    is_part_time = pl.col(employment_col) == Employment.EMPLOYED_PARTTIME.value
+    # When employment_category_col is provided, use the pre-derived category
+    # (which maps EMPLOYED_UNPAID → Part-time). Otherwise, use raw employment.
+    if employment_category_col:
+        is_full_time = (
+            pl.col(employment_category_col) == CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value
+        )
+        is_part_time = (
+            pl.col(employment_category_col) == CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value
+        )
+    else:
+        # Fall back to raw employment column
+        # Note: EMPLOYED_SELF is always classified as full-time
+        # EMPLOYED_UNPAID is classified as part-time (consistent with EMPLOYMENT_TO_CTRAMP)
+        is_full_time = pl.col(employment_col).is_in(
+            [
+                Employment.EMPLOYED_FULLTIME.value,
+                Employment.EMPLOYED_SELF.value,
+            ]
+        )
+        is_part_time = pl.col(employment_col).is_in(
+            [
+                Employment.EMPLOYED_PARTTIME.value,
+                Employment.EMPLOYED_UNPAID.value,
+            ]
+        )
 
     # Student and school status indicators
-    is_student = pl.col(student_col).is_in(
-        [
-            Student.FULLTIME_INPERSON.value,
-            Student.PARTTIME_INPERSON.value,
-            Student.PARTTIME_ONLINE.value,
-            Student.FULLTIME_ONLINE.value,
-        ]
-    )
-    # Full-time student indicator (for tie-breaking with full-time employment)
-    is_fulltime_student = pl.col(student_col).is_in(
-        [
-            Student.FULLTIME_INPERSON.value,
-            Student.FULLTIME_ONLINE.value,
-        ]
-    )
-    is_high_school = pl.col(school_type_col).is_in(
-        [
-            SchoolType.HOME_SCHOOL.value,
-            SchoolType.HIGH_SCHOOL.value,
-        ]
-    )
-    is_college = pl.col(school_type_col).is_in(
-        [
-            SchoolType.COLLEGE_2YEAR.value,
-            SchoolType.COLLEGE_4YEAR.value,
-            SchoolType.GRADUATE_SCHOOL.value,
-            SchoolType.VOCATIONAL.value,
-        ]
-    )
+    # When student_category_col is provided, use the pre-derived category.
+    # Otherwise, use raw student/school_type columns.
+    if student_category_col:
+        is_college = pl.col(student_category_col) == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value
+        is_high_school = (
+            pl.col(student_category_col) == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value
+        )
+        is_student_of_any_kind = is_college | is_high_school
+    else:
+        is_college = pl.col(school_type_col).is_in(
+            [
+                SchoolType.COLLEGE_2YEAR.value,
+                SchoolType.COLLEGE_4YEAR.value,
+                SchoolType.GRADUATE_SCHOOL.value,
+                SchoolType.VOCATIONAL.value,
+            ]
+        )
+        is_high_school = pl.col(school_type_col).is_in(
+            [
+                SchoolType.HOME_SCHOOL.value,
+                SchoolType.HIGH_SCHOOL.value,
+            ]
+        )
+        _is_student_raw = pl.col(student_col).is_in(
+            [
+                Student.FULLTIME_INPERSON.value,
+                Student.PARTTIME_INPERSON.value,
+                Student.PARTTIME_ONLINE.value,
+                Student.FULLTIME_ONLINE.value,
+            ]
+        )
+        is_college = is_college & _is_student_raw
+        is_high_school = is_high_school & _is_student_raw
+        is_student_of_any_kind = _is_student_raw
+
     # Students 18+ with MISSING school_type are assumed to be university students
-    is_student_no_school_type = is_student & (pl.col(school_type_col) == SchoolType.MISSING.value)
+    # (only used in fallback mode without student_category_col)
+    if not student_category_col:
+        is_student_no_school_type = is_student_of_any_kind & (
+            pl.col(school_type_col) == SchoolType.MISSING.value
+        )
+    else:
+        # When student_category is pre-derived, MISSING school_type cases are
+        # already resolved to COLLEGE_OR_HIGHER by student_category_expression
+        is_student_no_school_type = pl.lit(value=False)
 
     # Age indicators
     age = pl.col(age_col)
@@ -629,6 +680,7 @@ def ctramp_person_type_expression(
     is_16_to_17 = age == AgeCategory.AGE_16_TO_17.value
     is_18_to_24 = age == AgeCategory.AGE_18_TO_24.value
     is_working_age = age.is_in(working_age)
+    is_senior = age.is_in(senior_age)
 
     # Must have these categories to match CT-RAMP person types:
     # FULL_TIME_WORKER = 1, "Full-time worker"
@@ -646,27 +698,24 @@ def ctramp_person_type_expression(
         .then(pl.lit(CTRAMPPersonType.CHILD_UNDER_5))
         .when(is_5_to_15)
         .then(pl.lit(CTRAMPPersonType.CHILD_NON_DRIVING_AGE))
-        # Teens: full-time student + college beats full-time worker
-        .when(is_16_to_17 & is_full_time & is_fulltime_student & is_college)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        # Teens: grade/high school students are children regardless of employment
+        .when(is_16_to_17 & is_high_school)
+        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
         .when(is_16_to_17 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
-        .when(is_16_to_17 & is_student)
-        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        .when(is_16_to_17 & is_college)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_16_to_17)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
-        # Young adults: full-time student beats full-time worker, then other cases
-        # Full-time student + full-time employed -> prioritize student (primary activity)
-        .when(is_18_to_24 & is_full_time & is_fulltime_student & is_college)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        # Young adults: full-time employment beats student status
         .when(is_18_to_24 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
-        .when(is_18_to_24 & is_high_school & is_student)
+        .when(is_18_to_24 & is_high_school)
         .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
         # Part-time workers who are college students -> prioritize student status
-        .when(is_18_to_24 & is_part_time & is_college & is_student)
+        .when(is_18_to_24 & is_part_time & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
-        .when(is_18_to_24 & is_college & is_student)
+        .when(is_18_to_24 & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         # Students 18+ with MISSING school_type -> assume university
         .when(is_18_to_24 & is_student_no_school_type)
@@ -674,17 +723,14 @@ def ctramp_person_type_expression(
         .when(is_18_to_24 & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
         .when(is_18_to_24)
-        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
-        # Working age: full-time student beats full-time worker, then other cases
-        # Full-time student + full-time employed -> prioritize student (primary activity)
-        .when(is_working_age & is_full_time & is_fulltime_student & is_college)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        .then(pl.lit(CTRAMPPersonType.NON_WORKER))
+        # Working age: full-time employment beats student status
         .when(is_working_age & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         # Part-time workers who are college students -> prioritize student status
-        .when(is_working_age & is_part_time & is_college & is_student)
+        .when(is_working_age & is_part_time & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
-        .when(is_working_age & is_college & is_student)
+        .when(is_working_age & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         # Students with MISSING school_type -> assume university
         .when(is_working_age & is_student_no_school_type)
@@ -693,8 +739,19 @@ def ctramp_person_type_expression(
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
         .when(is_working_age)
         .then(pl.lit(CTRAMPPersonType.NON_WORKER))
-        # Seniors (65+)
-        .otherwise(pl.lit(CTRAMPPersonType.RETIRED))
+        # Seniors (65+): employment overrides RETIRED
+        .when(is_senior & is_full_time)
+        .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
+        .when(is_senior & is_part_time & is_college)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        .when(is_senior & is_college)
+        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        .when(is_senior & is_part_time)
+        .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
+        .when(is_senior)
+        .then(pl.lit(CTRAMPPersonType.RETIRED))
+        # Catch-all (shouldn't be reached with valid AgeCategory values)
+        .otherwise(pl.lit(CTRAMPPersonType.NON_WORKER))
     )
 
     return _expr
@@ -871,6 +928,15 @@ def ctramp_student_category_expression(
         .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
         .when(is_student & is_early_childhood)
         .then(pl.lit(CTRAMPStudentCategory.NOT_STUDENT.value))
+        # Active student 18+ with missing school_type → assume college
+        # (Aligns with person_type_expression which assumes university for 18+ students)
+        .when(
+            is_student
+            & is_school_type_missing
+            & ~is_school_age
+            & ~(pl.col(age_col) == AgeCategory.AGE_UNDER_5.value)
+        )
+        .then(pl.lit(CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value))
         # Missing student/school data + school age + no location → assume student
         .when((is_student_missing | is_school_type_missing) & is_school_age & ~has_school_location)
         .then(pl.lit(CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value))

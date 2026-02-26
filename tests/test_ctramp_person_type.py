@@ -55,8 +55,8 @@ class TestPersonTypeClassification:
                 Employment.UNEMPLOYED_NOT_LOOKING,
                 Student.NONSTUDENT,
                 SchoolType.MISSING,
-                CTRAMPPersonType.CHILD_DRIVING_AGE,
-                "BUG FIX: Age 18-24, not student/not worker → CHILD_DRIVING_AGE",
+                CTRAMPPersonType.NON_WORKER,
+                "Age 18-24, not student/not worker → NON_WORKER",
             ),
             (
                 AgeCategory.AGE_18_TO_24,
@@ -75,22 +75,22 @@ class TestPersonTypeClassification:
                 "Age 18-24, college → UNIVERSITY_STUDENT",
             ),
             # === PRIORITY RULES - Employment vs Student ===
-            # Full-time student beats full-time employment (primary activity)
+            # Full-time employment beats full-time student status
             (
                 AgeCategory.AGE_18_TO_24,
                 Employment.EMPLOYED_FULLTIME,
                 Student.FULLTIME_INPERSON,
                 SchoolType.COLLEGE_4YEAR,
-                CTRAMPPersonType.UNIVERSITY_STUDENT,
-                "FT worker + FT college student → full-time student wins",
+                CTRAMPPersonType.FULL_TIME_WORKER,
+                "FT worker + FT college student → employment wins",
             ),
             (
                 AgeCategory.AGE_35_TO_44,
                 Employment.EMPLOYED_FULLTIME,
                 Student.FULLTIME_ONLINE,
                 SchoolType.COLLEGE_4YEAR,
-                CTRAMPPersonType.UNIVERSITY_STUDENT,
-                "Working adult + FT college → full-time student wins",
+                CTRAMPPersonType.FULL_TIME_WORKER,
+                "Working adult + FT college → employment wins",
             ),
             # Full-time employment beats part-time student
             (
@@ -109,22 +109,31 @@ class TestPersonTypeClassification:
                 CTRAMPPersonType.FULL_TIME_WORKER,
                 "FT worker + PT college student → employment wins",
             ),
-            # === PRIORITY RULES - Age 65+ always RETIRED ===
+            # === PRIORITY RULES - Age 65+ employed → worker types ===
             (
                 AgeCategory.AGE_65_TO_74,
                 Employment.EMPLOYED_FULLTIME,
                 Student.NONSTUDENT,
                 SchoolType.MISSING,
-                CTRAMPPersonType.RETIRED,
-                "Age 65+, working FT → RETIRED (age wins)",
+                CTRAMPPersonType.FULL_TIME_WORKER,
+                "Age 65+, working FT → FULL_TIME_WORKER (employment wins)",
             ),
             (
                 AgeCategory.AGE_75_TO_84,
                 Employment.EMPLOYED_PARTTIME,
                 Student.NONSTUDENT,
                 SchoolType.MISSING,
+                CTRAMPPersonType.PART_TIME_WORKER,
+                "Age 75+, working PT → PART_TIME_WORKER (employment wins)",
+            ),
+            # 65+ non-employed → RETIRED
+            (
+                AgeCategory.AGE_65_TO_74,
+                Employment.UNEMPLOYED_NOT_LOOKING,
+                Student.NONSTUDENT,
+                SchoolType.MISSING,
                 CTRAMPPersonType.RETIRED,
-                "Age 75+, working PT → RETIRED (age wins)",
+                "Age 65+, not employed → RETIRED",
             ),
             # === REPRESENTATIVE CASES - Each person type ===
             (
@@ -343,8 +352,8 @@ class TestPersonTypeClassification:
         student=st.sampled_from(list(Student)),
         school_type=st.sampled_from(list(SchoolType)),
     )
-    def test_property_age_65_plus_always_retired(self, age, employment, student, school_type):
-        """Property: Anyone 65+ must always be classified as RETIRED, regardless of other attributes."""  # noqa: E501
+    def test_property_age_65_plus_classification(self, age, employment, student, school_type):
+        """Property: 65+ defaults to RETIRED, but employment overrides to worker types."""
         df = pl.DataFrame(
             [
                 {
@@ -359,10 +368,47 @@ class TestPersonTypeClassification:
         result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
-        assert person_type == CTRAMPPersonType.RETIRED.value, (
-            f"Age {age.name} must be RETIRED regardless of "
-            f"employment/student status, got {person_type}"
-        )
+        is_ft_employed = employment in [
+            Employment.EMPLOYED_FULLTIME,
+            Employment.EMPLOYED_SELF,
+        ]
+        is_pt_employed = employment in [
+            Employment.EMPLOYED_PARTTIME,
+            Employment.EMPLOYED_UNPAID,
+        ]
+        is_college = school_type in [
+            SchoolType.COLLEGE_2YEAR,
+            SchoolType.COLLEGE_4YEAR,
+            SchoolType.GRADUATE_SCHOOL,
+            SchoolType.VOCATIONAL,
+        ]
+        is_student = student in [
+            Student.FULLTIME_INPERSON,
+            Student.FULLTIME_ONLINE,
+            Student.PARTTIME_INPERSON,
+            Student.PARTTIME_ONLINE,
+        ]
+
+        if is_ft_employed:
+            assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value, (
+                f"Age 65+ with FT employment must be FULL_TIME_WORKER, got {person_type}"
+            )
+        elif is_pt_employed and is_student and is_college:
+            assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+                f"Age 65+ PT employed college student must be UNIVERSITY_STUDENT, got {person_type}"
+            )
+        elif is_student and is_college:
+            assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
+                f"Age 65+ college student must be UNIVERSITY_STUDENT, got {person_type}"
+            )
+        elif is_pt_employed:
+            assert person_type == CTRAMPPersonType.PART_TIME_WORKER.value, (
+                f"Age 65+ with PT employment must be PART_TIME_WORKER, got {person_type}"
+            )
+        else:
+            assert person_type == CTRAMPPersonType.RETIRED.value, (
+                f"Age 65+ without employment must be RETIRED, got {person_type}"
+            )
 
     @given(
         age=st.sampled_from([AgeCategory.AGE_16_TO_17, AgeCategory.AGE_18_TO_24]),
@@ -372,13 +418,14 @@ class TestPersonTypeClassification:
         student=st.just(Student.NONSTUDENT),
         school_type=st.just(SchoolType.MISSING),
     )
-    def test_property_youth_non_employed_non_student_is_child_driving_age(
+    def test_property_youth_non_employed_non_student_default(
         self, age, employment, student, school_type
     ):
-        """Property: 16-24 year olds who are neither employed nor students must be CHILD_DRIVING_AGE.
+        """Property: Non-employed non-students default by age.
 
-        This is the critical bug case where they were incorrectly classified as NON_WORKER or RETIRED.
-        """  # noqa: E501
+        - 16-17 → CHILD_DRIVING_AGE
+        - 18-24 → NON_WORKER
+        """
         df = pl.DataFrame(
             [
                 {
@@ -393,9 +440,14 @@ class TestPersonTypeClassification:
         result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
-        assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value, (
-            f"Age {age.name}, unemployed, non-student must be CHILD_DRIVING_AGE, got {person_type}"
-        )
+        if age == AgeCategory.AGE_16_TO_17:
+            assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value, (
+                f"Age 16-17, unemployed, non-student must be CHILD_DRIVING_AGE, got {person_type}"
+            )
+        else:
+            assert person_type == CTRAMPPersonType.NON_WORKER.value, (
+                f"Age 18-24, unemployed, non-student must be NON_WORKER, got {person_type}"
+            )
 
     @given(
         age=st.sampled_from(list(AgeCategory)),
@@ -406,9 +458,13 @@ class TestPersonTypeClassification:
         school_type=st.sampled_from(list(SchoolType)),
     )
     def test_property_fulltime_employment_precedence(self, age, employment, student, school_type):
-        """Property: Full-time employment precedence over student status (with exceptions).
+        """Property: Full-time employment always wins over student status.
 
-        Exception: Full-time student + college beats full-time employment (primary activity rule).
+        Exceptions:
+        - Age < 5 → CHILD_UNDER_5
+        - Age 5-15 → CHILD_NON_DRIVING_AGE
+        - Age 16-17 grade/high school students → CHILD_DRIVING_AGE
+        - EMPLOYED_UNPAID is treated as part-time
         """
         # Skip if age forces different classification
         assume(
@@ -416,11 +472,10 @@ class TestPersonTypeClassification:
             not in [
                 AgeCategory.AGE_UNDER_5,
                 AgeCategory.AGE_5_TO_15,
-                AgeCategory.AGE_65_TO_74,
-                AgeCategory.AGE_75_TO_84,
-                AgeCategory.AGE_85_AND_UP,
             ]
         )
+        # EMPLOYED_UNPAID is treated as part-time, not full-time
+        assume(employment != Employment.EMPLOYED_UNPAID)
 
         df = pl.DataFrame(
             [
@@ -436,19 +491,22 @@ class TestPersonTypeClassification:
         result = df.with_columns(ctramp_person_type_expression())
         person_type = result["literal"][0]
 
-        # Exception: Full-time student + college → UNIVERSITY_STUDENT (not FULL_TIME_WORKER)
-        is_fulltime_student = student in [Student.FULLTIME_INPERSON, Student.FULLTIME_ONLINE]
-        is_college_type = school_type in [
-            SchoolType.COLLEGE_2YEAR,
-            SchoolType.COLLEGE_4YEAR,
-            SchoolType.GRADUATE_SCHOOL,
-            SchoolType.VOCATIONAL,
+        # Exception: 16-17 grade/high school students are CHILD_DRIVING_AGE
+        is_high_school_type = school_type in [
+            SchoolType.HIGH_SCHOOL,
+            SchoolType.HOME_SCHOOL,
+        ]
+        is_student_status = student in [
+            Student.FULLTIME_INPERSON,
+            Student.FULLTIME_ONLINE,
+            Student.PARTTIME_INPERSON,
+            Student.PARTTIME_ONLINE,
         ]
 
-        if is_fulltime_student and is_college_type:
-            assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
-                f"Full-time employed + full-time college student (age {age.name}) "
-                f"should be UNIVERSITY_STUDENT, got {person_type}"
+        if age == AgeCategory.AGE_16_TO_17 and is_high_school_type and is_student_status:
+            assert person_type == CTRAMPPersonType.CHILD_DRIVING_AGE.value, (
+                f"16-17 grade/HS student must be CHILD_DRIVING_AGE "
+                f"regardless of employment, got {person_type}"
             )
         else:
             assert person_type == CTRAMPPersonType.FULL_TIME_WORKER.value, (
@@ -543,8 +601,8 @@ class TestPersonTypeClassification:
         - Age < 5 must be CHILD_UNDER_5
         - Age 5-15 cannot be FULL_TIME_WORKER, PART_TIME_WORKER, UNIVERSITY_STUDENT, or RETIRED
         - Age 16-17 cannot be CHILD_UNDER_5, CHILD_NON_DRIVING_AGE, or RETIRED
-        - Age 18-64 cannot be CHILD_UNDER_5, CHILD_NON_DRIVING_AGE, CHILD_DRIVING_AGE, or RETIRED
-        - Age 65+ must be RETIRED
+        - Age 18-64 cannot be CHILD_UNDER_5, CHILD_NON_DRIVING_AGE, or RETIRED
+        - Age 65+ must be RETIRED, FT/PT_WORKER, or UNIVERSITY_STUDENT
         """  # noqa: E501
         df = pl.DataFrame(
             [
@@ -611,10 +669,16 @@ class TestPersonTypeClassification:
                         f"Age {age.name} cannot be CHILD_DRIVING_AGE, got {person_type}"
                     )
 
-        # Age 65+: Must be RETIRED
+        # Age 65+: RETIRED unless employed (then worker types)
         if age in [AgeCategory.AGE_65_TO_74, AgeCategory.AGE_75_TO_84, AgeCategory.AGE_85_AND_UP]:
-            assert person_type == CTRAMPPersonType.RETIRED.value, (
-                f"Age 65+ must be RETIRED, got {person_type}"
+            valid_senior_types = [
+                CTRAMPPersonType.RETIRED.value,
+                CTRAMPPersonType.FULL_TIME_WORKER.value,
+                CTRAMPPersonType.PART_TIME_WORKER.value,
+                CTRAMPPersonType.UNIVERSITY_STUDENT.value,
+            ]
+            assert person_type in valid_senior_types, (
+                f"Age 65+ must be RETIRED, FT/PT_WORKER, or UNIVERSITY_STUDENT, got {person_type}"
             )
 
     @given(
@@ -648,19 +712,20 @@ class TestPersonTypeClassification:
         person_type = result["literal"][0]
 
         # If classified as FULL_TIME_WORKER, must have full-time employment
-        # (unless it's an impossible combination where age overrides)
+        # (EMPLOYED_UNPAID is now treated as part-time)
         if person_type == CTRAMPPersonType.FULL_TIME_WORKER.value:
             assert employment in [
                 Employment.EMPLOYED_FULLTIME,
                 Employment.EMPLOYED_SELF,
-                Employment.EMPLOYED_UNPAID,
             ], f"FULL_TIME_WORKER must have full-time employment, got {employment.name}"
 
         # If classified as PART_TIME_WORKER, must have part-time employment
+        # (EMPLOYED_UNPAID is treated as part-time)
         if person_type == CTRAMPPersonType.PART_TIME_WORKER.value:
-            assert employment == Employment.EMPLOYED_PARTTIME, (
-                f"PART_TIME_WORKER must have part-time employment, got {employment.name}"
-            )
+            assert employment in [
+                Employment.EMPLOYED_PARTTIME,
+                Employment.EMPLOYED_UNPAID,
+            ], f"PART_TIME_WORKER must have part-time employment, got {employment.name}"
 
         # Young children shouldn't have full-time employment
         # (if they do, age-based rules should override)
@@ -813,10 +878,10 @@ class TestPersonTypeClassification:
         person_type = result["literal"][0]
 
         # Exception: Full-time employment overrides student status
+        # (EMPLOYED_UNPAID is now part-time, so it doesn't override)
         if employment not in [
             Employment.EMPLOYED_FULLTIME,
             Employment.EMPLOYED_SELF,
-            Employment.EMPLOYED_UNPAID,
         ]:
             assert person_type == CTRAMPPersonType.UNIVERSITY_STUDENT.value, (
                 f"Student age {age.name} with MISSING school_type "

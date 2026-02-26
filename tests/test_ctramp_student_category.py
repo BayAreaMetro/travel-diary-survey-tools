@@ -347,8 +347,14 @@ class TestStudentCategoryClassification:
                 result_child["student_category"][0]
                 == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value
             )
-        # Adults should get NOT_STUDENT
-        assert result_adult["student_category"][0] == CTRAMPStudentCategory.NOT_STUDENT.value
+        # Adults: non-students → NOT_STUDENT; active students with ambiguous school_type → COLLEGE
+        if student in (Student.NONSTUDENT, Student.MISSING):
+            assert result_adult["student_category"][0] == CTRAMPStudentCategory.NOT_STUDENT.value
+        elif school_type in [SchoolType.MISSING, SchoolType.PNTA, SchoolType.OTHER]:
+            # Active adult students with missing/other school_type → assumed college
+            assert (
+                result_adult["student_category"][0] == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value
+            )
 
     def test_valid_data_honored_despite_age_mismatch(self) -> None:
         """Test that valid data is honored even if age-inappropriate."""
@@ -518,12 +524,12 @@ class TestStudentCategoryWarnings:
 
         warnings = log_student_category_warnings(df, standard_config)
 
-        # Should find 1 full-time worker with student status without work location
-        # Person 1 is now UNIVERSITY_STUDENT (full-time student beats full-time employment)
-        # Person 2 is FULL_TIME_WORKER + part-time student without work location (triggers warning)
-        # Person 3 is FULL_TIME_WORKER + non-student without work location (doesn't trigger warning)
+        # Should find 2 full-time workers without work location:
+        # Person 1 is now FULL_TIME_WORKER (FT employment beats FT student) without work location
+        # Person 2 is FULL_TIME_WORKER + part-time student without work location
+        # Person 3 is FULL_TIME_WORKER + non-student without work location (doesn't trigger - no student status)  # noqa: E501
         # Person 4 has work_taz=200, so no warning
-        assert warnings.get("fulltime_workers_no_work_location", 0) == 1
+        assert warnings.get("fulltime_workers_no_work_location", 0) == 2
 
 
 class TestStudentCategoryNullHandling:
@@ -561,9 +567,9 @@ class TestStudentCategoryNullHandling:
 
         result = df.with_columns(ctramp_student_category_expression().alias("student_category"))
 
-        # Teen gets age fallback, adult gets NOT_STUDENT (can't determine college vs K-12)
+        # Teen gets age fallback; adult student with null school_type → assumed college
         assert result["student_category"][0] == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value
-        assert result["student_category"][1] == CTRAMPStudentCategory.NOT_STUDENT.value
+        assert result["student_category"][1] == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value
 
     def test_both_null(self) -> None:
         """Test handling when both student and school_type are null."""
