@@ -256,8 +256,8 @@ def simple_work_tour_data():
     # Link trips for legacy format
     result = link_trips(
         unlinked_trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=[ModeType.TRANSIT.value, ModeType.FERRY.value],
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=[ModeType.TRANSIT.value, ModeType.FERRY.value],
     )
     unlinked_trips_with_ids = result["unlinked_trips"]
     # Sort because legacy code expects trips in depart_time order
@@ -293,8 +293,8 @@ def work_tour_with_subtour_data():
     # Link trips for legacy format
     result = link_trips(
         unlinked_trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=[ModeType.TRANSIT.value, ModeType.FERRY.value],
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=[ModeType.TRANSIT.value, ModeType.FERRY.value],
     )
     unlinked_trips_with_ids = result["unlinked_trips"]
     # Sort because legacy code expects trips in depart_time order
@@ -332,8 +332,8 @@ def multiple_tours_data():
     # Link trips for legacy format
     result = link_trips(
         unlinked_trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=[ModeType.TRANSIT.value, ModeType.FERRY.value],
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=[ModeType.TRANSIT.value, ModeType.FERRY.value],
     )
     unlinked_trips_with_ids = result["unlinked_trips"]
     # Sort because legacy code expects trips in depart_time order
@@ -820,8 +820,8 @@ def test_tour_timing():
     # Link trips first
     link_result = link_trips(
         unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=TRANSIT_MODE_CODES,
     )
     unlinked_trips_with_ids = link_result["unlinked_trips"]
     linked_trips = link_result["linked_trips"].with_columns(
@@ -978,8 +978,8 @@ def test_tour_trip_counts():
     # Link trips first
     link_result = link_trips(
         unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=TRANSIT_MODE_CODES,
     )
     unlinked_trips_with_ids = link_result["unlinked_trips"]
     linked_trips = link_result["linked_trips"].with_columns(
@@ -1102,8 +1102,8 @@ def test_incomplete_tour_at_end_of_day():
     # Link trips first
     link_result = link_trips(
         unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=TRANSIT_MODE_CODES,
     )
     unlinked_trips_with_ids = link_result["unlinked_trips"]
     linked_trips = link_result["linked_trips"].with_columns(
@@ -1210,8 +1210,8 @@ def test_no_work_location():
     # Link trips first
     link_result = link_trips(
         unlinked_trips=trips,
-        change_mode_code=PurposeCategory.CHANGE_MODE.value,
-        transit_mode_codes=TRANSIT_MODE_CODES,
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=TRANSIT_MODE_CODES,
     )
     unlinked_trips_with_ids = link_result["unlinked_trips"]
     linked_trips = link_result["linked_trips"].with_columns(

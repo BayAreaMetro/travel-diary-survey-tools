@@ -73,8 +73,8 @@ class TestTripFormatting:
         # Run through link_trips pipeline
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -127,8 +127,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -182,8 +182,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -237,8 +237,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -293,8 +293,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -344,8 +344,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -398,8 +398,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -603,8 +603,8 @@ class TestEndToEndDaysimFormatting:
 
         linked_result = link_trips(
             unlinked_trips_fixture,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value],
         )
 
         # Add joint_trip_id for extract_tours validation
