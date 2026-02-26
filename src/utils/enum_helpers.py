@@ -91,25 +91,26 @@ def get_enum_class_for_field(table_name: str, field_name: str) -> type[LabeledEn
     # Get the model class for this table
     model_class = MODEL_MAPPING.get(table_name)
     if not model_class:
-        logger.warning("Unknown table name '%s', cannot resolve enum", table_name)
-        return None
+        msg = "Unknown table name '%s' - cannot find model class"
+        raise ValueError(msg % table_name)
 
     # Get the field info from the model
     if field_name not in model_class.model_fields:
-        logger.debug("Field '%s' not found in model for table '%s'", field_name, table_name)
-        return None
+        msg = "Field '%s' not found in model for table '%s'"
+        raise ValueError(msg % (field_name, table_name))
 
     field_info = model_class.model_fields[field_name]
     enum_class = _extract_enum_from_annotation(field_info.annotation)
 
     if not enum_class:
-        logger.debug("No enum class found for field '%s' in table '%s'", field_name, table_name)
+        msg = "No enum class found for field '%s' in table '%s'"
+        raise ValueError(msg % (field_name, table_name))
 
     return enum_class
 
 
 def resolve_enum_labels(
-    table_name: str, field_name: str, enum_labels: list[str]
+    table_name: str, field_name: str, enum_labels: list[str | int]
 ) -> list[int | str]:
     """Resolve enum labels to their values for a given field.
 
@@ -125,6 +126,19 @@ def resolve_enum_labels(
         >>> resolve_enum_labels('households', 'income_bin', ['MISSING', 'PNTA'])
         [995, 999]
     """
+    # If it is already an integer, we're going to throw a shameful warning but pass it along
+    if all(
+        isinstance(label, int) or (isinstance(label, str) and label.isdigit())
+        for label in enum_labels
+    ):
+        logger.warning(
+            """
+            Looks like you passed in integer values directly, tsk tsk.
+            This is not recommended but we'll pass it through as integers and hope for the best.
+            """
+        )
+        return [int(label) for label in enum_labels]
+
     enum_class = get_enum_class_for_field(table_name, field_name)
     if not enum_class:
         msg = (
@@ -136,7 +150,7 @@ def resolve_enum_labels(
     resolved_values = []
     for label in enum_labels:
         try:
-            resolved_values.append(enum_class[label].value)
+            resolved_values.append(enum_class[str(label)].value)
         except KeyError as err:
             msg = (
                 f"Label '{label}' not found in enum '{enum_class.__name__}' "

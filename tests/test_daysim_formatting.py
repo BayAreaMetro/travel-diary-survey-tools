@@ -14,6 +14,7 @@ from data_canon.codebook.daysim import (
     DaysimDriverPassenger,
     DaysimMode,
     DaysimPathType,
+    DaysimPersonType,
     DaysimPurpose,
 )
 from data_canon.codebook.households import (
@@ -25,7 +26,6 @@ from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
     Gender,
-    PersonType,
     SchoolType,
     Student,
 )
@@ -228,7 +228,7 @@ class TestPersonFormatting:
         assert len(result) == 1
         assert result["hhno"][0] == 1
         assert result["pno"][0] == 1
-        assert result["pptyp"][0] == PersonType.FULL_TIME_WORKER.value
+        assert result["pptyp"][0] == DaysimPersonType.FULL_TIME_WORKER.value
         assert result["pwtyp"][0] == 1  # Full-time worker
         assert result["pagey"][0] == 40  # Midpoint of AGE_35_TO_44
         assert result["pwtaz"][0] == 200
@@ -242,7 +242,7 @@ class TestPersonFormatting:
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    person_type=PersonType.PART_TIME_WORKER,
+                    person_type=DaysimPersonType.PART_TIME_WORKER,
                     employment=Employment.EMPLOYED_PARTTIME,
                     age=AgeCategory.AGE_25_TO_34,
                     work_taz=200,
@@ -270,7 +270,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.PART_TIME_WORKER.value
+        assert result["pptyp"][0] == DaysimPersonType.PART_TIME_WORKER.value
         assert result["pwtyp"][0] == 2  # Part-time worker
 
     def test_format_persons_university_student(self):
@@ -281,7 +281,7 @@ class TestPersonFormatting:
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    person_type=PersonType.UNIVERSITY_STUDENT,
+                    person_type=DaysimPersonType.UNIVERSITY_STUDENT,
                     employment=Employment.UNEMPLOYED_NOT_LOOKING,
                     student=Student.FULLTIME_INPERSON,
                     age=AgeCategory.AGE_18_TO_24,
@@ -315,7 +315,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.UNIVERSITY_STUDENT.value
+        assert result["pptyp"][0] == DaysimPersonType.UNIVERSITY_STUDENT.value
         assert result["pwtaz"][0] == -1  # No work location
         assert result["pstaz"][0] == 300  # School location
         assert result["pspcl"][0] == 3000
@@ -328,7 +328,7 @@ class TestPersonFormatting:
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    person_type=PersonType.CHILD_DRIVING_AGE,
+                    person_type=DaysimPersonType.CHILD_DRIVING_AGE,
                     employment=Employment.UNEMPLOYED_NOT_LOOKING,
                     student=Student.FULLTIME_INPERSON,
                     age=AgeCategory.AGE_16_TO_17,
@@ -362,7 +362,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.CHILD_DRIVING_AGE.value
+        assert result["pptyp"][0] == DaysimPersonType.CHILD_DRIVING_AGE.value
         assert result["pstaz"][0] == 150
         assert result["pspcl"][0] == 1500
 
@@ -374,7 +374,7 @@ class TestPersonFormatting:
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    person_type=PersonType.RETIRED,
+                    person_type=DaysimPersonType.RETIRED,
                     employment=Employment.UNEMPLOYED_NOT_LOOKING,
                     student=Student.NONSTUDENT,
                     age=AgeCategory.AGE_65_TO_74,
@@ -405,7 +405,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.RETIRED.value
+        assert result["pptyp"][0] == DaysimPersonType.RETIRED.value
         assert result["pwtaz"][0] == -1
 
     def test_format_persons_non_working_adult(self):
@@ -439,7 +439,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.NON_WORKER.value
+        assert result["pptyp"][0] == DaysimPersonType.NON_WORKER.value
 
     def test_format_persons_child_non_driving(self):
         """Test person formatting for child aged 5-15."""
@@ -472,7 +472,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.CHILD_NON_DRIVING_AGE.value
+        assert result["pptyp"][0] == DaysimPersonType.CHILD_NON_DRIVING_AGE.value
         assert result["pagey"][0] == 10
 
     def test_format_persons_child_under_5(self):
@@ -506,7 +506,7 @@ class TestPersonFormatting:
 
         result = format_persons(persons, days)
 
-        assert result["pptyp"][0] == PersonType.CHILD_UNDER_5.value
+        assert result["pptyp"][0] == DaysimPersonType.CHILD_UNDER_5.value
         assert result["pagey"][0] == 3
 
     def test_format_persons_with_day_completeness(self):
@@ -677,7 +677,7 @@ class TestHouseholdFormatting:
                     person_id=101,
                     hh_id=1,
                     person_num=1,
-                    person_type=PersonType.FULL_TIME_WORKER,
+                    person_type=DaysimPersonType.FULL_TIME_WORKER,
                     days=days_list,
                 )
             ]
@@ -718,25 +718,25 @@ class TestHouseholdFormatting:
                 {
                     "hhno": 1,
                     "pno": 1,
-                    "pptyp": PersonType.FULL_TIME_WORKER.value,
+                    "pptyp": DaysimPersonType.FULL_TIME_WORKER.value,
                     "pwtyp": 1,
                 },
                 {
                     "hhno": 1,
                     "pno": 2,
-                    "pptyp": PersonType.PART_TIME_WORKER.value,
+                    "pptyp": DaysimPersonType.PART_TIME_WORKER.value,
                     "pwtyp": 2,
                 },
                 {
                     "hhno": 1,
                     "pno": 3,
-                    "pptyp": PersonType.CHILD_DRIVING_AGE.value,
+                    "pptyp": DaysimPersonType.CHILD_DRIVING_AGE.value,
                     "pwtyp": 0,
                 },
                 {
                     "hhno": 1,
                     "pno": 4,
-                    "pptyp": PersonType.CHILD_NON_DRIVING_AGE.value,
+                    "pptyp": DaysimPersonType.CHILD_NON_DRIVING_AGE.value,
                     "pwtyp": 0,
                 },
             ]
@@ -863,8 +863,8 @@ class TestTripFormatting:
         # Run through link_trips pipeline
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -917,8 +917,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -972,8 +972,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -1027,8 +1027,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -1083,8 +1083,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -1134,8 +1134,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -1188,8 +1188,8 @@ class TestTripFormatting:
 
         result_dict = link_trips(
             unlinked_trips,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value, Mode.BUS_LOCAL.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         )
 
         unlinked_trips_with_ids = result_dict["unlinked_trips"]
@@ -1393,8 +1393,8 @@ class TestEndToEndDaysimFormatting:
 
         linked_result = link_trips(
             unlinked_trips_fixture,
-            change_mode_code=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_codes=[Mode.BART.value],
+            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+            transit_mode_enums=[Mode.BART.value],
         )
 
         # Add joint_trip_id for extract_tours validation
