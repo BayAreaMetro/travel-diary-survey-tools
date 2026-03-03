@@ -58,12 +58,12 @@ graph TD
 
 ---
 
-## Open Questions
+## Resolved Design Decisions
 
-| # | Question | Notes |
-|---|----------|-------|
-| 1 | **PopulationSim dependency** | Import the package directly, or copy the core maximum entropy solver? Importing is simpler to maintain; copying removes the dependency but requires vendoring. |
-| 2 | **Control geography level** | Which named geography level (e.g., county, super-district) is the primary weighting stratum? Must be expressible via the BG crosswalk. |
+| # | Decision | Resolution |
+|---|----------|------------|
+| 1 | **PopulationSim dependency** | Use PopulationSim's core numba balancer (`populationsim.balancing.balancers_numba.np_balancer_numba`) directly, bypassing PopulationSim's own pipeline/config infrastructure. If the numba function's interface proves awkward, step up to the `ListBalancer` wrapper class (`populationsim.balancing.single_balancer.ListBalancer`). If even that is too entangled with PopulationSim internals, create a streamlined port of the core algorithm (the numba function is ~120 lines of self-contained iterative Newton-Raphson). |
+| 2 | **Control geography level** | The control geography is **always user-specified** via the YAML config. If the user's control geography already aligns with PUMAs (e.g., the user passes PUMA polygons), the crosswalk step is effectively a pass-through (1:1 mapping). If it's a custom geography (county, super-district, TAZ cluster, etc.), the BG-based crosswalk converts PUMA controls into that geography. The config requires an explicit `control_geo` parameter — there is no default geography level. |
 
 ---
 
@@ -82,8 +82,9 @@ src/processing/weighting/
 │   ├── control_data.py        # 🔲 PUMS 1-year control totals with YAML-configured bins
 │   ├── survey_prep.py         # 🔲 Recode survey variables to match control bins
 │   ├── expansion.py           # 🔲 Base design weight + DOW household-day expansion
-│   ├── balancer.py            # 🔲 Max entropy balancing via PopulationSim
-│   └── derive_weights.py      # 🔲 Propagate weights to all canonical tables
+│   ├── balancer.py            # 🔲 Max entropy balancing via PopulationSim numba core
+│   ├── derive_weights.py      # 🔲 Propagate weights to all canonical tables
+│   └── diagnostics.py         # 🔲 Self-contained HTML diagnostic report (Plotly)
 └── DEVELOPMENT_PLAN.md        # 📄 This document
 ```
 
@@ -296,22 +297,26 @@ subject to  A · w = t                   (marginal control constraints)
 where **A** is the indicator matrix (row = control category × zone, column = seed record) and **t** is the vector of target totals.
 
 **Implementation:**
-- Primary path: import and use `populationsim`'s core balancer directly (weight capping/flooring handled by PopulationSim's built-in mechanisms).
-- Fallback: vendor the core maximum entropy solver (a compact iterative algorithm) if the full PopulationSim dependency is undesirable.
-- Run balancing per geography zone; zones are independent and can be parallelized.
+- **Primary path:** Call `populationsim.balancing.balancers_numba.np_balancer_numba` directly. This is a pure `@njit` function (~120 lines) that takes numpy arrays and returns `(weights_final, relaxation_factors, status_tuple)`. No PopulationSim pipeline/config infrastructure is involved.
+- **Convenience wrapper (if needed):** Use `populationsim.balancing.single_balancer.ListBalancer`, which wraps the numba function with pandas DataFrame I/O, bound handling, and a structured `(status_dict, weights_df, controls_df)` return.
+- **Fallback:** If either approach proves too entangled, port the core algorithm — `np_balancer_numba` is a self-contained iterative Newton-Raphson with control relaxation; a plain-numpy version without the numba dependency is straightforward.
+- Run balancing **per control geography zone**; zones are independent and can be parallelized.
+- Weight bounding: `max_expansion_factor` and `min_expansion_factor` control the upper/lower bound on balanced weights relative to initial weights (passed as `ub_weights` / `lb_weights` to the balancer).
 
 **Configuration (under the single `weighting` step):**
 
 ```yaml
 max_iterations: 1000
 convergence_threshold: 0.001
-use_populationsim: true  # false = use vendored solver
+max_expansion_factor: 10        # upper bound = initial_weight × factor
+min_expansion_factor: 0.1       # lower bound = initial_weight × factor
 ```
 
-**Diagnostics output:**
+**Raw diagnostics returned** (consumed by `core/diagnostics`):
 - Convergence status and iteration count per zone
 - Final vs. target marginals (absolute and relative difference)
-- Weight distribution summary (min, max, mean, CV, effective sample size)
+- Relaxation factors per control per zone
+- Weight distribution per zone (initial and final arrays)
 
 ---
 
@@ -343,6 +348,162 @@ use_populationsim: true  # false = use vendored solver
 - `sum(person_weight) ≈ sum(hh_weight × persons_per_hh)`
 - `sum(day_weight) ≈ sum(person_weight × complete_travel_days_per_person)`
 - `sum(unlinked_trip_weight) ≈ sum(day_weight × trips_per_day)`
+
+---
+
+### `core/diagnostics`
+
+**Purpose:** Generate a self-contained interactive HTML diagnostic report summarizing weighting quality. Uses Plotly for all charts; output is a single `.html` file with no external dependencies (all JS/CSS inlined). Written to the pipeline output directory alongside the weighted tables.
+
+**Inputs:**
+- `balancer_results`: Per-zone results from `core/balancer` (initial weights, final weights, convergence status, relaxation factors)
+- `controls`: List of control specifications with target totals from `core/control_data`
+- `seed_records`: Seed table with stratum columns and `custom_geo_id`
+- `calibration_results` (optional): Results from expansion-factor grid search (see Section 5 below)
+
+**Outputs:**
+- `weighting_diagnostics.html` — single self-contained HTML file
+
+**Report Structure:**
+
+The report is organized into the following sections, each rendered as a collapsible card in the HTML:
+
+---
+
+#### Section 1: Weight Summary Table
+
+A top-level summary comparing initial, final, and target weight sums for households and persons.
+
+| Metric | Households | Persons |
+|--------|------------|---------|
+| Initial weight sum | Σ `base_weight` | Σ `base_weight × persons_per_hh` |
+| Final weight sum | Σ `final_weight` | Σ `final_weight × persons_per_hh` |
+| Target sum (from controls) | Total HH control | Total person control |
+| Difference (%) | `(final − target) / target × 100` | `(final − target) / target × 100` |
+
+When DOW weighting is active, an additional row shows the breakdown by day-of-week group.
+
+---
+
+#### Section 2: Target Variable Fit — % Error Bar Charts
+
+One chart per control geography zone, plus a "Total Region" chart that aggregates across all zones.
+
+Each chart is a **horizontal bar chart** with:
+- **Y-axis:** Control variable category labels (e.g., `hh_size: 1`, `hh_size: 2`, `age_by_sex: 18-64 × male`, ...)
+- **X-axis:** Percentage error = `(weighted_sum − target) / target × 100`, centered on 0
+- **Color coding:** Green for |error| < 2%, yellow for 2–5%, red for > 5% (thresholds configurable)
+- **Hover tooltip:** Shows weighted sum, target, absolute difference, and seed count
+
+```
+          ◄── underfit ──── 0 ──── overfit ──►
+hh_size: 1        ████████▏         +3.2%
+hh_size: 2     ▕██████             -2.8%
+hh_size: 3        ██▏               +0.9%
+hh_size: 4+       █▏                +0.4%
+age_sex: 0-17×M   ▕████████████    -5.1%
+age_sex: 0-17×F      ███▏           +1.2%
+...
+```
+
+---
+
+#### Section 3: Expansion Factor Calibration — MAPE vs CV (Dual-Axis)
+
+A **grid-search calibration plot** that helps the user select the optimal `max_expansion_factor`. The weighting step runs the balancer multiple times across a user-configured range of expansion factor values and plots the results.
+
+- **X-axis:** `max_expansion_factor` values (from grid search)
+- **Left Y-axis:** MAPE (mean absolute percentage error) across all control cells — measures target fit quality
+- **Right Y-axis:** CV (coefficient of variation) of final weights — measures weight distortion
+- **Two lines/curves:** MAPE line (should decrease as factor increases — looser bounds = better fit) and CV line (should increase — looser bounds = more weight variability)
+- **Optimal region:** Where additional expansion factor loosening yields diminishing MAPE improvement but growing CV — the "elbow" of the trade-off
+- **Selected value indicator:** Vertical dashed line at the `max_expansion_factor` actually used for the final run
+
+**Grid search configuration (under the `weighting` step):**
+
+```yaml
+diagnostics:
+  expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
+  # Or auto: {min: 2, max: 50, steps: 10}  — generates log-spaced grid
+```
+
+Each grid point runs a full balancer pass (per zone), so the grid should be modest in size. Results are cached; the final production run uses the user's chosen `max_expansion_factor`.
+
+---
+
+#### Section 4: Weight Distribution — Violin / Jitter Plots
+
+One **violin plot** (with overlaid jitter points for small samples) per control geography zone, plus a "Total Region" aggregate.
+
+- **X-axis:** Control geography zones (categorical)
+- **Y-axis:** `final_weight / base_weight` ratio (expansion factor per record)
+- **Violin:** Shows density of the weight ratio distribution
+- **Jitter overlay:** Individual household (or household-day) points, semi-transparent, useful when sample size per zone is small (< 200)
+- **Reference lines:** `max_expansion_factor` (upper) and `min_expansion_factor` (lower) as horizontal dashed lines
+- **Annotations:** Median, mean, min, max, and CV displayed per zone
+
+This plot reveals zones where the balancer is pressing records against the bounds (clustering at the cap/floor) vs. zones with comfortable weight ranges.
+
+---
+
+#### Section 5: Control Totals vs Seed Counts — Detailed Table
+
+A comprehensive table showing, for every control variable cell in every zone, the raw seed count alongside the target total. This is the primary data table backing the fit charts.
+
+| Control Geo | Control Variable | Category | Seed Count | Target Total | Weighted Sum | % Error | Seed/Target Ratio |
+|-------------|-----------------|----------|------------|--------------|--------------|---------|-------------------|
+| Zone A | hh_size | 1 | 42 | 12,350 | 12,410 | +0.5% | 0.0034 |
+| Zone A | hh_size | 2 | 38 | 10,200 | 10,180 | -0.2% | 0.0037 |
+| Zone A | age_by_sex | 0-17 × male | 15 | 8,900 | 9,120 | +2.5% | 0.0017 |
+| ... | ... | ... | ... | ... | ... | ... | ... |
+| **Total** | hh_size | 1 | 320 | 98,500 | 98,520 | +0.02% | 0.0032 |
+
+- **Seed Count:** Number of unweighted survey records in that cell (drives sampling error)
+- **Seed/Target Ratio:** Effective sampling rate for the cell; very low values flag under-represented cells
+- **Sortable/filterable** via Plotly table or a DataTables-style JS widget
+- Cells with seed count below a configurable minimum (default: 10) are highlighted in red as unreliable
+
+---
+
+#### Section 6: Convergence & Effective Sample Size
+
+Per-zone convergence metadata and weight efficiency statistics.
+
+| Control Geo | Converged | Iterations | Final Delta | Max Gamma Diff | ESS | ESS / N | Design Effect |
+|-------------|-----------|------------|-------------|----------------|-----|---------|---------------|
+| Zone A | ✅ | 342 | 8.2e-06 | 3.1e-06 | 285 | 0.72 | 1.39 |
+| Zone B | ✅ | 128 | 2.1e-07 | 1.4e-06 | 410 | 0.85 | 1.18 |
+| Zone C | ⚠️ | 1000 | 5.4e-04 | 2.8e-03 | 95 | 0.38 | 2.63 |
+| **Total** | — | — | — | — | 790 | 0.68 | 1.47 |
+
+Where:
+- **ESS** (Effective Sample Size) = `(Σ wᵢ)² / Σ wᵢ²` — the Kish approximation
+- **ESS / N** = efficiency ratio (1.0 = self-weighting; lower = more weight variability)
+- **Design Effect** = `N / ESS` — the multiplicative penalty on variance from unequal weighting
+- Non-converged zones are highlighted with ⚠️ and sorted to the top
+
+---
+
+**HTML Generation Approach:**
+- Use `plotly.graph_objects` and `plotly.subplots` for all charts
+- Use `plotly.io.to_html(full_html=False)` to get chart HTML fragments
+- Wrap in a minimal Jinja2 (or string-template) HTML skeleton with:
+  - Collapsible sections (pure CSS `<details>/<summary>` — no JS framework needed)
+  - Inline CSS for styling
+  - Plotly.js CDN link (or bundled inline for fully offline use)
+- Output path: `{output_dir}/weighting_diagnostics.html`
+
+**Configuration (under the `weighting` step):**
+
+```yaml
+diagnostics:
+  enabled: true                       # default true; set false to skip
+  output_path: "weighting_diagnostics.html"  # relative to output_dir
+  fit_error_thresholds: [2, 5]        # green/yellow/red % boundaries
+  min_seed_count_warning: 10          # highlight cells below this count
+  expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
+  plotly_cdn: true                    # false = bundle plotly.js inline (~3MB)
+```
 
 ---
 
@@ -405,7 +566,15 @@ The entire weighting process is a **single pipeline step**. All sub-component pa
     # Balancer settings
     max_iterations: 1000
     convergence_threshold: 0.001
-    use_populationsim: true
+    max_expansion_factor: 10
+    min_expansion_factor: 0.1
+
+    # Diagnostics
+    diagnostics:
+      enabled: true
+      fit_error_thresholds: [2, 5]
+      min_seed_count_warning: 10
+      expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
 ```
 
 ---
@@ -417,5 +586,6 @@ The entire weighting process is a **single pipeline step**. All sub-component pa
 3. `core/survey_prep` — depends on canonical data models and control YAML spec
 4. `core/expansion` — integrates survey + controls + crosswalk; includes DOW expansion logic
 5. `core/derive_weights` — can be prototyped early since it extends existing `existing_weights.py` hierarchy logic
-6. `core/balancer` — depends on `core/expansion` + `core/control_data`; requires PopulationSim integration decision
-7. `weighting.py` — single `@step()` entry point that wires all of the above together
+6. `core/balancer` — depends on `core/expansion` + `core/control_data`; uses PopulationSim's `np_balancer_numba` directly
+7. `core/diagnostics` — depends on all upstream outputs; can be developed in parallel with `derive_weights` since it consumes balancer results directly
+8. `weighting.py` — single `@step()` entry point that wires all of the above together

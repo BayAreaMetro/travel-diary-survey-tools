@@ -6,11 +6,13 @@ description = "Set of tools to process and analyze travel diary survey data."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "cenpy>=1.0.1",
     "geopandas>=1.1.1",
     "hypothesis>=6.151.5",
     "networkx>=3.6.1",
-    "numpy>=2.3.4",
+    "numpy>=1.16.1,<2",
     "polars>=1.35.1",
+    "populationsim",
     "pyarrow>=22.0.0",
     "pydantic>=2.12.4",
     "scipy>=1.16.3",
@@ -81,3 +83,6 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "--cov=src --cov-report=term-missing"
+
+[tool.uv.sources]
+populationsim = { git = "https://github.com/ActivitySim/populationsim", tag = "v0.10.0" }
