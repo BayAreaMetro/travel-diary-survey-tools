@@ -1,6 +1,6 @@
 site_name: Travel Diary Survey Tools
 site_description: Documentation for travel diary survey data models and codebooks
-repo_url: https://github.com/BATS/travel-diary-survey-tools
+repo_url: https://github.com/BayAreaMetro/travel-diary-survey-tools
 
 theme:
   name: material
@@ -14,6 +14,7 @@ theme:
 plugins:
   - search
   - autorefs
+  - include-markdown
   - mkdocstrings:
       handlers:
         python:
