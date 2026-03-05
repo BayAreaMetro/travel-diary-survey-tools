@@ -528,6 +528,7 @@ uv run mkdocs serve
 **How it works:**
 - `mkdocstrings[python]` auto-generates docs from Python docstrings and type hints
 - `griffe-pydantic` extension handles Pydantic model documentation
+- `mkdocs-include-markdown-plugin` embeds algorithm documentation from processing module READMEs
 - Documentation structure defined in `mkdocs.yml`
 - Source files in `docs/` directory (markdown files reference Python modules)
 

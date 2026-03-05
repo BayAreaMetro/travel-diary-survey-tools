@@ -14,7 +14,8 @@ theme:
 plugins:
   - search
   - autorefs
-  - include-markdown
+  - include-markdown:
+      rewrite_relative_urls: false
   - mkdocstrings:
       handlers:
         python:
