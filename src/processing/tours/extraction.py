@@ -53,7 +53,7 @@ Tour building behavior is controlled by TourConfig which defines:
 - distance_thresholds: Maximum distances (meters) for location matching
 - purpose_priority_by_person_category: Purpose hierarchies by person type
 - mode_hierarchy: Ordered list of modes (ascending priority)
-- person_type_mapping: Maps person_type codes to PersonCategory enum
+- person_category_expression: Polars expression to classify person categories
 
 Output:
 -------
@@ -90,7 +90,6 @@ from .location_helpers import (
     classify_trip_locations,
     prepare_person_locations,
 )
-from .person_type import derive_person_type
 from .tour_configs import TourConfig
 from .validation_helpers import validate_and_correct_tours
 
@@ -136,17 +135,14 @@ def extract_tours(
 
     config = TourConfig(**kwargs)  # pyright: ignore[reportArgumentType]
 
-    # Derive person_type column
-    persons_ptype = derive_person_type(persons)
-
     # Prepare person location cache with categories
     person_locations = prepare_person_locations(
-        persons_ptype,
+        persons,
         households,
-        config.person_type_mapping,
+        config.person_category_expression(),
     )
 
-    msg = f"Processing {len(persons_ptype)} persons, {len(linked_trips)} trips"
+    msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
     logger.info(msg)
 
     # Step 1: Prepare person locations
@@ -220,7 +216,6 @@ def extract_tours(
     logger.info(msg)
 
     return {
-        "persons": persons_ptype,
         "unlinked_trips": unlinked_trips_with_tour_ids,
         "linked_trips": linked_trips_with_tour_dir,
         "tours": tours,
