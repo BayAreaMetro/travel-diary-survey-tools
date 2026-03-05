@@ -9,17 +9,17 @@ Tools for processing and validating travel diary survey data into standardized f
 - [Architecture](#architecture)
   - [Conceptual Diagram](#conceptual-diagram)
   - [Pipeline Steps](#pipeline-steps)
-- [Usage](#usage)
-  - [Quick Start](#quick-start)
-    - [1. Installing UV & Virtual Environment Setup](#1-installing-uv--virtual-environment-setup)
-    - [2. Configuration](#2-configuration)
-    - [3. Pipeline Runner](#3-pipeline-runner)
-  - [Data Models and Validation](#data-models-and-validation)
-    - [`step` Decorator and Validation](#step-decorator-and-validation)
-  - [Documentation](#documentation)
+- [Quick Start](#quick-start)
+  - [1. Installing UV & Virtual Environment Setup](#1-installing-uv--virtual-environment-setup)
+  - [2. Configuration](#2-configuration)
+  - [3. Pipeline Runner](#3-pipeline-runner)
+- [Data Models and Validation](#data-models-and-validation)
+  - [`step` Decorator and Validation](#step-decorator-and-validation)
+- [Additional Documentation](#additional-documentation)
 - [Work Plan](#work-plan)
 - [Development](#development)
   - [Project Structure](#project-structure)
+  - [Generating API Documentation](#generating-api-documentation)
   - [Running Tests](#running-tests)
   - [Code Quality](#code-quality)
   - [Pre-commit Hooks](#pre-commit-hooks)
@@ -511,6 +511,35 @@ travel-diary-survey-tools/
 └── docs/                           # Documentation
 ```
 
+### Generating API Documentation
+
+The project uses [MkDocs](https://www.mkdocs.org/) with [Material theme](https://squidfunk.github.io/mkdocs-material/) to generate API documentation from docstrings.
+
+**Building locally:**
+```bash
+# Build documentation
+uv run mkdocs build --strict
+
+# Preview with live reload
+uv run mkdocs serve
+# View at http://127.0.0.1:8000
+```
+
+**How it works:**
+- `mkdocstrings[python]` auto-generates docs from Python docstrings and type hints
+- `griffe-pydantic` extension handles Pydantic model documentation
+- Documentation structure defined in `mkdocs.yml`
+- Source files in `docs/` directory (markdown files reference Python modules)
+
+**Adding new pages:**
+1. Create markdown file in `docs/`
+2. Add to navigation in `mkdocs.yml`
+3. Reference Python modules using `::: module.path.ClassName` syntax
+
+**Deployment:**
+- Automatic via GitHub Actions on push to `main` branch
+- Published to: https://bayareametro.github.io/travel-diary-survey-tools/
+- Workflow defined in [`.github/workflows/docs.yml`](.github/workflows/docs.yml)
 
 ### Running Tests
 Tests can be run using `pytest` via VSCode extension or command line:
