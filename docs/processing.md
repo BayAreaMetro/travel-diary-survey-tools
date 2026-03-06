@@ -8,13 +8,29 @@ Processing functions are organized by topic and can be composed into pipelines. 
 
 ## Read/Write
 
-::: processing.read_write.read_write.load_data
-
-::: processing.read_write.read_write.write_data
+::: processing.read_write.read_write
+    options:
+      show_root_heading: true
+      show_root_toc_entry: false
+      members:
+        - load_data
+        - write_data
+      filters:
+        - "!^logger$"
+        - "!^_"
 
 ## Trip Linking
 
-::: processing.link_trips.link.link_trips
+::: processing.link_trips.link
+    options:
+      show_root_heading: true
+      show_root_toc_entry: false
+      members:
+        - link_trips
+        - MODE_TYPE_TO_ACCESS_EGRESS
+      filters:
+        - "!^logger$"
+        - "!^_"
 
 ## Joint Trip Detection
 
