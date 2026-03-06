@@ -35,15 +35,9 @@ class ControlSpec:
     ----------
     name : str
         Registry name (must exist in ``CONTROLS``).
-    aggregations : dict[str, list[int]] | None
-        Optional aggregation overrides.  Keys are new category labels,
-        values are lists of base enum values to merge.  Example:
-        ``{"employed": [1, 2], "not_employed": [3]}`` collapses
-        EMPLOYED_FULL + EMPLOYED_PART into a single "employed" group.
     """
 
     name: str
-    aggregations: dict[str, list[int]] | None = None
 
 
 @dataclass
@@ -225,10 +219,6 @@ def build_control_totals(
             )
         )
 
-        # Apply optional aggregations (merge categories)
-        if spec.aggregations:
-            totals = _apply_aggregations(totals, spec.aggregations)
-
         all_totals.append(totals.select(["geo_id", "control_name", "category", "target_total"]))
 
     if not all_totals:
@@ -243,38 +233,4 @@ def build_control_totals(
         pums_hh_count=len(hh_df),
         pums_person_count=len(person_df),
         geo_ids=geo_ids,
-    )
-
-
-def _apply_aggregations(
-    totals: pl.DataFrame,
-    aggregations: dict[str, list[int]],
-) -> pl.DataFrame:
-    """Merge base categories into aggregated groups.
-
-    Parameters
-    ----------
-    totals : pl.DataFrame
-        Must have columns [geo_id, control_name, category, target_total].
-    aggregations : dict[str, list[int]]
-        New label → list of base category values to merge.
-    """
-    # Build reverse map: base_value → new_label
-    value_to_label: dict[int, str] = {}
-    for label, values in aggregations.items():
-        for v in values:
-            value_to_label[v] = label
-
-    # Map category to new label; drop categories not in any aggregation group
-    mapped = totals.with_columns(
-        pl.col("category")
-        .replace_strict(value_to_label, default=None, return_dtype=pl.Utf8)
-        .alias("agg_label"),
-    ).filter(pl.col("agg_label").is_not_null())
-
-    # Re-aggregate
-    return (
-        mapped.group_by(["geo_id", "control_name", "agg_label"])
-        .agg(pl.col("target_total").sum())
-        .rename({"agg_label": "category"})
     )

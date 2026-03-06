@@ -5,6 +5,9 @@ Can also be imported directly for standalone use.
 """
 
 from processing.weighting.core.balancer import (
+    MergeSpec,
+    ZoneInput,
+    ZoneResult,
     ZoneStatus,
     balance_weights,
 )
@@ -56,8 +59,11 @@ __all__ = [
     "HHSizeCategory",
     "HHVehiclesCategory",
     "HHWorkersCategory",
+    "MergeSpec",
     "PUMSSource",
     "StudentCategory",
+    "ZoneInput",
+    "ZoneResult",
     "ZoneStatus",
     "balance_weights",
     "build_control_totals",

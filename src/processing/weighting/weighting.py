@@ -16,14 +16,14 @@ import logging
 import polars as pl
 
 from pipeline.decoration import step
-from processing.weighting.core.balancer import balance_weights
+from processing.weighting.core.balancer import MergeSpec, balance_weights
 from processing.weighting.core.control_data import (
     ControlSpec,
     build_control_totals,
     recode_pums_households,
     recode_pums_persons,
 )
-from processing.weighting.core.pums_data import load_pums_from_files
+from processing.weighting.core.pums_data import PUMSSource, fetch_pums_data, load_pums_from_files
 from processing.weighting.core.seed_data import (
     build_seed_table,
     recode_survey_households,
@@ -42,10 +42,14 @@ logger = logging.getLogger(__name__)
 @step()
 def weighting(  # noqa: PLR0913
     # -- Config params (from YAML) --------------------------------------
-    pums_households: str,
-    pums_persons: str,
+    state_fips: str,
+    pums_year: int,
     controls: list[dict],
     *,
+    puma_ids: list[str] | None = None,
+    pums_households: str | None = None,
+    pums_persons: str | None = None,
+    merges: list[dict] | None = None,
     geo_col: str = "PUMA",
     survey_geo_col: str = "puma_id",
     max_expansion_factor: float = 10.0,
@@ -67,11 +71,23 @@ def weighting(  # noqa: PLR0913
 
     Parameters
     ----------
-    pums_households, pums_persons : str
-        Paths to PUMS household/person CSV or Parquet files.
+    state_fips : str
+        Two-digit FIPS code (e.g. ``"06"`` for California).
+    pums_year : int
+        ACS 1-year PUMS vintage (e.g. ``2023``).
     controls : list[dict]
-        Control specifications, each with ``name`` and optional ``aggregations``.
+        Control specifications, each with ``name``.
         Names must match keys in the ``CONTROLS`` registry.
+    puma_ids : list[str] | None
+        Optional PUMA codes to limit the Census API query.
+        ``None`` fetches all PUMAs in the state.
+    pums_households, pums_persons : str | None
+        Optional local file paths.  When both are provided the Census
+        API is skipped and data is loaded from disk instead.
+    merges : list[dict] | None
+        Optional category merges applied at the matrix level before
+        balancing.  Each dict has keys ``control`` (str), ``groups``
+        (dict[str, list[str]]), and optionally ``zones`` (list[str]).
     geo_col : str
         Geography column in PUMS data (default ``"PUMA"``).
     survey_geo_col : str
@@ -99,10 +115,19 @@ def weighting(  # noqa: PLR0913
     # -- Parse control specs ----------------------------------------
     specs = [ControlSpec(**c) for c in controls]
     target_names = [s.name for s in specs]
+    merge_specs = [MergeSpec(**m) for m in merges] if merges else []
     logger.info("Controls: %s", target_names)
+    if merge_specs:
+        logger.info("Category merges: %d specs", len(merge_specs))
 
     # -- 1. Load PUMS -----------------------------------------------
-    pums_hh, pums_per = load_pums_from_files(pums_households, pums_persons)
+    if pums_households is not None and pums_persons is not None:
+        logger.info("Loading PUMS from local files")
+        pums_hh, pums_per = load_pums_from_files(pums_households, pums_persons)
+    else:
+        source = PUMSSource(state_fips=state_fips, pums_year=pums_year, puma_ids=puma_ids)
+        logger.info("Fetching PUMS via Census API: state=%s year=%d", state_fips, pums_year)
+        pums_hh, pums_per = fetch_pums_data(source)
 
     # -- 2. Recode PUMS ---------------------------------------------
     pums_hh = recode_pums_households(pums_hh, pums_per, target_names)
@@ -129,6 +154,7 @@ def weighting(  # noqa: PLR0913
         seed,
         control_totals,
         target_names,
+        merges=merge_specs,
         geo_col=survey_geo_col,
         max_expansion_factor=max_expansion_factor,
         min_expansion_factor=min_expansion_factor,

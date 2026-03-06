@@ -98,15 +98,6 @@ class TestDataclasses:
         """ControlSpec should have correct defaults."""
         spec = ControlSpec(name="hh_size")
         assert spec.name == "hh_size"
-        assert spec.aggregations is None
-
-    def test_control_spec_with_aggregations(self):
-        """ControlSpec should accept aggregations."""
-        spec = ControlSpec(
-            name="employment",
-            aggregations={"employed": [1, 2], "not_employed": [3]},
-        )
-        assert spec.aggregations is not None
 
 
 # ---------------------------------------------------------------------------
@@ -360,28 +351,17 @@ class TestBuildControlTotals:
         with pytest.raises(ValueError, match="No controls specified"):
             build_control_totals(hh_recoded, per_recoded, [])
 
-    def test_aggregation_merges_categories(self, pums_households, pums_persons):
-        """Aggregation overrides should merge base categories."""
+    def test_granular_categories_preserved(self, pums_households, pums_persons):
+        """Without merges, all granular categories are preserved in totals."""
         hh_recoded = recode_pums_households(pums_households, pums_persons)
         per_recoded = recode_pums_persons(pums_persons)
 
-        controls = [
-            ControlSpec(
-                name="h_size",
-                aggregations={
-                    "small": [int(HHSizeCategory.SIZE_1), int(HHSizeCategory.SIZE_2)],
-                    "large": [
-                        int(HHSizeCategory.SIZE_3),
-                        int(HHSizeCategory.SIZE_4),
-                    ],
-                },
-            )
-        ]
+        controls = [ControlSpec(name="h_size")]
         result = build_control_totals(hh_recoded, per_recoded, controls)
 
-        categories = result.totals["category"].unique().sort().to_list()
-        assert "small" in categories
-        assert "large" in categories
+        # Categories should be ints (enum values), not merged string labels
+        categories = result.totals["category"].to_list()
+        assert all(isinstance(c, int) for c in categories)
 
     def test_geo_ids_populated(self, pums_households, pums_persons):
         """Geo IDs in totals should match those in PUMS data."""

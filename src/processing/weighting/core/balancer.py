@@ -6,6 +6,7 @@ Runs independently per geography zone.
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
@@ -18,6 +19,9 @@ from processing.weighting.core.controls import CONTROLS, ControlLevel, ControlTa
 logger = logging.getLogger(__name__)
 
 
+# -- Data structures --------------------------------------------------------
+
+
 class ZoneStatus(NamedTuple):
     """Per-zone convergence diagnostics."""
 
@@ -28,6 +32,48 @@ class ZoneStatus(NamedTuple):
     max_gamma_diff: float
 
 
+class ZoneInput(NamedTuple):
+    """Pre-built numpy arrays for a single geography zone."""
+
+    hh_ids: pl.Series
+    incidence: np.ndarray
+    initial: np.ndarray
+    lb: np.ndarray
+    ub: np.ndarray
+    targets: np.ndarray
+    master_idx: int
+    max_iterations: int
+    geo_id: str
+
+
+class ZoneResult(NamedTuple):
+    """Balancer output for a single geography zone."""
+
+    weights: pl.DataFrame
+    status: ZoneStatus
+
+
+@dataclass
+class MergeSpec:
+    """Category-merge specification for one control.
+
+    Attributes:
+    ----------
+    control : str
+        Registry name (e.g. ``"p_employment"``).
+    groups : dict[str, list[str]]
+        Merged label -> list of base member names to combine.
+        E.g. ``{"employed": ["employed_full", "employed_part"]}``.
+    zones : list[str] | None
+        If set, apply this merge only to these geo IDs.
+        ``None`` means apply globally (all zones).
+    """
+
+    control: str
+    groups: dict[str, list[str]]
+    zones: list[str] | None = None
+
+
 # -- Public API ------------------------------------------------------------
 
 
@@ -36,6 +82,7 @@ def balance_weights(
     control_totals: ControlTotals,
     targets: list[str],
     *,
+    merges: list[MergeSpec] | None = None,
     geo_col: str = "puma_id",
     max_expansion_factor: float = 10.0,
     min_expansion_factor: float = 0.1,
@@ -55,6 +102,11 @@ def balance_weights(
         PUMS-derived targets from ``build_control_totals``.
     targets : list[str]
         Control registry names.
+    merges : list[MergeSpec] | None
+        Optional category merges applied at the matrix level before
+        balancing.  Each spec collapses incidence rows + target entries
+        for the specified categories.  Zone-specific merges are supported
+        via ``MergeSpec.zones``.
     geo_col : str
         Geography column on *seed*.
     max_expansion_factor, min_expansion_factor : float
@@ -75,11 +127,10 @@ def balance_weights(
     statuses : list[ZoneStatus]
         One entry per zone with convergence info.
     """
-    # Pre-partition seed and build numpy inputs per zone
-    zone_args: list[
-        tuple[pl.Series, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int, str]
-    ] = []
+    merges = merges or []
 
+    # Build per-zone inputs
+    zone_inputs: list[ZoneInput] = []
     for geo_id in control_totals.geo_ids:
         zone_seed = seed.filter(pl.col(geo_col).cast(pl.Utf8) == geo_id)
         if len(zone_seed) == 0:
@@ -87,48 +138,31 @@ def balance_weights(
             continue
 
         zone_totals = control_totals.totals.filter(pl.col("geo_id") == geo_id)
-        incidence, ctrl_targets, master_idx = _build_incidence(
-            zone_seed,
-            zone_totals,
-            targets,
-        )
-
-        n = len(zone_seed)
-        initial = np.ones(n, dtype=np.float64)
-        lb, ub = _bounds(
-            initial,
-            ctrl_targets,
-            master_idx,
-            min_expansion_factor,
-            max_expansion_factor,
-            min_weight,
-            max_weight,
-        )
-
-        zone_args.append(
-            (
-                zone_seed["hh_id"],
-                incidence,
-                initial,
-                lb,
-                ub,
-                ctrl_targets,
-                master_idx,
-                max_iterations,
+        zone_inputs.append(
+            _prepare_zone(
+                zone_seed,
+                zone_totals,
+                targets,
+                merges,
                 geo_id,
+                min_expansion_factor=min_expansion_factor,
+                max_expansion_factor=max_expansion_factor,
+                min_weight=min_weight,
+                max_weight=max_weight,
+                max_iterations=max_iterations,
             )
         )
 
-    # Run balancer - numba @njit releases the GIL so threads parallelize
-    if n_workers > 1 and len(zone_args) > 1:
+    # Run balancer — numba @njit releases the GIL so threads parallelize
+    if n_workers > 1 and len(zone_inputs) > 1:
         with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            results = list(pool.map(lambda a: _balance_zone(*a), zone_args))
+            results = list(pool.map(_balance_zone, zone_inputs))
     else:
-        results = [_balance_zone(*a) for a in zone_args]
+        results = [_balance_zone(z) for z in zone_inputs]
 
     # Assemble output
-    weight_frames = [r[0] for r in results]
-    statuses = [r[1] for r in results]
+    weight_frames = [r.weights for r in results]
+    statuses = [r.status for r in results]
 
     weights = (
         pl.concat(weight_frames)
@@ -141,44 +175,92 @@ def balance_weights(
     return weights, statuses
 
 
-# -- Internals -------------------------------------------------------------
+# -- Zone preparation -------------------------------------------------------
 
 
-def _balance_zone(
-    hh_ids: pl.Series,
-    incidence: np.ndarray,
-    initial: np.ndarray,
-    lb: np.ndarray,
-    ub: np.ndarray,
-    ctrl_targets: np.ndarray,
-    master_idx: int,
-    max_iterations: int,
+def _prepare_zone(
+    zone_seed: pl.DataFrame,
+    zone_totals: pl.DataFrame,
+    targets: list[str],
+    merges: list[MergeSpec],
     geo_id: str,
-) -> tuple[pl.DataFrame, ZoneStatus]:
+    *,
+    min_expansion_factor: float,
+    max_expansion_factor: float,
+    min_weight: float | None,
+    max_weight: float | None,
+    max_iterations: int,
+) -> ZoneInput:
+    """Build ``ZoneInput`` arrays for a single geography zone."""
+    incidence, ctrl_targets, master_idx, row_labels = _build_incidence(
+        zone_seed,
+        zone_totals,
+        targets,
+    )
+
+    zone_merges = [m for m in merges if m.zones is None or geo_id in m.zones]
+    if zone_merges:
+        incidence, ctrl_targets, master_idx = _apply_merges(
+            incidence,
+            ctrl_targets,
+            row_labels,
+            master_idx,
+            zone_merges,
+        )
+
+    n = len(zone_seed)
+    initial = np.ones(n, dtype=np.float64)
+    lb, ub = _bounds(
+        initial,
+        ctrl_targets,
+        master_idx,
+        min_expansion_factor,
+        max_expansion_factor,
+        min_weight,
+        max_weight,
+    )
+
+    return ZoneInput(
+        hh_ids=zone_seed["hh_id"],
+        incidence=incidence,
+        initial=initial,
+        lb=lb,
+        ub=ub,
+        targets=ctrl_targets,
+        master_idx=master_idx,
+        max_iterations=max_iterations,
+        geo_id=geo_id,
+    )
+
+
+# -- Balancing --------------------------------------------------------------
+
+
+def _balance_zone(zone: ZoneInput) -> ZoneResult:
     """Run ``np_balancer_numba`` for a single zone and return results."""
-    n = len(initial)
+    n = len(zone.initial)
 
     w_final, _relax, status = np_balancer_numba(
         sample_count=n,
-        control_count=incidence.shape[0],
-        master_control_index=master_idx,
-        incidence=incidence,
-        weights_initial=initial,
-        weights_lower_bound=lb,
-        weights_upper_bound=ub,
-        controls_constraint=ctrl_targets,
-        controls_importance=np.ones(incidence.shape[0], dtype=np.float64),
-        max_iterations=max_iterations,
+        control_count=zone.incidence.shape[0],
+        master_control_index=zone.master_idx,
+        incidence=zone.incidence,
+        weights_initial=zone.initial,
+        weights_lower_bound=zone.lb,
+        weights_upper_bound=zone.ub,
+        controls_constraint=zone.targets,
+        controls_importance=np.ones(zone.incidence.shape[0], dtype=np.float64),
+        max_iterations=zone.max_iterations,
     )
 
     converged, iters, delta, gamma = status
-    zs = ZoneStatus(geo_id, bool(converged), int(iters), float(delta), float(gamma))
+    zs = ZoneStatus(zone.geo_id, bool(converged), int(iters), float(delta), float(gamma))
 
     level = logging.INFO if converged else logging.WARNING
     logger.log(
         level,
         "Zone %s: %s in %d iters (delta=%.2e)",
-        geo_id,
+        zone.geo_id,
         "converged" if converged else "NOT CONVERGED",
         iters,
         delta,
@@ -186,31 +268,45 @@ def _balance_zone(
 
     frame = pl.DataFrame(
         {
-            "hh_id": hh_ids,
+            "hh_id": zone.hh_ids,
             "hh_weight": w_final,
-            "geo_id": [geo_id] * n,
+            "geo_id": [zone.geo_id] * n,
         }
     )
-    return frame, zs
+    return ZoneResult(frame, zs)
+
+
+# -- Incidence matrix -------------------------------------------------------
 
 
 def _build_incidence(
     zone_seed: pl.DataFrame,
     zone_totals: pl.DataFrame,
     targets: list[str],
-) -> tuple[np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, np.ndarray, int, list[tuple[str, str]]]:
     """Build incidence matrix + target vector for one zone.
 
-    Returns ``(incidence, targets, master_control_index)``.
-    ``incidence`` has shape ``(n_controls, n_households)``.
+    Returns:
+    -------
+    incidence : np.ndarray
+        Shape ``(n_controls, n_households)``.
+    targets : np.ndarray
+        Target totals, one per control row.
+    master_control_index : int
+        Row index of the total-HH constraint.
+    row_labels : list[tuple[str, str]]
+        ``(control_name, member_name)`` for each row.  The master row
+        is labelled ``("_total_hh", "_total_hh")``.
     """
     n = len(zone_seed)
     rows: list[np.ndarray] = []
     tgt: list[float] = []
+    labels: list[tuple[str, str]] = []
 
     # Row 0: total-HH control (incidence = 1 for every household)
     master_idx = 0
     rows.append(np.ones(n, dtype=np.float64))
+    labels.append(("_total_hh", "_total_hh"))
     hh_names = [t for t in targets if CONTROLS[t].level == ControlLevel.HOUSEHOLD]
     if hh_names:
         total_hh = float(
@@ -232,18 +328,20 @@ def _build_incidence(
             ctrl_rows["target_total"].to_list(),
             strict=True,
         ):
+            member = _member_name(ctrl, cat_val)
             if ctrl.level == ControlLevel.HOUSEHOLD:
                 col = zone_seed[f"ctrl_{name}"].to_numpy()
                 rows.append((col == cat_val).astype(np.float64))
             else:
-                inc_col = f"inc_{name}_{_member_name(ctrl, cat_val)}"
+                inc_col = f"inc_{name}_{member}"
                 if inc_col in zone_seed.columns:
                     rows.append(zone_seed[inc_col].to_numpy().astype(np.float64))
                 else:
                     rows.append(np.zeros(n, dtype=np.float64))
+            labels.append((name, member))
             tgt.append(float(target_val))
 
-    return np.vstack(rows), np.array(tgt, dtype=np.float64), master_idx
+    return np.vstack(rows), np.array(tgt, dtype=np.float64), master_idx, labels
 
 
 def _member_name(ctrl: ControlTarget, cat_val: int) -> str:
@@ -253,6 +351,80 @@ def _member_name(ctrl: ControlTarget, cat_val: int) -> str:
             return name.lower()
     msg = f"Category {cat_val} not in {ctrl.name}.valid_members"
     raise ValueError(msg)
+
+
+# -- Merge helpers -----------------------------------------------------------
+
+
+def _apply_merges(
+    incidence: np.ndarray,
+    targets: np.ndarray,
+    row_labels: list[tuple[str, str]],
+    master_idx: int,
+    merges: list[MergeSpec],
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Collapse incidence rows + target entries for merged categories.
+
+    For each ``MergeSpec``, every group maps several base member names to
+    a single merged row.  The incidence rows are summed element-wise and
+    the target values are summed.  Original rows are replaced by the
+    single merged row.
+
+    Parameters
+    ----------
+    incidence : np.ndarray
+        Shape ``(n_controls, n_households)``.
+    targets : np.ndarray
+        One entry per row.
+    row_labels : list[tuple[str, str]]
+        ``(control_name, member_name)`` per row.  **Modified in place**
+        to reflect the merged labels.
+    master_idx : int
+        Row index of the total-HH master control.
+    merges : list[MergeSpec]
+        Merge specifications to apply.
+
+    Returns:
+    -------
+    incidence, targets, master_idx
+        Reduced arrays and (possibly shifted) master index.
+    """
+    for spec in merges:
+        for merged_label, base_members in spec.groups.items():
+            # Find row indices matching this control + base members
+            idxs = [
+                i
+                for i, (ctrl, member) in enumerate(row_labels)
+                if ctrl == spec.control and member in base_members
+            ]
+            if len(idxs) < 2:  # noqa: PLR2004
+                continue  # nothing to merge (0 or 1 match)
+
+            # Sum incidence rows and target entries
+            merged_row = incidence[idxs].sum(axis=0)
+            merged_target = targets[idxs].sum()
+
+            # Keep the first index, mark rest for removal
+            keep = idxs[0]
+            remove = set(idxs[1:])
+
+            incidence[keep] = merged_row
+            targets[keep] = merged_target
+            row_labels[keep] = (spec.control, merged_label)
+
+            # Remove collapsed rows (reverse order to preserve indices)
+            keep_mask = [i not in remove for i in range(len(row_labels))]
+            incidence = incidence[keep_mask]
+            targets = targets[keep_mask]
+            row_labels[:] = [lbl for i, lbl in enumerate(row_labels) if i not in remove]
+
+            # Recompute master_idx after removal
+            master_idx = next(i for i, (c, _) in enumerate(row_labels) if c == "_total_hh")
+
+    return incidence, targets, master_idx
+
+
+# -- Bounds ------------------------------------------------------------------
 
 
 def _bounds(
