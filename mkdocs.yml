@@ -64,8 +64,10 @@ nav:
   - Pipeline Steps: 
       - Load Data: pipeline_steps/read_write.md
       - Cleaning: pipeline_steps/cleaning.md
+      - Imputation: pipeline_steps/imputation.md
       - Link Trips: pipeline_steps/link_trips.md
       - Detect Joint Trips: pipeline_steps/detect_joint_trips.md
+      - Extract Tours: pipeline_steps/extract_tours.md
       - todo: processing.md
 
 markdown_extensions:
