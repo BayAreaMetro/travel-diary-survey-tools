@@ -66,7 +66,7 @@ def link_trips(
             - linked_trips: Aggregated journey records with combined attributes
 
     Algorithm:
-        **Phase 1: Link Trip IDs**
+        # Phase 1: Link Trip IDs
 
         1. Sort unlinked trips by person, day, and departure time
         2. For each person-day sequence:
@@ -77,7 +77,7 @@ def link_trips(
             - Otherwise, start a new linked trip
         3. Assign globally unique linked_trip_id = (day_id * 1000) + sequence_number
 
-        **Phase 2: Aggregate Linked Trips**
+        # Phase 2: Aggregate Linked Trips
 
         1. Group unlinked trips by linked_trip_id
         2. For each linked trip, aggregate:

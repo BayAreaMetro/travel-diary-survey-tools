@@ -2,9 +2,16 @@
 
 The pipeline module provides the execution framework for running sequential data processing steps with configuration, caching, and logging support.
 
-## Overview
+<!-- include architecture and diagram from top level readme -->
+{%
+    include "../Readme.md"
+    start="## Architecture"
+    end="# Pipeline Steps"
+
+%}
 
 The pipeline system allows you to:
+
 - Define processing steps as Python functions
 - Configure pipeline execution via YAML files
 - Cache intermediate results for faster re-runs

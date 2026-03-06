@@ -8,5 +8,6 @@ For detailed API documentation including function signatures, parameters, and al
 [Read/Write API Documentation](https://bayareametro.github.io/travel-diary-survey-tools/processing/#readwrite)
 
 The documentation includes:
+
 - `load_data()` - Load canonical survey tables from files
 - `write_data()` - Write canonical survey tables to output formats

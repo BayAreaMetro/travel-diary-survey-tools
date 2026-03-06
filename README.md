@@ -51,6 +51,7 @@ Tools for processing and validating travel diary survey data into standardized f
 The usage pattern for the pipeline is a bit different than the typical numbered scripts you might see elsewhere. *There is no monolithic integrated script*. Instead there is a standardized data processing pipeline that is configurable via YAML files and executed via a runner script.
 
 There are three main components:
+
 * **Setup**
   * This contains the point of entry defined in `project/run.py` and
   * Pipeline configuration defined in `project/config.yaml`

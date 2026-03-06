@@ -8,14 +8,14 @@ theme:
     primary: indigo
   features:
     - navigation.sections
-    - navigation.top
+    - navigation.tabs
     - content.code.copy
 
 plugins:
   - search
   - autorefs
   - include-markdown:
-      rewrite_relative_urls: false
+      rewrite_relative_urls: true
   - mkdocstrings:
       handlers:
         python:
@@ -37,7 +37,7 @@ plugins:
             signature_crossrefs: true
             separate_signature: false
             show_root_members_full_path: false
-            heading_level: 3
+            heading_level: 2
             # Show class attributes for Pydantic models
             show_root_toc_entry: true
             show_category_heading: false
@@ -61,12 +61,21 @@ nav:
           - DaySim: models/daysim.md
           - CTRAMP: models/ctramp.md
   - Pipeline: pipeline.md
-  - Processing: processing.md
+  - Pipeline Steps: 
+      - Load Data: pipeline_steps/read_write.md
+      - Cleaning: pipeline_steps/cleaning.md
+      - Link Trips: pipeline_steps/link_trips.md
+      - Detect Joint Trips: pipeline_steps/detect_joint_trips.md
+      - todo: processing.md
 
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight
   - pymdownx.inlinehilite
   - tables
