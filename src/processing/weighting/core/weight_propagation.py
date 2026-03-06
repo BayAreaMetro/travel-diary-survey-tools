@@ -62,7 +62,10 @@ def collect_tables(
     joint_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame | None]:
-    """Bundle canonical tables into a dict keyed by table name."""
+    """Bundle canonical tables into a dict keyed by table name.
+
+    Kind of silly, but handles Nones and keeps the table names straight in one place.
+    """
     return {
         "households": households,
         "persons": persons,

@@ -190,8 +190,11 @@ def build_control_totals(
             raise ValueError(msg)
 
         ctrl_col = f"ctrl_{spec.name}"
-        weight_col = "WGTP" if ctrl.level == ControlLevel.HOUSEHOLD else "PWGTP"
+        raw_wt = "WGTP" if ctrl.level == ControlLevel.HOUSEHOLD else "PWGTP"
+        # Prefer crosswalk-scaled weights when available
+        xw_wt = f"_xw_{raw_wt}"
         source_df = hh_df if ctrl.level == ControlLevel.HOUSEHOLD else person_df
+        weight_col = xw_wt if xw_wt in source_df.columns else raw_wt
 
         if ctrl_col not in source_df.columns:
             hh_or_person = "household" if ctrl.level == ControlLevel.HOUSEHOLD else "person"

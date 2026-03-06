@@ -25,6 +25,7 @@ from processing import (
     format_daysim,
     link_trips,
     load_data,
+    weighting,
     write_data,
 )
 
@@ -91,6 +92,7 @@ processing_steps = [
     format_daysim,
     write_data,
     add_existing_weights,
+    weighting,
 ]
 
 

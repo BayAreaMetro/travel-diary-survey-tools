@@ -99,3 +99,13 @@ hh_weight
 - **Gap Detection:** Raises errors if middle-tier weights missing (e.g., have household + trip but not person/day)
 - **Aggregation Strategy:** Uses mean for deriving weights from multiple source records, excluding zeros and nulls
 - **Weight Validation:** All required columns validated before joining to catch config errors early
+
+---
+
+## Geography Crosswalk
+
+The weighting step uses a population-weighted geography crosswalk to map
+source zones (e.g. Census PUMAs) to target zones (counties, TAZs, etc.).
+
+- **Generic crosswalk builder:** [`src/utils/crosswalk.py`](../../../src/utils/crosswalk.py) — see [`src/utils/CROSSWALK.md`](../../../src/utils/CROSSWALK.md) for math, diagrams, and API docs.
+- **PUMA-specific wrapper:** [`PumaCrosswalk`](core/crosswalk.py) — fetches Census geographies and delegates to `build_crosswalk`, then renames outputs for PUMS consumers.

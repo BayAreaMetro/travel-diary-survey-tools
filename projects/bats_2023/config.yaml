@@ -65,15 +65,26 @@ steps:
     cache: true
 
   - name: weighting
-    validate_input: true
+    validate_input: false
     cache: true
     params:
       # -- PUMS 1-year microdata (California) ---------------------------
       # (Optional) will download from Census if not provided
       # pums_households: "{{ pums_dir }}/psam_h06.csv"
       # pums_persons: "{{ pums_dir }}/psam_p06.csv"
-      geo_col: "PUMA"            # PUMS geography column
-      survey_geo_col: "puma_id"  # Canonical survey geography column
+
+      state_fips: "06"
+      pums_year: 2023
+
+      # -- Geography crosswalk ------------------------------------------
+      # Specify a polygon file for target zones.  The crosswalk module
+      # auto-discovers overlapping PUMAs and builds a population-weighted
+      # allocation table using Census blocks + exactextract.
+      geography:
+        target_zones:
+          file: "{{ TM1_shapefile_dir }}/region_county.shp"
+          id_field: "fipco"  # null -> single study-area boundary
+        resolution: 250         # meters (exactextract handles boundary fractions)
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -87,16 +98,10 @@ steps:
         - name: h_children
         - name: p_gender
         - name: p_employment
+          # Optional: merge granular categories before balancing.
+          # merge: {employed: [employed_full, employed_part]}
+          # merge_zones: [zone1, zone2]  # omit to apply globally
         - name: p_age
-
-      # -- Category merges (optional) ----------------------------------
-      # Collapse granular categories at the matrix level before balancing.
-      # Each entry specifies a control and groups of base members to merge.
-      # Zone-specific merges are supported via the optional 'zones' key.
-      # merges:
-      #   - control: p_employment
-      #     groups:
-      #       employed: [employed_full, employed_part]
 
       # -- Balancer settings -------------------------------------------
       max_expansion_factor: 10.0   # upper bound = initial_weight × factor
@@ -109,25 +114,6 @@ steps:
   # -- Existing weights (alternative to computing new weights) ----------
   # Uncomment this block and comment out the 'weighting' step above
   # to use pre-computed weights from an external source.
-  #
-  # - name: add_existing_weights
-  #   validate_input: false
-  #   cache: false
-  #   params:
-  #     derive_missing_weights: true
-  #     weights:
-  #       household_weights:
-  #         weight_path: "{{ weights_dir }}/hh_weights.csv"
-  #       person_weights:
-  #         weight_path: "{{ weights_dir }}/person_weights.csv"
-  #       day_weights:
-  #         weight_path: "{{ weights_dir }}/day_weights.csv"
-  #       unlinked_trip_weights:
-  #         weight_id_col: "trip_id"
-  #         weight_col: "trip_weight"
-  #         weight_path: "{{ weights_dir }}/trip_weights.csv"
-  #         keep_name: false
-
   # - name: add_existing_weights
   #   validate_input: false
   #   cache: false

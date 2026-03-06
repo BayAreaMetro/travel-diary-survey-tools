@@ -43,31 +43,40 @@ def recode_survey_households(
     if not hh_ctrls:
         return households
 
-    # Pre-aggregate person to household counts for derived HH controls.
+    # Pre-aggregate person → household counts for derived HH controls.
     # These become plain columns (_n_persons, _n_workers, _n_children)
     # that the control expressions read directly.
+    _person_aggs: dict[str, pl.Expr] = {
+        "h_size": pl.len().alias("_n_persons"),
+        "h_workers": (
+            pl.col("employment")
+            .is_in(
+                [
+                    Employment.EMPLOYED_FULLTIME.value,
+                    Employment.EMPLOYED_PARTTIME.value,
+                    Employment.EMPLOYED_SELF.value,
+                ]
+            )
+            .sum()
+            .cast(pl.Int32)
+            .alias("_n_workers")
+        ),
+        "h_children": (
+            pl.col("age")
+            .is_in(
+                [
+                    AgeCategory.AGE_UNDER_5.value,
+                    AgeCategory.AGE_5_TO_15.value,
+                    AgeCategory.AGE_16_TO_17.value,
+                ]
+            )
+            .sum()
+            .cast(pl.Int32)
+            .alias("_n_children")
+        ),
+    }
     requested = {c.name for c in hh_ctrls}
-    aggs: list[pl.Expr] = []
-    if "h_size" in requested:
-        aggs.append(pl.len().alias("_n_persons"))
-    if "h_workers" in requested:
-        _worker_statuses = [
-            Employment.EMPLOYED_FULLTIME.value,
-            Employment.EMPLOYED_PARTTIME.value,
-            Employment.EMPLOYED_SELF.value,
-        ]
-        aggs.append(
-            pl.col("employment").is_in(_worker_statuses).sum().cast(pl.Int32).alias("_n_workers"),
-        )
-    if "h_children" in requested:
-        _child_ages = [
-            AgeCategory.AGE_UNDER_5.value,
-            AgeCategory.AGE_5_TO_15.value,
-            AgeCategory.AGE_16_TO_17.value,
-        ]
-        aggs.append(
-            pl.col("age").is_in(_child_ages).sum().cast(pl.Int32).alias("_n_children"),
-        )
+    aggs = [expr for name, expr in _person_aggs.items() if name in requested]
 
     if aggs:
         counts = persons.group_by("hh_id").agg(aggs)

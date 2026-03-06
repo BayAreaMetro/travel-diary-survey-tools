@@ -2,13 +2,14 @@
 
 Orchestrates the full weighting pipeline as a single ``@step`` entry point:
 
-1. Load/fetch PUMS microdata
-2. Recode PUMS -> control categories
-3. Build weighted control totals by geography
-4. Recode survey -> same control categories
-5. Build household seed table with person incidence
-6. Run maximum-entropy balancer per zone
-7. Join ``hh_weight`` to households; propagate to all downstream tables
+1. Build PUMA -> target-zone crosswalk from geography config
+2. Load/fetch PUMS microdata
+3. Recode PUMS -> control categories
+4. Build weighted control totals by geography (crosswalk-aware)
+5. Recode survey -> same control categories
+6. Build household seed table with person incidence
+7. Run maximum-entropy balancer per zone
+8. Join ``hh_weight`` to households; propagate to all downstream tables
 """
 
 import logging
@@ -23,6 +24,7 @@ from processing.weighting.core.control_data import (
     recode_pums_households,
     recode_pums_persons,
 )
+from processing.weighting.core.crosswalk import GeographyConfig, PumaCrosswalk
 from processing.weighting.core.pums_data import PUMSSource, fetch_pums_data, load_pums_from_files
 from processing.weighting.core.seed_data import (
     build_seed_table,
@@ -39,19 +41,19 @@ from processing.weighting.core.weight_propagation import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Pipeline step
+# ---------------------------------------------------------------------------
 @step()
 def weighting(  # noqa: PLR0913
     # -- Config params (from YAML) --------------------------------------
     state_fips: str,
     pums_year: int,
     controls: list[dict],
+    geography: dict,
     *,
-    puma_ids: list[str] | None = None,
     pums_households: str | None = None,
     pums_persons: str | None = None,
-    merges: list[dict] | None = None,
-    geo_col: str = "PUMA",
-    survey_geo_col: str = "puma_id",
     max_expansion_factor: float = 10.0,
     min_expansion_factor: float = 0.1,
     min_weight: float | None = 1,
@@ -78,20 +80,13 @@ def weighting(  # noqa: PLR0913
     controls : list[dict]
         Control specifications, each with ``name``.
         Names must match keys in the ``CONTROLS`` registry.
-    puma_ids : list[str] | None
-        Optional PUMA codes to limit the Census API query.
-        ``None`` fetches all PUMAs in the state.
+    geography : dict
+        Geography crosswalk configuration.  Builds a PUMA -> target-zone
+        crosswalk from a user-supplied polygon file using Census block
+        population.  See :class:`GeographyConfig`.
     pums_households, pums_persons : str | None
         Optional local file paths.  When both are provided the Census
         API is skipped and data is loaded from disk instead.
-    merges : list[dict] | None
-        Optional category merges applied at the matrix level before
-        balancing.  Each dict has keys ``control`` (str), ``groups``
-        (dict[str, list[str]]), and optionally ``zones`` (list[str]).
-    geo_col : str
-        Geography column in PUMS data (default ``"PUMA"``).
-    survey_geo_col : str
-        Geography column in survey households (default ``"puma_id"``).
     max_expansion_factor, min_expansion_factor : float
         Bounds on balanced / initial weight ratio.
     min_weight, max_weight : float | None
@@ -113,19 +108,29 @@ def weighting(  # noqa: PLR0913
         raise ValueError(msg)
 
     # -- Parse control specs ----------------------------------------
-    specs = [ControlSpec(**c) for c in controls]
+    specs = [ControlSpec(**{k: v for k, v in c.items() if k in ("name",)}) for c in controls]
     target_names = [s.name for s in specs]
-    merge_specs = [MergeSpec(**m) for m in merges] if merges else []
+    merge_specs = [
+        MergeSpec(control=c["name"], groups=c["merge"], zones=c.get("merge_zones"))
+        for c in controls
+        if c.get("merge")
+    ]
     logger.info("Controls: %s", target_names)
-    if merge_specs:
-        logger.info("Category merges: %d specs", len(merge_specs))
+
+    # -- Geography crosswalk ----------------------------------------
+    # We do this first because it serves as source of truth of geo IDs.
+    xw = PumaCrosswalk(
+        GeographyConfig(**geography),
+        state_fips=state_fips,
+        pums_year=pums_year,
+    )
 
     # -- 1. Load PUMS -----------------------------------------------
     if pums_households is not None and pums_persons is not None:
         logger.info("Loading PUMS from local files")
         pums_hh, pums_per = load_pums_from_files(pums_households, pums_persons)
     else:
-        source = PUMSSource(state_fips=state_fips, pums_year=pums_year, puma_ids=puma_ids)
+        source = PUMSSource(state_fips=state_fips, pums_year=pums_year, puma_ids=xw.puma_ids)
         logger.info("Fetching PUMS via Census API: state=%s year=%d", state_fips, pums_year)
         pums_hh, pums_per = fetch_pums_data(source)
 
@@ -133,8 +138,14 @@ def weighting(  # noqa: PLR0913
     pums_hh = recode_pums_households(pums_hh, pums_per, target_names)
     pums_per = recode_pums_persons(pums_per, target_names)
 
-    # -- 3. Build control totals ------------------------------------
-    control_totals = build_control_totals(pums_hh, pums_per, specs, geo_col=geo_col)
+    # -- 3. Expand PUMS via crosswalk & build control totals --------
+    pums_hh_xw, pums_per_xw = xw.allocate_pums_weights(pums_hh, pums_per)
+    control_totals = build_control_totals(
+        pums_hh_xw,
+        pums_per_xw,
+        specs,
+        geo_col="target_id",
+    )
     logger.info(
         "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
         len(control_totals.geo_ids),
@@ -143,11 +154,16 @@ def weighting(  # noqa: PLR0913
     )
 
     # -- 4. Recode survey -------------------------------------------
+    # Assign households to target zones via point in polygon, then recode.
+    households = xw.assign_households(households)
+    n_assigned = households.filter(pl.col("target_id").is_not_null()).height
+    logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(households))
+
     hh_recoded = recode_survey_households(households, persons, target_names)
     per_recoded = recode_survey_persons(persons, target_names)
 
     # -- 5. Build seed table ----------------------------------------
-    seed = build_seed_table(hh_recoded, per_recoded, target_names, geo_col=survey_geo_col)
+    seed = build_seed_table(hh_recoded, per_recoded, target_names, geo_col="target_id")
 
     # -- 6. Balance -------------------------------------------------
     weights_df, statuses = balance_weights(
@@ -155,7 +171,7 @@ def weighting(  # noqa: PLR0913
         control_totals,
         target_names,
         merges=merge_specs,
-        geo_col=survey_geo_col,
+        geo_col="target_id",
         max_expansion_factor=max_expansion_factor,
         min_expansion_factor=min_expansion_factor,
         min_weight=min_weight,

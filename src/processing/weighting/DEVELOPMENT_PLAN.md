@@ -75,16 +75,20 @@ The weighting module is exposed to the pipeline as a **single `@step()` entry po
 src/processing/weighting/
 ├── __init__.py
 ├── existing_weights.py        # ✅ Implemented — attach pre-computed weights
-├── weighting.py               # 🔲 Planned — single @step() entry point; orchestrates core/
+├── weighting.py               # ✅ Implemented — single @step() entry point; orchestrates core/
 ├── core/
 │   ├── __init__.py
-│   ├── crosswalk.py           # 🔲 BG-based geography crosswalk
-│   ├── control_data.py        # 🔲 PUMS 1-year control totals with YAML-configured bins
-│   ├── seed_data.py           # 🔲 Recode survey variables to match control bins
-│   ├── expansion.py           # 🔲 Base design weight + DOW household-day expansion
-│   ├── balancer.py            # 🔲 Max entropy balancing via PopulationSim numba core
-│   ├── derive_weights.py      # 🔲 Propagate weights to all canonical tables
-│   └── diagnostics.py         # 🔲 Self-contained HTML diagnostic report (Plotly)
+│   ├── census_geo.py          # ✅ Implemented — TIGER shapefile download via pygris (PUMAs, blocks)
+│   ├── crosswalk.py           # ✅ Implemented — rasterized PUMA→target-zone crosswalk (exactextract)
+│   ├── control_data.py        # ✅ Implemented — PUMS control totals (crosswalk-aware)
+│   ├── control_enums.py       # ✅ Implemented — control category enums
+│   ├── controls.py            # ✅ Implemented — control target registry
+│   ├── seed_data.py           # ✅ Implemented — recode survey variables to match controls
+│   ├── pums_data.py           # ✅ Implemented — PUMS download/load via cenpy
+│   ├── balancer.py            # ✅ Implemented — max entropy balancing (PopulationSim numba core)
+│   ├── weight_propagation.py  # ✅ Implemented — propagate weights to all canonical tables
+│   ├── expansion.py           # 🔲 Planned — DOW household-day expansion
+│   └── diagnostics.py         # 🔲 Planned — HTML diagnostic report (Plotly)
 └── DEVELOPMENT_PLAN.md        # 📄 This document
 ```
 
@@ -94,35 +98,50 @@ src/processing/weighting/
 
 Each sub-component is documented here as a logical unit. They are not pipeline steps — they are internal functions called by the single `weighting` step.
 
-### `core/crosswalk`
+### `core/crosswalk` ✅
 
-**Purpose:** Build an allocation table from PUMS PUMAs to any custom project geography, using Census block groups (BGs) as the intermediary unit. BGs are small enough that a proportional-area split at the BG level is a reasonable approximation to a population-weighted split.
+**Purpose:** Build a population-weighted allocation table from PUMS PUMAs to any custom project geography using Census blocks as the scaling layer. Uses `rasterio` to create a population-density grid from block polygons and `exactextract` for exact fractional zonal statistics — eliminating sliver artifacts and running orders of magnitude faster than polygon-polygon intersection.
 
 **Inputs:**
-- `bg_shapefile`: Census block group polygons (with PUMA assignment field, or joinable to a PUMA layer)
-- `custom_geo_shapefile`: Project-specific polygon geography (county, super-district, TAZ cluster, etc.)
+- Target zone polygon file (shapefile / GeoJSON) — single boundary or multiple zones
+- State FIPS code and PUMS year (to determine PUMA vintage)
+- Resolution in meters (default 250m — boundary accuracy is exact regardless of resolution due to exactextract)
 
 **Outputs:**
-- `crosswalk`: DataFrame with columns:
-  - `puma_id`
-  - `custom_geo_id`
-  - `bg_id` (for auditability)
-  - `allocation_weight` — fraction of this BG's population allocated to this custom zone (sums to 1.0 per BG)
+- `crosswalk`: pl.DataFrame with columns:
+  - `puma_id` — PUMA identifier (str)
+  - `target_id` — target zone identifier (str)
+  - `population` — allocated population
+  - `allocation_weight` — fraction of PUMA population allocated to target zone (sums to 1.0 per PUMA)
+- `puma_ids`: list[str] — PUMAs overlapping the study area (for PUMS API fetch)
+
+### `core/census_geo` ✅
+
+**Purpose:** Download and cache Census TIGER/Line shapefiles for PUMAs and blocks. The TABBLOCK20 files include `POP20` directly from the 2020 decennial census — no separate population table join is needed.
 
 **Approach:**
 
 ```
-PUMA ←─── Block Groups ───→ Custom Geography
+Target Zones ──────────────────────────────→ exactextract (fractional zonal stats)
+                                                 ↑
+Census Blocks → rasterize pop → pop grid ────────┘
+                                                 ↑
+PUMAs         → rasterize IDs → label grid ──────┘
 ```
 
-1. Intersect BG polygons with custom geography polygons.
-2. For each BG × custom-zone intersection, compute `overlap_area / bg_area` as the allocation fraction. Where BG is fully within one zone this is 1.0; partial overlaps are split proportionally by area.
-3. Join BG → PUMA lookup to produce the final three-way table.
-4. Validate: allocation weights per BG sum to 1.0; every PUMA has at least one BG.
+1. Load target zone polygons from user-specified file; auto-discover overlapping PUMAs.
+2. Download/cache TIGER PUMA and block shapefiles for the state.
+3. Rasterize block population into a density grid (uniform within-block distribution).
+4. Rasterize PUMA IDs into a categorical label grid.
+5. Use `exactextract` to compute `sum(population)` within each target zone polygon, grouped by PUMA label. Boundary cells are fractionally allocated (exact coverage fractions, not winner-take-all).
+6. Normalize: `allocation_weight = pop(puma, target) / pop(puma)` per PUMA.
+7. Validate: population conservation check (rasterized vs block total), weight sums per PUMA ≈ 1.0.
 
 **Notes:**
-- Area-proportional is an approximation; a population-weighted version could use BG population from the decennial census or ACS summary file as a future enhancement.
-- The crosswalk is geography-only — no survey or PUMS data dependency — and can be cached and reused across surveys.
+- Resolution (default 250m) only affects within-block population distribution granularity. Boundary accuracy is exact at any resolution due to `exactextract`'s analytical sub-cell coverage computation.
+- Blocks (2020 decennial) are the finest available unit with published population.
+- TIGER files are cached locally; re-downloads only if cache is missing. Users can provide local files as overrides.
+- The crosswalk is geography-only — no survey dependency — and is cached at the pipeline step level.
 
 ---
 
