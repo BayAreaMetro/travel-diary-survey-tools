@@ -73,6 +73,11 @@ exclude = ["archive", "*.html", "uv.lock"]
     "INP001",      # script not part of package
     "T201",        # allow print statements in scripts
 ]
+"src/processing/weighting/core/controls.py" = [
+    "D101",   # subclass .description is the docstring
+    "D102",   # overrides inherit base-class method docs
+    "RUF012", # class-attr dicts are effectively constants
+]
 "projects/**/*.py" = [
     "INP001",      # script not part of package
 ]

@@ -1,5 +1,7 @@
 """Codebook enumerations for person table."""
 
+from enum import nonmember
+
 from data_canon.core.labeled_enum import LabeledEnum
 
 
@@ -19,6 +21,8 @@ class AgeCategory(LabeledEnum):
     AGE_65_TO_74 = (9, "65 to 74")
     AGE_75_TO_84 = (10, "75 to 84")
     AGE_85_AND_UP = (11, "85 and up")
+
+    BREAKPOINTS = nonmember([5, 16, 18, 25, 35, 45, 55, 65, 75, 85])
 
 
 class Education(LabeledEnum):

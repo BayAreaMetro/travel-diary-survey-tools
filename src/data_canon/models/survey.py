@@ -47,6 +47,7 @@ class HouseholdModel(BaseModel):
     residence_rent_own: ResidenceRentOwn = step_field(required_in_steps=["format_daysim"])
     residence_type: ResidenceType = step_field(required_in_steps=["format_daysim"])
     hh_weight: float | None = step_field(ge=0, required_in_steps=[])
+    num_vehicles: int = step_field(ge=0, required_in_steps=["weighting"])
 
 
 class PersonModel(BaseModel):

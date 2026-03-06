@@ -7,22 +7,17 @@ import polars as pl
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pipeline.decoration import step
+from processing.weighting.core.weight_propagation import (
+    WEIGHT_COLUMNS,
+    WEIGHT_CONFIG_MAPPING,
+    collect_tables,
+    propagate_weights,
+)
 
 logger = logging.getLogger(__name__)
 
-# Strict mapping of config keys to (table_name, id_column, weight_column)
-DEFAULT_WEIGHT_CONFIG_MAPPING = {
-    "household_weights": ("households", "hh_id", "hh_weight"),
-    "person_weights": ("persons", "person_id", "person_weight"),
-    "day_weights": ("days", "day_id", "day_weight"),
-    "unlinked_trip_weights": ("unlinked_trips", "unlinked_trip_id", "unlinked_trip_weight"),
-    "linked_trip_weights": ("linked_trips", "linked_trip_id", "linked_trip_weight"),
-    "joint_trip_weights": ("joint_trips", "joint_trip_id", "joint_trip_weight"),
-    "tour_weights": ("tours", "tour_id", "tour_weight"),
-}
 
-
-class WeightConfig(BaseModel):
+class ExistingWeightConfig(BaseModel):
     """Configuration for a single weight file.
 
     Most fields use sensible defaults - typically you only need to provide weight_path.
@@ -73,10 +68,10 @@ class WeightConfig(BaseModel):
     @classmethod
     def validate_config_key(cls, v: str) -> str:
         """Validate that config_key is one of the allowed values."""
-        if v not in DEFAULT_WEIGHT_CONFIG_MAPPING:
+        if v not in WEIGHT_CONFIG_MAPPING:
             msg = (
                 f"Invalid weight config key: {v}. "
-                f"Must be one of {list(DEFAULT_WEIGHT_CONFIG_MAPPING.keys())}"
+                f"Must be one of {list(WEIGHT_CONFIG_MAPPING.keys())}"
             )
             raise ValueError(msg)
         return v
@@ -91,9 +86,9 @@ class WeightConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def set_defaults_from_mapping(self) -> "WeightConfig":
+    def set_defaults_from_mapping(self) -> "ExistingWeightConfig":
         """Set default values for weight_id_col and weight_col from the mapping."""
-        _, table_id_col, canonical_weight_col = DEFAULT_WEIGHT_CONFIG_MAPPING[self.config_key]
+        _, table_id_col, canonical_weight_col = WEIGHT_CONFIG_MAPPING[self.config_key]
 
         if self.weight_id_col is None:
             self.weight_id_col = table_id_col
@@ -105,17 +100,17 @@ class WeightConfig(BaseModel):
     @property
     def table_name(self) -> str:
         """Get the table name for this weight config."""
-        return DEFAULT_WEIGHT_CONFIG_MAPPING[self.config_key][0]
+        return WEIGHT_CONFIG_MAPPING[self.config_key][0]
 
     @property
     def table_id_col(self) -> str:
         """Get the canonical table ID column."""
-        return DEFAULT_WEIGHT_CONFIG_MAPPING[self.config_key][1]
+        return WEIGHT_CONFIG_MAPPING[self.config_key][1]
 
     @property
     def canonical_weight_col(self) -> str:
         """Get the canonical weight column name for this table."""
-        return DEFAULT_WEIGHT_CONFIG_MAPPING[self.config_key][2]
+        return WEIGHT_CONFIG_MAPPING[self.config_key][2]
 
     def validate_columns(self, weight_df: pl.DataFrame, table_df: pl.DataFrame) -> None:
         """Validate that required columns exist in weight file and table.
@@ -144,105 +139,9 @@ class WeightConfig(BaseModel):
             raise ValueError(msg)
 
 
-def _derive_missing_weights(
-    tables: dict[str, pl.DataFrame | None],
-    provided_weights: set[str],
-    has_weight: dict[str, str],
-) -> None:
-    """Derive missing weights from upstream tables. Modifies tables and has_weight in place."""
-    # Get weight column names from mapping
-    weight_cols = {table: col for table, _, col in DEFAULT_WEIGHT_CONFIG_MAPPING.values()}
-
-    # Hierarchy for simple carry-forward derivation
-    hierarchy = [
-        ("persons", "households", "hh_id"),
-        ("days", "persons", "person_id"),
-        ("unlinked_trips", "days", "day_id"),
-    ]
-
-    # Carry forward weights through hierarchy
-    for child_table, parent_table, join_key in hierarchy:
-        child_df = tables.get(child_table)
-        parent_df = tables.get(parent_table)
-
-        # If child table is missing or already has weight, skip
-        if child_df is None or child_table in provided_weights:
-            continue
-
-        # Check that parent has weight to carry forward
-        if parent_table not in has_weight:
-            msg = (
-                f"Cannot derive {weight_cols[child_table]} for {child_table}: "
-                f"parent table {parent_table} does not have {weight_cols[parent_table]}"
-            )
-            raise ValueError(msg)
-
-        # Check that parent table exists
-        if parent_df is None:
-            msg = (
-                f"Cannot derive {weight_cols[child_table]} for {child_table}: "
-                f"parent table {parent_table} is None"
-            )
-            raise ValueError(msg)
-
-        # Get weight column names, allow for different names in weight files
-        parent_weight = has_weight[parent_table]
-        child_weight = weight_cols[child_table]
-
-        # Carry forward weight from parent to child via join
-        logger.info("Deriving %s from %s via %s", child_weight, parent_weight, join_key)
-
-        if join_key not in child_df.columns:
-            msg = f"Cannot derive weight: {child_table} missing join key {join_key}"
-            raise ValueError(msg)
-
-        weight_to_carry = parent_df.select([join_key, parent_weight]).rename(
-            {parent_weight: child_weight}
-        )
-        tables[child_table] = child_df.join(weight_to_carry, on=join_key, how="left")
-        has_weight[child_table] = child_weight
-
-    # Derive aggregated weights
-    aggregations = [
-        ("linked_trips", "unlinked_trips", "linked_trip_id"),
-        ("joint_trips", "linked_trips", "joint_trip_id"),
-        ("tours", "linked_trips", "tour_id"),
-    ]
-
-    for target_table, source_table, group_key in aggregations:
-        target_df = tables.get(target_table)
-        source_df = tables.get(source_table)
-
-        if target_df is None or target_table in provided_weights:
-            continue
-
-        if source_table not in has_weight or source_df is None:
-            continue
-
-        source_weight = has_weight[source_table]
-        target_weight = weight_cols[target_table]
-
-        # Derive weight by aggregating (mean) from source, excluding nulls and zeros
-        logger.info("Deriving %s from mean of %s", target_weight, source_weight)
-
-        if group_key not in source_df.columns:
-            msg = f"Cannot derive {target_weight}: source missing {group_key}"
-            raise ValueError(msg)
-
-        aggregated = source_df.group_by(group_key).agg(
-            pl.col(source_weight)
-            .filter(pl.col(source_weight).is_not_null() & (pl.col(source_weight) != 0))
-            .mean()
-            .fill_null(0)
-            .alias(target_weight)
-        )
-        tables[target_table] = target_df.join(aggregated, on=group_key, how="left")
-        has_weight[target_table] = target_weight
-
-
 @step()
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
-    weights: dict[str, WeightConfig | dict],
+    weights: dict[str, ExistingWeightConfig | dict],
     derive_missing_weights: bool = False,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -301,31 +200,32 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         Dict of tables with attached weights.
     """
     # Collect all provided tables
-    tables = {
-        "households": households,
-        "persons": persons,
-        "days": days,
-        "unlinked_trips": unlinked_trips,
-        "linked_trips": linked_trips,
-        "joint_trips": joint_trips,
-        "tours": tours,
-    }
+    tables = collect_tables(
+        households=households,
+        persons=persons,
+        days=days,
+        unlinked_trips=unlinked_trips,
+        linked_trips=linked_trips,
+        joint_trips=joint_trips,
+        tours=tours,
+    )
 
     # Track which weights are provided and which tables have weights
     provided_weights = set()
     has_weight = {}
 
     # Validate and convert weight configs to WeightConfig objects
-    validated_weights: dict[str, WeightConfig] = {}
+    validated_weights: dict[str, ExistingWeightConfig] = {}
     for config_key, value in weights.items():
-        if isinstance(value, WeightConfig):
+        if isinstance(value, ExistingWeightConfig):
             validated_weights[config_key] = value
         elif isinstance(value, dict):
             # Auto-infer config_key from dict key if not provided
-            validated_weights[config_key] = WeightConfig(config_key=config_key, **value)
+            validated_weights[config_key] = ExistingWeightConfig(config_key=config_key, **value)
         else:
             msg = (
-                f"Weight config for {config_key} must be a WeightConfig or dict, got {type(value)}"
+                f"Weight config for {config_key} must be a ExistingWeightConfig or dict, "
+                f"got {type(value)}"
             )
             raise TypeError(msg)
 
@@ -379,12 +279,12 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
     # Derive missing weights if requested
     if derive_missing_weights:
-        _derive_missing_weights(tables, provided_weights, has_weight)
+        propagate_weights(tables, has_weight, skip=provided_weights)
 
     # Build results dict, excluding None values and internal tables
     # Do a quick check for any NULL weight values in any of the tables
     results = {}
-    for table, _, weight in DEFAULT_WEIGHT_CONFIG_MAPPING.values():
+    for table, weight in WEIGHT_COLUMNS.items():
         df = tables.get(table)
         # If empty, skip
         if df is None:

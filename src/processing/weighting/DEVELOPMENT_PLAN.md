@@ -30,7 +30,7 @@ graph TD
     create_crosswalk[create_crosswalk]
     control_prep[control_data]
 
-    survey_prep[Survey Data Prep]
+    seed_data[Seed Data Prep]
     initial_expansion[Initial Expansion]
     prelim_weighting[Prelim Weighting]
     adjusted_weighting[Adjusted Weighting]
@@ -39,10 +39,10 @@ graph TD
     derive_weights[derive_weights]
 
     pums_data --> control_prep
-    survey_data --> survey_prep
+    survey_data --> seed_data
     geography_data --> create_crosswalk
     control_prep --> initial_expansion
-    survey_prep --> initial_expansion
+    seed_data --> initial_expansion
     create_crosswalk --> initial_expansion
     initial_expansion --> prelim_weighting
     prelim_weighting --> daypat_model
@@ -80,7 +80,7 @@ src/processing/weighting/
 │   ├── __init__.py
 │   ├── crosswalk.py           # 🔲 BG-based geography crosswalk
 │   ├── control_data.py        # 🔲 PUMS 1-year control totals with YAML-configured bins
-│   ├── survey_prep.py         # 🔲 Recode survey variables to match control bins
+│   ├── seed_data.py           # 🔲 Recode survey variables to match control bins
 │   ├── expansion.py           # 🔲 Base design weight + DOW household-day expansion
 │   ├── balancer.py            # 🔲 Max entropy balancing via PopulationSim numba core
 │   ├── derive_weights.py      # 🔲 Propagate weights to all canonical tables
@@ -153,7 +153,7 @@ Controls are defined in the pipeline YAML. Each control specifies a source table
     controls:
 
       # Simple marginal — household size, grouped into bins
-      - name: hh_size
+      - name: h_size
         table: households
         variable: NP              # PUMS persons-per-household
         bins:
@@ -201,7 +201,7 @@ Controls are defined in the pipeline YAML. Each control specifies a source table
 
 ---
 
-### `core/survey_prep`
+### `core/seed_data`
 
 **Purpose:** Recode canonical survey variables into the same bin/group categories defined for PUMS controls so the two datasets are directly comparable.
 
@@ -210,7 +210,7 @@ Controls are defined in the pipeline YAML. Each control specifies a source table
 - Same control variable YAML configuration used in `core/control_data`
 
 **Outputs:**
-- `households`, `persons`: With added recoded stratum columns (e.g., `hh_size_cat`, `commute_mode_cat`, `age_sex_cat`)
+- `households`, `persons`: With added recoded stratum columns (e.g., `ctrl_h_size`, `ctrl_p_commute_mode`, `ctrl_p_age`)
 
 **Approach:**
 - Driven entirely by the control YAML: the same bin/group definitions are applied to survey fields that correspond to the PUMS variables.
@@ -236,7 +236,7 @@ field_mapping:
 **Purpose:** Compute a base design weight for each record (household or household-day) that corrects for geographic sampling imbalances before balancing.
 
 **Inputs:**
-- `households` with recoded stratum columns (from `core/survey_prep`)
+- `households` with recoded stratum columns (from `core/seed_data`)
 - `controls` (from `core/control_data`)
 - `crosswalk` (from `core/crosswalk`)
 - `days` table (required only when `dow_weighting: true`)
@@ -390,17 +390,17 @@ When DOW weighting is active, an additional row shows the breakdown by day-of-we
 One chart per control geography zone, plus a "Total Region" chart that aggregates across all zones.
 
 Each chart is a **horizontal bar chart** with:
-- **Y-axis:** Control variable category labels (e.g., `hh_size: 1`, `hh_size: 2`, `age_by_sex: 18-64 × male`, ...)
+- **Y-axis:** Control variable category labels (e.g., `h_size: 1`, `h_size: 2`, `age_by_sex: 18-64 × male`, ...)
 - **X-axis:** Percentage error = `(weighted_sum − target) / target × 100`, centered on 0
 - **Color coding:** Green for |error| < 2%, yellow for 2–5%, red for > 5% (thresholds configurable)
 - **Hover tooltip:** Shows weighted sum, target, absolute difference, and seed count
 
 ```
           ◄── underfit ──── 0 ──── overfit ──►
-hh_size: 1        ████████▏         +3.2%
-hh_size: 2     ▕██████             -2.8%
-hh_size: 3        ██▏               +0.9%
-hh_size: 4+       █▏                +0.4%
+h_size: 1        ████████▏         +3.2%
+h_size: 2     ▕██████             -2.8%
+h_size: 3        ██▏               +0.9%
+h_size: 4+       █▏                +0.4%
 age_sex: 0-17×M   ▕████████████    -5.1%
 age_sex: 0-17×F      ███▏           +1.2%
 ...
@@ -452,11 +452,11 @@ A comprehensive table showing, for every control variable cell in every zone, th
 
 | Control Geo | Control Variable | Category | Seed Count | Target Total | Weighted Sum | % Error | Seed/Target Ratio |
 |-------------|-----------------|----------|------------|--------------|--------------|---------|-------------------|
-| Zone A | hh_size | 1 | 42 | 12,350 | 12,410 | +0.5% | 0.0034 |
-| Zone A | hh_size | 2 | 38 | 10,200 | 10,180 | -0.2% | 0.0037 |
+| Zone A | h_size | 1 | 42 | 12,350 | 12,410 | +0.5% | 0.0034 |
+| Zone A | h_size | 2 | 38 | 10,200 | 10,180 | -0.2% | 0.0037 |
 | Zone A | age_by_sex | 0-17 × male | 15 | 8,900 | 9,120 | +2.5% | 0.0017 |
 | ... | ... | ... | ... | ... | ... | ... | ... |
-| **Total** | hh_size | 1 | 320 | 98,500 | 98,520 | +0.02% | 0.0032 |
+| **Total** | h_size | 1 | 320 | 98,500 | 98,520 | +0.02% | 0.0032 |
 
 - **Seed Count:** Number of unweighted survey records in that cell (drives sampling error)
 - **Seed/Target Ratio:** Effective sampling rate for the cell; very low values flag under-represented cells
@@ -536,7 +536,7 @@ The entire weighting process is a **single pipeline step**. All sub-component pa
 
     # Control variable definitions
     controls:
-      - name: hh_size
+      - name: h_size
         table: households
         variable: NP
         bins:
@@ -583,7 +583,7 @@ The entire weighting process is a **single pipeline step**. All sub-component pa
 
 1. `core/crosswalk` — geography only, no survey/PUMS dependency; can be built and tested standalone
 2. `core/control_data` — depends on PUMS data and crosswalk; drives the YAML control spec design
-3. `core/survey_prep` — depends on canonical data models and control YAML spec
+3. `core/seed_data` — depends on canonical data models and control YAML spec
 4. `core/expansion` — integrates survey + controls + crosswalk; includes DOW expansion logic
 5. `core/derive_weights` — can be prototyped early since it extends existing `existing_weights.py` hierarchy logic
 6. `core/balancer` — depends on `core/expansion` + `core/control_data`; uses PopulationSim's `np_balancer_numba` directly
