@@ -72,6 +72,7 @@ nav:
       - Format Output:
           - DaySim Format: pipeline_steps/format_output/daysim.md
           - CT-RAMP Format: pipeline_steps/format_output/ctramp.md
+      - Final Check: pipeline_steps/final_check.md
 
 markdown_extensions:
   - admonition
