@@ -68,7 +68,9 @@ nav:
       - Link Trips: pipeline_steps/link_trips.md
       - Detect Joint Trips: pipeline_steps/detect_joint_trips.md
       - Extract Tours: pipeline_steps/extract_tours.md
-      - todo: processing.md
+      - Weighting: pipeline_steps/weighting.md
+      - Format Output:
+          - CT-RAMP Format: pipeline_steps/format_output/ctramp.md
 
 markdown_extensions:
   - admonition
