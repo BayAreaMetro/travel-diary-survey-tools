@@ -70,6 +70,7 @@ nav:
       - Extract Tours: pipeline_steps/extract_tours.md
       - Weighting: pipeline_steps/weighting.md
       - Format Output:
+          - DaySim Format: pipeline_steps/format_output/daysim.md
           - CT-RAMP Format: pipeline_steps/format_output/ctramp.md
 
 markdown_extensions:

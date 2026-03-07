@@ -1,4 +1,3 @@
-# fmt: off
 """CT-RAMP Formatting Step.
 
 Transforms canonical survey data (persons, households, tours, trips) into
@@ -189,7 +188,6 @@ The module gracefully handles missing data:
 - Missing or null values use sensible defaults per field type
 
 """
-# fmt: on
 
 import logging
 
