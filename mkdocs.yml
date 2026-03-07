@@ -61,7 +61,7 @@ nav:
           - DaySim: models/daysim.md
           - CTRAMP: models/ctramp.md
   - Pipeline: pipeline.md
-  - Pipeline Steps: 
+  - Pipeline Steps:
       - Load Data: pipeline_steps/read_write.md
       - Cleaning: pipeline_steps/cleaning.md
       - Imputation: pipeline_steps/imputation.md
@@ -79,7 +79,6 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight
   - pymdownx.inlinehilite
   - tables

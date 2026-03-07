@@ -13,4 +13,3 @@ Output file format models for the CT-RAMP (Coordinated Travel-Regional Activity 
         - JointTourCTRAMPModel
         - IndividualTripCTRAMPModel
         - JointTripCTRAMPModel
-

@@ -291,7 +291,7 @@ def format_joint_tour(
 
     Transforms joint tour data with participant aggregation.
     Key Transformations:
-    
+
     - Identifies tours shared by multiple household members using joint_tour_id
     - Composition: Classifies as adults-only, children-only, or mixed based on
       configurable age threshold

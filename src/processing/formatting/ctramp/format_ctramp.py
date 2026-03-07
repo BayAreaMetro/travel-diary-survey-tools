@@ -1,3 +1,4 @@
+# fmt: off
 """CT-RAMP Formatting Step.
 
 Transforms canonical survey data (persons, households, tours, trips) into
@@ -10,19 +11,22 @@ missing data and providing configurable income thresholds and filtering options.
 
 # Components
 
-* [`format_households`][processing.formatting.ctramp.format_households]: Produces households 
+* [`format_households`][processing.formatting.ctramp.format_households]: Produces households
   table consistent with [`HouseholdCTRAMPModel`][data_canon.models.ctramp.HouseholdCTRAMPModel].
-* [`format_persons`][processing.formatting.ctramp.format_persons]: Produces persons 
+* [`format_persons`][processing.formatting.ctramp.format_persons]: Produces persons
   table consistent with [`PersonCTRAMPModel`][data_canon.models.ctramp.PersonCTRAMPModel].
-* [`format_mandatory_location`][processing.formatting.ctramp.format_mandatory_location]: Produces
-  mandatory locations ctramp table with work and school location records for persons with usual work/school
-  locations, linking person characteristics with destination TAZ.  This 
-  table is consistent with [`MandatoryLocationCTRAMPModel`][data_canon.models.ctramp.MandatoryLocationCTRAMPModel].
-* [`format_tours`][processing.formatting.ctramp.format_tours]: Produces individual and joint tours tables,
-  consistent with [`IndividualTourCTRAMPModel`][data_canon.models.ctramp.IndividualTourCTRAMPModel] and
+* [`format_mandatory_location`][processing.formatting.ctramp.format_mandatory_location]:
+  Produces mandatory locations ctramp table with work and school location records for persons
+  with usual work/school locations, linking person characteristics with destination TAZ.  This
+  table is consistent with
+  [`MandatoryLocationCTRAMPModel`][data_canon.models.ctramp.MandatoryLocationCTRAMPModel].
+* [`format_tours`][processing.formatting.ctramp.format_tours]: Produces individual and joint
+  tours tables, consistent with
+  [`IndividualTourCTRAMPModel`][data_canon.models.ctramp.IndividualTourCTRAMPModel] and
   [`JointTourCTRAMPModel`][data_canon.models.ctramp.JointTourCTRAMPModel].
 * [`format_trips`][processing.formatting.ctramp.format_trips]: Produces individual and joint trips
-  tables consistent with [`IndividualTripCTRAMPModel`][data_canon.models.ctramp.IndividualTripCTRAMPModel] and
+  tables consistent with
+  [`IndividualTripCTRAMPModel`][data_canon.models.ctramp.IndividualTripCTRAMPModel] and
   [`JointTripCTRAMPModel`][data_canon.models.ctramp.JointTripCTRAMPModel].
 
 # Data Flow
@@ -52,44 +56,44 @@ flowchart TD
     %% Stage 1
     subgraph s1["Stage 1: Households"]
         direction LR
-        fmt_hh["format_households<br/><div style='text-align:left'><i><small>• households<br/>• persons<br/>• tours</small></i></div>"]
-        hh_ctramp{{"households_ctramp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"}}
+        fmt_hh["format_households"]
+        hh_ctramp{{"households_ctramp"}}
         fmt_hh --> hh_ctramp
     end
 
     %% Stage 2
     subgraph s2["Stage 2: Tours"]
         direction TB
-        fmt_ind_tour["format_individual_tour<br/><div style='text-align:left'><i><small>• tours<br/>• linked_trips<br/>• persons<br/>• households_ctramp</small></i></div>"]
-        ind_tour_ctramp{{"individual_tours_ctramp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"}}
+        fmt_ind_tour["format_individual_tour"]
+        ind_tour_ctramp{{"individual_tours_ctramp"}}
         fmt_ind_tour --> ind_tour_ctramp
 
-        fmt_joint_tour["format_joint_tour<br/><div style='text-align:left'><i><small>• tours<br/>• linked_trips<br/>• persons<br/>• households_ctramp</small></i></div>"]
-        joint_tour_ctramp{{"joint_tours_ctramp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"}}
+        fmt_joint_tour["format_joint_tour"]
+        joint_tour_ctramp{{"joint_tours_ctramp"}}
         fmt_joint_tour --> joint_tour_ctramp
     end
 
     %% Stage 3
     subgraph s3["Stage 3: Persons"]
         direction LR
-        fmt_persons["format_persons<br/><div style='text-align:left'><i><small>• persons<br/>• individual_tours_ctramp</small></i></div>"]
-        per_ctramp{{"persons_ctramp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"}}
+        fmt_persons["format_persons"]
+        per_ctramp{{"persons_ctramp"}}
         fmt_persons --> per_ctramp
     end
 
     %% Stage 4
     subgraph s4["Stage 4: Locations & Trips"]
         direction TB
-        fmt_mand_loc["format_mandatory_location<br/><div style='text-align:left'><i><small>• persons<br/>• households<br/>• households_ctramp</small></i></div>"]
-        mand_loc_ctramp{{"mandatory_locations_ctramp&nbsp;&nbsp;"}}
+        fmt_mand_loc["format_mandatory_location"]
+        mand_loc_ctramp{{"mandatory_locations_ctramp"}}
         fmt_mand_loc --> mand_loc_ctramp
 
-        fmt_ind_trip["format_individual_trip<br/><div style='text-align:left'><i><small>• linked_trips<br/>• persons<br/>• individual_tours_ctramp<br/>• households_ctramp</small></i></div>"]
-        ind_trip_ctramp{{"individual_trips_ctramp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"}}
+        fmt_ind_trip["format_individual_trip"]
+        ind_trip_ctramp{{"individual_trips_ctramp"}}
         fmt_ind_trip --> ind_trip_ctramp
 
-        fmt_joint_trip["format_joint_trip<br/><div style='text-align:left'><i><small>• joint_trips<br/>• linked_trips<br/>• tours<br/>• households_ctramp</small></i></div>"]
-        joint_trip_ctramp{{"joint_trips_ctramp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"}}
+        fmt_joint_trip["format_joint_trip"]
+        joint_trip_ctramp{{"joint_trips_ctramp"}}
         fmt_joint_trip --> joint_trip_ctramp
     end
 
@@ -119,8 +123,10 @@ flowchart TD
     classDef outputClass fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px
 
     class hh_canon,per_canon,tours_canon,trips_canon,joint_trips_canon canonClass
-    class fmt_hh,fmt_ind_tour,fmt_persons,fmt_mand_loc,fmt_ind_trip,fmt_joint_tour,fmt_joint_trip formatterClass
-    class hh_ctramp,per_ctramp,ind_tour_ctramp,ind_trip_ctramp,mand_loc_ctramp,joint_tour_ctramp,joint_trip_ctramp outputClass
+    class fmt_hh,fmt_ind_tour,fmt_persons,fmt_mand_loc,fmt_ind_trip formatterClass
+    class fmt_joint_tour,fmt_joint_trip formatterClass
+    class hh_ctramp,per_ctramp,ind_tour_ctramp,ind_trip_ctramp outputClass
+    class mand_loc_ctramp,joint_tour_ctramp,joint_trip_ctramp outputClass
 ```
 
 **Legend:**
@@ -128,10 +134,13 @@ flowchart TD
 - 🔵 **Blue cylinders**: Canonical input tables
 - 🟠 **Orange boxes**: Formatter functions
 - 🟢 **Green hexagons**: CT-RAMP output tables (all formatted)
-- **Dashed arrows (⋯→)**: Canonical inputs available to formatters (see component details above for specifics)
-- **Thick solid arrows (⟹)**: Formatted table dependencies (execution order)
+- **Dashed arrows (⋯→)**: Canonical inputs available to formatters
+  (see component details above for specifics)
+- **Thick solid arrows (⟹)**: Formatted table dependencies
+  (execution order)
 
-**Note:** Canonical input details for each formatter are listed in the [Components](#components) section above.
+**Note:** Canonical input details for each formatter are listed in the
+[Components](#components) section above.
 
 ## Execution Stages
 
@@ -147,7 +156,7 @@ flowchart TD
 
 ## Configuration
 
-All thresholds and defaults are managed via 
+All thresholds and defaults are managed via
 [`CTRAMPConfig`][processing.formatting.ctramp.ctramp_config.CTRAMPConfig]
 
 ## Implementation Notes
@@ -180,6 +189,7 @@ The module gracefully handles missing data:
 - Missing or null values use sensible defaults per field type
 
 """
+# fmt: on
 
 import logging
 

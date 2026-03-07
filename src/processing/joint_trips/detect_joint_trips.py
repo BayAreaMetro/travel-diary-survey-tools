@@ -272,10 +272,14 @@ def detect_joint_trips(
         3. Validate against reported num_travelers field if available
 
     Notes:
-        - Only compares trips within same household (joint trips across households not detected)
-        - Mahalanobis method requires calibrated covariance matrix (see scripts/calibrate_joint_trip_covariance.py)
-        - Clique detection prevents false positives from partial or coincidental matches
-        - Handles survey reporting errors where respondents over/under-report number of travelers
+        - Only compares trips within same household (joint trips across
+          households not detected)
+        - Mahalanobis method requires calibrated covariance matrix (see
+          scripts/calibrate_joint_trip_covariance.py)
+        - Clique detection prevents false positives from partial or
+          coincidental matches
+        - Handles survey reporting errors where respondents over/under-report
+          number of travelers
         - Non-joint trips retain joint_trip_id = NULL
     """
     # Validate and construct config

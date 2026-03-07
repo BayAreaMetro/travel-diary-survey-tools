@@ -17,4 +17,3 @@ The documentation includes:
 - Usage examples
 
 Also see the [CT-RAMP Data Models Documentation](https://bayareametro.github.io/travel-diary-survey-tools/models/ctramp/)
-

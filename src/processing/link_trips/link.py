@@ -53,12 +53,14 @@ def link_trips(
     temporal continuity across consecutive trips.
 
     Args:
-        unlinked_trips: Individual trip records with person_id, day_id, depart_time,
-            arrive_time, o/d locations, o/d purposes, mode_type.
+        unlinked_trips: Individual trip records with person_id, day_id,
+            depart_time, arrive_time, o/d locations, o/d purposes, mode_type.
         change_mode_enum: Enum label indicating a mode change purpose.
         transit_mode_enums: List of enum labels that count as transit modes.
-        max_dwell_time: Maximum time gap between trips to link them, in minutes (default: 120).
-        dwell_buffer_distance: Maximum spatial distance between trips to link, in meters (default: 100).
+        max_dwell_time: Maximum time gap between trips to link them, in
+            minutes (default: 120).
+        dwell_buffer_distance: Maximum spatial distance between trips to link,
+            in meters (default: 100).
 
     Returns:
         Dictionary containing:
@@ -70,12 +72,15 @@ def link_trips(
 
         1. Sort unlinked trips by person, day, and departure time
         2. For each person-day sequence:
-            - If previous trip's destination purpose is change_mode_enum, continue current linked trip
+            - If previous trip's destination purpose is change_mode_enum,
+              continue current linked trip
             - Validate spatial/temporal continuity:
                 - Time gap between trips ≤ max_dwell_time minutes
-                - Distance between previous destination and current origin ≤ dwell_buffer_distance meters
+                - Distance between previous destination and current origin
+                  ≤ dwell_buffer_distance meters
             - Otherwise, start a new linked trip
-        3. Assign globally unique linked_trip_id = (day_id * 1000) + sequence_number
+        3. Assign globally unique linked_trip_id =
+           (day_id * 1000) + sequence_number
 
         # Phase 2: Aggregate Linked Trips
 

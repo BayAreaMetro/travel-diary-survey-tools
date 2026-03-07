@@ -216,7 +216,7 @@ def format_joint_trip(
     Transforms joint trip data using mean coordinates from joint_trips table.
     Links trips to joint tours using aggregated joint trip data. Maintains
     participant information for each trip leg.
-    
+
     Args:
         joint_trips_canonical: Aggregated joint trip DataFrame with joint_trip_id, hh_id,
             num_joint_travelers (mean locations)

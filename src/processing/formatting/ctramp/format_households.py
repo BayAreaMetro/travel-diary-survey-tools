@@ -152,10 +152,10 @@ def format_households(
 ) -> pl.DataFrame:
     """Format household data to CT-RAMP specification.
 
-    Transforms household data from canonical format to 
+    Transforms household data from canonical format to
     [`HouseholdCTRAMPModel`][data_canon.models.ctramp.HouseholdCTRAMPModel]
     Key transformations:
-    
+
     - Rename fields to CT-RAMP conventions
     - Convert income categories to midpoint values
     - Compute household aggregates (size, workers, vehicles)
