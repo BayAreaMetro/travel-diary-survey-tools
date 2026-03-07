@@ -4,7 +4,7 @@ The pipeline module provides the execution framework for running sequential data
 
 <!-- include architecture and diagram from top level readme -->
 {%
-    include "../Readme.md"
+    include "../README.md"
     start="## Architecture"
     end="# Pipeline Steps"
 
