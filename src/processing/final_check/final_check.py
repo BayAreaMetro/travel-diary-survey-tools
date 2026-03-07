@@ -7,7 +7,7 @@ that leverages the `@step()` decorator's automatic Pydantic model validation.
 !!! Algorithm
 
     # Pydantic Model Validation
-    
+
     1. This step is decorated with `@step(validate_input=True, validate_output=True)`
     2. The pipeline framework automatically validates all input/output against Pydantic
        data models
@@ -19,7 +19,7 @@ that leverages the `@step()` decorator's automatic Pydantic model validation.
         - **Business Rules:** Domain-specific constraints (e.g., depart_time < arrive_time)
 
     # Custom Validation Space
-    
+
     - The function body is intentionally simple (pass-through)
     - Pydantic handles validation automatically at model instantiation
     - This space *could* be extended with additional custom checks not covered by models:
@@ -29,9 +29,9 @@ that leverages the `@step()` decorator's automatic Pydantic model validation.
         - Data quality metrics logging
     - However, validation logic should ideally be implemented in Pydantic models
       themselves for reusability
-    
+
     # Validation Failure Handling
-    
+
     - If validation fails, raises `DataValidationError` with detailed error messages
     - Error messages indicate:
         - Which table failed validation
@@ -85,7 +85,7 @@ def final_check(
 
     Returns:
         Dictionary containing the same validated tables:
-        
+
             - households: Validated household table
             - persons: Validated person table
             - days: Validated person-day table
