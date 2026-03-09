@@ -97,7 +97,8 @@ def balance_weights(
     ----------
     seed : pl.DataFrame
         From ``build_seed_table``.  Must have ``hh_id``, *geo_col*,
-        ``ctrl_*`` and ``inc_*`` columns.
+        HH category columns (e.g. ``h_size``) and person incidence
+        columns (e.g. ``p_gender_male``).
     control_totals : ControlTotals
         PUMS-derived targets from ``build_control_totals``.
     targets : list[str]
@@ -208,8 +209,13 @@ def _prepare_zone(
             zone_merges,
         )
 
-    n = len(zone_seed)
-    initial = np.ones(n, dtype=np.float64)
+    if "base_weight" not in zone_seed.columns:
+        msg = (
+            "Seed table missing 'base_weight' column. "
+            "Run compute_base_weights() before balance_weights()."
+        )
+        raise ValueError(msg)
+    initial = zone_seed["base_weight"].to_numpy().astype(np.float64)
     lb, ub = _bounds(
         initial,
         ctrl_targets,
@@ -330,12 +336,12 @@ def _build_incidence(
         ):
             member = _member_name(ctrl, cat_val)
             if ctrl.level == ControlLevel.HOUSEHOLD:
-                col = zone_seed[f"ctrl_{name}"].to_numpy()
+                col = zone_seed[name].to_numpy()
                 rows.append((col == cat_val).astype(np.float64))
             else:
-                inc_col = f"inc_{name}_{member}"
-                if inc_col in zone_seed.columns:
-                    rows.append(zone_seed[inc_col].to_numpy().astype(np.float64))
+                col_name = f"{name}__{member}"
+                if col_name in zone_seed.columns:
+                    rows.append(zone_seed[col_name].to_numpy().astype(np.float64))
                 else:
                     rows.append(np.zeros(n, dtype=np.float64))
             labels.append((name, member))

@@ -15,9 +15,13 @@ Orchestrates the full weighting pipeline as a single ``@step`` entry point:
 import logging
 
 import polars as pl
+from numpy.compat import Path
 
+from pipeline.cache import PipelineCache
 from pipeline.decoration import step
 from processing.weighting.core.balancer import MergeSpec, balance_weights
+from processing.weighting.core.base_weights import compute_base_weights, load_sample_plan
+from processing.weighting.core.checksums import check_incidence_sums
 from processing.weighting.core.control_data import (
     ControlSpec,
     build_control_totals,
@@ -31,6 +35,7 @@ from processing.weighting.core.seed_data import (
     recode_survey_households,
     recode_survey_persons,
 )
+from processing.weighting.core.weight_checks import weight_sanity_checks
 from processing.weighting.core.weight_propagation import (
     collect_tables,
     non_null_tables,
@@ -52,8 +57,14 @@ def weighting(  # noqa: PLR0913
     controls: list[dict],
     geography: dict,
     *,
+    # -- Existing PUMS files (optional) --------------------------------------
     pums_households: str | None = None,
     pums_persons: str | None = None,
+    # -- Sample plan (optional) -----------------------------------------
+    sample_plan: str | None = None,
+    # -- Pipeline plumbing (auto-injected by @step decorator) -----------
+    pipeline_cache: PipelineCache | None = None,
+    # -- Balancing params --------------------------------------
     max_expansion_factor: float = 10.0,
     min_expansion_factor: float = 0.1,
     min_weight: float | None = 1,
@@ -87,6 +98,12 @@ def weighting(  # noqa: PLR0913
     pums_households, pums_persons : str | None
         Optional local file paths.  When both are provided the Census
         API is skipped and data is loaded from disk instead.
+    sample_plan : str | None
+        Path to a sample-plan CSV (columns: ``geo_id``,
+        ``target_population``, ``expected_responses``).  When provided,
+        base weights are derived from stratified response inversion
+        instead of the default PUMS-target fallback.  If the file does
+        not exist a ``FileNotFoundError`` is raised.
     max_expansion_factor, min_expansion_factor : float
         Bounds on balanced / initial weight ratio.
     min_weight, max_weight : float | None
@@ -119,11 +136,16 @@ def weighting(  # noqa: PLR0913
 
     # -- Geography crosswalk ----------------------------------------
     # We do this first because it serves as source of truth of geo IDs.
+    cache_dir = pipeline_cache.cache_dir if pipeline_cache else None
     xw = PumaCrosswalk(
         GeographyConfig(**geography),
         state_fips=state_fips,
         pums_year=pums_year,
+        cache_dir=cache_dir,
     )
+
+    # DEBUG
+    xw.plot_crosswalk(output_dir=cache_dir / "weighting" if cache_dir else Path.cwd() / "weighting")
 
     # -- 1. Load PUMS -----------------------------------------------
     if pums_households is not None and pums_persons is not None:
@@ -144,8 +166,9 @@ def weighting(  # noqa: PLR0913
         pums_hh_xw,
         pums_per_xw,
         specs,
-        geo_col="target_id",
+        geo_col="ctrl_geoid",
     )
+
     logger.info(
         "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
         len(control_totals.geo_ids),
@@ -156,22 +179,37 @@ def weighting(  # noqa: PLR0913
     # -- 4. Recode survey -------------------------------------------
     # Assign households to target zones via point in polygon, then recode.
     households = xw.assign_households(households)
-    n_assigned = households.filter(pl.col("target_id").is_not_null()).height
+    n_assigned = households.filter(pl.col("ctrl_geoid").is_not_null()).height
     logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(households))
 
     hh_recoded = recode_survey_households(households, persons, target_names)
     per_recoded = recode_survey_persons(persons, target_names)
 
     # -- 5. Build seed table ----------------------------------------
-    seed = build_seed_table(hh_recoded, per_recoded, target_names, geo_col="target_id")
+    seed = build_seed_table(hh_recoded, per_recoded, target_names, geo_col="ctrl_geoid")
+    check_incidence_sums(seed, target_names, source_label="survey")
 
-    # -- 6. Balance -------------------------------------------------
+    # -- 6. Compute initial expansion weights ----------------------
+    plan = None
+    if sample_plan is not None:
+        plan = load_sample_plan(sample_plan)
+    else:
+        logger.warning(
+            "No sample_plan provided; using PUMS-target response inversion "
+            "for initial weights.  Provide a sample_plan CSV for more precisely "
+            "stratified base weights."
+        )
+    seed = compute_base_weights(
+        seed, control_totals, target_names, geo_col="ctrl_geoid", sample_plan=plan
+    )
+
+    # -- 7. Balance -------------------------------------------------
     weights_df, statuses = balance_weights(
         seed,
         control_totals,
         target_names,
         merges=merge_specs,
-        geo_col="target_id",
+        geo_col="ctrl_geoid",
         max_expansion_factor=max_expansion_factor,
         min_expansion_factor=min_expansion_factor,
         min_weight=min_weight,
@@ -182,14 +220,17 @@ def weighting(  # noqa: PLR0913
 
     n_failed = sum(not s.converged for s in statuses)
     if n_failed:
-        logger.warning("%d of %d zones did not converge", n_failed, len(statuses))
+        msg = f"Balancing failed to converge for {n_failed} zones.  See logs for details."
+        raise RuntimeError(msg)
 
-    # -- 7. Attach & propagate weights ------------------------------
+    # -- 8. Attach & propagate weights ------------------------------
     households = safe_join_weight(
         households,
         weights_df.select("hh_id", "hh_weight"),
         "hh_id",
     )
+    # Carry base_weight from seed so sanity checks can compare it.
+    households = households.join(seed.select("hh_id", "base_weight"), on="hh_id", how="left")
     tables = collect_tables(
         households=households,
         persons=persons,
@@ -201,5 +242,8 @@ def weighting(  # noqa: PLR0913
     )
     has_weight: dict[str, str] = {"households": "hh_weight"}
     propagate_weights(tables, has_weight)
+
+    # -- 9. Sanity checks -------------------------------------------
+    weight_sanity_checks(non_null_tables(tables), control_totals, specs)
 
     return non_null_tables(tables)

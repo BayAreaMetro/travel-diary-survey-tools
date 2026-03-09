@@ -18,8 +18,8 @@ from processing.weighting.core.controls import ControlLevel, pums_variables
 logger = logging.getLogger(__name__)
 
 # Infrastructure vars that don't come from any ControlTarget
-_HH_INFRA = {"SERIALNO", "PUMA", "ST", "WGTP", "TYPEHUGQ"}
-_PERSON_INFRA = {"SERIALNO", "SPORDER", "PUMA", "ST", "PWGTP"}
+_HH_INFRA = {"SERIALNO", "PUMA", "STATE", "WGTP", "TYPEHUGQ"}
+_PERSON_INFRA = {"SERIALNO", "SPORDER", "PUMA", "STATE", "PWGTP"}
 
 # Derived dynamically from the registry + infrastructure
 _HH_VARS = _HH_INFRA | pums_variables(ControlLevel.HOUSEHOLD)
@@ -86,11 +86,19 @@ def fetch_pums_data(
         geo_unit = "public use microdata area:*"
     geo_filter = {"state": source.state_fips}
 
+    # Format PUMA list for logging
+    if source.puma_ids is None:
+        puma_display = "all"
+    elif len(source.puma_ids) <= 5:  # noqa: PLR2004
+        puma_display = str(source.puma_ids)
+    else:
+        puma_display = f"{len(source.puma_ids)} pumas"
+
     logger.info(
         "Fetching household PUMS (%d variables, state=%s, pumas=%s)",
         len(hh_vars),
         source.state_fips,
-        source.puma_ids or "all",
+        puma_display,
     )
     hh_pd = conn.query(cols=hh_vars, geo_unit=geo_unit, geo_filter=geo_filter)
 
@@ -98,7 +106,7 @@ def fetch_pums_data(
         "Fetching person PUMS (%d variables, state=%s, pumas=%s)",
         len(person_vars),
         source.state_fips,
-        source.puma_ids or "all",
+        puma_display,
     )
     person_pd = conn.query(cols=person_vars, geo_unit=geo_unit, geo_filter=geo_filter)
 

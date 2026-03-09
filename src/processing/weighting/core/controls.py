@@ -197,7 +197,7 @@ class HHWorkersControl(ControlTarget):
     description = "Workers in household"
     categories = HHWorkersCategory
     survey_fields = ("_n_workers",)
-    pums_fields = ("_n_workers",)
+    pums_fields = ()  # derived from person-level ESR in recode_pums_households
 
     def survey_expr(self) -> pl.Expr:
         return pl.col("_n_workers").clip(0, 5).cast(pl.Int16)
@@ -228,7 +228,7 @@ class HHChildrenControl(ControlTarget):
     description = "Children in household"
     categories = HHChildrenCategory
     survey_fields = ("_n_children",)
-    pums_fields = ("_n_children",)
+    pums_fields = ()  # derived from person-level AGEP in recode_pums_households
 
     def survey_expr(self) -> pl.Expr:
         return pl.col("_n_children").clip(0, 5).cast(pl.Int16)

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import polars as pl
 
 from data_canon.codebook.pums import PumsEsr, PumsThresholds
+from processing.weighting.core.checksums import check_recode_nulls
 from processing.weighting.core.controls import (
     CONTROLS,
     ControlLevel,
@@ -69,12 +70,12 @@ class ControlTotals:
 
 
 def _apply_pums_recode(df: pl.DataFrame, ctrl: ControlTarget) -> pl.DataFrame:
-    """Add ``ctrl_{name}`` column via ``ctrl.pums_expr()``."""
+    """Add ``{name}`` column via ``ctrl.pums_expr()``."""
     # Add null columns for any optional PUMS fields absent from the DataFrame
     for f in ctrl.pums_fields:
         if f not in df.columns:
             df = df.with_columns(pl.lit(None).alias(f))
-    return df.with_columns(ctrl.pums_expr().alias(f"ctrl_{ctrl.name}"))
+    return df.with_columns(ctrl.pums_expr().alias(ctrl.name))
 
 
 def recode_pums_households(
@@ -126,6 +127,14 @@ def recode_pums_households(
 
     for ctrl in hh_ctrls:
         hh = _apply_pums_recode(hh, ctrl)
+
+    check_recode_nulls(
+        hh,
+        targets or [c.name for c in hh_ctrls],
+        level=ControlLevel.HOUSEHOLD,
+        id_col="SERIALNO",
+        source_label="PUMS",
+    )
     return hh
 
 
@@ -151,6 +160,14 @@ def recode_pums_persons(
     df = person_df
     for ctrl in p_ctrls:
         df = _apply_pums_recode(df, ctrl)
+
+    check_recode_nulls(
+        df,
+        targets or [c.name for c in p_ctrls],
+        level=ControlLevel.PERSON,
+        id_col="SERIALNO",
+        source_label="PUMS",
+    )
     return df
 
 
@@ -189,7 +206,7 @@ def build_control_totals(
             msg = f"Unknown control name: {spec.name!r}. Available: {sorted(CONTROLS)}"
             raise ValueError(msg)
 
-        ctrl_col = f"ctrl_{spec.name}"
+        ctrl_col = spec.name
         raw_wt = "WGTP" if ctrl.level == ControlLevel.HOUSEHOLD else "PWGTP"
         # Prefer crosswalk-scaled weights when available
         xw_wt = f"_xw_{raw_wt}"

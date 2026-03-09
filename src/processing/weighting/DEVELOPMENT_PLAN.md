@@ -78,19 +78,62 @@ src/processing/weighting/
 ├── weighting.py               # ✅ Implemented — single @step() entry point; orchestrates core/
 ├── core/
 │   ├── __init__.py
+│   ├── balancer.py            # ✅ Implemented — max entropy balancing (PopulationSim numba core)
+│   ├── base_weights.py        # ✅ Implemented — initial expansion weights (sample-plan or PUMS-target)
 │   ├── census_geo.py          # ✅ Implemented — TIGER shapefile download via pygris (PUMAs, blocks)
-│   ├── crosswalk.py           # ✅ Implemented — rasterized PUMA→target-zone crosswalk (exactextract)
+│   ├── checksums.py           # ✅ Implemented — recode null checks + incidence-sum overcount detection
+│   ├── controls.py            # ✅ Implemented — control target registry
 │   ├── control_data.py        # ✅ Implemented — PUMS control totals (crosswalk-aware)
 │   ├── control_enums.py       # ✅ Implemented — control category enums
-│   ├── controls.py            # ✅ Implemented — control target registry
-│   ├── seed_data.py           # ✅ Implemented — recode survey variables to match controls
+│   ├── crosswalk.py           # ✅ Implemented — rasterized PUMA→target-zone crosswalk (exactextract)
 │   ├── pums_data.py           # ✅ Implemented — PUMS download/load via cenpy
-│   ├── balancer.py            # ✅ Implemented — max entropy balancing (PopulationSim numba core)
+│   ├── seed_data.py           # ✅ Implemented — recode survey variables to match controls
+│   ├── weight_checks.py       # ✅ Implemented — post-balancing sanity checks
 │   ├── weight_propagation.py  # ✅ Implemented — propagate weights to all canonical tables
 │   ├── expansion.py           # 🔲 Planned — DOW household-day expansion
+│   ├── importance.py          # 🔲 Planned — control importance weights from PUMS MOE/variance
 │   └── diagnostics.py         # 🔲 Planned — HTML diagnostic report (Plotly)
 └── DEVELOPMENT_PLAN.md        # 📄 This document
 ```
+
+### TODO: Reorganize weighting folder
+
+The `core/` sub-package has grown to 12+ modules and the flat layout is getting hard to navigate. Proposed reorganization into logical sub-packages:
+
+```
+core/
+├── geography/          # crosswalk.py, census_geo.py
+├── controls/           # controls.py, control_enums.py, control_data.py
+├── preparation/        # seed_data.py, base_weights.py, pums_data.py
+├── balancing/          # balancer.py, importance.py
+├── validation/         # checksums.py, weight_checks.py
+├── output/             # weight_propagation.py, diagnostics.py
+└── expansion.py        # DOW expansion (when implemented)
+```
+
+This is a refactor-only change — no logic modifications, just `import` path updates.
+
+### TODO: Control importance calculator (`importance.py`)
+
+The balancer currently passes `controls_importance = np.ones(...)` — all controls are weighted equally. This is suboptimal: controls with high sampling variance (wide MOE) should be given less importance so the balancer doesn't chase noise.
+
+**Proposed formula:**
+
+$$
+\text{importance}_i = \frac{1}{\sqrt{\text{Var}(\hat{t}_i)}}
+$$
+
+where $\hat{t}_i$ is the PUMS estimate for control cell $i$ and $\text{Var}(\hat{t}_i)$ is derived from the PUMS margin of error (MOE):
+
+$$
+\text{SE} = \frac{\text{MOE}}{1.645} \quad\Rightarrow\quad \text{Var} = \text{SE}^2
+$$
+
+The MOE can be:
+1. **Directly provided** — PUMS published tables include MOE columns alongside estimates.
+2. **Calculated from replicate weights** — using the `samplics` library's `ReplicateEstimator` with the 80 PUMS replicate weight columns (`WGTP1`–`WGTP80` for HH, `PWGTP1`–`PWGTP80` for persons). This is more accurate for custom geographies where published MOEs don't exist.
+
+The importance vector is then normalized so the median equals 1.0 (preserving the current default behavior for well-estimated controls while down-weighting noisy ones).
 
 ---
 
@@ -110,7 +153,7 @@ Each sub-component is documented here as a logical unit. They are not pipeline s
 **Outputs:**
 - `crosswalk`: pl.DataFrame with columns:
   - `puma_id` — PUMA identifier (str)
-  - `target_id` — target zone identifier (str)
+  - `ctrl_geoid` — target zone identifier (str)
   - `population` — allocated population
   - `allocation_weight` — fraction of PUMA population allocated to target zone (sums to 1.0 per PUMA)
 - `puma_ids`: list[str] — PUMAs overlapping the study area (for PUMS API fetch)
@@ -229,7 +272,7 @@ Controls are defined in the pipeline YAML. Each control specifies a source table
 - Same control variable YAML configuration used in `core/control_data`
 
 **Outputs:**
-- `households`, `persons`: With added recoded stratum columns (e.g., `ctrl_h_size`, `ctrl_p_commute_mode`, `ctrl_p_age`)
+- `households`, `persons`: With added recoded stratum columns (e.g., `h_size`, `p_commute_mode`, `p_age`)
 
 **Approach:**
 - Driven entirely by the control YAML: the same bin/group definitions are applied to survey fields that correspond to the PUMS variables.

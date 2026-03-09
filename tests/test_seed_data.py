@@ -49,7 +49,7 @@ def survey_households() -> pl.DataFrame:
             "hh_id": [1, 2, 3],
             "income_broad": [1, 5, 3],  # Under 25k, $100-200k, $50-75k
             "hh_weight": [1.5, 2.0, 1.0],
-            "puma_id": ["00100", "00100", "00200"],
+            "ctrl_geoid": ["00100", "00100", "00200"],
         }
     )
 
@@ -85,10 +85,10 @@ class TestRecodeSurveyHouseholds:
             HH_TARGETS,
         )
         for col in [
-            "ctrl_h_size",
-            "ctrl_h_income",
-            "ctrl_h_workers",
-            "ctrl_h_children",
+            "h_size",
+            "h_income",
+            "h_workers",
+            "h_children",
         ]:
             assert col in result.columns, f"Missing column: {col}"
 
@@ -99,7 +99,7 @@ class TestRecodeSurveyHouseholds:
             survey_persons,
             ["h_size"],
         )
-        sizes = result.sort("hh_id")["ctrl_h_size"].to_list()
+        sizes = result.sort("hh_id")["h_size"].to_list()
         # HH1: 2 persons → SIZE_2, HH2: 3 persons → SIZE_3, HH3: 1 person → SIZE_1
         assert sizes == [
             int(HHSizeCategory.SIZE_2),
@@ -114,7 +114,7 @@ class TestRecodeSurveyHouseholds:
             survey_persons,
             ["h_income"],
         )
-        incomes = result.sort("hh_id")["ctrl_h_income"].to_list()
+        incomes = result.sort("hh_id")["h_income"].to_list()
         # income_broad: 1=Under 25k, 5=$100-200k, 3=$50-75k
         assert incomes == [
             IncomeBroad.INCOME_UNDER25.value,
@@ -129,7 +129,7 @@ class TestRecodeSurveyHouseholds:
             survey_persons,
             ["h_workers"],
         )
-        workers = result.sort("hh_id")["ctrl_h_workers"].to_list()
+        workers = result.sort("hh_id")["h_workers"].to_list()
         # HH1: employment=[1,5] → 1 worker (FT)
         # HH2: employment=[2,5,5] → 1 worker (PT)
         # HH3: employment=[3] → 1 worker (self-emp)
@@ -146,7 +146,7 @@ class TestRecodeSurveyHouseholds:
             survey_persons,
             ["h_children"],
         )
-        children = result.sort("hh_id")["ctrl_h_children"].to_list()
+        children = result.sort("hh_id")["h_children"].to_list()
         # Child age categories: 1=Under 5, 2=5-15, 3=16-17 → counted as children
         # HH1: age=[5,4] → AgeCategory 5=25-34, 4=18-24 → 0 children
         # HH2: age=[6,3,1] → AgeCategory 6=35-44, 3=16-17, 1=Under 5 → 2 children
@@ -167,7 +167,7 @@ class TestRecodeSurveyHouseholds:
             survey_persons,
             ["h_vehicles"],
         )
-        vehs = result.sort("hh_id")["ctrl_h_vehicles"].to_list()
+        vehs = result.sort("hh_id")["h_vehicles"].to_list()
         assert vehs == [
             int(HHVehiclesCategory.VEH_0),
             int(HHVehiclesCategory.VEH_2),
@@ -193,7 +193,7 @@ class TestRecodeSurveyHouseholds:
             {
                 "hh_id": [1],
                 "hh_weight": [1.0],
-                "puma_id": ["00100"],
+                "ctrl_geoid": ["00100"],
             }
         )
         with pytest.raises(KeyError, match="income_broad"):
@@ -210,8 +210,8 @@ class TestRecodeSurveyHouseholds:
             survey_persons,
             ["h_size"],
         )
-        ctrl_cols = [c for c in result.columns if c.startswith("ctrl_")]
-        assert ctrl_cols == ["ctrl_h_size"]
+        hh_ctrl_cols = [c for c in result.columns if c.startswith("h_")]
+        assert hh_ctrl_cols == ["h_size"]
 
     def test_person_targets_ignored(self, survey_households, survey_persons):
         """Person-level targets in the list are silently skipped."""
@@ -220,8 +220,8 @@ class TestRecodeSurveyHouseholds:
             survey_persons,
             ["h_size", "p_gender"],
         )
-        ctrl_cols = [c for c in result.columns if c.startswith("ctrl_")]
-        assert ctrl_cols == ["ctrl_h_size"]
+        hh_ctrl_cols = [c for c in result.columns if c.startswith("h_")]
+        assert hh_ctrl_cols == ["h_size"]
 
     def test_unknown_target_raises(self, survey_households, survey_persons):
         """Requesting an unknown target must raise a ValueError."""
@@ -243,18 +243,18 @@ class TestRecodeSurveyPersons:
         """Requested person control columns are created."""
         result = recode_survey_persons(survey_persons, PERSON_TARGETS)
         for col in [
-            "ctrl_p_gender",
-            "ctrl_p_employment",
-            "ctrl_p_commute_mode",
-            "ctrl_p_student",
-            "ctrl_p_age",
+            "p_gender",
+            "p_employment",
+            "p_commute_mode",
+            "p_student",
+            "p_age",
         ]:
             assert col in result.columns, f"Missing column: {col}"
 
     def test_gender_recode(self, survey_persons):
         """Gender."""
         result = recode_survey_persons(survey_persons, ["p_gender"])
-        genders = result.sort("person_id")["ctrl_p_gender"].to_list()
+        genders = result.sort("person_id")["p_gender"].to_list()
         # gender: [2, 1, 2, 1, 4, 2] → [MALE, FEMALE, MALE, FEMALE, None, MALE]
         expected = [
             int(GenderCategory.MALE),
@@ -269,7 +269,7 @@ class TestRecodeSurveyPersons:
     def test_employment_recode(self, survey_persons):
         """Employment status."""
         result = recode_survey_persons(survey_persons, ["p_employment"])
-        emps = result.sort("person_id")["ctrl_p_employment"].to_list()
+        emps = result.sort("person_id")["p_employment"].to_list()
         # employment: [1, 5, 2, 5, 5, 3]
         # 1=FT→EMPLOYED_FULL, 5=not looking→NOT_EMPLOYED, 2=PT→EMPLOYED_PART,
         # 3=self-emp→EMPLOYED_FULL
@@ -286,7 +286,7 @@ class TestRecodeSurveyPersons:
     def test_student_recode_with_school_type(self, survey_persons):
         """Student status is derived from both student and school_type fields."""
         result = recode_survey_persons(survey_persons, ["p_student"])
-        students = result.sort("person_id")["ctrl_p_student"].to_list()
+        students = result.sort("person_id")["p_student"].to_list()
         # student: [2, 2, 2, 2, 0, 2], school_type: [None, None, None, None, 5, None]
         # Most are non-student (2). Person 203 (student=0, school_type=5) → K12
         assert students[0] == int(StudentCategory.NOT_STUDENT)
@@ -295,7 +295,7 @@ class TestRecodeSurveyPersons:
     def test_age_recode(self, survey_persons):
         """Age category recode should map canonical AgeCategory values to control categories."""
         result = recode_survey_persons(survey_persons, ["p_age"])
-        ages = result.sort("person_id")["ctrl_p_age"].to_list()
+        ages = result.sort("person_id")["p_age"].to_list()
         # age (AgeCategory values): [5, 4, 6, 3, 1, 9]
         # 5=25-34, 4=18-24, 6=35-44, 3=16-17, 1=Under 5, 9=65-74
         expected = [
@@ -311,7 +311,7 @@ class TestRecodeSurveyPersons:
     def test_commute_mode_recode(self, survey_persons):
         """Commute mode recode should map canonical work_mode values to control categories."""
         result = recode_survey_persons(survey_persons, ["p_commute_mode"])
-        modes = result.sort("person_id")["ctrl_p_commute_mode"].to_list()
+        modes = result.sort("person_id")["p_commute_mode"].to_list()
         # work_mode: [1, None, 3, None, None, 11]
         # Mode.WALK=1 → WALK, None → NA, Mode.BIKE_BORROWED=3 → BIKE,
         # Mode.HOUSEHOLD_VEHICLE_6=11 → DRIVE_ALONE
@@ -339,14 +339,14 @@ class TestRecodeSurveyPersons:
     def test_only_requested_columns_created(self, survey_persons):
         """Only requested control columns are created."""
         result = recode_survey_persons(survey_persons, ["p_age"])
-        ctrl_cols = [c for c in result.columns if c.startswith("ctrl_")]
-        assert ctrl_cols == ["ctrl_p_age"]
+        p_ctrl_cols = [c for c in result.columns if c.startswith("p_") and c != "person_id"]
+        assert p_ctrl_cols == ["p_age"]
 
     def test_hh_targets_ignored(self, survey_persons):
         """Household-level targets in the list are silently skipped."""
         result = recode_survey_persons(survey_persons, ["h_size", "p_age"])
-        ctrl_cols = [c for c in result.columns if c.startswith("ctrl_")]
-        assert ctrl_cols == ["ctrl_p_age"]
+        p_ctrl_cols = [c for c in result.columns if c.startswith("p_") and c != "person_id"]
+        assert p_ctrl_cols == ["p_age"]
 
     def test_unknown_target_raises(self, survey_persons):
         """Requesting an unknown target must raise a ValueError."""
@@ -372,11 +372,11 @@ class TestBuildSeedTable:
         seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
 
         assert "hh_id" in seed.columns
-        assert "puma_id" in seed.columns
+        assert "ctrl_geoid" in seed.columns
         assert len(seed) == 3  # one row per household
 
     def test_hh_ctrl_columns_preserved(self, survey_households, survey_persons):
-        """Household-level ctrl_ columns should be preserved in the seed table."""
+        """Household-level category columns should be in the seed table."""
         hh_recoded = recode_survey_households(
             survey_households,
             survey_persons,
@@ -386,9 +386,8 @@ class TestBuildSeedTable:
 
         seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
 
-        # Household-level ctrl_ columns should carry through
-        assert "ctrl_h_size" in seed.columns
-        assert "ctrl_h_income" in seed.columns
+        assert "h_size" in seed.columns
+        assert "h_income" in seed.columns
 
     def test_person_incidence_columns_created(
         self,
@@ -405,8 +404,8 @@ class TestBuildSeedTable:
 
         seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
 
-        # Should have incidence columns for person-level controls
-        incidence_cols = [c for c in seed.columns if c.startswith("inc_")]
+        # Person incidence columns use p_ prefix, e.g. p_gender__male
+        incidence_cols = [c for c in seed.columns if "__" in c]
         assert len(incidence_cols) > 0
 
     def test_incidence_sums_match_hh_size(
@@ -425,7 +424,7 @@ class TestBuildSeedTable:
         seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
 
         # Gender incidence columns
-        gender_inc_cols = [c for c in seed.columns if c.startswith("inc_p_gender_")]
+        gender_inc_cols = [c for c in seed.columns if c.startswith("p_gender__")]
         assert gender_inc_cols
         # For our fixtures, person with gender=4 (non-binary) maps to null,
         # so they are not counted in any gender incidence column.
@@ -452,7 +451,7 @@ class TestBuildSeedTable:
 
         seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
 
-        incidence_cols = [c for c in seed.columns if c.startswith("inc_")]
+        incidence_cols = [c for c in seed.columns if "__" in c]
         for col in incidence_cols:
             vals = seed[col].to_list()
             assert all(v >= 0 for v in vals), f"Negative incidence in {col}"

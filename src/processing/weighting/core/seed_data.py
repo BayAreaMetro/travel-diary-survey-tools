@@ -10,6 +10,7 @@ import logging
 import polars as pl
 
 from data_canon.codebook.persons import AgeCategory, Employment
+from processing.weighting.core.checksums import check_recode_nulls
 from processing.weighting.core.controls import (
     ControlLevel,
     ControlTarget,
@@ -87,6 +88,14 @@ def recode_survey_households(
     for ctrl in hh_ctrls:
         _require_fields(hh, ctrl)
         hh = _apply_recode(hh, ctrl)
+
+    check_recode_nulls(
+        hh,
+        targets,
+        level=ControlLevel.HOUSEHOLD,
+        id_col="hh_id",
+        source_label="survey",
+    )
     return hh
 
 
@@ -114,6 +123,14 @@ def recode_survey_persons(
     for ctrl in p_ctrls:
         _require_fields(df, ctrl)
         df = _apply_recode(df, ctrl)
+
+    check_recode_nulls(
+        df,
+        targets,
+        level=ControlLevel.PERSON,
+        id_col="person_id",
+        source_label="survey",
+    )
     return df
 
 
@@ -122,7 +139,7 @@ def build_seed_table(
     persons_recoded: pl.DataFrame,
     targets: list[str],
     *,
-    geo_col: str = "puma_id",
+    geo_col: str = "ctrl_geoid",
 ) -> pl.DataFrame:
     """Build household-level seed table with person incidence columns.
 
@@ -137,22 +154,23 @@ def build_seed_table(
     geo_col : str
         Geography column on households.
     """
-    hh_ctrl_cols = [c for c in households_recoded.columns if c.startswith("ctrl_")]
-    seed = households_recoded.select(["hh_id", geo_col, *hh_ctrl_cols])
+    # Select HH-level control columns by their known target names.
+    hh_names = [c.name for c in resolve_targets(targets, ControlLevel.HOUSEHOLD)]
+    hh_cols = [n for n in hh_names if n in households_recoded.columns]
+    seed = households_recoded.select(["hh_id", geo_col, *hh_cols])
 
     for ctrl in resolve_targets(targets, ControlLevel.PERSON):
-        ctrl_col = f"ctrl_{ctrl.name}"
-        if ctrl_col not in persons_recoded.columns:
+        if ctrl.name not in persons_recoded.columns:
             continue
         for value, member_name in ctrl.valid_members:
-            inc_col = f"inc_{ctrl.name}_{member_name.lower()}"
+            col_name = f"{ctrl.name}__{member_name.lower()}"
             incidence = (
-                persons_recoded.filter(pl.col(ctrl_col) == value)
+                persons_recoded.filter(pl.col(ctrl.name) == value)
                 .group_by("hh_id")
-                .agg(pl.len().alias(inc_col))
+                .agg(pl.len().alias(col_name))
             )
             seed = seed.join(incidence, on="hh_id", how="left").with_columns(
-                pl.col(inc_col).fill_null(0),
+                pl.col(col_name).fill_null(0),
             )
 
     logger.info("Seed table: %d households, %d columns", len(seed), len(seed.columns))
@@ -163,12 +181,12 @@ def build_seed_table(
 
 
 def _apply_recode(df: pl.DataFrame, ctrl: ControlTarget) -> pl.DataFrame:
-    """Add ``ctrl_{name}`` column via ``ctrl.survey_expr()``."""
+    """Add ``{name}`` column via ``ctrl.survey_expr()``."""
     # Add null columns for any optional fields absent from the DataFrame
     for f in ctrl.survey_fields:
         if f not in df.columns:
             df = df.with_columns(pl.lit(None).alias(f))
-    return df.with_columns(ctrl.survey_expr().alias(f"ctrl_{ctrl.name}"))
+    return df.with_columns(ctrl.survey_expr().alias(ctrl.name))
 
 
 def _require_fields(df: pl.DataFrame, ctrl: ControlTarget) -> None:

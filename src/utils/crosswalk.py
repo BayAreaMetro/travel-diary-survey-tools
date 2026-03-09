@@ -53,7 +53,8 @@ def build_crosswalk(
     source_id_col: str = "source_id",
     target_id_col: str = "target_id",
     weight_col: str = "pop20",
-    resolution: int = 250,
+    resolution: int = 100,
+    min_allocation: float = 0.0,
 ) -> pl.DataFrame:
     """Build a population-weighted crosswalk between two polygon layers.
 
@@ -76,12 +77,19 @@ def build_crosswalk(
         (typically population).
     resolution:
         Raster cell size in metres (EPSG:5070).
+    min_allocation:
+        Drop source-target pairs whose allocation weight is below this
+        fraction (e.g. 0.02 = 2%).  Remaining weights are **not**
+        re-normalised; the dropped slivers simply become part of the
+        out-of-region remainder.  Default 0.0 (keep all).
 
     Returns:
     -------
     pl.DataFrame
         Columns ``[source_id, target_id, population, allocation_weight]``.
-        ``allocation_weight`` sums to 1.0 for each ``source_id``.
+        ``allocation_weight`` is the fraction of each source zone's **total**
+        population that falls in the target zone.  Weights sum to <= 1.0 per
+        ``source_id``; the remainder is population outside all target zones.
     """
     # Validate required columns
     for gdf, col, label in [
@@ -101,6 +109,21 @@ def build_crosswalk(
     # Normalise ID columns to canonical names
     src_albers = src_albers.rename(columns={source_id_col: "source_id"})
     tgt_albers = tgt_albers.rename(columns={target_id_col: "target_id"})
+
+    # Clip weight layer to source extent and drop zero-weight features
+    src_bounds = unary_union(src_albers.geometry).bounds
+    wgt_albers = wgt_albers.cx[
+        src_bounds[0] : src_bounds[2],
+        src_bounds[1] : src_bounds[3],
+    ]
+    wgt_albers = wgt_albers[wgt_albers[weight_col] > 0]
+    n_dropped = len(weight_gdf) - len(wgt_albers)
+    if n_dropped:
+        logger.info(
+            "Weight layer: kept %d features (dropped %d out-of-bounds or zero-weight)",
+            len(wgt_albers),
+            n_dropped,
+        )
 
     # Compute raster grid from union of source extent
     total_weight = float(wgt_albers[weight_col].sum())
@@ -141,6 +164,26 @@ def build_crosswalk(
     # Cross-tabulate via exactextract
     df = _cross_tabulate(pop_arr, src_arr, int_to_src, transform, tgt_albers)
 
+    # Compute total rasterized population per source zone (including
+    # population outside all target zones) so allocation_weight reflects
+    # the true fraction, not an inflated share.
+    flat_pop = pop_arr.ravel()
+    flat_src = src_arr.ravel()
+    src_mask = flat_src > 0
+    src_totals = np.bincount(
+        flat_src[src_mask],
+        weights=flat_pop[src_mask],
+        minlength=max(int_to_src) + 1,
+    )
+    source_pop_rows = [
+        {"source_id": sid, "source_total_pop": float(src_totals[sint])}
+        for sint, sid in int_to_src.items()
+        if src_totals[sint] > 0
+    ]
+    source_pop_df = pl.DataFrame(source_pop_rows).with_columns(
+        pl.col("source_id").cast(pl.Utf8),
+    )
+
     # Conservation check
     raster_pop = df["population"].sum()
     pct = abs(raster_pop - total_weight) / max(total_weight, 1) * 100
@@ -152,12 +195,36 @@ def build_crosswalk(
             pct,
         )
 
-    # Normalise to allocation weights per source zone
+    # Normalise to allocation weights per source zone using total
+    # source population (not just the in-target-zone portion)
+    df = df.join(source_pop_df, on="source_id", how="left")
     df = df.with_columns(
-        (pl.col("population") / pl.col("population").sum().over("source_id")).alias(
-            "allocation_weight"
-        ),
-    )
+        (pl.col("population") / pl.col("source_total_pop")).alias("allocation_weight"),
+    ).drop("source_total_pop")
+
+    # Drop sliver allocations below threshold and redistribute their
+    # weight proportionally among the remaining rows per source zone.
+    # Also absorb small out-of-region remainders below the threshold.
+    if min_allocation > 0:
+        n_before = len(df)
+        df = df.filter(pl.col("allocation_weight") >= min_allocation)
+        n_dropped = n_before - len(df)
+
+        # Re-normalise so remaining weights sum to 1.0 per source zone.
+        # This absorbs both dropped target-zone slivers and small
+        # out-of-region remainders in one step.
+        df = df.with_columns(
+            (
+                pl.col("allocation_weight") / pl.col("allocation_weight").sum().over("source_id")
+            ).alias("allocation_weight"),
+        )
+        if n_dropped:
+            logger.info(
+                "Dropped %d sliver rows with allocation_weight < %.4f",
+                n_dropped,
+                min_allocation,
+            )
+
     logger.info(
         "Crosswalk: %d rows, %d source zones -> %d target zones",
         len(df),
@@ -176,34 +243,45 @@ def _rasterize_weights(
     transform: rasterio.transform.Affine,
     shape: tuple[int, int],
 ) -> np.ndarray:
-    """Burn polygon weights into a float32 array (per-cell density).
+    """Burn polygon weights into a float32 array using centroid accumulation.
 
-    Each polygon's total weight is distributed evenly across the raster
-    cells it covers:  ``cell_val = weight / n_cells_in_polygon``.
+    Each polygon's full weight is placed in the raster cell containing its
+    centroid.  This avoids losing population from small polygons (e.g.
+    dense urban Census blocks) that are smaller than the raster cell size.
     """
-    gdf = gdf.copy()
-    gdf["_bid"] = np.arange(1, len(gdf) + 1, dtype=np.int32)
-
-    bid_raster = np.asarray(
-        rasterio.features.rasterize(
-            list(zip(gdf.geometry, gdf["_bid"], strict=True)),
-            out_shape=shape,
-            transform=transform,
-            fill=0,
-            dtype="int32",
-        ),
-        dtype=np.int32,
+    centroids = gdf.geometry.centroid
+    rows, cols = rasterio.transform.rowcol(
+        transform,
+        centroids.x.values,
+        centroids.y.values,
     )
+    rows = np.asarray(rows, dtype=np.intp)
+    cols = np.asarray(cols, dtype=np.intp)
+    weights = gdf[weight_col].values.astype(np.float64)
 
-    # Build a density lookup: weight_i / n_cells_i for each polygon
-    n = int(gdf["_bid"].max()) + 1
-    raw = np.zeros(n, dtype=np.float32)
-    raw[gdf["_bid"].values] = gdf[weight_col].values.astype(np.float32)
-    counts = np.bincount(bid_raster.ravel(), minlength=n).astype(np.float32)
-    counts[counts == 0] = 1  # avoid div-by-zero for unused IDs
+    valid = (rows >= 0) & (rows < shape[0]) & (cols >= 0) & (cols < shape[1])
+    n_outside = int((~valid).sum())
+    if n_outside:
+        logger.warning(
+            "Weight raster: %d features had centroids outside grid bounds",
+            n_outside,
+        )
+    weight_raster = np.zeros(shape, dtype=np.float64)
+    np.add.at(weight_raster, (rows[valid], cols[valid]), weights[valid])  # pyright: ignore[reportArgumentType]
+    weight_raster = weight_raster.astype(np.float32)
 
-    density = raw / counts
-    weight_raster = np.where(bid_raster > 0, density[bid_raster], 0.0).astype(np.float32)
+    raster_total = float(weight_raster.sum())
+    input_total = float(weights.sum())  # pyright: ignore[reportAttributeAccessIssue]
+    if input_total > 0:
+        loss_pct = abs(raster_total - input_total) / input_total * 100
+        if loss_pct > 1:
+            logger.warning(
+                "Weight raster conservation: %.0f vs %.0f (%.1f%% loss)",
+                raster_total,
+                input_total,
+                loss_pct,
+            )
+
     logger.info(
         "Weight raster (%s): %dx%d, total=%.0f",
         weight_col,

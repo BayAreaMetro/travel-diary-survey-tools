@@ -107,22 +107,22 @@ class TestRecodePumsHouseholds:
     """Tests for recoding PUMS household controls."""
 
     def test_creates_ctrl_columns(self, pums_households, pums_persons):
-        """Recode should create expected ctrl_ columns."""
+        """Recode should create expected control columns."""
         result = recode_pums_households(pums_households, pums_persons)
 
         for col in [
-            "ctrl_h_size",
-            "ctrl_h_income",
-            "ctrl_h_vehicles",
-            "ctrl_h_workers",
-            "ctrl_h_children",
+            "h_size",
+            "h_income",
+            "h_vehicles",
+            "h_workers",
+            "h_children",
         ]:
             assert col in result.columns, f"Missing column: {col}"
 
     def test_hh_size_recode(self, pums_households, pums_persons):
         """Household size control is derived from person count."""
         result = recode_pums_households(pums_households, pums_persons)
-        sizes = result.sort("SERIALNO")["ctrl_h_size"].to_list()
+        sizes = result.sort("SERIALNO")["h_size"].to_list()
         # HH1: NP=2 → SIZE_2, HH2: NP=4 → SIZE_4, HH3: NP=1 → SIZE_1
         assert sizes == [
             int(HHSizeCategory.SIZE_2),
@@ -133,7 +133,7 @@ class TestRecodePumsHouseholds:
     def test_hh_income_recode(self, pums_households, pums_persons):
         """Household income control is derived from HINCP."""
         result = recode_pums_households(pums_households, pums_persons)
-        incomes = result.sort("SERIALNO")["ctrl_h_income"].to_list()
+        incomes = result.sort("SERIALNO")["h_income"].to_list()
         # HH1: 55k → INCOME_50TO75, HH2: 120k → INCOME_100TO200, HH3: 15k → INCOME_UNDER25
         assert incomes == [
             IncomeBroad.INCOME_50TO75.value,
@@ -144,7 +144,7 @@ class TestRecodePumsHouseholds:
     def test_hh_vehicles_recode(self, pums_households, pums_persons):
         """Household vehicles control is derived from VEH."""
         result = recode_pums_households(pums_households, pums_persons)
-        vehs = result.sort("SERIALNO")["ctrl_h_vehicles"].to_list()
+        vehs = result.sort("SERIALNO")["h_vehicles"].to_list()
         # HH1: 1 → VEH_1, HH2: 2 → VEH_2, HH3: 0 → VEH_0
         assert vehs == [
             int(HHVehiclesCategory.VEH_1),
@@ -155,7 +155,7 @@ class TestRecodePumsHouseholds:
     def test_hh_workers_derived(self, pums_households, pums_persons):
         """Number of workers control is derived from person employment status."""
         result = recode_pums_households(pums_households, pums_persons)
-        workers = result.sort("SERIALNO")["ctrl_h_workers"].to_list()
+        workers = result.sort("SERIALNO")["h_workers"].to_list()
         # HH1: persons ESR=[1,1] → 2 workers → WORKERS_2
         # HH2: persons ESR=[1,6,0,0] → 1 worker → WORKERS_1
         # HH3: persons ESR=[6] → 0 workers → WORKERS_0
@@ -168,7 +168,7 @@ class TestRecodePumsHouseholds:
     def test_hh_children_derived(self, pums_households, pums_persons):
         """Number of children control is derived from person ages."""
         result = recode_pums_households(pums_households, pums_persons)
-        children = result.sort("SERIALNO")["ctrl_h_children"].to_list()
+        children = result.sort("SERIALNO")["h_children"].to_list()
         # HH1: ages [35, 33] → 0 children
         # HH2: ages [40, 38, 10, 7] → 2 children (10 < 18, 7 < 18)
         # HH3: ages [65] → 0 children
@@ -186,17 +186,17 @@ class TestRecodePumsPersons:
     """Tests for recoding PUMS person controls."""
 
     def test_creates_ctrl_columns(self, pums_persons):
-        """Recode should create expected ctrl_ columns."""
+        """Recode should create expected control columns."""
         result = recode_pums_persons(pums_persons)
         expected_cols = [
-            "ctrl_p_gender",
-            "ctrl_p_employment",
-            "ctrl_p_commute_mode",
-            "ctrl_p_student",
-            "ctrl_p_education",
-            "ctrl_p_race",
-            "ctrl_p_ethnicity",
-            "ctrl_p_age",
+            "p_gender",
+            "p_employment",
+            "p_commute_mode",
+            "p_student",
+            "p_education",
+            "p_race",
+            "p_ethnicity",
+            "p_age",
         ]
         for col in expected_cols:
             assert col in result.columns, f"Missing column: {col}"
@@ -204,7 +204,7 @@ class TestRecodePumsPersons:
     def test_gender_recode(self, pums_persons):
         """Gender control is derived from PUMS SEX."""
         result = recode_pums_persons(pums_persons)
-        genders = result.sort(["SERIALNO", "SPORDER"])["ctrl_p_gender"].to_list()
+        genders = result.sort(["SERIALNO", "SPORDER"])["p_gender"].to_list()
         # SEX: [1, 2, 1, 2, 1, 2, 2] → [MALE, FEMALE, MALE, FEMALE, MALE, FEMALE, FEMALE]
         expected = [
             int(GenderCategory.MALE),
@@ -220,7 +220,7 @@ class TestRecodePumsPersons:
     def test_age_recode(self, pums_persons):
         """Age control is derived from PUMS AGEP."""
         result = recode_pums_persons(pums_persons)
-        ages = result.sort(["SERIALNO", "SPORDER"])["ctrl_p_age"].to_list()
+        ages = result.sort(["SERIALNO", "SPORDER"])["p_age"].to_list()
         # AGEP: [35, 33, 40, 38, 10, 7, 65]
         expected = [
             AgeCategory.AGE_35_TO_44.value,
@@ -236,7 +236,7 @@ class TestRecodePumsPersons:
     def test_ethnicity_recode(self, pums_persons):
         """Ethnicity control is derived from PUMS HISP and RAC1P."""
         result = recode_pums_persons(pums_persons)
-        eth = result.sort(["SERIALNO", "SPORDER"])["ctrl_p_ethnicity"].to_list()
+        eth = result.sort(["SERIALNO", "SPORDER"])["p_ethnicity"].to_list()
         # HISP: [1, 1, 1, 3, 1, 1, 2]
         expected = [
             Ethnicity.NOT_HISPANIC.value,
@@ -252,7 +252,7 @@ class TestRecodePumsPersons:
     def test_commute_mode_with_carpool_detection(self, pums_persons):
         """Commute mode control is derived from JWTRNS and JWRIP."""
         result = recode_pums_persons(pums_persons)
-        modes = result.sort(["SERIALNO", "SPORDER"])["ctrl_p_commute_mode"].to_list()
+        modes = result.sort(["SERIALNO", "SPORDER"])["p_commute_mode"].to_list()
         # JWTRNS=[1, 2, 11, None, None, None, None], JWRIP=[1, None, None, ...]
         # Person 0: JWTRNS=1, JWRIP=1 → DRIVE_ALONE
         # Person 1: JWTRNS=2 → TRANSIT
@@ -265,7 +265,7 @@ class TestRecodePumsPersons:
     def test_student_recode(self, pums_persons):
         """Student status control is derived from SCHG and SCHL."""
         result = recode_pums_persons(pums_persons)
-        students = result.sort(["SERIALNO", "SPORDER"])["ctrl_p_student"].to_list()
+        students = result.sort(["SERIALNO", "SPORDER"])["p_student"].to_list()
         # SCHG: [None, None, None, None, 7, 5, None]
         # Persons 0-3,6: None → NOT_STUDENT
         # Person 4: SCHG=7 → STUDENT_K12

@@ -79,12 +79,13 @@ steps:
       # -- Geography crosswalk ------------------------------------------
       # Specify a polygon file for target zones.  The crosswalk module
       # auto-discovers overlapping PUMAs and builds a population-weighted
-      # allocation table using Census blocks + exactextract.
+      # allocation table using Census blocks + rasterization.
       geography:
         target_zones:
           file: "{{ TM1_shapefile_dir }}/region_county.shp"
           id_field: "fipco"  # null -> single study-area boundary
-        resolution: 250         # meters (exactextract handles boundary fractions)
+        resolution: 50         # meters (raster handles boundary fractions)
+        min_allocation: 0.01   # drop PUMA slivers below 1%
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
