@@ -13,8 +13,9 @@ import numpy as np
 import polars as pl
 from populationsim.balancing.balancers_numba import np_balancer_numba
 
-from processing.weighting.core.control_data import ControlTotals
-from processing.weighting.core.controls import CONTROLS, ControlLevel, ControlTarget
+from processing.weighting.controls.base import ControlLevel, ControlTarget
+from processing.weighting.controls.registry import CONTROLS
+from processing.weighting.data_prep.control_data import ControlTotals
 
 logger = logging.getLogger(__name__)
 

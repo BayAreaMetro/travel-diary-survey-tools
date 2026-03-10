@@ -1,35 +1,16 @@
-"""Central control definitions for weighting.
+# ruff: noqa: D102, RUF012
+"""Person-level weighting controls.
 
-Each control is a subclass of ``ControlTarget`` that bundles:
+Each class maps raw survey / PUMS values into coarser category ints for
+person-level weighting targets.
 
-- output categories (``IntEnum`` or ``LabeledEnum``)
-- source field names (survey and PUMS) — metadata for validation / PUMS fetch
-- two Polars expressions: ``survey_expr()`` and ``pums_expr()``
-
-This is the **single source of truth** for how raw values become control ints.
-
-::
-
-    PUMS  ──pums_expr──>  ControlTarget.categories  <──survey_expr──  Survey
-
-Identity controls
------------------
-Five controls (``h_income``, ``p_education``, ``p_race``, ``p_ethnicity``,
-``p_age``) reuse canonical ``LabeledEnum`` directly.  Sentinel values
-(MISSING, PNTA) map to ``null``.
-
-Collapsing controls
--------------------
-Eight controls define a custom ``IntEnum`` and provide expressions that
-collapse raw codes into coarser category ints.
+All ``survey_expr`` / ``pums_expr`` overrides implement the interface
+documented in :class:`ControlTarget` — individual method docstrings
+are omitted for brevity (ruff noqa: D102).
 """
-
-import logging
-from enum import Enum
 
 import polars as pl
 
-from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import (
     AgeCategory,
     Education,
@@ -51,198 +32,23 @@ from data_canon.codebook.pums import (
     PumsThresholds,
 )
 from data_canon.codebook.trips import ModeType
-from processing.weighting.core.control_enums import (
+from processing.weighting.controls.base import (
+    ControlLevel,
+    ControlTarget,
+    _breakpoint_expr,
+    _identity_expr,
+)
+from processing.weighting.controls.enums import (
     CommuteModeCategory,
     EmploymentCategory,
     GenderCategory,
-    HHChildrenCategory,
-    HHSizeCategory,
-    HHVehiclesCategory,
-    HHWorkersCategory,
     StudentCategory,
 )
 
-logger = logging.getLogger(__name__)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Helpers
-# ══════════════════════════════════════════════════════════════════════════
-
-_SENTINEL_NAMES = frozenset({"MISSING", "PNTA"})
-
-
-def _identity_expr(col: str, categories: type[Enum]) -> pl.Expr:
-    """Pass-through valid values, null for sentinels or unknown.
-
-    Basically, we use the canonical enum directly, just map sentinels to null.
-    """
-    sentinels = [m.value for m in categories if m.name in _SENTINEL_NAMES]
-    valid = [m.value for m in categories if m.name not in _SENTINEL_NAMES]
-    return (
-        pl.when(pl.col(col).is_null() | pl.col(col).is_in(sentinels))
-        .then(None)
-        .when(pl.col(col).is_in(valid))
-        .then(pl.col(col))
-        .otherwise(None)
-        .cast(pl.Int16)
-    )
-
-
-def _breakpoint_expr(col: str, categories: type[Enum]) -> pl.Expr:
-    """Build a when/then chain from a LabeledEnum with ``BREAKPOINTS``.
-
-    Zips ``categories.BREAKPOINTS`` with the non-sentinel members so that
-    each breakpoint maps ``col < bp`` → the corresponding member value,
-    with the final member as the ``otherwise`` catch-all.
-    """
-    members = [m for m in categories if m.name not in _SENTINEL_NAMES]
-    breakpoints: list[int] = categories.BREAKPOINTS  # type: ignore[attr-defined]
-    c = pl.col(col)
-    expr = pl.when(c.is_null()).then(None)
-    for bp, member in zip(breakpoints, members, strict=False):
-        expr = expr.when(c < bp).then(member.value)
-    return expr.otherwise(members[-1].value).cast(pl.Int16)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Base class
-# ══════════════════════════════════════════════════════════════════════════
-
-
-class ControlLevel(str, Enum):
-    """Whether a control is at the household or person level."""
-
-    HOUSEHOLD = "household"
-    PERSON = "person"
-
-
-class ControlTarget:
-    """Base class for a single weighting control.
-
-    Subclasses set class attributes and override ``survey_expr`` /
-    ``pums_expr`` to return native Polars expressions.
-
-    Attributes (set by subclass)
-    ----------------------------
-    name : str              -- registry key, e.g. ``"h_size"``
-    level : ControlLevel    -- HOUSEHOLD or PERSON
-    description : str       -- human-readable label
-    categories : type       -- IntEnum or LabeledEnum for output bins
-    survey_fields : tuple   -- canonical survey column names (metadata)
-    pums_fields : tuple     -- PUMS column names (metadata)
-    """
-
-    name: str
-    level: ControlLevel
-    description: str
-    categories: type[Enum]
-    survey_fields: tuple[str, ...]
-    pums_fields: tuple[str, ...]
-
-    def survey_expr(self) -> pl.Expr:
-        """Polars expression mapping survey columns → control int (Int16)."""
-        msg = f"{type(self).__name__}.survey_expr() not implemented"
-        raise NotImplementedError(msg)
-
-    def pums_expr(self) -> pl.Expr:
-        """Polars expression mapping PUMS columns → control int (Int16)."""
-        msg = f"{type(self).__name__}.pums_expr() not implemented"
-        raise NotImplementedError(msg)
-
-    @property
-    def valid_members(self) -> list[tuple[int, str]]:
-        """``(value, name)`` for each non-sentinel output category."""
-        return [(m.value, m.name) for m in self.categories if m.name not in _SENTINEL_NAMES]
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Household-level controls
-# ══════════════════════════════════════════════════════════════════════════
-
-
-class HHSizeControl(ControlTarget):
-    name = "h_size"
-    level = ControlLevel.HOUSEHOLD
-    description = "Household size"
-    categories = HHSizeCategory
-    survey_fields = ("_n_persons",)
-    pums_fields = ("NP",)
-
-    def survey_expr(self) -> pl.Expr:
-        return pl.col("_n_persons").clip(1, 10).cast(pl.Int16)
-
-    def pums_expr(self) -> pl.Expr:
-        return pl.col("NP").clip(1, 10).cast(pl.Int16)
-
-
-class HHIncomeControl(ControlTarget):
-    name = "h_income"
-    level = ControlLevel.HOUSEHOLD
-    description = "Household income"
-    categories = IncomeBroad
-    survey_fields = ("income_broad",)
-    pums_fields = ("HINCP",)
-
-    def survey_expr(self) -> pl.Expr:
-        return _identity_expr("income_broad", IncomeBroad)
-
-    def pums_expr(self) -> pl.Expr:
-        return _breakpoint_expr("HINCP", IncomeBroad)
-
-
-class HHWorkersControl(ControlTarget):
-    name = "h_workers"
-    level = ControlLevel.HOUSEHOLD
-    description = "Workers in household"
-    categories = HHWorkersCategory
-    survey_fields = ("_n_workers",)
-    pums_fields = ()  # derived from person-level ESR in recode_pums_households
-
-    def survey_expr(self) -> pl.Expr:
-        return pl.col("_n_workers").clip(0, 5).cast(pl.Int16)
-
-    def pums_expr(self) -> pl.Expr:
-        return pl.col("_n_workers").clip(0, 5).cast(pl.Int16)
-
-
-class HHVehiclesControl(ControlTarget):
-    name = "h_vehicles"
-    level = ControlLevel.HOUSEHOLD
-    description = "Vehicles in household"
-    categories = HHVehiclesCategory
-    survey_fields = ("num_vehicles",)
-    pums_fields = ("VEH",)
-
-    def survey_expr(self) -> pl.Expr:
-        return pl.col("num_vehicles").clip(0, 6).cast(pl.Int16)
-
-    def pums_expr(self) -> pl.Expr:
-        v = pl.col("VEH")
-        return pl.when(v.is_null() | (v < 0)).then(None).otherwise(v.clip(0, 6)).cast(pl.Int16)
-
-
-class HHChildrenControl(ControlTarget):
-    name = "h_children"
-    level = ControlLevel.HOUSEHOLD
-    description = "Children in household"
-    categories = HHChildrenCategory
-    survey_fields = ("_n_children",)
-    pums_fields = ()  # derived from person-level AGEP in recode_pums_households
-
-    def survey_expr(self) -> pl.Expr:
-        return pl.col("_n_children").clip(0, 5).cast(pl.Int16)
-
-    def pums_expr(self) -> pl.Expr:
-        return pl.col("_n_children").clip(0, 5).cast(pl.Int16)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Person-level controls
-# ══════════════════════════════════════════════════════════════════════════
-
 
 class GenderControl(ControlTarget):
+    """Gender (male / female)."""
+
     name = "p_gender"
     level = ControlLevel.PERSON
     description = "Gender"
@@ -276,6 +82,8 @@ class GenderControl(ControlTarget):
 
 
 class EmploymentControl(ControlTarget):
+    """Employment status (full-time / part-time / not employed)."""
+
     name = "p_employment"
     level = ControlLevel.PERSON
     description = "Employment status"
@@ -327,6 +135,8 @@ class EmploymentControl(ControlTarget):
 
 
 class CommuteModeControl(ControlTarget):
+    """Commute mode (drive, carpool, transit, bike, walk, WFH, other, N/A)."""
+
     name = "p_commute_mode"
     level = ControlLevel.PERSON
     description = "Commute mode"
@@ -414,6 +224,8 @@ class CommuteModeControl(ControlTarget):
 
 
 class StudentControl(ControlTarget):
+    """Student status (K-12 / college / not a student)."""
+
     name = "p_student"
     level = ControlLevel.PERSON
     description = "Student status"
@@ -480,6 +292,8 @@ class StudentControl(ControlTarget):
 
 
 class EducationControl(ControlTarget):
+    """Education attainment (canonical Education enum)."""
+
     name = "p_education"
     level = ControlLevel.PERSON
     description = "Education attainment"
@@ -508,6 +322,8 @@ class EducationControl(ControlTarget):
 
 
 class RaceControl(ControlTarget):
+    """Race (canonical Race enum)."""
+
     name = "p_race"
     level = ControlLevel.PERSON
     description = "Race"
@@ -539,6 +355,8 @@ class RaceControl(ControlTarget):
 
 
 class EthnicityControl(ControlTarget):
+    """Hispanic/Latino ethnicity (canonical Ethnicity enum)."""
+
     name = "p_ethnicity"
     level = ControlLevel.PERSON
     description = "Hispanic/Latino ethnicity"
@@ -565,6 +383,8 @@ class EthnicityControl(ControlTarget):
 
 
 class AgeControl(ControlTarget):
+    """Age (canonical AgeCategory breakpoints)."""
+
     name = "p_age"
     level = ControlLevel.PERSON
     description = "Age"
@@ -577,47 +397,3 @@ class AgeControl(ControlTarget):
 
     def pums_expr(self) -> pl.Expr:
         return _breakpoint_expr("AGEP", AgeCategory)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Registry
-# ══════════════════════════════════════════════════════════════════════════
-
-CONTROLS: dict[str, ControlTarget] = {
-    t.name: t
-    for t in [
-        HHSizeControl(),
-        HHIncomeControl(),
-        HHWorkersControl(),
-        HHVehiclesControl(),
-        HHChildrenControl(),
-        GenderControl(),
-        EmploymentControl(),
-        CommuteModeControl(),
-        StudentControl(),
-        EducationControl(),
-        RaceControl(),
-        EthnicityControl(),
-        AgeControl(),
-    ]
-}
-
-
-def resolve_targets(
-    targets: list[str],
-    level: ControlLevel | None = None,
-) -> list[ControlTarget]:
-    """Return ``ControlTarget`` objects for *targets*, optionally filtered."""
-    bad = [t for t in targets if t not in CONTROLS]
-    if bad:
-        msg = f"Unknown targets: {bad}. Valid: {sorted(CONTROLS)}"
-        raise ValueError(msg)
-    ctrls = [CONTROLS[t] for t in targets]
-    if level is not None:
-        ctrls = [c for c in ctrls if c.level == level]
-    return ctrls
-
-
-def pums_variables(level: ControlLevel) -> set[str]:
-    """PUMS variable names needed for all controls at *level*."""
-    return {f for ctrl in CONTROLS.values() if ctrl.level == level for f in ctrl.pums_fields}

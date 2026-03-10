@@ -75,83 +75,39 @@ The weighting module is exposed to the pipeline as a **single `@step()` entry po
 src/processing/weighting/
 ├── __init__.py
 ├── existing_weights.py        # ✅ Implemented — attach pre-computed weights
-├── weighting.py               # ✅ Implemented — single @step() entry point; orchestrates core/
-├── core/                      # current flat layout — see TODO below for planned reorganization
-│   ├── __init__.py
-│   ├── balancer.py            # ✅ Implemented — max entropy balancing (PopulationSim numba core)
-│   ├── base_weights.py        # ✅ Implemented — initial expansion weights (sample-plan or PUMS-target)
-│   ├── census_geo.py          # ✅ Implemented — TIGER shapefile download via pygris (PUMAs, blocks)
-│   ├── checksums.py           # ✅ Implemented — recode null checks + incidence-sum overcount detection
-│   ├── controls.py            # ✅ Implemented — control target registry
-│   ├── control_data.py        # ✅ Implemented — PUMS control totals (crosswalk-aware)
-│   ├── control_enums.py       # ✅ Implemented — control category enums
-│   ├── crosswalk.py           # ✅ Implemented — rasterized PUMA→target-zone crosswalk (exactextract)
-│   ├── pums_data.py           # ✅ Implemented — PUMS download/load via cenpy
-│   ├── seed_data.py           # ✅ Implemented — recode survey variables to match controls
-│   ├── weight_checks.py       # ✅ Implemented — post-balancing sanity checks
-│   ├── weight_propagation.py  # ✅ Implemented — propagate weights to all canonical tables
-│   ├── expansion.py           # 🔲 Planned — DOW household-day expansion
-│   ├── importance.py          # 🔲 Planned — control importance weights from PUMS MOE/variance
-│   └── diagnostics.py         # 🔲 Planned — HTML diagnostic report (Plotly)
-└── DEVELOPMENT_PLAN.md        # 📄 This document
-```
-
-### TODO: Reorganize weighting module
-
-The `core/` flat package has grown to 12+ modules. Reorganize into domain sub-packages under `weighting/` directly (removing the `core/` level):
-
-```
-src/processing/weighting/
-├── __init__.py
-├── existing_weights.py        # ✅ Implemented — attach pre-computed weights
 ├── weighting.py               # ✅ Implemented — single @step() entry point
 ├── DEVELOPMENT_PLAN.md
 │
-├── controls/                  # ← split from core/controls.py + control_enums.py
-│   ├── __init__.py            #   re-exports CONTROLS, resolve_targets, pums_variables
-│   ├── enums.py               #   ← core/control_enums.py (IntEnum categories)
+├── controls/                  # ✅ Implemented — split from old core/controls.py + control_enums.py
+│   ├── __init__.py
+│   ├── enums.py               #   IntEnum categories for collapsing controls
 │   ├── base.py                #   ControlLevel, ControlTarget base class, shared helpers
 │   ├── household.py           #   HHSize, HHIncome, HHWorkers, HHVehicles, HHChildren
 │   ├── person.py              #   Gender, Employment, CommuteMode, Student, Education, Race, Ethnicity, Age
 │   └── registry.py            #   CONTROLS dict, resolve_targets(), pums_variables()
 │
-├── geography/                 # ← census_geo + crosswalk (already isolated)
+├── data_prep/                 # ✅ Implemented — PUMS I/O, recoding, geography + crosswalk
 │   ├── __init__.py
-│   ├── census_geo.py
-│   └── crosswalk.py
+│   ├── census_geo.py          #   TIGER shapefile download via pygris (PUMAs, blocks)
+│   ├── crosswalk.py           #   rasterized PUMA→target-zone crosswalk (exactextract)
+│   ├── pums_data.py           #   PUMS download/load via cenpy
+│   ├── control_data.py        #   PUMS control totals (crosswalk-aware)
+│   └── seed_data.py           #   recode survey variables to match controls
 │
-├── data_prep/                 # ← PUMS I/O + recoding into control bins
+├── balancing/                 # ✅ Implemented — the weighting engine
 │   ├── __init__.py
-│   ├── pums_data.py
-│   ├── control_data.py
-│   └── seed_data.py
+│   ├── balancer.py            #   max entropy balancing (PopulationSim numba core)
+│   ├── base_weights.py        #   initial expansion weights (sample-plan or PUMS-target)
+│   ├── weight_propagation.py  #   propagate weights to all canonical tables
+│   ├── dow.py                 # 🔲 Planned — DOW household-day expansion
+│   └── importance.py          # 🔲 Planned — control importance weights from PUMS MOE/variance
 │
-├── balancing/                 # ← the engine
-│   ├── __init__.py
-│   ├── balancer.py
-│   ├── base_weights.py
-│   ├── expansion.py           # 🔲 Planned — DOW household-day expansion
-│   └── importance.py          # 🔲 Planned — control importance weights
-│
-└── validation/                # ← checks + propagation
+└── validation/                # ✅ Implemented — post-balancing checks
     ├── __init__.py
-    ├── checksums.py
-    ├── weight_checks.py
-    ├── weight_propagation.py
+    ├── checksums.py           #   recode null checks + incidence-sum overcount detection
+    ├── weight_checks.py       #   post-balancing sanity checks
     └── diagnostics.py         # 🔲 Planned — HTML diagnostic report (Plotly)
 ```
-
-**Rationale:**
-
-| Subpackage       | Groups                                    | Why                                                                                          |
-|------------------|-------------------------------------------|----------------------------------------------------------------------------------------------|
-| `controls/`      | 820-line `controls.py` split by level + enums + registry | Main bloat — 13 subclasses. Splitting by HH/person keeps files ~200 lines each.              |
-| `geography/`     | `census_geo.py`, `crosswalk.py`           | Already isolated with no upstream dependents. Natural pair (TIGER data → spatial crosswalk).  |
-| `data_prep/`     | `pums_data.py`, `control_data.py`, `seed_data.py` | All transform raw data into shapes the balancer expects. Shared dependency on `controls/`.    |
-| `balancing/`     | `balancer.py`, `base_weights.py`          | The weighting engine. Clean boundary — takes seed + totals, returns weights.                  |
-| `validation/`    | `checksums.py`, `weight_checks.py`, `weight_propagation.py` | All post-processing: null checks, incidence checks, sanity checks, weight derivation.        |
-
-**Migration rules:** Pure reorganization — no new logic. Subpackage `__init__.py` files re-export the public API so `weighting.py` imports stay clean. `core/` can keep a backward-compat shim temporarily.
 
 ### TODO: Control importance calculator (`importance.py`)
 

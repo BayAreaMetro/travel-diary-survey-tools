@@ -19,29 +19,33 @@ from numpy.compat import Path
 
 from pipeline.cache import PipelineCache
 from pipeline.decoration import step
-from processing.weighting.core.balancer import MergeSpec, balance_weights
-from processing.weighting.core.base_weights import compute_base_weights, load_sample_plan
-from processing.weighting.core.checksums import check_incidence_sums
-from processing.weighting.core.control_data import (
-    ControlSpec,
-    build_control_totals,
-    recode_pums_households,
-    recode_pums_persons,
-)
-from processing.weighting.core.crosswalk import GeographyConfig, PumaCrosswalk
-from processing.weighting.core.pums_data import PUMSSource, fetch_pums_data, load_pums_from_files
-from processing.weighting.core.seed_data import (
-    build_seed_table,
-    recode_survey_households,
-    recode_survey_persons,
-)
-from processing.weighting.core.weight_checks import weight_sanity_checks
-from processing.weighting.core.weight_propagation import (
+from processing.weighting.balancing.balancer import MergeSpec, balance_weights
+from processing.weighting.balancing.base_weights import compute_base_weights, load_sample_plan
+from processing.weighting.balancing.weight_propagation import (
     collect_tables,
     non_null_tables,
     propagate_weights,
     safe_join_weight,
 )
+from processing.weighting.data_prep.control_data import (
+    ControlSpec,
+    build_control_totals,
+    recode_pums_households,
+    recode_pums_persons,
+)
+from processing.weighting.data_prep.crosswalk import GeographyConfig, PumaCrosswalk
+from processing.weighting.data_prep.pums_data import (
+    PUMSSource,
+    fetch_pums_data,
+    load_pums_from_files,
+)
+from processing.weighting.data_prep.seed_data import (
+    build_seed_table,
+    recode_survey_households,
+    recode_survey_persons,
+)
+from processing.weighting.validation.checksums import check_incidence_sums
+from processing.weighting.validation.weight_checks import weight_sanity_checks
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,8 @@ from dataclasses import dataclass
 import cenpy
 import polars as pl
 
-from processing.weighting.core.controls import ControlLevel, pums_variables
+from processing.weighting.controls.base import ControlLevel
+from processing.weighting.controls.registry import pums_variables
 
 logger = logging.getLogger(__name__)
 

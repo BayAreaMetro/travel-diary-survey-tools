@@ -10,7 +10,7 @@ import pytest
 
 from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import AgeCategory
-from processing.weighting.core.control_enums import (
+from processing.weighting.controls.enums import (
     CommuteModeCategory,
     EmploymentCategory,
     GenderCategory,
@@ -20,7 +20,7 @@ from processing.weighting.core.control_enums import (
     HHWorkersCategory,
     StudentCategory,
 )
-from processing.weighting.core.seed_data import (
+from processing.weighting.data_prep.seed_data import (
     build_seed_table,
     recode_survey_households,
     recode_survey_persons,

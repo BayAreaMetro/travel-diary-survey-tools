@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from processing.weighting.core.weight_propagation import (
+from processing.weighting.balancing.weight_propagation import (
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
     collect_tables,

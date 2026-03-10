@@ -21,7 +21,7 @@ import polars as pl
 from pydantic import BaseModel, field_validator
 from shapely.ops import unary_union
 
-from processing.weighting.core.census_geo import get_block_gdf, get_puma_gdf
+from processing.weighting.data_prep.census_geo import get_block_gdf, get_puma_gdf
 from utils.crosswalk import build_crosswalk
 
 logger = logging.getLogger(__name__)

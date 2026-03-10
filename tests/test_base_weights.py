@@ -3,13 +3,13 @@
 import polars as pl
 import pytest
 
-from processing.weighting.core.balancer import balance_weights
-from processing.weighting.core.base_weights import (
+from processing.weighting.balancing.balancer import balance_weights
+from processing.weighting.balancing.base_weights import (
     SamplePlan,
     compute_base_weights,
     load_sample_plan,
 )
-from processing.weighting.core.control_data import ControlTotals
+from processing.weighting.data_prep.control_data import ControlTotals
 
 
 # ---------------------------------------------------------------------------

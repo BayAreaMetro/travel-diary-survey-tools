@@ -9,14 +9,7 @@ import pytest
 
 from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import AgeCategory, Ethnicity
-from processing.weighting.core.control_data import (
-    ControlSpec,
-    ControlTotals,
-    build_control_totals,
-    recode_pums_households,
-    recode_pums_persons,
-)
-from processing.weighting.core.control_enums import (
+from processing.weighting.controls.enums import (
     CommuteModeCategory,
     GenderCategory,
     HHChildrenCategory,
@@ -25,7 +18,14 @@ from processing.weighting.core.control_enums import (
     HHWorkersCategory,
     StudentCategory,
 )
-from processing.weighting.core.pums_data import (
+from processing.weighting.data_prep.control_data import (
+    ControlSpec,
+    ControlTotals,
+    build_control_totals,
+    recode_pums_households,
+    recode_pums_persons,
+)
+from processing.weighting.data_prep.pums_data import (
     PUMSSource,
     load_pums_from_files,
 )

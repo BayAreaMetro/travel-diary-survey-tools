@@ -5,8 +5,8 @@ import logging
 import polars as pl
 import pytest
 
-from processing.weighting.core.checksums import check_incidence_sums, check_recode_nulls
-from processing.weighting.core.controls import ControlLevel
+from processing.weighting.controls.base import ControlLevel
+from processing.weighting.validation.checksums import check_incidence_sums, check_recode_nulls
 
 
 # ---------------------------------------------------------------------------

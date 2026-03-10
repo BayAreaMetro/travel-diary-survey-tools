@@ -14,13 +14,9 @@ from dataclasses import dataclass
 import polars as pl
 
 from data_canon.codebook.pums import PumsEsr, PumsThresholds
-from processing.weighting.core.checksums import check_recode_nulls
-from processing.weighting.core.controls import (
-    CONTROLS,
-    ControlLevel,
-    ControlTarget,
-    resolve_targets,
-)
+from processing.weighting.controls.base import ControlLevel, ControlTarget
+from processing.weighting.controls.registry import CONTROLS, resolve_targets
+from processing.weighting.validation.checksums import check_recode_nulls
 
 logger = logging.getLogger(__name__)
 

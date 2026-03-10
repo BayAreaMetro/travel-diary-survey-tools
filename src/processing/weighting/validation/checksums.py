@@ -21,7 +21,8 @@ from collections.abc import Iterator
 
 import polars as pl
 
-from processing.weighting.core.controls import CONTROLS, ControlLevel, ControlTarget
+from processing.weighting.controls.base import ControlLevel, ControlTarget
+from processing.weighting.controls.registry import CONTROLS
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ import polars as pl
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pipeline.decoration import step
-from processing.weighting.core.weight_propagation import (
+from processing.weighting.balancing.weight_propagation import (
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
     collect_tables,
