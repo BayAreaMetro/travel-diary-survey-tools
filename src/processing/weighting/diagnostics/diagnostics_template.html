@@ -36,21 +36,21 @@
 <p class="note">
   Population totals are derived from the first household- and person-level control.
   What to look for:
-    &bull; <b>Convergence</b>: Did the balancer converge within the specified tolerance and iteration limit?
-    &bull; <b>Fit</b>: How close are the weighted totals to the targets? Look at MAPE and the % error bars below.
+    &bull; <b>Convergence</b>: Did the balancer converge within the specified tolerance and iteration limit?<br>
+    &bull; <b>Fit</b>: How close are the weighted totals to the targets? Look at MAPE and the % error bars below.<br>
     &bull; <b>Household/Person</b>: Do both household and persons match? 
       If not you may need to apply greater importance on h_total or p_total to overcome the inherent sampling bias
-      against large-households that results in total population being deflated.
+      against large-households that results in total population being deflated.<br>
     &bull; <b>Effective Sample Size (ESS)</b>: How much variability in weights?
-      If ESS is low, the balancer is relying heavily on a few records, which can lead to unstable estimates.
+      If ESS is low, the balancer is relying heavily on a few records, which can lead to unstable estimates.<br>
     &bull; <b>Coefficient of Variation (CV)</b>: Another measure of weight variability;
-      high CV indicates extreme weights.
+      high CV indicates extreme weights.<br>
   Metric summary:
-    &bull; <b>MAPE</b> is the mean |%&nbsp;error| across all control categories for the zone.
-    &bull; <b>ESS</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish); 
-      above 80% is good, below 50% suggests a few records dominate.
+    &bull; <b>MAPE</b> is the mean |%&nbsp;error| across all control categories for the zone.<br>
+    &bull; <b>ESS</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish);
+      above 80% is good, below 50% suggests a few records dominate.<br>
     &bull; <b>CV</b> Coefficient of variation of weights: standard deviation / mean.
-      High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.
+      High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
 </p>
 {{ zone_overview_table }}
 

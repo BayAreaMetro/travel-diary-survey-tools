@@ -102,11 +102,18 @@ src/processing/weighting/
 │   ├── dow.py                 # 🔲 Planned — DOW household-day expansion
 │   └── importance.py          # 🔲 Planned — control importance weights from PUMS MOE/variance
 │
+├── diagnostics/               # ✅ Implemented — HTML report + crosswalk map
+│   ├── __init__.py
+│   ├── charts.py              #   Plotly chart builders (fit bars, violins, crosswalk map)
+│   ├── data.py                #   data transforms (fit table, merge collapse, weighted totals)
+│   ├── report.py              #   Jinja2 report orchestrator
+│   ├── tables.py              #   HTML table builders (zone overview, weight dist, sparsity)
+│   └── diagnostics_template.html
+│
 └── validation/                # ✅ Implemented — post-balancing checks
     ├── __init__.py
     ├── checksums.py           #   recode null checks + incidence-sum overcount detection
-    ├── weight_checks.py       #   post-balancing sanity checks
-    └── diagnostics.py         # 🔲 Planned — HTML diagnostic report (Plotly)
+    └── weight_checks.py       #   post-balancing sanity checks
 ```
 
 ### TODO: Control importance calculator (`importance.py`)

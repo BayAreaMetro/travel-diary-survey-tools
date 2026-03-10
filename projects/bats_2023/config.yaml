@@ -86,6 +86,16 @@ steps:
           id_field: "fipco"  # null -> single study-area boundary
         resolution: 50         # meters (raster handles boundary fractions)
         min_allocation: 0.01   # drop PUMA slivers below 1%
+        # -- Zone groups (optional) ------------------------------------
+        # Merge small zones for weighting.
+        # Keys are group names, values are lists of zones combined into a single balancing zone.
+        # Also useful for applying names to things.
+        zone_groups:
+          marin_napa_solano_sonoma: ["041", "097", "095", "055"]
+          contra_costa: ["013"]
+          alameda: ["001"]
+          san_mateo_santa_clara: ["085", "081"]
+          san_francisco: ["075"]
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -105,7 +115,7 @@ steps:
             size_5_plus: [size_5, size_6, size_7, size_8, size_9, size_10_plus]
         - name: h_workers
           merge:
-            workers_3_plus: [workers_3, workers_4, workers_5_plus]
+            workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
         - name: h_vehicles
           merge:
             veh_3_plus: [veh_3, veh_4, veh_5, veh_6_plus]
@@ -115,6 +125,8 @@ steps:
         - name: p_gender
         - name: p_employment
         - name: p_age
+          merge:
+            age_75_plus: [age_74_to_84, age_85_plus]
 
       # -- Balancer settings -------------------------------------------
       max_expansion_factor: 10.0   # upper bound = initial_weight × factor

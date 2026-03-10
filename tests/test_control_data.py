@@ -21,6 +21,7 @@ from processing.weighting.controls.enums import (
 from processing.weighting.data_prep.control_data import (
     ControlSpec,
     ControlTotals,
+    apply_zone_groups,
     build_control_totals,
     recode_pums_households,
     recode_pums_persons,
@@ -411,3 +412,76 @@ class TestLoadPumsFromFiles:
 
         hh, _ = load_pums_from_files(str(hh_path), str(per_path), puma_ids=["00100"])
         assert all(hh["PUMA"].cast(pl.Utf8) == "00100")
+
+
+# ---------------------------------------------------------------------------
+# Zone grouping
+# ---------------------------------------------------------------------------
+class TestApplyZoneGroups:
+    """Tests for apply_zone_groups."""
+
+    @pytest.fixture
+    def control_totals(self) -> ControlTotals:
+        """Minimal ControlTotals fixture with 3 zones and 2 categories each."""
+        totals = pl.DataFrame(
+            {
+                "geo_id": ["A", "A", "B", "B", "C", "C"],
+                "control_name": ["ctrl"] * 6,
+                "category": [1, 2, 1, 2, 1, 2],
+                "target_total": [100.0, 200.0, 30.0, 40.0, 50.0, 60.0],
+            }
+        )
+        return ControlTotals(
+            totals=totals, pums_hh_count=10, pums_person_count=20, geo_ids=["A", "B", "C"]
+        )
+
+    @pytest.fixture
+    def seed(self) -> pl.DataFrame:
+        """Minimal seed DataFrame with hh_id and ctrl_geoid matching control_totals."""
+        return pl.DataFrame(
+            {
+                "hh_id": [1, 2, 3],
+                "ctrl_geoid": ["A", "B", "C"],
+            }
+        )
+
+    def test_merges_zones(self, control_totals, seed):
+        """Grouped zones should merge in both totals and seed."""
+        groups = {"AB": ["A", "B"]}
+        new_ct, new_seed = apply_zone_groups(control_totals, seed, groups)
+
+        new_ids = sorted(new_ct.geo_ids)
+        assert new_ids == ["AB", "C"]
+
+        # Targets should sum
+        ab_cat1 = new_ct.totals.filter((pl.col("geo_id") == "AB") & (pl.col("category") == 1))[
+            "target_total"
+        ].item()
+        assert ab_cat1 == pytest.approx(130.0)  # 100 + 30
+
+        # Seed geo_id remapped
+        assert new_seed.filter(pl.col("hh_id") == 1)["ctrl_geoid"].item() == "AB"
+        assert new_seed.filter(pl.col("hh_id") == 2)["ctrl_geoid"].item() == "AB"
+        assert new_seed.filter(pl.col("hh_id") == 3)["ctrl_geoid"].item() == "C"
+
+    def test_unmapped_zones_unchanged(self, control_totals, seed):
+        """Zones not in any group pass through unchanged."""
+        groups = {"AB": ["A", "B"]}
+        new_ct, _ = apply_zone_groups(control_totals, seed, groups)
+        c_total = new_ct.totals.filter((pl.col("geo_id") == "C") & (pl.col("category") == 2))[
+            "target_total"
+        ].item()
+        assert c_total == pytest.approx(60.0)
+
+    def test_preserves_pums_counts(self, control_totals, seed):
+        """PUMS counts should be carried forward unchanged."""
+        groups = {"AB": ["A", "B"]}
+        new_ct, _ = apply_zone_groups(control_totals, seed, groups)
+        assert new_ct.pums_hh_count == 10
+        assert new_ct.pums_person_count == 20
+
+    def test_duplicate_zone_raises(self, control_totals, seed):
+        """A zone in two groups should raise ValueError."""
+        groups = {"AB": ["A", "B"], "AC": ["A", "C"]}
+        with pytest.raises(ValueError, match="multiple groups"):
+            apply_zone_groups(control_totals, seed, groups)

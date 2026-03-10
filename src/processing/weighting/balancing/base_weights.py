@@ -221,21 +221,39 @@ def _zone_weights_from_response_inversion(
     region_responses = zone_weights["_zone_n_responses"].sum()
     region_weighted = (zone_weights["base_weight"] * zone_weights["_zone_n_responses"]).sum()
 
-    lines = [
-        f"Base weights (response inversion, reference={ref_var_name}):",
-        f"  {'Zone':<12} {'Target HH':>12} {'Responses':>10} {'Base Wt':>10} {'Init Total':>12}",
-    ]
-    for r in zone_weights.sort("geo_id").iter_rows(named=True):
-        init_total = r["base_weight"] * r["_zone_n_responses"]
-        lines.append(
-            f"  {r['geo_id']:<12} {r['_zone_target_hh']:>12,.0f} "
-            f"{r['_zone_n_responses']:>10,} {r['base_weight']:>10.1f} {init_total:>12,.0f}"
-        )
-    lines.append(
-        f"  {'REGION':<12} {region_target:>12,.0f} "
-        f"{region_responses:>10,} {'':>10} {region_weighted:>12,.0f}"
+    zw = zone_weights.sort("geo_id").with_columns(
+        (pl.col("base_weight") * pl.col("_zone_n_responses")).alias("_init_total")
     )
-    logger.info("\n".join(lines))
+    zw_wide = pl.concat(
+        [
+            zw.select(
+                "geo_id", "_zone_target_hh", "_zone_n_responses", "base_weight", "_init_total"
+            ),
+            pl.DataFrame(
+                {
+                    "geo_id": ["REGION"],
+                    "_zone_target_hh": [region_target],
+                    "_zone_n_responses": [region_responses],
+                    "base_weight": [None],
+                    "_init_total": [region_weighted],
+                }
+            ),
+        ],
+        how="diagonal_relaxed",
+    ).rename(
+        {
+            "geo_id": "Zone",
+            "_zone_target_hh": "Target HH",
+            "_zone_n_responses": "Responses",
+            "base_weight": "Base Wt",
+            "_init_total": "Init Total",
+        }
+    )
+    logger.info(
+        "Base weights (response inversion, reference=%s):\n%s",
+        ref_var_name,
+        zw_wide,
+    )
 
     zone_weights = zone_weights.select("geo_id", "base_weight")
 

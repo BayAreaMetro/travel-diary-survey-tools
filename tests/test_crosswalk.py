@@ -654,8 +654,9 @@ class TestControlDataCrosswalk:
 class TestPlotCrosswalk:
     """Test PumaCrosswalk.plot_crosswalk produces an HTML file."""
 
-    def test_produces_html(self, two_pumas, three_target_zones, uniform_blocks):
-        """plot_crosswalk should write an HTML file under output_dir."""
+    @pytest.fixture
+    def _crosswalk_obj(self, two_pumas, three_target_zones, uniform_blocks):
+        """Build a minimal PumaCrosswalk without hitting Census APIs."""
         target_gdf = _load_target_zones(three_target_zones, "target_id")
         xw_df = build_crosswalk(
             source_gdf=two_pumas,
@@ -671,8 +672,23 @@ class TestPlotCrosswalk:
         obj.puma_gdf = two_pumas
         obj.target_gdf = target_gdf
         obj.crosswalk_df = xw_df
+        return obj
 
-        fig = obj.plot_crosswalk()
+    @pytest.mark.usefixtures("_crosswalk_obj")
+    def test_produces_html(self):
+        """plot_crosswalk should produce valid Plotly HTML."""
+        fig = self._crosswalk_obj.plot_crosswalk()  # pyright: ignore[reportAttributeAccessIssue]
         assert fig is not None
         html = fig.to_html()
         assert "plotly" in html.lower()
+
+    @pytest.mark.usefixtures("_crosswalk_obj")
+    def test_with_households_and_zone_groups(self):
+        """plot_crosswalk should accept households and zone_groups."""
+        hh = pl.DataFrame({"hh_id": [1, 2, 3], "ctrl_geoid": ["1", "2", "3"]})
+        groups = {"north": ["1", "2"]}
+        fig = self._crosswalk_obj.plot_crosswalk(households=hh, zone_groups=groups)  # pyright: ignore[reportAttributeAccessIssue]
+        html = fig.to_html()
+        assert "plotly" in html.lower()
+        # Zone group name should appear in a label
+        assert "north" in html.lower()

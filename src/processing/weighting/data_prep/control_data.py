@@ -250,3 +250,61 @@ def build_control_totals(
         pums_person_count=len(person_df),
         geo_ids=geo_ids,
     )
+
+
+# ---------------------------------------------------------------------------
+# Zone grouping
+# ---------------------------------------------------------------------------
+def _build_zone_remap(zone_groups: dict[str, list[str]]) -> dict[str, str]:
+    """Invert ``{group: [zone, ...]}`` → ``{zone: group}``."""
+    remap: dict[str, str] = {}
+    for group, zones in zone_groups.items():
+        for z in zones:
+            if z in remap:
+                msg = f"Zone {z!r} appears in multiple groups ({remap[z]!r} and {group!r})"
+                raise ValueError(msg)
+            remap[z] = group
+    return remap
+
+
+def apply_zone_groups(
+    control_totals: ControlTotals,
+    seed: pl.DataFrame,
+    zone_groups: dict[str, list[str]],
+    geo_col: str = "ctrl_geoid",
+) -> tuple[ControlTotals, pl.DataFrame]:
+    """Merge zones for balancing while preserving crosswalk granularity.
+
+    Zones listed under a group name are remapped to that group in both
+    the control totals and the seed table.  Unmapped zones pass through
+    unchanged.
+    """
+    remap = _build_zone_remap(zone_groups)
+    remap_expr = pl.col("geo_id").replace(remap)
+
+    merged_totals = (
+        control_totals.totals.with_columns(remap_expr)
+        .group_by("geo_id", "control_name", "category")
+        .agg(pl.col("target_total").sum())
+    )
+    new_geo_ids = merged_totals["geo_id"].unique().sort().to_list()
+
+    seed_remap_expr = pl.col(geo_col).replace(remap)
+    merged_seed = seed.with_columns(seed_remap_expr)
+
+    logger.info(
+        "Zone groups applied: %d zones → %d zones (%d groups)",
+        len(control_totals.geo_ids),
+        len(new_geo_ids),
+        len(zone_groups),
+    )
+
+    return (
+        ControlTotals(
+            totals=merged_totals,
+            pums_hh_count=control_totals.pums_hh_count,
+            pums_person_count=control_totals.pums_person_count,
+            geo_ids=new_geo_ids,
+        ),
+        merged_seed,
+    )
