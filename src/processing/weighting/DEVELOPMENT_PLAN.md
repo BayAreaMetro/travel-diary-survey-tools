@@ -76,7 +76,7 @@ src/processing/weighting/
 ├── __init__.py
 ├── existing_weights.py        # ✅ Implemented — attach pre-computed weights
 ├── weighting.py               # ✅ Implemented — single @step() entry point; orchestrates core/
-├── core/
+├── core/                      # current flat layout — see TODO below for planned reorganization
 │   ├── __init__.py
 │   ├── balancer.py            # ✅ Implemented — max entropy balancing (PopulationSim numba core)
 │   ├── base_weights.py        # ✅ Implemented — initial expansion weights (sample-plan or PUMS-target)
@@ -96,22 +96,62 @@ src/processing/weighting/
 └── DEVELOPMENT_PLAN.md        # 📄 This document
 ```
 
-### TODO: Reorganize weighting folder
+### TODO: Reorganize weighting module
 
-The `core/` sub-package has grown to 12+ modules and the flat layout is getting hard to navigate. Proposed reorganization into logical sub-packages:
+The `core/` flat package has grown to 12+ modules. Reorganize into domain sub-packages under `weighting/` directly (removing the `core/` level):
 
 ```
-core/
-├── geography/          # crosswalk.py, census_geo.py
-├── controls/           # controls.py, control_enums.py, control_data.py
-├── preparation/        # seed_data.py, base_weights.py, pums_data.py
-├── balancing/          # balancer.py, importance.py
-├── validation/         # checksums.py, weight_checks.py
-├── output/             # weight_propagation.py, diagnostics.py
-└── expansion.py        # DOW expansion (when implemented)
+src/processing/weighting/
+├── __init__.py
+├── existing_weights.py        # ✅ Implemented — attach pre-computed weights
+├── weighting.py               # ✅ Implemented — single @step() entry point
+├── DEVELOPMENT_PLAN.md
+│
+├── controls/                  # ← split from core/controls.py + control_enums.py
+│   ├── __init__.py            #   re-exports CONTROLS, resolve_targets, pums_variables
+│   ├── enums.py               #   ← core/control_enums.py (IntEnum categories)
+│   ├── base.py                #   ControlLevel, ControlTarget base class, shared helpers
+│   ├── household.py           #   HHSize, HHIncome, HHWorkers, HHVehicles, HHChildren
+│   ├── person.py              #   Gender, Employment, CommuteMode, Student, Education, Race, Ethnicity, Age
+│   └── registry.py            #   CONTROLS dict, resolve_targets(), pums_variables()
+│
+├── geography/                 # ← census_geo + crosswalk (already isolated)
+│   ├── __init__.py
+│   ├── census_geo.py
+│   └── crosswalk.py
+│
+├── data_prep/                 # ← PUMS I/O + recoding into control bins
+│   ├── __init__.py
+│   ├── pums_data.py
+│   ├── control_data.py
+│   └── seed_data.py
+│
+├── balancing/                 # ← the engine
+│   ├── __init__.py
+│   ├── balancer.py
+│   ├── base_weights.py
+│   ├── expansion.py           # 🔲 Planned — DOW household-day expansion
+│   └── importance.py          # 🔲 Planned — control importance weights
+│
+└── validation/                # ← checks + propagation
+    ├── __init__.py
+    ├── checksums.py
+    ├── weight_checks.py
+    ├── weight_propagation.py
+    └── diagnostics.py         # 🔲 Planned — HTML diagnostic report (Plotly)
 ```
 
-This is a refactor-only change — no logic modifications, just `import` path updates.
+**Rationale:**
+
+| Subpackage       | Groups                                    | Why                                                                                          |
+|------------------|-------------------------------------------|----------------------------------------------------------------------------------------------|
+| `controls/`      | 820-line `controls.py` split by level + enums + registry | Main bloat — 13 subclasses. Splitting by HH/person keeps files ~200 lines each.              |
+| `geography/`     | `census_geo.py`, `crosswalk.py`           | Already isolated with no upstream dependents. Natural pair (TIGER data → spatial crosswalk).  |
+| `data_prep/`     | `pums_data.py`, `control_data.py`, `seed_data.py` | All transform raw data into shapes the balancer expects. Shared dependency on `controls/`.    |
+| `balancing/`     | `balancer.py`, `base_weights.py`          | The weighting engine. Clean boundary — takes seed + totals, returns weights.                  |
+| `validation/`    | `checksums.py`, `weight_checks.py`, `weight_propagation.py` | All post-processing: null checks, incidence checks, sanity checks, weight derivation.        |
+
+**Migration rules:** Pure reorganization — no new logic. Subpackage `__init__.py` files re-export the public API so `weighting.py` imports stay clean. `core/` can keep a backward-compat shim temporarily.
 
 ### TODO: Control importance calculator (`importance.py`)
 
@@ -415,13 +455,17 @@ min_expansion_factor: 0.1       # lower bound = initial_weight × factor
 
 ### `core/diagnostics`
 
-**Purpose:** Generate a self-contained interactive HTML diagnostic report summarizing weighting quality. Uses Plotly for all charts; output is a single `.html` file with no external dependencies (all JS/CSS inlined). Written to the pipeline output directory alongside the weighted tables.
+**Purpose:** Generate a self-contained interactive HTML diagnostic report for diagnosing which controls are problematic, how well the balancer fits targets, and where weight distortion occurs. Uses Plotly for all charts; output is a single `.html` file with no external dependencies (all JS/CSS inlined). Written to the pipeline output directory alongside the weighted tables.
+
+**Primary use case:** After a weighting run, open the HTML to immediately identify: (a) which controls the balancer can't fit, (b) which zones are problematic, (c) whether nulls in the recode are leaking population.
 
 **Inputs:**
 - `balancer_results`: Per-zone results from `core/balancer` (initial weights, final weights, convergence status, relaxation factors)
-- `controls`: List of control specifications with target totals from `core/control_data`
-- `seed_records`: Seed table with stratum columns and `custom_geo_id`
-- `calibration_results` (optional): Results from expansion-factor grid search (see Section 5 below)
+- `control_totals`: `ControlTotals` from `core/control_data`
+- `seed`: Seed table with stratum columns, incidence columns, and `base_weight`
+- `checksums`: Recode null warnings collected from `check_recode_nulls` (counts per control per source)
+- `targets`: Target registry names
+- `statuses`: `list[ZoneStatus]` from the balancer
 
 **Outputs:**
 - `weighting_diagnostics.html` — single self-contained HTML file
@@ -429,6 +473,25 @@ min_expansion_factor: 0.1       # lower bound = initial_weight × factor
 **Report Structure:**
 
 The report is organized into the following sections, each rendered as a collapsible card in the HTML:
+
+---
+
+#### Section 0: Recode Coverage — Null Leak Summary
+
+**The first thing you see.** A table summarizing how many records were mapped to null for each control, from both PUMS and survey sources. This directly surfaces the `check_recode_nulls` warnings.
+
+| Source | Level | Control | Null Count | Total Records | % Null |
+|--------|-------|---------|------------|---------------|--------|
+| PUMS | person | p_employment | 34,201 | 98,500 | 34.7% |
+| survey | person | p_employment | 412 | 2,100 | 19.6% |
+| PUMS | household | h_income | 0 | 45,000 | 0.0% |
+| ... | ... | ... | ... | ... | ... |
+
+- Rows with > 0% nulls are highlighted (yellow for < 5%, red for >= 5%)
+- Controls where PUMS and survey null rates diverge significantly are flagged — this indicates an asymmetric mapping bug (exactly the `p_employment` problem we diagnosed)
+- A "PUMS−Survey gap" column shows the absolute difference in null rates
+
+This section answers: **"Are we leaking population before we even start balancing?"**
 
 ---
 
