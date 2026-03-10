@@ -44,6 +44,7 @@ from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
 )
+from processing.weighting.diagnostics import generate_report
 from processing.weighting.validation.checksums import check_incidence_sums
 from processing.weighting.validation.weight_checks import weight_sanity_checks
 
@@ -148,8 +149,11 @@ def weighting(  # noqa: PLR0913
         cache_dir=cache_dir,
     )
 
-    # DEBUG
-    xw.plot_crosswalk(output_dir=cache_dir / "weighting" if cache_dir else Path.cwd() / "weighting")
+    crosswalk_fig = xw.plot_crosswalk()
+    # DEBUG — write standalone crosswalk map
+    # _xw_dir = cache_dir / "weighting" if cache_dir else Path.cwd() / "weighting"
+    # _xw_dir.mkdir(parents=True, exist_ok=True)
+    # crosswalk_fig.write_html(str(_xw_dir / "crosswalk_map.html"))
 
     # -- 1. Load PUMS -----------------------------------------------
     if pums_households is not None and pums_persons is not None:
@@ -227,7 +231,19 @@ def weighting(  # noqa: PLR0913
         msg = f"Balancing failed to converge for {n_failed} zones.  See logs for details."
         raise RuntimeError(msg)
 
-    # -- 8. Attach & propagate weights ------------------------------
+    # -- 8. Diagnostics report -------------------------------------
+    _report_dir = cache_dir / "weighting" if cache_dir else Path.cwd() / "weighting"
+    generate_report(
+        seed=seed,
+        weights=weights_df,
+        control_totals=control_totals,
+        target_names=target_names,
+        statuses=statuses,
+        output_path=_report_dir / "diagnostics.html",
+        crosswalk_fig=crosswalk_fig,
+    )
+
+    # -- 9. Attach & propagate weights ------------------------------
     households = safe_join_weight(
         households,
         weights_df.select("hh_id", "hh_weight"),
@@ -247,7 +263,7 @@ def weighting(  # noqa: PLR0913
     has_weight: dict[str, str] = {"households": "hh_weight"}
     propagate_weights(tables, has_weight)
 
-    # -- 9. Sanity checks -------------------------------------------
+    # -- 10. Sanity checks -------------------------------------------
     weight_sanity_checks(non_null_tables(tables), control_totals, specs)
 
     return non_null_tables(tables)

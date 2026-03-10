@@ -654,7 +654,7 @@ class TestControlDataCrosswalk:
 class TestPlotCrosswalk:
     """Test PumaCrosswalk.plot_crosswalk produces an HTML file."""
 
-    def test_produces_html(self, two_pumas, three_target_zones, uniform_blocks, tmp_path):
+    def test_produces_html(self, two_pumas, three_target_zones, uniform_blocks):
         """plot_crosswalk should write an HTML file under output_dir."""
         target_gdf = _load_target_zones(three_target_zones, "target_id")
         xw_df = build_crosswalk(
@@ -672,9 +672,7 @@ class TestPlotCrosswalk:
         obj.target_gdf = target_gdf
         obj.crosswalk_df = xw_df
 
-        out_dir = tmp_path / "weighting"
-        obj.plot_crosswalk(out_dir)
-        html_path = out_dir / "crosswalk_map.html"
-        assert html_path.exists()
-        content = html_path.read_text(encoding="utf-8")
-        assert "plotly" in content.lower()
+        fig = obj.plot_crosswalk()
+        assert fig is not None
+        html = fig.to_html()
+        assert "plotly" in html.lower()

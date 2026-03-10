@@ -196,14 +196,18 @@ class PumaCrosswalk:
         )
         return hh_xw, person_xw
 
-    def plot_crosswalk(self, output_dir: Path) -> None:
-        """Write an interactive HTML map of the crosswalk to *output_dir*/.
+    def plot_crosswalk(self) -> go.Figure:
+        """Build an interactive Plotly map of the crosswalk.
 
         Layers:
         - PUMA boundaries (dashed grey) — full extent
         - Study area outline (bold black)
         - Target zones (solid border, transparent fill) with tooltip
           showing PUMA allocation weights from the crosswalk.
+
+        Returns:
+        -------
+        go.Figure
         """
         puma_4326 = self.puma_gdf.to_crs("EPSG:4326")
         target_4326 = self.target_gdf.to_crs("EPSG:4326")
@@ -322,11 +326,7 @@ class PumaCrosswalk:
             title="Crosswalk: PUMA to Target Zones",
         )
 
-        out = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        html_path = out / "crosswalk_map.html"
-        fig.write_html(str(html_path))
-        logger.info("Crosswalk map written to %s", html_path)
+        return fig
 
 
 # ---------------------------------------------------------------------------

@@ -1,1 +1,1 @@
-"""Balancing sub-package (IPF balancer, base weights, weight propagation)."""
+"""Balancing sub-package (balancer, base weights, weight propagation)."""

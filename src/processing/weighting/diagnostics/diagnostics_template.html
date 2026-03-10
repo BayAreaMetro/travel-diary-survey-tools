@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>{{ title }}</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #444; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .4rem .8rem; text-align: right; }
+  th { background: #f5f5f5; text-align: center; }
+  td:first-child, th:first-child { text-align: left; }
+  .converged { color: #2a7f2a; }
+  .failed { color: #c33; font-weight: bold; }
+  details { margin: .5rem 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  .chart { margin: 1rem 0; }
+  .note { color: #666; font-size: 0.9em; margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+
+<h1>{{ title }}</h1>
+
+{{ crosswalk_section }}
+
+<h2>2 &mdash; Convergence &amp; Fit</h2>
+<p class="note">{{ ess_note }}</p>
+{{ zone_overview_table }}
+
+<h2>3 &mdash; Weight Distribution</h2>
+{{ weight_distribution_table }}
+<div class="chart">{{ violins_html }}</div>
+
+<h2>4 &mdash; Target Fit (% Error)</h2>
+<p class="note">{{ fit_note }}</p>
+<div class="chart">{{ fit_bars_html }}</div>
+
+<h2>5 &mdash; Unweighted Cell Counts (Data Sparsity)</h2>
+<p class="note">{{ sparsity_note }}</p>
+{{ sparsity_html }}
+
+</body>
+</html>

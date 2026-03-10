@@ -1,6 +1,6 @@
 """Shared weight hierarchy constants and propagation helpers.
 
-Used by both ``weighting`` (IPF-based) and ``existing_weights`` (pre-computed)
+Used by both ``weighting`` and ``existing_weights`` (pre-computed)
 steps to propagate household weights down through the canonical table hierarchy.
 """
 
