@@ -92,16 +92,28 @@ steps:
       # Household-level: h_size, h_income, h_workers, h_vehicles, h_children
       # Person-level:    p_gender, p_employment, p_commute_mode, p_student,
       #                  p_education, p_race, p_ethnicity, p_age
+      # Optional: merge granular categories before balancing.
+      # We start with maximum granularity (e.g. 10 household size categories)
+      # and merge up to a coarser set as necessary to achieve convergence.
+      # The merge can be global (all zones) or zone-specific
+      # merge:
+      #   merged_control: [category1, category2, ...]
+      # merge_zones: [zone1, zone2]  # omit to apply globally
       controls:
         - name: h_size
+          merge:
+            size_5_plus: [size_5, size_6, size_7, size_8, size_9, size_10_plus]
         - name: h_workers
+          merge:
+            workers_3_plus: [workers_3, workers_4, workers_5_plus]
         - name: h_vehicles
+          merge:
+            veh_3_plus: [veh_3, veh_4, veh_5, veh_6_plus]
         - name: h_children
+          merge:
+            children_3_plus: [children_3, children_4, children_5_plus]
         - name: p_gender
         - name: p_employment
-          # Optional: merge granular categories before balancing.
-          # merge: {employed: [employed_full, employed_part]}
-          # merge_zones: [zone1, zone2]  # omit to apply globally
         - name: p_age
 
       # -- Balancer settings -------------------------------------------

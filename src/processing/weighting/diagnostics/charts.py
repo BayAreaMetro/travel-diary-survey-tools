@@ -11,9 +11,14 @@ from .data import category_label_map
 _WARN_PCT = 25  # bright-red threshold
 
 
-def fit_diverging_figure(fit: pl.DataFrame, target_names: list[str]) -> go.Figure:
+def fit_diverging_figure(
+    fit: pl.DataFrame,
+    target_names: list[str],
+    *,
+    merges: list | None = None,
+) -> go.Figure:
     """Grid of horizontal diverging bar charts (% error, one panel per zone + overall)."""
-    labels = category_label_map(target_names)
+    labels = category_label_map(target_names, merges)
     zones = sorted(fit["geo_id"].unique().to_list())
 
     overall = (
@@ -37,7 +42,7 @@ def fit_diverging_figure(fit: pl.DataFrame, target_names: list[str]) -> go.Figur
         rows=n_rows,
         cols=n_cols,
         subplot_titles=[str(p) for p in panels],
-        shared_xaxes=True,
+        shared_xaxes=False,
         shared_yaxes=True,
         horizontal_spacing=0.03,
         vertical_spacing=max(0.03, 0.15 / max(n_rows, 1)),
@@ -94,7 +99,7 @@ def fit_diverging_figure(fit: pl.DataFrame, target_names: list[str]) -> go.Figur
             col=c_idx + 1,
         )
 
-    fig.update_xaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black")
+    fig.update_xaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black", title_text="% Error")
     fig.update_yaxes(tickfont_size=9)
     fig.update_layout(
         height=max(350, 18 * len(cat_labels) * n_rows + 40 * n_rows),

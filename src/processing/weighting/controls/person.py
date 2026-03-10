@@ -116,7 +116,7 @@ class EmploymentControl(ControlTarget):
         esr = pl.col("ESR")
         wkhp = pl.col("WKHP")
         return (
-            pl.when(esr.is_null() | (esr == PumsEsr.NOT_IN_LABOR_FORCE.value))
+            pl.when(esr.is_null())
             .then(None)
             .when(esr.is_in(self._pums_not_employed_esr))
             .then(EmploymentCategory.NOT_EMPLOYED)

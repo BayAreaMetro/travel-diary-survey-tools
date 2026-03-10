@@ -54,7 +54,7 @@ def zone_overview_table(
         '<th rowspan="2">Zone</th>'
         '<th rowspan="2">Conv?</th>'
         '<th rowspan="2">Iter</th>'
-        '<th rowspan="2">n</th>'
+        # '<th rowspan="2">n</th>'
         '<th rowspan="2">&sum; base_wt</th>'
         '<th rowspan="2">&sum; hh_wt</th>'
         '<th colspan="2">Household</th>'
@@ -82,7 +82,7 @@ def zone_overview_table(
             _tag("td", z),
             f'<td class="{css}">{"Y" if s.converged else "N"}</td>',
             _tag("td", str(s.iterations)),
-            _tag("td", f"{n:,}"),
+            # _tag("td", f"{n:,}"),
             _tag("td", f"{sum_bw:,.0f}"),
             _tag("td", f"{sum_w:,.0f}"),
             _tag("td", f"{f.get('hh_target', 0):,.0f}"),
@@ -106,35 +106,40 @@ def _weight_stats(w: pl.Series, bw: pl.Series | None) -> dict[str, str]:
     """Summary statistics for a single weight Series."""
     mean = w.mean() or 0
     stats = {
+        "n": f"{len(w):,}",
         "mean": f"{mean:,.2f}",
         "median": f"{w.median():,.2f}",
         "std": f"{w.std():,.2f}",
         "min": f"{w.min():,.2f}",
         "max": f"{w.max():,.2f}",
-        "cv": f"{w.std() / mean:.3f}" if mean else "N/A",
-        "mean_ef": "",
+        "cv": f"{w.std() / mean:.3f}" if mean else "N/A",  # pyright: ignore[reportOperatorIssue]
+        "min_ef": "",
         "max_ef": "",
+        "mean_ef": "",
+        "median_ef": "",
     }
     if bw is not None and len(bw) > 0:
         ratio = w / bw
-        stats["mean_ef"] = f"{ratio.mean():.3f}"
+        stats["min_ef"] = f"{ratio.min():.3f}"
         stats["max_ef"] = f"{ratio.max():.3f}"
+        stats["mean_ef"] = f"{ratio.mean():.3f}"
+        stats["median_ef"] = f"{ratio.median():.3f}"
     return stats
 
 
 def weight_distribution_table(weighted: pl.DataFrame) -> str:
     """Per-zone + total weight distribution table."""
     has_bw = "base_weight" in weighted.columns
-    headers = ["Zone", "Mean", "Median", "Std", "Min", "Max", "CV"]
+    headers = ["Zone", "N", "Mean", "Median", "Std", "Min", "Max", "CV"]
     if has_bw:
-        headers += ["Mean&nbsp;EF", "Max&nbsp;EF"]
+        headers += ["Min&nbsp;EF", "Max&nbsp;EF", "Mean&nbsp;EF", "Median&nbsp;EF"]
 
     def _row(label: str, df: pl.DataFrame) -> list[str]:
         bw = df["base_weight"] if has_bw else None
         s = _weight_stats(df["hh_weight"], bw)
-        row = [label, s["mean"], s["median"], s["std"], s["min"], s["max"], s["cv"]]
+        row = [label, s["n"], s["mean"], s["median"], s["std"], s["min"], s["max"], s["cv"]]
         if has_bw:
-            row += [s["mean_ef"], s["max_ef"]]
+            row += [s["min_ef"], s["max_ef"], s["mean_ef"], s["median_ef"]]
         return row
 
     zones = sorted(weighted["ctrl_geoid"].unique().to_list())

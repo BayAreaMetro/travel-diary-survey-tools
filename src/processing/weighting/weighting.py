@@ -241,6 +241,7 @@ def weighting(  # noqa: PLR0913
         statuses=statuses,
         output_path=_report_dir / "diagnostics.html",
         crosswalk_fig=crosswalk_fig,
+        merge_specs=merge_specs,
     )
 
     # -- 9. Attach & propagate weights ------------------------------

@@ -7,14 +7,113 @@ from processing.weighting.controls.registry import CONTROLS, resolve_targets
 from processing.weighting.data_prep.control_data import ControlTotals
 
 
-def category_label_map(target_names: list[str]) -> dict[tuple[str, int], str]:
-    """Map ``(control_name, category_int)`` to a human-readable label."""
-    return {
+def _member_value_map(control_name: str) -> dict[str, int]:
+    """Lowercase member name → category int for one control."""
+    ctrl = CONTROLS.get(control_name)
+    if ctrl is None:
+        return {}
+    return {name.lower(): value for value, name in ctrl.valid_members}
+
+
+def category_label_map(
+    target_names: list[str],
+    merges: list | None = None,
+) -> dict[tuple[str, int], str]:
+    """Map ``(control_name, category_int)`` to a human-readable label.
+
+    When *merges* are provided the constituent categories are removed and
+    replaced by a single entry keyed on the **minimum** category int in
+    each group.
+    """
+    merged_cats: set[tuple[str, int]] = set()
+    merged_labels: dict[tuple[str, int], str] = {}
+
+    for spec in merges or []:
+        vmap = _member_value_map(spec.control)
+        for merged_label, base_members in spec.groups.items():
+            ints = sorted(vmap[m] for m in base_members if m in vmap)
+            if not ints:
+                continue
+            merged_cats.update((spec.control, v) for v in ints)
+            merged_labels[(spec.control, ints[0])] = merged_label.replace("_", " ").title()
+
+    labels = {
         (name, value): member.replace("_", " ").title()
         for name in target_names
         if (ctrl := CONTROLS.get(name)) is not None
         for value, member in ctrl.valid_members
+        if (name, value) not in merged_cats
     }
+    labels.update(merged_labels)
+    return labels
+
+
+def apply_fit_merges(
+    fit: pl.DataFrame,
+    merges: list | None,
+) -> pl.DataFrame:
+    """Collapse merged categories in the fit table.
+
+    For each merge group the constituent rows are replaced by a single
+    row whose ``target_total`` and ``weighted_total`` are the sums of the
+    originals.  The representative ``category`` is the minimum int in the
+    group.  ``diff`` and ``diff_pct`` are recomputed.
+    """
+    if not merges:
+        return fit
+
+    drop_keys: set[tuple[str, int]] = set()
+    new_rows: list[pl.DataFrame] = []
+
+    for spec in merges:
+        vmap = _member_value_map(spec.control)
+        for base_members in spec.groups.values():
+            ints = sorted(vmap[m] for m in base_members if m in vmap)
+            if len(ints) < 2:  # noqa: PLR2004
+                continue
+            drop_keys.update((spec.control, v) for v in ints)
+            merged_cat = ints[0]
+            rows = fit.filter(
+                (pl.col("control_name") == spec.control) & pl.col("category").is_in(ints)
+            )
+            if rows.is_empty():
+                continue
+            agg = (
+                rows.group_by("geo_id")
+                .agg(
+                    pl.col("target_total").sum(),
+                    pl.col("weighted_total").sum(),
+                )
+                .with_columns(
+                    pl.lit(spec.control).alias("control_name"),
+                    pl.lit(merged_cat, dtype=pl.Int16).alias("category"),
+                )
+                .with_columns(
+                    (pl.col("weighted_total") - pl.col("target_total")).alias("diff"),
+                )
+                .with_columns(
+                    (pl.col("diff") / pl.col("target_total") * 100)
+                    .fill_nan(0)
+                    .fill_null(0)
+                    .alias("diff_pct"),
+                )
+            )
+            new_rows.append(agg.select(fit.columns))
+
+    if not drop_keys:
+        return fit
+
+    # Remove constituent rows
+    mask = pl.struct("control_name", "category").map_elements(
+        lambda s: (s["control_name"], s["category"]) not in drop_keys,
+        return_dtype=pl.Boolean,
+    )
+    result = fit.filter(mask)
+
+    # Append merged rows
+    if new_rows:
+        result = pl.concat([result, *new_rows])
+    return result.sort("control_name", "category", "geo_id")
 
 
 def _first_control_name(target_names: list[str], level: ControlLevel) -> str | None:
