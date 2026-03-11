@@ -46,7 +46,6 @@ from processing.weighting.data_prep.seed_data import (
     recode_survey_persons,
 )
 from processing.weighting.diagnostics import generate_report
-from processing.weighting.diagnostics.charts import crosswalk_figure
 from processing.weighting.validation.checksums import check_incidence_sums
 from processing.weighting.validation.weight_checks import weight_sanity_checks
 
@@ -113,53 +112,51 @@ def _build_control_totals(
     return totals, None, None
 
 
-def _build_seed(
-    xw: PumaCrosswalk,
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
+def _resolve_importance(
     target_names: list[str],
-    control_totals: ControlTotals,
+    explicit: dict[str, float],
     *,
-    zone_groups: dict[str, list[str]] | None,
-    sample_plan: str | None,
-) -> tuple[pl.DataFrame, ControlTotals, pl.DataFrame]:
-    """Assign survey HHs to zones, recode, build seed, apply zone groups, base weights.
+    moe_based: bool,
+    default: float,
+    xw: PumaCrosswalk,
+    specs: list[ControlSpec],
+    state_fips: str,
+    pums_year: int,
+    pums_households: str | None,
+    pums_persons: str | None,
+    cache_dir: Path | None,
+) -> dict[str, float]:
+    """Build the final importance dict and log it.
 
-    Returns (seed, control_totals, households) — control_totals may be
-    modified by zone grouping.
+    When *moe_based* is True, loads PUMS replicate weights (or re-fetches
+    them), computes per-control CVs, and merges with any explicit YAML
+    overrides.  The large replicate-weight frames stay local to this
+    function scope.
     """
-    # -- Assign households to target zones via point-in-polygon ---------
-    households = xw.assign_households(households)
-    n_assigned = households.filter(pl.col("ctrl_geoid").is_not_null()).height
-    logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(households))
-
-    # -- Recode survey & build seed -------------------------------------
-    hh_recoded = recode_survey_households(households, persons, target_names)
-    per_recoded = recode_survey_persons(persons, target_names)
-    seed = build_seed_table(hh_recoded, per_recoded, target_names, geo_col="ctrl_geoid")
-    check_incidence_sums(seed, target_names, source_label="survey")
-
-    # -- Apply zone groups (optional) -----------------------------------
-    if zone_groups:
-        control_totals, seed = apply_zone_groups(
-            control_totals, seed, zone_groups, geo_col="ctrl_geoid"
+    importance = dict(explicit)
+    if moe_based:
+        _, pums_hh_xw, pums_per_xw = _build_control_totals(
+            xw,
+            specs,
+            target_names,
+            state_fips=state_fips,
+            pums_year=pums_year,
+            pums_households=pums_households,
+            pums_persons=pums_persons,
+            load_replicate_weights=True,
+            cache_dir=cache_dir,
         )
+        assert pums_hh_xw is not None  # noqa: S101
+        assert pums_per_xw is not None  # noqa: S101
+        moe_importance = compute_moe_importance(pums_hh_xw, pums_per_xw, target_names)
+        # YAML explicit overrides take precedence over MOE-derived values
+        moe_importance.update(importance)
+        importance = moe_importance
 
-    # -- Compute initial expansion weights ------------------------------
-    plan = None
-    if sample_plan is not None:
-        plan = load_sample_plan(sample_plan)
-    else:
-        logger.warning(
-            "No sample_plan provided; using PUMS-target response inversion "
-            "for initial weights.  Provide a sample_plan CSV for more precisely "
-            "stratified base weights."
-        )
-    seed = compute_base_weights(
-        seed, control_totals, target_names, geo_col="ctrl_geoid", sample_plan=plan
-    )
-
-    return seed, control_totals, households
+    full = {name: importance.get(name, default) for name in target_names}
+    imp_lines = "\n".join(f"  {k}: {v:.1f}" for k, v in full.items())
+    logger.info("Importance weights:\n%s", imp_lines)
+    return importance
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +256,7 @@ def weighting(  # noqa: PLR0913
     )
 
     # -- 3. PUMS control totals -------------------------------------
-    control_totals, pums_hh_xw, pums_per_xw = _build_control_totals(
+    control_totals, _, _ = _build_control_totals(
         xw,
         specs,
         target_names,
@@ -267,22 +264,23 @@ def weighting(  # noqa: PLR0913
         pums_year=pums_year,
         pums_households=pums_households,
         pums_persons=pums_persons,
-        load_replicate_weights=moe_based_importance,
         cache_dir=cache_dir,
     )
 
-    # -- 3b. MOE-based importance (optional) -------------------------
-    if moe_based_importance and pums_hh_xw is not None and pums_per_xw is not None:
-        moe_importance = compute_moe_importance(pums_hh_xw, pums_per_xw, target_names)
-        # YAML explicit overrides take precedence over MOE-derived values
-        moe_importance.update(importance)
-        importance = moe_importance
-        # Free the large replicate-weight frames
-        del pums_hh_xw, pums_per_xw
-
-    full_importance = {name: importance.get(name, default_importance) for name in target_names}
-    imp_lines = "\n".join(f"  {k}: {v:.1f}" for k, v in full_importance.items())
-    logger.info("Importance weights:\n%s", imp_lines)
+    # -- 3b. Importance (MOE + explicit overrides) -------------------
+    importance = _resolve_importance(
+        target_names,
+        importance,
+        moe_based=moe_based_importance,
+        default=default_importance,
+        xw=xw,
+        specs=specs,
+        state_fips=state_fips,
+        pums_year=pums_year,
+        pums_households=pums_households,
+        pums_persons=pums_persons,
+        cache_dir=cache_dir,
+    )
 
     logger.info(
         "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
@@ -291,22 +289,34 @@ def weighting(  # noqa: PLR0913
         control_totals.pums_person_count,
     )
 
-    # -- 4. Survey seed (assign, recode, zone groups, base weights) -
-    seed, control_totals, households = _build_seed(
-        xw,
-        households,
-        persons,
-        target_names,
-        control_totals,
-        zone_groups=zone_groups,
-        sample_plan=sample_plan,
-    )
-    crosswalk_fig = crosswalk_figure(
-        puma_gdf=xw.puma_gdf,
-        target_gdf=xw.target_gdf,
-        crosswalk_df=xw.crosswalk_df,
-        households=households,
-        zone_groups=zone_groups,
+    # -- 4. Survey seed (assign HHs to zones, recode, build seed) ---
+    households = xw.assign_households(households)
+    n_assigned = households.filter(pl.col("ctrl_geoid").is_not_null()).height
+    logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(households))
+
+    hh_recoded = recode_survey_households(households, persons, target_names)
+    per_recoded = recode_survey_persons(persons, target_names)
+    seed = build_seed_table(hh_recoded, per_recoded, target_names, geo_col="ctrl_geoid")
+    check_incidence_sums(seed, target_names, source_label="survey")
+
+    # -- 4b. Zone groups (optional) ----------------------------------
+    if zone_groups:
+        control_totals, seed = apply_zone_groups(
+            control_totals, seed, zone_groups, geo_col="ctrl_geoid"
+        )
+
+    # -- 4c. Base weights --------------------------------------------
+    plan = None
+    if sample_plan is not None:
+        plan = load_sample_plan(sample_plan)
+    else:
+        logger.warning(
+            "No sample_plan provided; using PUMS-target response inversion "
+            "for initial weights.  Provide a sample_plan CSV for more precisely "
+            "stratified base weights."
+        )
+    seed = compute_base_weights(
+        seed, control_totals, target_names, geo_col="ctrl_geoid", sample_plan=plan
     )
 
     # -- 5. Balance -------------------------------------------------
@@ -339,8 +349,10 @@ def weighting(  # noqa: PLR0913
         target_names=target_names,
         statuses=statuses,
         output_path=_report_dir / "diagnostics.html",
-        crosswalk_fig=crosswalk_fig,
+        puma_gdf=xw.puma_gdf,
+        target_gdf=xw.target_gdf,
         crosswalk_df=xw.crosswalk_df,
+        zone_groups=zone_groups,
         merge_specs=merge_specs,
     )
 

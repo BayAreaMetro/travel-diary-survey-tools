@@ -4,13 +4,13 @@ import logging
 from pathlib import Path
 
 import jinja2
-import plotly.graph_objects as go
 import polars as pl
+from geopandas import GeoDataFrame
 
 from processing.weighting.balancing.balancer import ZoneStatus
 from processing.weighting.data_prep.control_data import ControlTotals
 
-from .charts import fit_diverging_figure, violins_figure
+from .charts import crosswalk_figure, fit_diverging_figure, violins_figure
 from .data import apply_fit_merges, compute_weighted_totals, fit_table, zone_fit_summary
 from .tables import (
     crosswalk_summary_table,
@@ -42,8 +42,10 @@ def generate_report(
     statuses: list[ZoneStatus],
     output_path: Path,
     *,
-    crosswalk_fig: go.Figure | None = None,
+    puma_gdf: GeoDataFrame | None = None,
+    target_gdf: GeoDataFrame | None = None,
     crosswalk_df: pl.DataFrame | None = None,
+    zone_groups: dict[str, list[str]] | None = None,
     merge_specs: list | None = None,
 ) -> Path:
     """Write the self-contained HTML diagnostics report to *output_path*."""
@@ -53,8 +55,15 @@ def generate_report(
     zf = zone_fit_summary(fit, target_names)
 
     # Section 1 — crosswalk map
-    if crosswalk_fig is not None:
-        xw_div = crosswalk_fig.to_html(
+    if puma_gdf is not None and target_gdf is not None and crosswalk_df is not None:
+        fig = crosswalk_figure(
+            puma_gdf=puma_gdf,
+            target_gdf=target_gdf,
+            crosswalk_df=crosswalk_df,
+            households=seed,
+            zone_groups=zone_groups,
+        )
+        xw_div = fig.to_html(
             full_html=False,
             include_plotlyjs=False,
             config={"responsive": False},

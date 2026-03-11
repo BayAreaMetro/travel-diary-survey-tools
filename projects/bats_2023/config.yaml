@@ -133,9 +133,20 @@ steps:
         # Person level controls (get's aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment
+        - name: p_commute_mode
+        - name: p_student
         - name: p_age
           merge:
             age_75_plus: [age_75_to_84, age_85_and_up]
+        # Need to complete imputation PR
+        # - name: p_race
+        #   merge:
+        #     "AAPI": [asian, pacific]
+        #     other:  [native, multi, other] # collapse small groups into "other"
+
+        # - name: p_ethnicity
+        #   merge:
+        #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
 
       # -- Balancer settings -------------------------------------------
       max_expansion_factor: 10.0   # upper bound = initial_weight × factor
