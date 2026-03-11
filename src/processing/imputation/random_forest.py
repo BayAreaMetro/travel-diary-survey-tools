@@ -29,20 +29,45 @@ def impute_random_forest(
 ) -> tuple[pl.DataFrame, dict[str, Any]]:
     """Impute missing values in a single column using Random Forest.
 
-    Automatically selects ``RandomForestClassifier`` for categorical columns
-    (integer / string) and ``RandomForestRegressor`` for continuous columns.
+    **Best for:** single columns with complex non-linear relationships or
+    mixed feature types where KNN may struggle with decision boundaries.
+
+    How it works:
+
+    1. Split rows into *known* (have a value) and *missing* (need imputation).
+    2. Train a Random Forest model on the known rows using all features.
+    3. Automatically select ``RandomForestClassifier`` for categorical targets
+       (integer / string dtypes) or ``RandomForestRegressor`` for continuous
+       targets (float dtypes).
+    4. Predict missing values using the trained model.
+    5. NaN values in features are filled with column medians before training.
+
+    Non-contiguous integer codes (e.g. enum values 1, 2, 3, 995, 999) are
+    automatically encoded to dense 0..N codes so they don't distort the
+    model, then decoded back after prediction.
+
+    Example use cases:
+
+    * Missing education level when employment, occupation, and age are
+      available.
+    * Missing income category with many mixed-type predictors.
+    * Cases where KNN struggles with non-linear decision boundaries.
+
+    Performance: trains on known values only; handles mixed types well but
+    can be memory-intensive with many trees.
 
     Args:
-        df: DataFrame containing the column to impute
-        column: Name of the column to impute
-        n_estimators: Number of trees in the forest (default: 100)
-        max_depth: Maximum tree depth (default: None = unlimited)
-        random_state: Random seed for reproducibility
-        numeric_features: List of numeric/continuous feature columns
-        categorical_features: List of categorical features (one-hot encoded)
+        df: DataFrame containing the column to impute.
+        column: Name of the column to impute.
+        n_estimators: Number of trees in the forest (default: 100).
+        max_depth: Maximum tree depth (default: None = unlimited).
+        random_state: Random seed for reproducibility.
+        numeric_features: Numeric/continuous feature columns.
+        categorical_features: Categorical feature columns (one-hot encoded).
 
     Returns:
-        Tuple of (imputed_df, stats_dict) with imputation statistics
+        Tuple of (imputed DataFrame, stats dict).  The stats dict contains
+        ``n_missing``, ``n_imputed``, and ``pct_imputed``.
     """
     if column not in df.columns:
         msg = f"Column '{column}' not found in DataFrame"

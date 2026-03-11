@@ -1,4 +1,28 @@
-"""Shared utilities for imputation methods."""
+"""Shared utilities for imputation methods.
+
+Data type handling:
+
+* **Numeric columns**: imputed directly by KNN / RF / MICE.
+* **Categorical integer columns** (e.g. enum codes 1-6): automatically
+  encoded to dense 0..N codes before imputation and decoded back
+  afterwards.  This prevents non-contiguous codes (e.g. 1, 2, 3, 995,
+  999) from distorting distance calculations.
+* **Categorical string columns** (e.g. ``"Hispanic"``, ``"White"``):
+  automatically encoded to integer codes for MICE, then decoded to
+  original labels after imputation.  No manual pre-processing required.
+
+Feature selection guidance:
+
+* ``numeric_features``: used as-is (continuous values — e.g.
+  ``num_trips``, ``num_vehicles``).
+* ``categorical_features``: one-hot encoded into binary columns for
+  distance / regression calculations.
+
+Tip: use ``numeric_features`` for ordinal or count variables and
+``categorical_features`` for unordered enums.  Putting high-cardinality
+integers (e.g. raw age) in ``categorical_features`` causes feature
+explosion and slow performance.
+"""
 
 import logging
 from typing import Any

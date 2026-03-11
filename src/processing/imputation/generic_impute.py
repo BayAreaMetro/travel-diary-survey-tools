@@ -1,4 +1,4 @@
-"""Generic imputation step using KNN and MICE methods."""
+"""Generic imputation step using KNN, Random Forest, and MICE methods."""
 
 import logging
 from typing import Any, Literal
@@ -322,54 +322,155 @@ def imputation(  # noqa: C901
 
     Each config block specifies its ``method`` (``knn``, ``rf``, or ``mice``)
     along with the method-specific parameters.  Configs are grouped by method
-    and executed in a fixed order (KNN, RF, MICE) across all tables so that
+    and executed in a fixed order (KNN → RF → MICE) across all tables so that
     later phases can benefit from values filled in earlier phases.
 
+    Handling Missing Values with Enum Labels:
+        Survey data often uses special codes for missing values (e.g. 995 for
+        "Missing Response", 999 for "Prefer not to answer").  Use **enum
+        member names** (labels) rather than raw numeric values in the config::
+
+            missing_values: [MISSING, PNTA]   # enum labels, not 995/999
+
+        The module automatically:
+
+        1. Maps the table name to the appropriate codebook module
+           (e.g. ``households`` → ``data_canon.codebook.households``).
+        2. Finds the enum class whose ``canonical_field_name`` matches the
+           target column (e.g. ``income_broad`` → ``IncomeBroad``).
+        3. Resolves enum member names to their values
+           (e.g. ``MISSING`` → 995).
+        4. Replaces those values with null before imputation.
+
+        For MICE with multiple columns, ``missing_values`` can be a dict
+        mapping each column to its own labels, or a single list applied to
+        all columns::
+
+            # Per-column
+            missing_values:
+              race: [MISSING]
+              ethnicity: [MISSING, PNTA]
+
+            # Shared
+            missing_values: [MISSING, PNTA]   # applied to all columns
+
+    Cross-Table Features (``join_tables``):
+        By default only features from the same table are used.  Adding
+        ``join_tables`` to a config block pulls columns from parent tables
+        via left-join on known foreign keys, which can significantly improve
+        quality.
+
+        Behaviour:
+
+        1. Columns from the specified parent table(s) are joined onto the
+           child table (e.g. ``persons`` ← ``households`` via ``hh_id``).
+        2. For each target column a ``hh_mode_{column}`` feature is
+           auto-generated — the mode of that column among *other* household
+           members (exclude-self).  This captures within-household
+           correlation (e.g. siblings sharing race/ethnicity).
+        3. Auto-generated ``hh_mode_*`` columns are appended to
+           ``categorical_features`` automatically.
+        4. After imputation all joined/aggregated columns are stripped;
+           the output schema is unchanged.
+
+        Example::
+
+            impute_columns:
+              persons:
+                - method: knn
+                  column: gender
+                  n_neighbors: 5
+                  join_tables: [households]
+                  categorical_features: [age, employment, income_bin, residence_type]
+                  #                                       ^^^^^^^^^^  ^^^^^^^^^^^^^^
+                  #                              columns from the households table
+
+    Child-to-Parent Aggregation (``aggregate_from``):
+        The reverse of ``join_tables``: aggregate child rows up to a parent
+        table.  Useful when imputing parent-level fields that depend on
+        household composition (e.g. predicting household income from the
+        employment/education mix of its members).
+
+        For each child table and each field listed under ``pivot_count``, the
+        module groups child rows by the parent's FK and creates one column per
+        unique value, counting occurrences.  Generated columns are named
+        ``{child_table}_count_{field}_{value}`` and are automatically added to
+        ``numeric_features``.  After imputation, all generated columns are
+        stripped.
+
+        Example::
+
+            impute_columns:
+              households:
+                - method: mice
+                  columns: [income_bin]
+                  aggregate_from:
+                    persons:
+                      pivot_count: [employment, education, student]
+                  categorical_features: [residence_type, residence_rent_own]
+                  max_iter: 10
+
     Args:
-        households: Households table (optional)
-        persons: Persons table (optional)
-        days: Days table (optional)
-        unlinked_trips: Unlinked trips table (optional)
-        linked_trips: Linked trips table (optional)
-        tours: Tours table (optional)
+        households: Households table (optional).
+        persons: Persons table (optional).
+        days: Days table (optional).
+        unlinked_trips: Unlinked trips table (optional).
+        linked_trips: Linked trips table (optional).
+        tours: Tours table (optional).
         impute_columns: Dict mapping table names to list of imputation configs.
             Every config dict **must** include a ``method`` key (``knn``, ``rf``,
             or ``mice``).  The remaining keys are method-specific:
 
             **KNN** (``method: knn``):
-            - column: Column name to impute
-            - missing_values: List of enum labels to treat as missing
-            - n_neighbors: Number of neighbors (default: 5)
-            - neighbor_weights: 'uniform' or 'distance' (default: 'distance')
-            - numeric_features: List of numeric feature columns (required)
-            - categorical_features: Optional categorical feature columns
+
+            - column: Column name to impute.
+            - missing_values: Enum labels to treat as missing.
+            - n_neighbors: Number of neighbors (default: 5).
+            - neighbor_weights: ``'uniform'`` or ``'distance'``
+              (default: ``'distance'``).
+            - numeric_features: Numeric feature columns.
+            - categorical_features: Categorical feature columns.
+            - join_tables: Parent tables to left-join for extra features.
+            - aggregate_from: Child-to-parent pivot-count config.
 
             **Random Forest** (``method: rf``):
-            - column: Column name to impute
-            - missing_values: List of enum labels to treat as missing
-            - n_estimators: Number of trees (default: 100)
-            - max_depth: Maximum tree depth (default: None, unlimited)
-            - numeric_features: List of numeric feature columns (required)
-            - categorical_features: Optional categorical feature columns
+
+            - column: Column name to impute.
+            - missing_values: Enum labels to treat as missing.
+            - n_estimators: Number of trees (default: 100).
+            - max_depth: Maximum tree depth (default: None, unlimited).
+            - numeric_features: Numeric feature columns.
+            - categorical_features: Categorical feature columns.
+            - join_tables: Parent tables to left-join for extra features.
+            - aggregate_from: Child-to-parent pivot-count config.
 
             **MICE** (``method: mice``):
-            - columns: List of column names to impute together
-            - missing_values: Dict mapping column names to lists of enum labels,
-                            or a single list to apply to all columns
-            - max_iter: Maximum iterations (default: 10)
-            - numeric_features: List of numeric feature columns (required)
-            - categorical_features: Optional categorical feature columns
 
-        create_flags: Whether to create imputation flag columns (default: True)
-        random_state: Random seed for reproducibility across all imputation
+            - columns: Column names to impute together.
+            - missing_values: Dict mapping column → enum labels, or a
+              single list applied to all columns.
+            - max_iter: Maximum iterations (default: 10).
+            - numeric_features: Numeric feature columns.
+            - categorical_features: Categorical feature columns.
+            - join_tables: Parent tables to left-join for extra features.
+            - aggregate_from: Child-to-parent pivot-count config.
+
+            At least one of ``numeric_features`` or ``categorical_features``
+            is required in every config block.
+
+        create_flags: Whether to create ``{column}_imputed`` boolean flag
+            columns (default: True).
+        random_state: Random seed for reproducibility across all imputation.
         validate_imputation: Optional validation config with keys:
-            - enabled: Whether to run validation (default: False)
-            - n_folds: Number of k-folds (default: 5)
-            - sample_pct: % of non-missing values to test (default: 5.0)
-            - output_path: Path to save validation or comparison CSV
+
+            - enabled: Whether to run validation (default: False).
+            - n_folds: Number of k-folds (default: 5).
+            - sample_pct: Percentage of non-missing values to test
+              (default: 5.0).
+            - output_path: Path to save validation or comparison CSV.
             - compare_methods: When True, run all three methods (KNN, RF,
               MICE) against every column instead of validating only the
-              configured method (default: False)
+              configured method (default: False).
 
     Returns:
         Dictionary of imputed tables.  When validation is enabled, an extra
@@ -382,41 +483,45 @@ def imputation(  # noqa: C901
         KNN, RF, and MICE for every imputed column.
 
     Example config:
-        impute_columns:
-          households:
-            - method: knn
-              column: income_broad
-              missing_values: [MISSING, PNTA]
-              n_neighbors: 5
-              neighbor_weights: distance
-              numeric_features: [num_persons, num_vehicles, num_workers]
-          persons:
-            - method: knn
-              column: gender
-              missing_values: [MISSING]
-              n_neighbors: 5
-              numeric_features: [age]
-              categorical_features: [relationship, employment]
-            - method: rf
-              column: education
-              missing_values: [MISSING]
-              n_estimators: 200
-              max_depth: 15
-              numeric_features: [age]
-              categorical_features: [employment, occupation]
-            - method: mice
-              columns: [race, ethnicity]
-              missing_values:
-                race: [MISSING]
-                ethnicity: [MISSING, PNTA]
-              max_iter: 10
-              numeric_features: [age]
-        random_state: 42
-        create_flags: true
-        validate_imputation:
-          enabled: true
-          n_folds: 5
-          sample_pct: 5.0
+        .. code-block:: yaml
+
+            impute_columns:
+              households:
+                - method: knn
+                  column: income_broad
+                  missing_values: [MISSING, PNTA]
+                  n_neighbors: 5
+                  neighbor_weights: distance
+                  numeric_features: [num_persons, num_vehicles, num_workers]
+              persons:
+                - method: knn
+                  column: gender
+                  missing_values: [MISSING]
+                  n_neighbors: 5
+                  join_tables: [households]
+                  numeric_features: [age]
+                  categorical_features: [relationship, employment, income_bin]
+                - method: rf
+                  column: education
+                  missing_values: [MISSING]
+                  n_estimators: 200
+                  max_depth: 15
+                  numeric_features: [age]
+                  categorical_features: [employment, occupation]
+                - method: mice
+                  columns: [race, ethnicity]
+                  missing_values:
+                    race: [MISSING]
+                    ethnicity: [MISSING, PNTA]
+                  join_tables: [households]
+                  max_iter: 10
+                  numeric_features: [age]
+            random_state: 42
+            create_flags: true
+            validate_imputation:
+              enabled: true
+              n_folds: 5
+              sample_pct: 5.0
     """
     # Collect input tables
     tables = {

@@ -30,20 +30,54 @@ def impute_mice(
 ) -> tuple[pl.DataFrame, dict[str, Any]]:
     """Impute missing values in multiple correlated columns using MICE.
 
-    MICE (Multiple Imputation by Chained Equations) imputes multiple correlated
-    variables together (e.g., race, ethnicity, or time-related columns).
+    **Best for:** multiple correlated columns with missing values (e.g.
+    depart_hour / arrive_hour / duration, or race / ethnicity).
+
+    MICE (Multiple Imputation by Chained Equations) imputes several variables
+    together, preserving their joint distribution.
+
+    How it works:
+
+    1. Initialise missing values with simple imputation (mean/mode).
+    2. For each column with missing values:
+
+       a. Treat it as the target variable.
+       b. Use the other columns as predictors in a regression model.
+       c. Predict and update missing values.
+
+    3. Repeat iteratively until convergence (``max_iter`` rounds).
+
+    Categorical integer columns (e.g. enum codes 1-6) are automatically
+    encoded to dense 0..N codes before imputation and decoded back
+    afterwards.  String columns are auto-encoded to integers for the
+    MICE model and decoded to original labels after imputation.
+
+    Assumes **Missing At Random (MAR)**: missingness may depend on observed
+    values but not on the missing value itself.  If data is Missing Not At
+    Random (MNAR), results may be biased.
+
+    Example use cases:
+
+    * Time fields (depart_hour, arrive_hour, duration) — highly correlated.
+    * Spatial coordinates (origin_lat, origin_lon) — spatially correlated.
+    * Socio-demographic variables (income, education, employment) — often
+      correlated.
+
+    Performance: iterative, can be slow for many columns or large datasets.
 
     Args:
-        df: DataFrame containing the columns to impute
-        columns: List of column names to impute together
-        max_iter: Maximum number of imputation rounds
-        random_state: Random state for reproducibility
-        numeric_features: List of numeric/continuous feature columns
-        categorical_features: List of categorical features (one-hot encoded)
-        verbose: Whether to provide logging output about the imputation process
+        df: DataFrame containing the columns to impute.
+        columns: Column names to impute together.
+        max_iter: Maximum number of imputation rounds (default: 10).
+        random_state: Random seed for reproducibility.
+        numeric_features: Numeric/continuous feature columns.
+        categorical_features: Categorical feature columns (one-hot encoded).
+        verbose: Whether to log progress during imputation.
 
     Returns:
-        Tuple of (imputed_df, stats_dict) with per-column statistics
+        Tuple of (imputed DataFrame, stats dict).  The stats dict is keyed
+        by column name, each containing ``n_missing``, ``n_imputed``, and
+        ``pct_imputed``.
     """
     missing_cols = [col for col in columns if col not in df.columns]
     if missing_cols:

@@ -1,4 +1,51 @@
-"""K-fold cross-validation for imputation quality assessment."""
+"""K-fold cross-validation for imputation quality assessment.
+
+Optional validation that assesses how accurate the imputation is by:
+
+1. Sampling a percentage of **non-missing** values (user-configurable,
+   e.g. 5%).
+2. Artificially masking those values (setting them to null).
+3. Imputing them using k-fold cross-validation.
+4. Comparing imputed vs. actual values.
+5. Computing and logging quality metrics.
+
+Metrics by data type:
+
+* **Categorical columns** (e.g. mode, purpose): Accuracy, Precision, Recall,
+  F1-Score.
+* **Continuous columns** (e.g. distance, duration): RMSE, MAE, R².
+
+Configuration::
+
+    random_state: 42
+    validate_imputation:
+      enabled: true
+      n_folds: 5          # number of CV folds (default: 5)
+      sample_pct: 5.0     # % of complete values to test (default: 5%)
+
+Example output::
+
+    ============================================================
+    Imputation Validation Results
+    ============================================================
+
+    Column: mode (categorical, n=250 test samples)
+      Accuracy:  0.876
+      Precision: 0.883
+      Recall:    0.876
+      F1-Score:  0.872
+
+    Column: distance (continuous, n=250 test samples)
+      RMSE: 2.34
+      MAE:  1.82
+      R²:   0.721
+    ============================================================
+
+Validation uses the same enrichment (joins, aggregations) as the real
+imputation pipeline, so metrics reflect the full feature set.  Note that
+validation adds computational overhead (k-fold = k x the imputation time);
+it is recommended for development/testing and optional in production.
+"""
 
 import logging
 from collections.abc import Callable

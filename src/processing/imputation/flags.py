@@ -1,4 +1,18 @@
-"""Utilities for creating imputation flag columns."""
+"""Diagnostic flag columns for tracking imputed values.
+
+When ``create_flags=True`` (the default), the imputation step creates a
+boolean column for every imputed field::
+
+    {column}_imputed   - True if the value was filled in, False otherwise
+
+Examples: ``mode_imputed``, ``distance_imputed``, ``age_imputed``.
+
+Use cases:
+
+* **Quality control**: identify records that contain imputed values.
+* **Sensitivity analysis**: compare results with vs. without imputed records.
+* **Downstream modelling**: include imputation status as a feature.
+"""
 
 import polars as pl
 

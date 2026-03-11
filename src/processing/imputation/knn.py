@@ -26,16 +26,45 @@ def impute_knn(
 ) -> tuple[pl.DataFrame, dict[str, Any]]:
     """Impute missing values in a single column using K-Nearest Neighbors.
 
+    **Best for:** single columns with isolated missing values where similar
+    records exist in the dataset.
+
+    How it works:
+
+    1. Build a feature matrix from ``numeric_features`` (used as-is) and
+       ``categorical_features`` (one-hot encoded for distance calculation).
+    2. Non-contiguous integer codes (e.g. enum values 1, 2, 3, 995, 999) are
+       automatically encoded to dense 0..N codes so they don't distort
+       distance calculations, then decoded back after imputation.
+    3. For each row with a missing value, find the *K* most similar
+       records based on Euclidean distance across all features.
+    4. Impute the missing value using the weighted average (or mode for
+       categoricals) of the *K* neighbours.
+
+    ``neighbor_weights='distance'`` weights closer neighbours more heavily;
+    ``neighbor_weights='uniform'`` treats all *K* neighbours equally.
+
+    Example use cases:
+
+    * Missing trip mode when other trip attributes are known.
+    * Missing person age when household/demographic info is available.
+    * Missing trip distance when other spatial/temporal features exist.
+
+    Performance: O(n log n) complexity; scales well to medium-large datasets.
+
     Args:
-        df: DataFrame containing the column to impute
-        column: Name of the column to impute
-        n_neighbors: Number of neighbors to use for imputation
-        neighbor_weights: How to weight neighbors ('uniform' or 'distance')
-        numeric_features: List of numeric/continuous feature columns
-        categorical_features: List of categorical features (one-hot encoded for distance)
+        df: DataFrame containing the column to impute.
+        column: Name of the column to impute.
+        n_neighbors: Number of similar records to use (default: 5).
+        neighbor_weights: ``'distance'`` or ``'uniform'``
+            (default: ``'distance'``).
+        numeric_features: Numeric/continuous feature columns.  Used as-is.
+        categorical_features: Categorical feature columns.  One-hot encoded
+            into binary columns for distance calculation.
 
     Returns:
-        Tuple of (imputed_df, stats_dict) with imputation statistics
+        Tuple of (imputed DataFrame, stats dict).  The stats dict contains
+        ``n_missing``, ``n_imputed``, and ``pct_imputed``.
     """
     if column not in df.columns:
         msg = f"Column '{column}' not found in DataFrame"
