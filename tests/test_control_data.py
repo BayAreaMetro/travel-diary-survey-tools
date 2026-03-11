@@ -464,6 +464,18 @@ class TestApplyZoneGroups:
         assert new_seed.filter(pl.col("hh_id") == 2)["ctrl_geoid"].item() == "AB"
         assert new_seed.filter(pl.col("hh_id") == 3)["ctrl_geoid"].item() == "C"
 
+        # Original zone IDs preserved
+        assert "_orig_ctrl_geoid" in new_seed.columns
+        assert new_seed.filter(pl.col("hh_id") == 1)["_orig_ctrl_geoid"].item() == "A"
+        assert new_seed.filter(pl.col("hh_id") == 2)["_orig_ctrl_geoid"].item() == "B"
+        assert new_seed.filter(pl.col("hh_id") == 3)["_orig_ctrl_geoid"].item() == "C"
+
+        # Zone group labels
+        assert "zone_group" in new_seed.columns
+        assert new_seed.filter(pl.col("hh_id") == 1)["zone_group"].item() == "AB"
+        assert new_seed.filter(pl.col("hh_id") == 2)["zone_group"].item() == "AB"
+        assert new_seed.filter(pl.col("hh_id") == 3)["zone_group"].item() is None
+
     def test_unmapped_zones_unchanged(self, control_totals, seed):
         """Zones not in any group pass through unchanged."""
         groups = {"AB": ["A", "B"]}

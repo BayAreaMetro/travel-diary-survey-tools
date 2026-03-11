@@ -302,6 +302,7 @@ def weighting(  # noqa: PLR0913
         statuses=statuses,
         output_path=_report_dir / "diagnostics.html",
         crosswalk_fig=crosswalk_fig,
+        crosswalk_df=xw.crosswalk_df,
         merge_specs=merge_specs,
     )
 

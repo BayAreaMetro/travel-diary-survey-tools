@@ -26,6 +26,7 @@ from processing.weighting.data_prep.crosswalk import (
     TargetZoneConfig,
     _load_target_zones,
 )
+from processing.weighting.diagnostics.charts import crosswalk_figure
 from utils.crosswalk import (
     _cross_tabulate,
     _rasterize_categorical,
@@ -652,11 +653,11 @@ class TestControlDataCrosswalk:
 # Tests: plot_crosswalk
 # ---------------------------------------------------------------------------
 class TestPlotCrosswalk:
-    """Test PumaCrosswalk.plot_crosswalk produces an HTML file."""
+    """Test crosswalk_figure produces valid Plotly HTML."""
 
     @pytest.fixture
-    def _crosswalk_obj(self, two_pumas, three_target_zones, uniform_blocks):
-        """Build a minimal PumaCrosswalk without hitting Census APIs."""
+    def crosswalk_data(self, two_pumas, three_target_zones, uniform_blocks):
+        """Build crosswalk data without hitting Census APIs."""
         target_gdf = _load_target_zones(three_target_zones, "target_id")
         xw_df = build_crosswalk(
             source_gdf=two_pumas,
@@ -667,28 +668,28 @@ class TestPlotCrosswalk:
             weight_col="pop20",
             resolution=50,
         ).rename({"source_id": "puma_id", "target_id": "ctrl_geoid"})
+        return two_pumas, target_gdf, xw_df
 
-        obj = object.__new__(PumaCrosswalk)
-        obj.puma_gdf = two_pumas
-        obj.target_gdf = target_gdf
-        obj.crosswalk_df = xw_df
-        return obj
-
-    @pytest.mark.usefixtures("_crosswalk_obj")
-    def test_produces_html(self):
-        """plot_crosswalk should produce valid Plotly HTML."""
-        fig = self._crosswalk_obj.plot_crosswalk()  # pyright: ignore[reportAttributeAccessIssue]
+    def test_produces_html(self, crosswalk_data):
+        """crosswalk_figure should produce valid Plotly HTML."""
+        puma_gdf, target_gdf, xw_df = crosswalk_data
+        fig = crosswalk_figure(puma_gdf=puma_gdf, target_gdf=target_gdf, crosswalk_df=xw_df)
         assert fig is not None
         html = fig.to_html()
         assert "plotly" in html.lower()
 
-    @pytest.mark.usefixtures("_crosswalk_obj")
-    def test_with_households_and_zone_groups(self):
-        """plot_crosswalk should accept households and zone_groups."""
+    def test_with_households_and_zone_groups(self, crosswalk_data):
+        """crosswalk_figure should accept households and zone_groups."""
+        puma_gdf, target_gdf, xw_df = crosswalk_data
         hh = pl.DataFrame({"hh_id": [1, 2, 3], "ctrl_geoid": ["1", "2", "3"]})
         groups = {"north": ["1", "2"]}
-        fig = self._crosswalk_obj.plot_crosswalk(households=hh, zone_groups=groups)  # pyright: ignore[reportAttributeAccessIssue]
+        fig = crosswalk_figure(
+            puma_gdf=puma_gdf,
+            target_gdf=target_gdf,
+            crosswalk_df=xw_df,
+            households=hh,
+            zone_groups=groups,
+        )
         html = fig.to_html()
         assert "plotly" in html.lower()
-        # Zone group name should appear in a label
         assert "north" in html.lower()

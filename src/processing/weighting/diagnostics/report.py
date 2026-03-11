@@ -12,7 +12,12 @@ from processing.weighting.data_prep.control_data import ControlTotals
 
 from .charts import fit_diverging_figure, violins_figure
 from .data import apply_fit_merges, compute_weighted_totals, fit_table, zone_fit_summary
-from .tables import unweighted_cell_counts, weight_distribution_table, zone_overview_table
+from .tables import (
+    crosswalk_summary_table,
+    unweighted_cell_counts,
+    weight_distribution_table,
+    zone_overview_table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +43,7 @@ def generate_report(
     output_path: Path,
     *,
     crosswalk_fig: go.Figure | None = None,
+    crosswalk_df: pl.DataFrame | None = None,
     merge_specs: list | None = None,
 ) -> Path:
     """Write the self-contained HTML diagnostics report to *output_path*."""
@@ -55,9 +61,16 @@ def generate_report(
     else:
         crosswalk_section = ""
 
+    # Section 1b — crosswalk summary table
+    if crosswalk_df is not None:
+        crosswalk_table = crosswalk_summary_table(crosswalk_df, seed)
+    else:
+        crosswalk_table = ""
+
     ctx = {
         "title": "Weighting Diagnostics Report",
         "crosswalk_section": crosswalk_section,
+        "crosswalk_table": crosswalk_table,
         "zone_overview_table": zone_overview_table(statuses, weighted, zf),
         "weight_distribution_table": weight_distribution_table(weighted),
         "fit_bars_html": fit_diverging_figure(fit, target_names, merges=merge_specs).to_html(

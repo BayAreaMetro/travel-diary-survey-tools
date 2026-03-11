@@ -290,7 +290,11 @@ def apply_zone_groups(
     new_geo_ids = merged_totals["geo_id"].unique().sort().to_list()
 
     seed_remap_expr = pl.col(geo_col).replace(remap)
-    merged_seed = seed.with_columns(seed_remap_expr)
+    merged_seed = seed.with_columns(
+        pl.col(geo_col).alias("_orig_ctrl_geoid"),
+        pl.col(geo_col).replace_strict(remap, default=None).alias("zone_group"),
+        seed_remap_expr,
+    )
 
     logger.info(
         "Zone groups applied: %d zones → %d zones (%d groups)",

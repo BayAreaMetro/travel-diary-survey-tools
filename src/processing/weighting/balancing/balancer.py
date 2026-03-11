@@ -398,6 +398,17 @@ def _apply_merges(
     """
     for spec in merges:
         for merged_label, base_members in spec.groups.items():
+            # Validate every named member exists as a row label for this control
+            known = {member for ctrl, member in row_labels if ctrl == spec.control}
+            missing = [m for m in base_members if m not in known]
+            if missing:
+                msg = (
+                    f"Merge group '{merged_label}' for control '{spec.control}' "
+                    f"references unknown categories: {missing}. "
+                    f"Available: {sorted(known)}"
+                )
+                raise ValueError(msg)
+
             # Find row indices matching this control + base members
             idxs = [
                 i
@@ -405,7 +416,7 @@ def _apply_merges(
                 if ctrl == spec.control and member in base_members
             ]
             if len(idxs) < 2:  # noqa: PLR2004
-                continue  # nothing to merge (0 or 1 match)
+                continue  # single member — nothing to merge
 
             # Sum incidence rows and target entries
             merged_row = incidence[idxs].sum(axis=0)

@@ -126,7 +126,7 @@ steps:
         - name: p_employment
         - name: p_age
           merge:
-            age_75_plus: [age_74_to_84, age_85_plus]
+            age_75_plus: [age_75_to_84, age_85_and_up]
 
       # -- Balancer settings -------------------------------------------
       max_expansion_factor: 10.0   # upper bound = initial_weight × factor

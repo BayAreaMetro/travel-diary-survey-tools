@@ -31,11 +31,12 @@
   If PUMAs nest within the target geographies, then the allocations are all 100% or 0%.
 </p>
 {{ crosswalk_section }}
+{{ crosswalk_table }}
 
 <h2>2 &mdash; Convergence &amp; Fit</h2>
 <p class="note">
   Population totals are derived from the first household- and person-level control.
-  What to look for:
+  What to look for:<br>
     &bull; <b>Convergence</b>: Did the balancer converge within the specified tolerance and iteration limit?<br>
     &bull; <b>Fit</b>: How close are the weighted totals to the targets? Look at MAPE and the % error bars below.<br>
     &bull; <b>Household/Person</b>: Do both household and persons match? 
@@ -45,10 +46,13 @@
       If ESS is low, the balancer is relying heavily on a few records, which can lead to unstable estimates.<br>
     &bull; <b>Coefficient of Variation (CV)</b>: Another measure of weight variability;
       high CV indicates extreme weights.<br>
-  Metric summary:
+  Metric summary:<br>
     &bull; <b>MAPE</b> is the mean |%&nbsp;error| across all control categories for the zone.<br>
-    &bull; <b>ESS</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish);
-      above 80% is good, below 50% suggests a few records dominate.<br>
+    &bull; <b>ESS (Design Effect)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic);
+      above 80% is good, below 50% suggests a few records dominate. 
+      The formula is derived from the concept of design effect in survey sampling, 
+      which quantifies how much the variability of estimates is inflated due to weighting.
+      <br>
     &bull; <b>CV</b> Coefficient of variation of weights: standard deviation / mean.
       High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
 </p>

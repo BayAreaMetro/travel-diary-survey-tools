@@ -213,3 +213,53 @@ def unweighted_cell_counts(seed: pl.DataFrame, target_names: list[str]) -> str:
                 data_rows.append(f"<tr>{cells}</tr>")
 
     return f"<table>\n{header}\n" + "\n".join(data_rows) + "\n</table>"
+
+
+# ---------------------------------------------------------------------------
+# Section 1b — Crosswalk summary table
+# ---------------------------------------------------------------------------
+
+
+def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> str:
+    """Compact Zone -> HH Samples table with optional Zone Group column."""
+    # Use original zone IDs for sample counts (zone groups remap ctrl_geoid)
+    count_col = "_orig_ctrl_geoid" if "_orig_ctrl_geoid" in seed.columns else "ctrl_geoid"
+    sample_counts = dict(
+        seed.filter(pl.col(count_col).is_not_null()).group_by(count_col).len().iter_rows()
+    )
+
+    # Zone group mapping (original zone → group name)
+    zone_to_group: dict[str, str] = {}
+    if "zone_group" in seed.columns:
+        zone_to_group = dict(
+            seed.filter(pl.col("zone_group").is_not_null())
+            .select(count_col, "zone_group")
+            .unique()
+            .iter_rows()
+        )
+    has_groups = bool(zone_to_group)
+
+    zones = sorted(
+        crosswalk_df.select("ctrl_geoid")
+        .unique()
+        .filter(pl.col("ctrl_geoid").is_not_null())
+        .to_series()
+        .to_list()
+    )
+
+    headers = []
+    if has_groups:
+        headers.append("Zone Group")
+    headers += ["Zone", "HH Samples"]
+    header = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
+
+    body_rows: list[str] = []
+    for geo in zones:
+        cells = ""
+        if has_groups:
+            cells += _tag("td", zone_to_group.get(geo, ""))
+        cells += _tag("td", geo)
+        cells += _tag("td", f"{sample_counts.get(geo, 0):,}")
+        body_rows.append(f"<tr>{cells}</tr>")
+
+    return f"<table>\n{header}\n" + "\n".join(body_rows) + "\n</table>"
