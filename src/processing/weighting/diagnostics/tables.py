@@ -33,17 +33,61 @@ def _html_table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Section 2 — Convergence & Fit (zone overview)
+# Section 2 — Convergence & Weight Summary
 # ---------------------------------------------------------------------------
 
 
-def zone_overview_table(
+def convergence_table(
     statuses: list[ZoneStatus],
     weighted: pl.DataFrame,
+) -> str:
+    """Per-zone convergence status, weight sums, and ESS%."""
+    has_bw = "base_weight" in weighted.columns
+    status_map = {s.geo_id: s for s in statuses}
+    zones = sorted(status_map)
+
+    headers = ["Zone", "Conv?", "Iter", "N", "&sum; base_wt", "&sum; hh_wt", "ESS %", "CV"]
+    header_row = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
+
+    data_rows: list[str] = []
+    for z in zones:
+        s = status_map[z]
+        zone_df = weighted.filter(pl.col("ctrl_geoid") == z)
+        zone_w = zone_df["hh_weight"]
+        n = len(zone_w)
+        mean_w = zone_w.mean() or 0
+        sum_w = zone_w.sum()
+        sum_w2 = (zone_w * zone_w).sum()
+        ess_pct = ((sum_w**2 / sum_w2) / n * 100) if sum_w2 > 0 and n > 0 else 0.0
+        cv = f"{zone_w.std() / mean_w:.3f}" if mean_w else "N/A"
+        sum_bw = zone_df["base_weight"].sum() if has_bw else sum_w
+
+        css = "converged" if s.converged else "failed"
+        cells = [
+            _tag("td", z),
+            f'<td class="{css}">{"Y" if s.converged else "N"}</td>',
+            _tag("td", str(s.iterations)),
+            _tag("td", f"{n:,}"),
+            _tag("td", f"{sum_bw:,.0f}"),
+            _tag("td", f"{sum_w:,.0f}"),
+            _tag("td", f"{ess_pct:.1f}%"),
+            _tag("td", cv),
+        ]
+        data_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    return "<table>\n" + header_row + "\n" + "\n".join(data_rows) + "\n</table>"
+
+
+# ---------------------------------------------------------------------------
+# Section 3 — Target Fit
+# ---------------------------------------------------------------------------
+
+
+def target_fit_table(
+    statuses: list[ZoneStatus],
     zone_fit: pl.DataFrame,
 ) -> str:
-    """Zone overview with grouped Household / Person columns."""
-    has_bw = "base_weight" in weighted.columns
+    """Per-zone fit metrics: household/person targets and error statistics."""
     status_map = {s.geo_id: s for s in statuses}
     fit_map = {r["geo_id"]: r for r in zone_fit.iter_rows(named=True)}
     zones = sorted(status_map)
@@ -52,41 +96,20 @@ def zone_overview_table(
     group_row = (
         "<tr>"
         '<th rowspan="2">Zone</th>'
-        '<th rowspan="2">Conv?</th>'
-        '<th rowspan="2">Iter</th>'
-        # '<th rowspan="2">n</th>'
-        '<th rowspan="2">&sum; base_wt</th>'
-        '<th rowspan="2">&sum; hh_wt</th>'
         '<th colspan="2">Household</th>'
         '<th colspan="2">Person</th>'
         '<th rowspan="2">MAPE</th>'
         '<th rowspan="2">P90</th>'
         '<th rowspan="2">Max</th>'
-        '<th rowspan="2">ESS %</th>'
         "</tr>"
     )
     sub_row = "<tr><th>Target</th><th>% Error</th><th>Target</th><th>% Error</th></tr>"
 
     data_rows: list[str] = []
     for z in zones:
-        s = status_map[z]
-        zone_df = weighted.filter(pl.col("ctrl_geoid") == z)
-        zone_w = zone_df["hh_weight"]
-        n = len(zone_w)
-        sum_w = zone_w.sum()
-        sum_w2 = (zone_w * zone_w).sum()
-        ess_pct = ((sum_w**2 / sum_w2) / n * 100) if sum_w2 > 0 and n > 0 else 0.0
-        sum_bw = zone_df["base_weight"].sum() if has_bw else sum_w
-
-        css = "converged" if s.converged else "failed"
         f = fit_map.get(z, {})
         cells = [
             _tag("td", z),
-            f'<td class="{css}">{"Y" if s.converged else "N"}</td>',
-            _tag("td", str(s.iterations)),
-            # _tag("td", f"{n:,}"),
-            _tag("td", f"{sum_bw:,.0f}"),
-            _tag("td", f"{sum_w:,.0f}"),
             _tag("td", f"{f.get('hh_target', 0):,.0f}"),
             _tag("td", f"{f.get('hh_pct_err', 0):+.1f}%"),
             _tag("td", f"{f.get('per_target', 0):,.0f}"),
@@ -94,7 +117,6 @@ def zone_overview_table(
             _tag("td", f"{f.get('mape', 0):.2f}%"),
             _tag("td", f"{f.get('p90_err', 0):.2f}%"),
             _tag("td", f"{f.get('max_err', 0):.2f}%"),
-            _tag("td", f"{ess_pct:.1f}%"),
         ]
         data_rows.append("<tr>" + "".join(cells) + "</tr>")
 

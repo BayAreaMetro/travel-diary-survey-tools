@@ -116,6 +116,87 @@ platform_adjustment:
 
 ---
 
+### 5. Expansion Factor Grid Search 🔲
+
+**Status:** Not implemented. The `expansion_factor_grid` config key is documented in the diagnostics YAML example but never consumed.
+
+**Goal:** Automatically re-run the balancer across a grid of `max_expansion_factor` values and produce a tradeoff chart so the user can pick the tightest bounds that still achieve acceptable fit. Tighter bounds → more stable weights (lower CV) but potentially worse fit (higher MAPE). The grid search reveals the Pareto frontier.
+
+**Metrics (per grid point, aggregated across all zones):**
+
+| Metric | Axis | Role |
+|--------|------|------|
+| **MAPE** | Left y (primary, solid) | Average fit — does the balancer hit the targets? |
+| **P90** | Left y (secondary, dashed) | Tail fit — are there badly-missed cells hiding behind a good average? |
+| **CV** | Right y (primary, solid) | Weight dispersion — are a few records carrying all the weight? |
+| **ESS %** | Right y (secondary, dashed) | Effective sample utilisation — interpretable transform of CV: ESS% ≈ 1/(1+CV²) |
+
+MAPE and P90 decrease (improve) as EF increases; CV worsens and ESS% drops. The chart should highlight the user's chosen EF value with a vertical marker.
+
+**Implementation plan:**
+
+1. **`balancing/balancer.py` — `grid_search_expansion_factor()`**
+
+   New public function. Accepts the same `seed`, `control_totals`, `targets`, etc. as `balance_weights()`, plus an `ef_grid: list[float]`. For each EF value, calls `balance_weights()` with that `max_expansion_factor`, collects per-zone `ZoneStatus` and weights, then computes aggregate metrics.
+
+   ```python
+   @dataclass
+   class GridPoint:
+       max_expansion_factor: float
+       converged_zones: int
+       total_zones: int
+       mape: float           # overall (all zones, all controls)
+       p90: float            # 90th percentile |% error|
+       cv: float             # weight CV (pooled across zones)
+       ess_pct: float        # Kish ESS % (pooled)
+
+   def grid_search_expansion_factor(
+       seed: pl.DataFrame,
+       control_totals: ControlTotals,
+       targets: list[str],
+       ef_grid: list[float],
+       *,
+       # same kwargs as balance_weights() minus max_expansion_factor
+       ...
+   ) -> list[GridPoint]:
+   ```
+
+   The outer loop is sequential (each EF run already uses `n_workers` threads for per-zone parallelism internally). Each run reuses the same pre-built seed/totals/incidence — only the upper bounds change.
+
+   The fit metrics (MAPE, P90) require comparing weighted totals against control targets. Reuse `compute_weighted_totals()` and `fit_table()` from `diagnostics/data.py`.
+
+2. **`diagnostics/charts.py` — `ef_tradeoff_figure()`**
+
+   New Plotly figure: dual y-axis scatter+line chart.
+   - X-axis: `max_expansion_factor` (log scale, since the grid often spans 2–50).
+   - Left y-axis: MAPE (solid line + markers), P90 (dashed line + markers). Label: "Fit error (%)".
+   - Right y-axis: CV (solid), ESS% (dashed). Label: "Weight quality".
+   - Vertical dashed line at the user's selected EF value.
+   - Hover: shows all four metrics + convergence count.
+
+3. **`diagnostics/report.py` — wire into `generate_report()`**
+
+   Add optional `grid_results: list[GridPoint] | None` parameter. When present, render the tradeoff chart in a new section (between convergence and weight distribution). Template gets a `{{ ef_tradeoff_section }}` block.
+
+4. **`weighting.py` — wire into the pipeline step**
+
+   Parse `diagnostics.expansion_factor_grid` from the YAML config. After the main `balance_weights()` call, if the grid is present, call `grid_search_expansion_factor()` with the same inputs and pass results to `generate_report()`.
+
+   ```yaml
+   diagnostics:
+     enabled: true
+     expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
+   ```
+
+**Design notes:**
+- The grid search is **diagnostics-only** — it does not change the actual weights used downstream. The user's configured `max_expansion_factor` determines the production weights; the grid search just shows what would happen with other values.
+- Grid runs can be expensive for large zone counts. Consider logging progress (`"Grid search: EF=4 (2/9)..."`) and a config flag to skip it (`expansion_factor_grid: []` or omitted).
+- The main balance run's EF value should always be included in the grid (inserted if missing) so the tradeoff chart has a point at the production setting.
+
+**Files affected:** `balancing/balancer.py` (new function + dataclass), `diagnostics/charts.py` (new figure), `diagnostics/report.py` (new section), `diagnostics/diagnostics_template.html` (new template block), `weighting.py` (config parsing + wiring).
+
+---
+
 ### Priority and Dependencies
 
 | # | Feature | Depends On | Complexity | Impact |
@@ -124,5 +205,6 @@ platform_adjustment:
 | 2 | Custom trip targets | — | High | Medium — useful for matching to NTD/FHWA but adds architectural complexity |
 | 3 | DOW structuring | — | Medium | High — critical for surveys with day-of-week sampling imbalance |
 | 4 | Platform bias | — | Low–High (method-dependent) | Medium — important for mixed-mode surveys but many surveys are single-platform |
+| 5 | EF grid search | — | Low | Medium — calibration aid; no algorithmic changes, purely diagnostic |
 
-Features 1 and 3 are independent and can be developed in parallel. Feature 2 is architecturally distinct (non-linear constraints). Feature 4 is orthogonal — it modifies inputs (base weights or controls) rather than the balancer itself.
+Features 1 and 3 are independent and can be developed in parallel. Feature 2 is architecturally distinct (non-linear constraints). Feature 4 is orthogonal — it modifies inputs (base weights or controls) rather than the balancer itself. Feature 5 is self-contained — it only adds a diagnostic loop and chart with no impact on the core balancer.

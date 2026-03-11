@@ -16,6 +16,7 @@ API behaviour:
 Transformation (recoding, aggregation) lives in ``control_data``.
 """
 
+import hashlib
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -112,10 +113,14 @@ def fetch_pums_data(
     hh_vars = sorted(_HH_VARS | hh_extra)
     person_vars = sorted(_PERSON_VARS | person_extra)
 
-    # Check cache first
+    # Check cache first — filename includes a hash of the requested
+    # variable set so different queries (e.g. with/without replicate
+    # weights) get independent cache entries.
     if cache_dir is not None:
         pums_dir = cache_dir / "pums"
-        tag = f"{source.state_fips}_{source.pums_year}"
+        var_key = f"{','.join(hh_vars)}|{','.join(person_vars)}"
+        digest = hashlib.sha256(var_key.encode()).hexdigest()[:10]
+        tag = f"{source.state_fips}_{source.pums_year}_{digest}"
         hh_cache = pums_dir / f"{tag}_hh.parquet"
         per_cache = pums_dir / f"{tag}_person.parquet"
         if hh_cache.exists() and per_cache.exists():
@@ -280,7 +285,7 @@ def _census_get(
     if isinstance(data, dict) and "error" in data:
         msg = f"Census API error: {data['error']}"
         raise RuntimeError(msg)
-    return data
+    return data  # pyright: ignore[reportReturnType]
 
 
 def _json_to_polars(rows: list[list[str]]) -> pl.DataFrame:
