@@ -106,6 +106,7 @@ def _control_cv(
 
     rep_cols = [f"{rep_prefix}{i}" for i in range(1, _N_REPLICATES + 1)]
     missing = [c for c in rep_cols if c not in source.columns]
+
     if missing:
         msg = f"Replicate weight columns missing for {ctrl.name}: {missing[:3]}..."
         raise ValueError(msg)

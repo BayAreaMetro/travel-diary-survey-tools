@@ -35,8 +35,8 @@ from data_canon.codebook.trips import ModeType
 from processing.weighting.controls.base import (
     ControlLevel,
     ControlTarget,
-    _breakpoint_expr,
-    _identity_expr,
+    breakpoint_expr,
+    identity_expr,
 )
 from processing.weighting.controls.enums import (
     CommuteModeCategory,
@@ -312,7 +312,7 @@ class EducationControl(ControlTarget):
     }
 
     def survey_expr(self) -> pl.Expr:
-        return _identity_expr("education", Education)
+        return identity_expr("education", Education)
 
     def pums_expr(self) -> pl.Expr:
         return pl.col("SCHL").replace_strict(
@@ -345,7 +345,7 @@ class RaceControl(ControlTarget):
     }
 
     def survey_expr(self) -> pl.Expr:
-        return _identity_expr("race", Race)
+        return identity_expr("race", Race)
 
     def pums_expr(self) -> pl.Expr:
         return pl.col("RAC1P").replace_strict(
@@ -373,7 +373,7 @@ class EthnicityControl(ControlTarget):
     }
 
     def survey_expr(self) -> pl.Expr:
-        return _identity_expr("ethnicity", Ethnicity)
+        return identity_expr("ethnicity", Ethnicity)
 
     def pums_expr(self) -> pl.Expr:
         return pl.col("HISP").replace_strict(
@@ -394,10 +394,10 @@ class AgeControl(ControlTarget):
     pums_fields = ("AGEP",)
 
     def survey_expr(self) -> pl.Expr:
-        return _identity_expr("age", AgeCategory)
+        return identity_expr("age", AgeCategory)
 
     def pums_expr(self) -> pl.Expr:
-        return _breakpoint_expr("AGEP", AgeCategory)
+        return breakpoint_expr("AGEP", AgeCategory)
 
 
 class PersonTotalControl(ControlTarget):

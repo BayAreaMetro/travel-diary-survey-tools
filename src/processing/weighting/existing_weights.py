@@ -1,4 +1,32 @@
-"""Simply concatenate existing weights to the data."""
+"""Attach pre-computed weights to survey data tables.
+
+This module provides the ``add_existing_weights`` pipeline step, which loads
+weight CSV files and joins them to the corresponding canonical tables.
+Optionally, it can derive missing weights by propagating values through the
+survey hierarchy.
+
+Core algorithm:
+
+**Phase 1 -- Load and Join Weights**
+
+1. For each provided weight config:
+
+   a. Validate the config key against allowed table types.
+   b. Load the weight CSV from ``weight_path``.
+   c. Validate required ID and weight columns exist.
+   d. Handle ID column name mismatches (rename if needed).
+   e. Left-join weights to the table on the ID column.
+
+**Phase 2 -- Derive Missing Weights** (when ``derive_missing_weights=True``)
+
+1. *Hierarchical carry-forward* for household → person → day → unlinked_trip:
+   validate parent has weights, then join parent weight to child via FK.
+2. *Aggregated weights* for linked_trip, joint_trip, tour: compute mean
+   weight per group (excluding nulls and zeros), then left-join.
+
+Gap detection: raises an error if a middle-tier weight is missing
+(e.g. household + trip weights provided but person/day weights are not).
+"""
 
 import logging
 from pathlib import Path
@@ -167,37 +195,72 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     For example, if household and trip weights are provided, but not person or day weights,
     an error will be raised as this likely indicates a misconfiguration.
 
-    Weight hierarchy logic:
-     - hh_weight
-        - person_weight <- hh_weight for each person in household
-            - day_weight <- person_weight for day for each person
-                - unlinked_trip_weight <- day_weight for each trip for each person-day
-                    - linked_trip_weight <- Average weight of unlinked_trips
-                    - joint_trip_weight <- Average weight of linked joint trips
-                        - tour_weight <- Average of linked trip weights
+    Weight hierarchy logic::
+
+        hh_weight
+          └─ person_weight        (carry forward via hh_id)
+              └─ day_weight        (carry forward via person_id)
+                  └─ unlinked_trip_weight  (carry forward via day_id)
+                      ├─ linked_trip_weight   (mean agg via linked_trip_id)
+                      ├─ joint_trip_weight    (mean agg via joint_trip_id)
+                      └─ tour_weight          (mean agg via tour_id)
 
     Note that if there are no "adjustments" made to sub-table weights (e.g., person or trip), then
     all weights should actually be exactly same from household through tour.
 
     If sub-table weights do vary, a checksum can validate integrity:
-    - sum(person_weight) == sum(hh_weight * num_persons)
-    - sum(day_weight) == sum(person_weight * num_complete_days)
-    - sum(unlinked_trip_weight) == sum(day_weight * num_trips)
-    - sum(linked_trip_weight) == sum(unlinked_trip_weight)
-    - sum(tour_weight) == sum(linked_trip_weight)
+
+    - ``sum(person_weight) ≈ sum(hh_weight x num_persons)``
+    - ``sum(day_weight) ≈ sum(person_weight x num_complete_days)``
+    - ``sum(unlinked_trip_weight) ≈ sum(day_weight x num_trips)``
+    - ``sum(linked_trip_weight) ≈ sum(unlinked_trip_weight)``
+    - ``sum(tour_weight) ≈ sum(linked_trip_weight)``
 
     Args:
         weights: A dict mapping config keys to weight file paths.
-        households: Households DataFrame
-        persons: Persons DataFrame
-        days: Days DataFrame
-        unlinked_trips: Unlinked trips DataFrame
-        linked_trips: Linked trips DataFrame
-        tours: Tours DataFrame
-        joint_trips: Joint trips DataFrame
-        derive_missing_weights: Whether to derive missing weights from upstream tables
+            Each entry specifies a weight CSV to load.  Supported config
+            keys: ``household_weights``, ``person_weights``,
+            ``day_weights``, ``unlinked_trip_weights``,
+            ``linked_trip_weights``, ``joint_trip_weights``,
+            ``tour_weights``.
+
+            Config options per entry:
+
+            - ``weight_path``: Path to CSV file containing weights (required).
+            - ``weight_id_col``: ID column name in the weight file
+              (optional, defaults to canonical table ID).
+            - ``weight_col``: Weight column name in the weight file
+              (optional, defaults to canonical weight column).
+
+        derive_missing_weights: Whether to derive weights for tables
+            without provided weight files (default: False).
+        households: Households DataFrame.
+        persons: Persons DataFrame.
+        days: Days DataFrame.
+        unlinked_trips: Unlinked trips DataFrame.
+        linked_trips: Linked trips DataFrame.
+        tours: Tours DataFrame.
+        joint_trips: Joint trips DataFrame.
+
     Returns:
         Dict of tables with attached weights.
+
+    Example config:
+        .. code-block:: yaml
+
+            - name: add_existing_weights
+              params:
+                derive_missing_weights: true
+                weights:
+                  household_weights:
+                    weight_path: "weights/hh_weights.csv"
+                    # defaults: id_col='hh_id', weight_col='hh_weight'
+                  person_weights:
+                    weight_path: "weights/person_weights.csv"
+                  unlinked_trip_weights:
+                    weight_path: "weights/trip_weights.csv"
+                    weight_id_col: "trip_id"
+                    weight_col: "trip_weight"
     """
     # Collect all provided tables
     tables = collect_tables(

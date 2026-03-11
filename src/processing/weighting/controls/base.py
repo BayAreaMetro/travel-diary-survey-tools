@@ -5,7 +5,7 @@ expression helpers used by the household and person control subclasses.
 """
 
 import logging
-from enum import Enum
+from enum import Enum, StrEnum
 
 import polars as pl
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 _SENTINEL_NAMES = frozenset({"MISSING", "PNTA"})
 
 
-def _identity_expr(col: str, categories: type[Enum]) -> pl.Expr:
+def identity_expr(col: str, categories: type[Enum]) -> pl.Expr:
     """Pass-through valid values, null for sentinels or unknown.
 
     Basically, we use the canonical enum directly, just map sentinels to null.
@@ -36,7 +36,7 @@ def _identity_expr(col: str, categories: type[Enum]) -> pl.Expr:
     )
 
 
-def _breakpoint_expr(col: str, categories: type[Enum]) -> pl.Expr:
+def breakpoint_expr(col: str, categories: type[Enum]) -> pl.Expr:
     """Build a when/then chain from a LabeledEnum with ``BREAKPOINTS``.
 
     Zips ``categories.BREAKPOINTS`` with the non-sentinel members so that
@@ -57,7 +57,7 @@ def _breakpoint_expr(col: str, categories: type[Enum]) -> pl.Expr:
 # ══════════════════════════════════════════════════════════════════════════
 
 
-class ControlLevel(str, Enum):
+class ControlLevel(StrEnum):
     """Whether a control is at the household or person level."""
 
     HOUSEHOLD = "household"

@@ -2,12 +2,32 @@
 
 Orchestrates the full weighting pipeline as a single ``@step`` entry point:
 
-1. Build PUMA -> target-zone crosswalk from geography config
-2. Build PUMS-derived control totals (load, recode, allocate, aggregate)
-3. Assign survey households to zones; build seed table
-4. Run maximum-entropy balancer per zone
-5. Diagnostics report
-6. Join ``hh_weight`` to households; propagate to all downstream tables
+1. Build PUMA → target-zone crosswalk from geography config.
+2. Build PUMS-derived control totals (load, recode, allocate, aggregate).
+3. Assign survey households to zones; build seed table.
+4. Run maximum-entropy balancer per zone.
+5. Generate interactive HTML diagnostics report.
+6. Join ``hh_weight`` to households; propagate to all downstream tables.
+
+Design decisions:
+
+* **PopulationSim dependency** — uses PopulationSim's core numba balancer
+  (``np_balancer_numba``) directly — a pure ``@njit`` function (~120 lines)
+  taking numpy arrays.  No PopulationSim pipeline infrastructure involved.
+* **Control geography** — always user-specified via YAML config.  If the
+  user's geography aligns with PUMAs, the crosswalk is a pass-through.
+  Otherwise, the block-group-based crosswalk converts PUMA controls into the
+  custom geography.
+
+Algorithm:
+
+    Find weight vector **w** closest to seed weights **w₀** (KL-divergence)
+    subject to marginal constraints:
+
+    min Σᵢ wᵢ ln(wᵢ / w₀ᵢ)   s.t.  A w = t,  wᵢ ≥ 0
+
+    where **A** is the incidence matrix and **t** is the target totals vector.
+    Runs independently per control geography zone (zones are parallelisable).
 """
 
 import logging
@@ -198,6 +218,68 @@ def weighting(  # noqa: PLR0913
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
+    The step produces **expansion weights** that scale the survey sample to
+    represent the full population.  Internally it orchestrates: geography
+    crosswalk → PUMS control totals → survey seed prep → maximum-entropy
+    balancing → weight propagation.
+
+    Control Variable Configuration:
+        Each entry in ``controls`` defines one marginal target.  Names must
+        match keys in the ``CONTROLS`` registry (see
+        :mod:`processing.weighting.controls.registry`).  Example::
+
+            controls:
+              - name: h_size
+              - name: h_income
+              - name: gender
+                importance: 200      # explicit override
+              - name: commute_mode
+                merge:               # collapse categories
+                  active: [bike, walk]
+
+    Importance Tiers:
+        Three-tier system controlling how hard the balancer tries to match
+        each control:
+
+        1. **Default** — ``default_importance`` (100) for all controls.
+        2. **MOE-based** — when ``moe_based_importance=True``, PUMS replicate
+           weights (``WGTP1``-``WGTP80`` / ``PWGTP1``-``PWGTP80``) are used
+           to estimate per-control CV, then normalised so
+           median importance = 100.  Transfer function: ``1 / sqrt(CV)``.
+        3. **Explicit override** — per-control ``importance:`` in YAML takes
+           highest precedence.
+
+        Structural controls (``h_total``, ``p_total``) always receive fixed
+        importance of 1000 regardless of MOE.
+
+    Field Mapping:
+        The ``field_mapping`` key inside the YAML maps PUMS variable names
+        to canonical survey field names so the same bin/group definitions
+        can be applied to both datasets::
+
+            field_mapping:
+              households:
+                NP: num_people
+                HINCP: income
+              persons:
+                AGEP: age
+                SEX: sex
+                JWTRNS: commute_mode_code
+
+    Diagnostics:
+        When enabled, produces a self-contained interactive HTML report
+        (Plotly + Jinja2) with: recode coverage, weight summary, target-fit
+        bar charts, expansion-factor calibration, weight-distribution
+        violins, seed-vs-targets detail, and convergence / ESS metrics::
+
+            diagnostics:
+              enabled: true
+              output_path: "weighting_diagnostics.html"
+              fit_error_thresholds: [2, 5]
+              min_seed_count_warning: 10
+              expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
+              plotly_cdn: true
+
     Parameters
     ----------
     state_fips : str
@@ -208,7 +290,7 @@ def weighting(  # noqa: PLR0913
         Control specifications, each with ``name``.
         Names must match keys in the ``CONTROLS`` registry.
     geography : dict
-        Geography crosswalk configuration.  Builds a PUMA -> target-zone
+        Geography crosswalk configuration.  Builds a PUMA → target-zone
         crosswalk from a user-supplied polygon file using Census block
         population.  See :class:`GeographyConfig`.
     pums_households, pums_persons : str | None
@@ -220,6 +302,12 @@ def weighting(  # noqa: PLR0913
         base weights are derived from stratified response inversion
         instead of the default PUMS-target fallback.  If the file does
         not exist a ``FileNotFoundError`` is raised.
+    moe_based_importance : bool
+        Compute per-control importance from PUMS replicate-weight MOEs
+        (default: False).
+    default_importance : float
+        Fallback importance when neither MOE nor explicit override is
+        set (default: 100.0).
     max_expansion_factor, min_expansion_factor : float
         Bounds on balanced / initial weight ratio.
     min_weight, max_weight : float | None
@@ -235,6 +323,40 @@ def weighting(  # noqa: PLR0913
     -------
     dict[str, pl.DataFrame]
         All canonical tables with weight columns attached.
+
+    Example config:
+        .. code-block:: yaml
+
+            - name: weighting
+              params:
+                state_fips: "06"
+                pums_year: 2023
+                pums_households: "pums/psam_h06.csv"
+                pums_persons: "pums/psam_p06.csv"
+
+                geography:
+                  target_zones:
+                    path: "geo/weighting_zones.shp"
+                    id_field: zone_id
+                  state_fips: "06"
+                  pums_year: 2023
+
+                field_mapping:
+                  households:
+                    NP: num_people
+                  persons:
+                    AGEP: age
+                    SEX: sex
+
+                controls:
+                  - name: h_size
+                  - name: h_income
+                  - name: gender
+                  - name: age
+
+                max_expansion_factor: 10
+                min_expansion_factor: 0.1
+                max_iterations: 1000
     """
     if households is None or persons is None:
         msg = "Weighting requires at least households and persons tables."

@@ -1,7 +1,32 @@
-"""Maximum-entropy list balancer.
+r"""Maximum-entropy list balancer.
 
-Thin Polars->numpy bridge around PopulationSim's ``np_balancer_numba``.
+Thin Polars→numpy bridge around PopulationSim's ``np_balancer_numba``.
 Runs independently per geography zone.
+
+Algorithm:
+    Find weight vector **w** closest to seed weights **w₀** (KL-divergence)
+    subject to marginal constraints:
+
+    .. math::
+
+        \\min \\sum_i w_i \\ln(w_i / w_{0i})
+        \\quad \\text{s.t.} \\quad Aw = t,\\; w_i \\ge 0
+
+    where **A** is the incidence matrix and **t** is the target totals
+    vector.
+
+Implementation:
+    Calls ``populationsim.balancing.balancers_numba.np_balancer_numba``
+    directly — a pure ``@njit`` function (~120 lines) taking numpy arrays.
+    No PopulationSim pipeline infrastructure involved.  Zones are
+    independent and parallelisable via ``ThreadPoolExecutor``.
+
+Configuration (YAML)::
+
+    max_iterations: 1000
+    convergence_threshold: 0.001
+    max_expansion_factor: 10    # upper bound = initial_weight x factor
+    min_expansion_factor: 0.1   # lower bound = initial_weight x factor
 """
 
 import logging

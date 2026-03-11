@@ -1,10 +1,11 @@
-Table,Field,Type,Constraints,load_data,clean_2023_bats,link_trips,detect_joint_trips,extract_tours,add_zone_ids,add_existing_weights,format_ctramp,format_daysim,write_data
+Table,Field,Type,Constraints,load_data,clean_2023_bats,link_trips,detect_joint_trips,extract_tours,weighting,add_zone_ids,format_ctramp,format_daysim,write_data
 households,hh_id,int,≥ 1, UNIQUE,,,,,x,,,,,
 households,home_lat,float,≥ -90, ≤ 90,,,,,x,,,,,
 households,home_lon,float,≥ -180, ≤ 180,,,,,x,,,,,
 households,residence_rent_own,ResidenceRentOwn,,,,,,,,,,x,
 households,residence_type,ResidenceType,,,,,,,,,,x,
 households,hh_weight,float or None,≥ 0,,,,,,,,,,
+households,num_vehicles,int,≥ 0,,,,,,x,,,,
 persons,person_id,int,≥ 1, UNIQUE,,,,,x,,,,,
 persons,hh_id,int,≥ 1, FK → `households.hh_id`, REQ_CHILD,,,,,,,,,,
 persons,person_num,int,≥ 1,,,,,,,,x,x,

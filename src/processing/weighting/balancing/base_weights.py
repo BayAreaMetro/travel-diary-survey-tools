@@ -1,6 +1,6 @@
 """Initial (base) expansion weights for the balancer.
 
-Before iterative proportional fitting, each survey household needs a
+Before balancing, each survey household needs a
 starting weight that reflects its basic expansion factor — the number of
 real-world households it represents.  Without meaningful initial weights,
 the Newton-Raphson solver starts from ``1.0`` and must bridge the gap to

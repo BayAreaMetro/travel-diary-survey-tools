@@ -4,6 +4,15 @@ Downloads ACS PUMS 1-year microdata directly from the Census Bureau API or
 loads from local CSV / Parquet files.  Handles type-casting of Census API
 string responses to proper numeric dtypes.
 
+API behaviour:
+
+* All PUMAs batched in a single API request.
+* Column chunking when >48 columns (API limit ~50), parallel via
+  ``ThreadPoolExecutor``.
+* JSON → Polars directly (no pandas intermediate).
+* Streaming download with ``tqdm`` progress bars.
+* Parquet caching at ``<cache_dir>/pums/{state}_{year}_{hh|person}.parquet``.
+
 Transformation (recoding, aggregation) lives in ``control_data``.
 """
 

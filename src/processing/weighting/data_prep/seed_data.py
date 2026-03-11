@@ -1,8 +1,21 @@
 """Survey seed-data preparation for weighting.
 
 Uses ``ControlTarget.survey_expr()`` to recode canonical survey data into
-control-category ints via native Polars expressions (vectorized, no
+control-category ints via native Polars expressions (vectorised, no
 ``map_elements``).  Every control is handled uniformly.
+
+Driven entirely by the control YAML — the same bin/group definitions are
+applied to survey fields.  A ``field_mapping`` config maps PUMS variable
+names to canonical survey field names::
+
+    field_mapping:
+      households:
+        NP: num_people
+        HINCP: income
+      persons:
+        AGEP: age
+        SEX: sex
+        JWTRNS: commute_mode_code
 """
 
 import logging

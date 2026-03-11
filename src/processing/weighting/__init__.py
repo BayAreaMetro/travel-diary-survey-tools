@@ -1,4 +1,49 @@
-"""Survey weighting utilities."""
+"""Survey weighting module.
+
+This module provides two pipeline steps for attaching expansion weights to
+survey tables:
+
+1. **``add_existing_weights``** -- load pre-computed weights from CSV files and
+   join them to tables, optionally deriving missing weights by propagating
+   values through the survey hierarchy.
+2. **``weighting``** -- compute weights from scratch using PUMS / ACS
+   microdata as population controls via maximum-entropy balancing.
+
+The ``weighting`` step internally orchestrates five sub-components:
+
+1. **Geography crosswalk** -- translate between Census PUMAs and the project's
+   custom weighting geography using block-group population as the intermediary.
+2. **Control data preparation** -- load PUMS 1-year microdata, apply the
+   crosswalk, and aggregate into marginal control totals using YAML-configured
+   variable bins.
+3. **Survey seed preparation** -- recode canonical survey variables into the
+   same bin / group categories as the controls.
+4. **Maximum-entropy balancing** -- expand households into seed records, then
+   fit weights using PopulationSim's numba core balancer per zone.
+5. **Weight propagation** -- propagate final ``hh_weight`` to all canonical
+   tables (persons, days, trips, tours).
+
+Weight hierarchy::
+
+    hh_weight
+      └─ person_weight        (carry forward via hh_id)
+          └─ day_weight        (carry forward via person_id)
+              └─ unlinked_trip_weight  (carry forward via day_id)
+                  ├─ linked_trip_weight   (mean agg via linked_trip_id)
+                  ├─ joint_trip_weight    (mean agg via joint_trip_id)
+                  └─ tour_weight          (mean agg via tour_id)
+
+Module structure::
+
+    weighting/
+    ├── existing_weights.py       # attach pre-computed weights
+    ├── weighting.py              # single @step() entry point
+    ├── controls/                 # control variable definitions & registry
+    ├── data_prep/                # PUMS I/O, control totals, survey seed, geography
+    ├── balancing/                # balancer, base weights, propagation, importance
+    ├── diagnostics/              # interactive HTML report (Plotly + Jinja2)
+    └── validation/               # post-balancing sanity checks
+"""
 
 from .existing_weights import add_existing_weights
 from .weighting import weighting

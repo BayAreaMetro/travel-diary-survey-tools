@@ -5,6 +5,32 @@ delegates the heavy lifting to :func:`utils.crosswalk.build_crosswalk`.
 
 See ``src/utils/CROSSWALK.md`` for the mathematical formulation.
 
+Approach::
+
+    Target Zones ───────────────────→ exactextract (fractional zonal stats)
+                                            ↑
+    Census Blocks → rasterize pop → pop grid ─┘
+                                            ↑
+    PUMAs         → rasterize IDs → label grid
+
+1. Load target zone polygons; auto-discover overlapping PUMAs.
+2. Download/cache TIGER PUMA and block shapefiles (via ``census_geo``).
+3. Rasterize block population into a density grid.
+4. Rasterize PUMA IDs into a categorical label grid.
+5. ``exactextract``: compute ``sum(population)`` per target zone, grouped by
+   PUMA label.
+6. Normalise: ``allocation_weight = pop(puma, target) / pop(puma)`` per PUMA.
+
+Resolution only affects within-block population distribution granularity —
+boundary accuracy is exact at any resolution due to ``exactextract``'s
+analytical sub-cell coverage.
+
+Outputs:
+
+* ``crosswalk_df``: ``puma_id``, ``ctrl_geoid``, ``population``,
+  ``allocation_weight``.
+* ``puma_ids``: list of PUMAs overlapping the study area.
+
 Usage::
 
     xw = PumaCrosswalk(geo_cfg, state_fips="06", pums_year=2023)

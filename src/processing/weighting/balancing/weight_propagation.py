@@ -2,6 +2,29 @@
 
 Used by both ``weighting`` and ``existing_weights`` (pre-computed)
 steps to propagate household weights down through the canonical table hierarchy.
+
+Weight derivation:
+
+=========== ======================== =========================================
+Table       Weight Column            Derivation
+=========== ======================== =========================================
+households  ``hh_weight``            Direct from balancer
+persons     ``person_weight``        Carry forward ``hh_weight`` via ``hh_id``
+days        ``day_weight``           Carry forward ``person_weight`` via
+                                     ``person_id``
+unlinked    ``unlinked_trip_weight``  Carry forward ``day_weight`` via
+                                     ``day_id``
+linked      ``linked_trip_weight``   Mean of constituent
+                                     ``unlinked_trip_weight``
+tours       ``tour_weight``          Mean of constituent
+                                     ``linked_trip_weight``
+=========== ======================== =========================================
+
+Checksums (logged as warnings if violated):
+
+* ``sum(person_weight) ≈ sum(hh_weight x persons_per_hh)``
+* ``sum(day_weight) ≈ sum(person_weight x complete_travel_days)``
+* ``sum(unlinked_trip_weight) ≈ sum(day_weight x trips_per_day)``
 """
 
 import logging

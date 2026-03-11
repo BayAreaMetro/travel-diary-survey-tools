@@ -6,6 +6,38 @@ default).
 
 All mapping logic lives in ``controls.py``.  This module only orchestrates
 recoding (via ``ctrl.pums_expr()``) and aggregation.
+
+Approach:
+
+1. Load PUMS data; join persons to households to carry PUMA geography.
+2. Join crosswalk; multiply PUMS weight by ``allocation_weight`` to
+   distribute into custom zones.
+3. For each control: apply filter, recode variable into bins/groups,
+   aggregate weighted sum by ``(ctrl_geoid, category)``.
+
+Control Variable YAML Configuration Example::
+
+    controls:
+      # Simple marginal — household size
+      - name: h_size
+        table: households
+        variable: NP
+        bins:
+          "1":  [1, 1]
+          "2":  [2, 2]
+          "3":  [3, 3]
+          "4+": [4, 99]
+
+      # Grouped marginal — commute mode
+      - name: commute_mode
+        table: persons
+        variable: JWTRNS
+        groups:
+          drove_alone: [1]
+          carpool:     [2, 3]
+          transit:     [4, 5, 6, 7, 8, 9]
+          other:       [10, 11, 12]
+        filter: "ESR in [1,2,4,5]"   # employed persons only
 """
 
 import logging

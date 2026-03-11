@@ -15,8 +15,8 @@ from data_canon.codebook.households import IncomeBroad
 from processing.weighting.controls.base import (
     ControlLevel,
     ControlTarget,
-    _breakpoint_expr,
-    _identity_expr,
+    breakpoint_expr,
+    identity_expr,
 )
 from processing.weighting.controls.enums import (
     HHChildrenCategory,
@@ -55,10 +55,10 @@ class HHIncomeControl(ControlTarget):
     pums_fields = ("HINCP",)
 
     def survey_expr(self) -> pl.Expr:
-        return _identity_expr("income_broad", IncomeBroad)
+        return identity_expr("income_broad", IncomeBroad)
 
     def pums_expr(self) -> pl.Expr:
-        return _breakpoint_expr("HINCP", IncomeBroad)
+        return breakpoint_expr("HINCP", IncomeBroad)
 
 
 class HHWorkersControl(ControlTarget):

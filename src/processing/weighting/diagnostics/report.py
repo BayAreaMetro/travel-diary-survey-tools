@@ -1,4 +1,10 @@
-"""Report orchestration: assemble sections and render the Jinja2 template."""
+"""Report orchestration: assemble sections and render the Jinja2 template.
+
+Entry point is :func:`generate_report`, which collects data from the
+balancer run, builds Plotly figures and HTML tables via the sibling
+modules (``charts``, ``data``, ``tables``), then renders everything
+into a single ``.html`` file using a bundled Jinja2 template.
+"""
 
 import logging
 from pathlib import Path
