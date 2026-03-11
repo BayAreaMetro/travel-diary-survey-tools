@@ -32,9 +32,14 @@ class ControlSpec:
     ----------
     name : str
         Registry name (must exist in ``CONTROLS``).
+    importance : float | None
+        Explicit importance weight for the balancer.  ``None`` means use
+        the default (100 for normal controls, 1000 for structural) or
+        the MOE-derived value when ``moe_based_importance`` is enabled.
     """
 
     name: str
+    importance: float | None = None
 
 
 @dataclass

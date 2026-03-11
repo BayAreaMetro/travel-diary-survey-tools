@@ -110,6 +110,13 @@ steps:
       #   merged_control: [category1, category2, ...]
       # merge_zones: [zone1, zone2]  # omit to apply globally
       controls:
+        # Structural controls, set importance very high to ensure totals are matched exactly (if possible)
+        - name: h_total
+          importance: 1000
+        - name: p_total
+          importance: 1000
+
+        # Household level controls
         - name: h_size
           merge:
             size_5_plus: [size_5, size_6, size_7, size_8, size_9, size_10_plus]
@@ -122,6 +129,8 @@ steps:
         - name: h_children
           merge:
             children_3_plus: [children_3, children_4, children_5_plus]
+
+        # Person level controls (get's aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment
         - name: p_age
@@ -135,6 +144,9 @@ steps:
       # max_weight:                # absolute ceiling (null = no ceiling)
       max_iterations: 10000
       n_workers: 4                 # parallel zone balancing (numba releases GIL)
+      default_importance: 100      # baseline importance for controls without an explicit override
+      # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
+      moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
 
   # -- Existing weights (alternative to computing new weights) ----------
   # Uncomment this block and comment out the 'weighting' step above

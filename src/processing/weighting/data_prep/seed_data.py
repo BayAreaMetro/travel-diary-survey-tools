@@ -188,6 +188,15 @@ def _apply_recode(df: pl.DataFrame, ctrl: ControlTarget) -> pl.DataFrame:
 
 def _require_fields(df: pl.DataFrame, ctrl: ControlTarget) -> None:
     """Raise ``KeyError`` if the primary survey field is absent."""
+    # Structural controls (h_total, p_total) have no survey fields.
+    if ctrl.structural:
+        return
+    if not ctrl.survey_fields:
+        msg = (
+            f"Target '{ctrl.name}' has no survey_fields defined. "
+            f"Set structural=True if this is intentional."
+        )
+        raise ValueError(msg)
     # Optional secondary fields (e.g., school_type for p_student) may be
     # absent; we only require the first (primary) field.
     if ctrl.survey_fields[0] not in df.columns:

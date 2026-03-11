@@ -23,6 +23,7 @@ from processing.weighting.controls.enums import (
     HHSizeCategory,
     HHVehiclesCategory,
     HHWorkersCategory,
+    TotalCategory,
 )
 
 
@@ -110,3 +111,21 @@ class HHChildrenControl(ControlTarget):
 
     def pums_expr(self) -> pl.Expr:
         return pl.col("_n_children").clip(0, 5).cast(pl.Int16)
+
+
+class HHTotalControl(ControlTarget):
+    """Structural control: total households (incidence = 1 per HH)."""
+
+    name = "h_total"
+    level = ControlLevel.HOUSEHOLD
+    description = "Total households"
+    categories = TotalCategory
+    survey_fields = ()
+    pums_fields = ()
+    structural = True
+
+    def survey_expr(self) -> pl.Expr:
+        return pl.lit(1).cast(pl.Int16)
+
+    def pums_expr(self) -> pl.Expr:
+        return pl.lit(1).cast(pl.Int16)

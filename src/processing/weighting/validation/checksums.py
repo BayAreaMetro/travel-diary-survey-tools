@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 # Max number of failures to show in logs (with summary count if more)
-_MAX_ROWS = 20
+_MAX_ROWS = 5
 
 
 # -- shared helpers ------------------------------------------------------------

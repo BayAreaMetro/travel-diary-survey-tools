@@ -100,7 +100,7 @@ src/processing/weighting/
 │   ├── base_weights.py        #   initial expansion weights (sample-plan or PUMS-target)
 │   ├── weight_propagation.py  #   propagate weights to all canonical tables
 │   ├── dow.py                 # 🔲 Planned — DOW household-day expansion
-│   └── importance.py          # 🔲 Planned — control importance weights from PUMS MOE/variance
+│   └── importance.py          # ✅ Implemented — MOE-based importance from PUMS replicate weights
 │
 ├── diagnostics/               # ✅ Implemented — HTML report + crosswalk map
 │   ├── __init__.py
@@ -116,27 +116,15 @@ src/processing/weighting/
     └── weight_checks.py       #   post-balancing sanity checks
 ```
 
-### TODO: Control importance calculator (`importance.py`)
+### ~~TODO~~ DONE: Control importance calculator (`importance.py`)
 
-The balancer currently passes `controls_importance = np.ones(...)` — all controls are weighted equally. This is suboptimal: controls with high sampling variance (wide MOE) should be given less importance so the balancer doesn't chase noise.
+The balancer supports a three-tier importance system:
 
-**Proposed formula:**
+1. **Default** — `100` for all controls
+2. **MOE-based** — when `moe_based_importance: true` in config, uses PUMS successive-difference replicate weights (`WGTP1`–`WGTP80` / `PWGTP1`–`PWGTP80`) via the `samplics` library to estimate per-control CV, then normalizes so median importance = 100
+3. **Explicit override** — per-control `importance:` in YAML takes highest precedence
 
-$$
-\text{importance}_i = \frac{1}{\sqrt{\text{Var}(\hat{t}_i)}}
-$$
-
-where $\hat{t}_i$ is the PUMS estimate for control cell $i$ and $\text{Var}(\hat{t}_i)$ is derived from the PUMS margin of error (MOE):
-
-$$
-\text{SE} = \frac{\text{MOE}}{1.645} \quad\Rightarrow\quad \text{Var} = \text{SE}^2
-$$
-
-The MOE can be:
-1. **Directly provided** — PUMS published tables include MOE columns alongside estimates.
-2. **Calculated from replicate weights** — using the `samplics` library's `ReplicateEstimator` with the 80 PUMS replicate weight columns (`WGTP1`–`WGTP80` for HH, `PWGTP1`–`PWGTP80` for persons). This is more accurate for custom geographies where published MOEs don't exist.
-
-The importance vector is then normalized so the median equals 1.0 (preserving the current default behavior for well-estimated controls while down-weighting noisy ones).
+**Implementation:** `importance.py` computes per-zone, per-cell CVs using the Census Bureau successive-difference formula, takes the median CV per control, and inverts to get importance (lower CV → higher importance). Structural controls always receive fixed `1000` importance regardless of MOE.
 
 ---
 

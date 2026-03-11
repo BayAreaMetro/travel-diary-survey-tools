@@ -43,6 +43,7 @@ from processing.weighting.controls.enums import (
     EmploymentCategory,
     GenderCategory,
     StudentCategory,
+    TotalCategory,
 )
 
 
@@ -397,3 +398,26 @@ class AgeControl(ControlTarget):
 
     def pums_expr(self) -> pl.Expr:
         return _breakpoint_expr("AGEP", AgeCategory)
+
+
+class PersonTotalControl(ControlTarget):
+    """Structural control: total persons (incidence = 1 per person).
+
+    When aggregated to the seed table (one row per household), the incidence
+    column becomes the count of persons in the household — effectively the
+    non-top-coded household size.
+    """
+
+    name = "p_total"
+    level = ControlLevel.PERSON
+    description = "Total persons"
+    categories = TotalCategory
+    survey_fields = ()
+    pums_fields = ()
+    structural = True
+
+    def survey_expr(self) -> pl.Expr:
+        return pl.lit(1).cast(pl.Int16)
+
+    def pums_expr(self) -> pl.Expr:
+        return pl.lit(1).cast(pl.Int16)

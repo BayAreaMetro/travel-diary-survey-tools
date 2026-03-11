@@ -101,7 +101,13 @@ def fit_diverging_figure(
             col=c_idx + 1,
         )
 
-    fig.update_xaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black", title_text="% Error")
+    fig.update_xaxes(
+        zeroline=True,
+        zerolinewidth=1,
+        zerolinecolor="black",
+        title_text="% Error",
+        matches="x",  # shared x-range across all panels
+    )
     fig.update_yaxes(tickfont_size=9)
     fig.update_layout(
         autosize=False,
@@ -138,6 +144,20 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
         width=960,
         height=max(400, 60 * len(zones)),
         margin={"l": 60, "r": 20, "t": 40, "b": 40},
+        updatemenus=[
+            {
+                "type": "buttons",
+                "direction": "left",
+                "x": 1.0,
+                "y": 1.02,
+                "xanchor": "right",
+                "yanchor": "bottom",
+                "buttons": [
+                    {"label": "Log", "method": "relayout", "args": [{"yaxis.type": "log"}]},
+                    {"label": "Linear", "method": "relayout", "args": [{"yaxis.type": "linear"}]},
+                ],
+            }
+        ],
     )
     return fig
 

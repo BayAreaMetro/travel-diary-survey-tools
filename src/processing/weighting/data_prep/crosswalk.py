@@ -179,6 +179,17 @@ class PumaCrosswalk:
         ).with_columns(
             (pl.col("WGTP").cast(pl.Float64) * pl.col("allocation_weight")).alias("_xw_WGTP"),
         )
+
+        # Scale household replicate weights if present
+        hh_rep_cols = [c for c in hh_xw.columns if c.startswith("WGTP") and c[4:].isdigit()]
+        if hh_rep_cols:
+            hh_xw = hh_xw.with_columns(
+                [
+                    (pl.col(c).cast(pl.Float64) * pl.col("allocation_weight")).alias(f"_xw_{c}")
+                    for c in hh_rep_cols
+                ]
+            )
+
         person_xw = (
             person_df.join(hh_df.select("SERIALNO", geo_col), on="SERIALNO", how="left")
             .join(xw, left_on=pl.col(geo_col).cast(pl.Utf8), right_on="puma_id", how="inner")
@@ -186,6 +197,16 @@ class PumaCrosswalk:
                 (pl.col("PWGTP").cast(pl.Float64) * pl.col("allocation_weight")).alias("_xw_PWGTP"),
             )
         )
+
+        # Scale person replicate weights if present
+        per_rep_cols = [c for c in person_xw.columns if c.startswith("PWGTP") and c[5:].isdigit()]
+        if per_rep_cols:
+            person_xw = person_xw.with_columns(
+                [
+                    (pl.col(c).cast(pl.Float64) * pl.col("allocation_weight")).alias(f"_xw_{c}")
+                    for c in per_rep_cols
+                ]
+            )
         logger.info(
             "Crosswalk join: %d HH -> %d, %d persons -> %d",
             len(hh_df),

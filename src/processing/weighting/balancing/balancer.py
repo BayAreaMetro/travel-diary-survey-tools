@@ -13,7 +13,8 @@ import numpy as np
 import polars as pl
 from populationsim.balancing.balancers_numba import np_balancer_numba
 
-from processing.weighting.controls.base import ControlLevel, ControlTarget
+from processing.weighting.balancing.importance import DEFAULT_IMPORTANCE
+from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.data_prep.control_data import ControlTotals
 
@@ -42,6 +43,7 @@ class ZoneInput(NamedTuple):
     lb: np.ndarray
     ub: np.ndarray
     targets: np.ndarray
+    importance: np.ndarray
     master_idx: int
     max_iterations: int
     geo_id: str
@@ -84,7 +86,8 @@ def balance_weights(
     targets: list[str],
     *,
     merges: list[MergeSpec] | None = None,
-    geo_col: str = "puma_id",
+    importance: dict[str, float] | None = None,
+    default_importance: float = DEFAULT_IMPORTANCE,
     max_expansion_factor: float = 10.0,
     min_expansion_factor: float = 0.1,
     min_weight: float | None = None,
@@ -109,8 +112,13 @@ def balance_weights(
         balancing.  Each spec collapses incidence rows + target entries
         for the specified categories.  Zone-specific merges are supported
         via ``MergeSpec.zones``.
-    geo_col : str
-        Geography column on *seed*.
+    importance : dict[str, float] | None
+        Per-control importance overrides.  Keys are control registry names,
+        values are importance weights.  Controls not listed use
+        *default_importance*.  ``None`` uses defaults for all.
+    default_importance : float
+        Baseline importance for controls without an explicit override
+        (default 100).
     max_expansion_factor, min_expansion_factor : float
         Bounds on final / initial weight ratio.
     min_weight, max_weight : float | None
@@ -130,6 +138,7 @@ def balance_weights(
         One entry per zone with convergence info.
     """
     merges = merges or []
+    geo_col = "ctrl_geoid"
 
     # Build per-zone inputs
     zone_inputs: list[ZoneInput] = []
@@ -147,6 +156,8 @@ def balance_weights(
                 targets,
                 merges,
                 geo_id,
+                importance=importance,
+                default_importance=default_importance,
                 min_expansion_factor=min_expansion_factor,
                 max_expansion_factor=max_expansion_factor,
                 min_weight=min_weight,
@@ -187,6 +198,8 @@ def _prepare_zone(
     merges: list[MergeSpec],
     geo_id: str,
     *,
+    importance: dict[str, float] | None,
+    default_importance: float,
     min_expansion_factor: float,
     max_expansion_factor: float,
     min_weight: float | None,
@@ -200,14 +213,22 @@ def _prepare_zone(
         targets,
     )
 
+    # Importance: default for every row, then apply overrides
+    overrides = importance or {}
+    imp_vec = np.full(len(row_labels), default_importance, dtype=np.float64)
+    for i, (ctrl_name, _member) in enumerate(row_labels):
+        if ctrl_name in overrides:
+            imp_vec[i] = overrides[ctrl_name]
+
     zone_merges = [m for m in merges if m.zones is None or geo_id in m.zones]
     if zone_merges:
-        incidence, ctrl_targets, master_idx = _apply_merges(
+        incidence, ctrl_targets, master_idx, imp_vec = _apply_merges(
             incidence,
             ctrl_targets,
             row_labels,
             master_idx,
             zone_merges,
+            imp_vec,
         )
 
     if "base_weight" not in zone_seed.columns:
@@ -217,15 +238,16 @@ def _prepare_zone(
         )
         raise ValueError(msg)
     initial = zone_seed["base_weight"].to_numpy().astype(np.float64)
-    lb, ub = _bounds(
-        initial,
-        ctrl_targets,
-        master_idx,
-        min_expansion_factor,
-        max_expansion_factor,
-        min_weight,
-        max_weight,
-    )
+
+    # Bounds: expansion-factor scaling, then optional absolute clipping
+    total = initial.sum()
+    ratio = float(ctrl_targets[master_idx]) / total if total > 0 else 1.0
+    lb = np.maximum(initial * min_expansion_factor * ratio, 0.0)
+    ub = np.maximum(initial * max_expansion_factor * ratio, 1.0)
+    if min_weight is not None:
+        lb = np.maximum(lb, min_weight)
+    if max_weight is not None:
+        ub = np.minimum(ub, max_weight)
 
     return ZoneInput(
         hh_ids=zone_seed["hh_id"],
@@ -234,6 +256,7 @@ def _prepare_zone(
         lb=lb,
         ub=ub,
         targets=ctrl_targets,
+        importance=imp_vec,
         master_idx=master_idx,
         max_iterations=max_iterations,
         geo_id=geo_id,
@@ -256,7 +279,7 @@ def _balance_zone(zone: ZoneInput) -> ZoneResult:
         weights_lower_bound=zone.lb,
         weights_upper_bound=zone.ub,
         controls_constraint=zone.targets,
-        controls_importance=np.ones(zone.incidence.shape[0], dtype=np.float64),
+        controls_importance=zone.importance,
         max_iterations=zone.max_iterations,
     )
 
@@ -293,6 +316,9 @@ def _build_incidence(
 ) -> tuple[np.ndarray, np.ndarray, int, list[tuple[str, str]]]:
     """Build incidence matrix + target vector for one zone.
 
+    ``"h_total"`` must be present in *targets* and serves as the master
+    control (incidence = 1 for every household).
+
     Returns:
     -------
     incidence : np.ndarray
@@ -300,64 +326,57 @@ def _build_incidence(
     targets : np.ndarray
         Target totals, one per control row.
     master_control_index : int
-        Row index of the total-HH constraint.
+        Row index of ``h_total``.
     row_labels : list[tuple[str, str]]
-        ``(control_name, member_name)`` for each row.  The master row
-        is labelled ``("_total_hh", "_total_hh")``.
+        ``(control_name, member_name)`` for each row.
     """
+    if "h_total" not in targets:
+        msg = "'h_total' must be included in the controls list."
+        raise ValueError(msg)
+
     n = len(zone_seed)
     rows: list[np.ndarray] = []
     tgt: list[float] = []
     labels: list[tuple[str, str]] = []
+    master_idx = -1
 
-    # Row 0: total-HH control (incidence = 1 for every household)
-    master_idx = 0
-    rows.append(np.ones(n, dtype=np.float64))
-    labels.append(("_total_hh", "_total_hh"))
-    hh_names = [t for t in targets if CONTROLS[t].level == ControlLevel.HOUSEHOLD]
-    if hh_names:
-        total_hh = float(
-            zone_totals.filter(pl.col("control_name") == hh_names[0])["target_total"].sum()
-        )
-    else:
-        total_hh = float(n)
-    tgt.append(total_hh)
-
-    # Remaining rows: one per control x category
     for name in targets:
         ctrl = CONTROLS[name]
         ctrl_rows = zone_totals.filter(pl.col("control_name") == name)
         if len(ctrl_rows) == 0:
             continue
 
+        member_map = {v: m.lower() for v, m in ctrl.valid_members}
+
         for cat_val, target_val in zip(
             ctrl_rows["category"].to_list(),
             ctrl_rows["target_total"].to_list(),
             strict=True,
         ):
-            member = _member_name(ctrl, cat_val)
+            if cat_val not in member_map:
+                msg = f"Category {cat_val} not in {ctrl.name}.valid_members"
+                raise ValueError(msg)
+            member = member_map[cat_val]
+
+            # Incidence row: HH controls use direct comparison,
+            # person controls use pre-expanded dummy columns
             if ctrl.level == ControlLevel.HOUSEHOLD:
-                col = zone_seed[name].to_numpy()
-                rows.append((col == cat_val).astype(np.float64))
+                row = (zone_seed[name].to_numpy() == cat_val).astype(np.float64)
             else:
                 col_name = f"{name}__{member}"
                 if col_name in zone_seed.columns:
-                    rows.append(zone_seed[col_name].to_numpy().astype(np.float64))
+                    row = zone_seed[col_name].to_numpy().astype(np.float64)
                 else:
-                    rows.append(np.zeros(n, dtype=np.float64))
+                    row = np.zeros(n, dtype=np.float64)
+
+            rows.append(row)
             labels.append((name, member))
             tgt.append(float(target_val))
 
+            if name == "h_total" and master_idx == -1:
+                master_idx = len(labels) - 1
+
     return np.vstack(rows), np.array(tgt, dtype=np.float64), master_idx, labels
-
-
-def _member_name(ctrl: ControlTarget, cat_val: int) -> str:
-    """Map a category int to its lowercase enum member name."""
-    for value, name in ctrl.valid_members:
-        if value == cat_val:
-            return name.lower()
-    msg = f"Category {cat_val} not in {ctrl.name}.valid_members"
-    raise ValueError(msg)
 
 
 # -- Merge helpers -----------------------------------------------------------
@@ -369,7 +388,8 @@ def _apply_merges(
     row_labels: list[tuple[str, str]],
     master_idx: int,
     merges: list[MergeSpec],
-) -> tuple[np.ndarray, np.ndarray, int]:
+    importance: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, int, np.ndarray]:
     """Collapse incidence rows + target entries for merged categories.
 
     For each ``MergeSpec``, every group maps several base member names to
@@ -390,10 +410,12 @@ def _apply_merges(
         Row index of the total-HH master control.
     merges : list[MergeSpec]
         Merge specifications to apply.
+    importance : np.ndarray
+        Importance weights per row.  Merged rows keep the first row's value.
 
     Returns:
     -------
-    incidence, targets, master_idx
+    incidence, targets, master_idx, importance
         Reduced arrays and (possibly shifted) master index.
     """
     for spec in merges:
@@ -434,33 +456,10 @@ def _apply_merges(
             keep_mask = [i not in remove for i in range(len(row_labels))]
             incidence = incidence[keep_mask]
             targets = targets[keep_mask]
+            importance = importance[keep_mask]
             row_labels[:] = [lbl for i, lbl in enumerate(row_labels) if i not in remove]
 
             # Recompute master_idx after removal
-            master_idx = next(i for i, (c, _) in enumerate(row_labels) if c == "_total_hh")
+            master_idx = next(i for i, (c, _) in enumerate(row_labels) if c == "h_total")
 
-    return incidence, targets, master_idx
-
-
-# -- Bounds ------------------------------------------------------------------
-
-
-def _bounds(
-    initial: np.ndarray,
-    targets: np.ndarray,
-    master_idx: int,
-    min_factor: float,
-    max_factor: float,
-    min_weight: float | None = None,
-    max_weight: float | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Weight bounds scaled by target/sample ratio, then clipped to absolutes."""
-    total = initial.sum()
-    ratio = float(targets[master_idx]) / total if master_idx >= 0 and total > 0 else 1.0
-    lb = np.maximum(initial * min_factor * ratio, 0.0)
-    ub = np.maximum(initial * max_factor * ratio, 1.0)
-    if min_weight is not None:
-        lb = np.maximum(lb, min_weight)
-    if max_weight is not None:
-        ub = np.minimum(ub, max_weight)
-    return lb, ub
+    return incidence, targets, master_idx, importance

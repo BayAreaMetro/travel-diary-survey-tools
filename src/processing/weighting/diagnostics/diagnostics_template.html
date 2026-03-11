@@ -4,6 +4,14 @@
 <meta charset="utf-8"/>
 <title>{{ title }}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script>
+/* Prevent Plotly resize observer from triggering relayout (causes scroll-jump). */
+document.addEventListener('DOMContentLoaded', function() {
+  if (window.Plotly && window.Plotly.Plots) {
+    window.Plotly.Plots.resize = function() {};
+  }
+});
+</script>
 <style>
   body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
   h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
@@ -32,7 +40,7 @@
 
 <h2>2 &mdash; Convergence &amp; Fit</h2>
 <p class="note">
-  Population totals are derived from the first household- and person-level control.
+  Population totals are derived from the first household- and person-level control.<br>
   What to look for:<br>
 
     &bull; <b>Convergence</b>: Did the balancer converge within the specified tolerance and iteration limit?<br>
@@ -84,10 +92,15 @@
 
 <h2>5 &mdash; Unweighted Cell Counts (Data Sparsity)</h2>
 <p class="note">
-  Unweighted household or person counts per control category per zone. This can be useful for deciding whether
-  to merge control categories or merge zones.
-  <br> Low counts (&lt;&nbsp;30) flag thin cells where the balancer has little
-  data to work with.
+  Unweighted household or person counts per control category per zone.<br>
+  What to look for:<br>
+
+  &bull; Low overall sample count in a zone is a candidate for merging that zone with another (e.g. merge two adjacent low-sample zones into one larger zone). Zones don't technically need to be adjacent to be merged, but it makes intuitive sense and usually aligns with larger contextual geography.<br>
+
+  &bull; Low counts across all zones are candidate for global category merging (e.g. collapsing age 65+ instead of 65-74, 75-84, 85+).<br>
+
+  &bull; Low counts in a specific zone-category pair can be surgically merged for that cell only. But be careful with this approach as it can lead to a patchwork of different category definitions across zones, which can be hard to track and interpret.
+  
 </p>
 {{ sparsity_html }}
 

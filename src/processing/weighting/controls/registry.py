@@ -11,6 +11,7 @@ from processing.weighting.controls.household import (
     HHChildrenControl,
     HHIncomeControl,
     HHSizeControl,
+    HHTotalControl,
     HHVehiclesControl,
     HHWorkersControl,
 )
@@ -21,6 +22,7 @@ from processing.weighting.controls.person import (
     EmploymentControl,
     EthnicityControl,
     GenderControl,
+    PersonTotalControl,
     RaceControl,
     StudentControl,
 )
@@ -32,11 +34,13 @@ from processing.weighting.controls.person import (
 CONTROLS: dict[str, ControlTarget] = {
     t.name: t
     for t in [
+        HHTotalControl(),
         HHSizeControl(),
         HHIncomeControl(),
         HHWorkersControl(),
         HHVehiclesControl(),
         HHChildrenControl(),
+        PersonTotalControl(),
         GenderControl(),
         EmploymentControl(),
         CommuteModeControl(),

@@ -86,6 +86,7 @@ class ControlTarget:
     categories: type[Enum]
     survey_fields: tuple[str, ...]
     pums_fields: tuple[str, ...]
+    structural: bool = False
 
     def survey_expr(self) -> pl.Expr:
         """Polars expression mapping survey columns → control int (Int16)."""

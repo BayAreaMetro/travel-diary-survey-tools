@@ -19,6 +19,7 @@ from pipeline.cache import PipelineCache
 from pipeline.decoration import step
 from processing.weighting.balancing.balancer import MergeSpec, balance_weights
 from processing.weighting.balancing.base_weights import compute_base_weights, load_sample_plan
+from processing.weighting.balancing.importance import compute_moe_importance
 from processing.weighting.balancing.weight_propagation import (
     collect_tables,
     non_null_tables,
@@ -57,16 +58,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 def _parse_controls(
     controls: list[dict],
-) -> tuple[list[ControlSpec], list[str], list[MergeSpec]]:
-    """Extract specs, target names, and merge specs from raw config dicts."""
-    specs = [ControlSpec(**{k: v for k, v in c.items() if k in ("name",)}) for c in controls]
+) -> tuple[list[ControlSpec], list[str], list[MergeSpec], dict[str, float]]:
+    """Extract specs, target names, merge specs, and explicit importance overrides."""
+    _spec_keys = ("name", "importance")
+    specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
     target_names = [s.name for s in specs]
     merge_specs = [
         MergeSpec(control=c["name"], groups=c["merge"], zones=c.get("merge_zones"))
         for c in controls
         if c.get("merge")
     ]
-    return specs, target_names, merge_specs
+    importance = {s.name: s.importance for s in specs if s.importance is not None}
+    return specs, target_names, merge_specs, importance
 
 
 def _build_control_totals(
@@ -78,21 +81,36 @@ def _build_control_totals(
     pums_year: int,
     pums_households: str | None,
     pums_persons: str | None,
-) -> ControlTotals:
-    """Load PUMS, recode, allocate via crosswalk, and aggregate control totals."""
+    load_replicate_weights: bool = False,
+    cache_dir: Path | None = None,
+) -> tuple[ControlTotals, pl.DataFrame | None, pl.DataFrame | None]:
+    """Load PUMS, recode, allocate via crosswalk, and aggregate control totals.
+
+    When *load_replicate_weights* is True the crosswalk-allocated PUMS
+    frames are returned alongside the totals so downstream code can
+    compute replicate-weight MOEs.  Otherwise ``(totals, None, None)``.
+    """
     if pums_households is not None and pums_persons is not None:
         logger.info("Loading PUMS from local files")
-        pums_hh, pums_per = load_pums_from_files(pums_households, pums_persons)
+        pums_hh, pums_per = load_pums_from_files(
+            pums_households, pums_persons, load_replicate_weights=load_replicate_weights
+        )
     else:
         source = PUMSSource(state_fips=state_fips, pums_year=pums_year, puma_ids=xw.puma_ids)
         logger.info("Fetching PUMS via Census API: state=%s year=%d", state_fips, pums_year)
-        pums_hh, pums_per = fetch_pums_data(source)
+        pums_hh, pums_per = fetch_pums_data(
+            source, load_replicate_weights=load_replicate_weights, cache_dir=cache_dir
+        )
 
     pums_hh = recode_pums_households(pums_hh, pums_per, target_names)
     pums_per = recode_pums_persons(pums_per, target_names)
 
     pums_hh_xw, pums_per_xw = xw.allocate_pums_weights(pums_hh, pums_per)
-    return build_control_totals(pums_hh_xw, pums_per_xw, specs, geo_col="ctrl_geoid")
+    totals = build_control_totals(pums_hh_xw, pums_per_xw, specs, geo_col="ctrl_geoid")
+
+    if load_replicate_weights:
+        return totals, pums_hh_xw, pums_per_xw
+    return totals, None, None
 
 
 def _build_seed(
@@ -162,6 +180,9 @@ def weighting(  # noqa: PLR0913
     sample_plan: str | None = None,
     # -- Pipeline plumbing (auto-injected by @step decorator) -----------
     pipeline_cache: PipelineCache | None = None,
+    # -- Importance / MOE -----------------------------------------
+    moe_based_importance: bool = False,
+    default_importance: float = 100.0,
     # -- Balancing params --------------------------------------
     max_expansion_factor: float = 10.0,
     min_expansion_factor: float = 0.1,
@@ -223,7 +244,7 @@ def weighting(  # noqa: PLR0913
         raise ValueError(msg)
 
     # -- 1. Parse config --------------------------------------------
-    specs, target_names, merge_specs = _parse_controls(controls)
+    specs, target_names, merge_specs, importance = _parse_controls(controls)
     logger.info("Controls: %s", target_names)
 
     cache_dir = pipeline_cache.cache_dir if pipeline_cache else None
@@ -238,7 +259,7 @@ def weighting(  # noqa: PLR0913
     )
 
     # -- 3. PUMS control totals -------------------------------------
-    control_totals = _build_control_totals(
+    control_totals, pums_hh_xw, pums_per_xw = _build_control_totals(
         xw,
         specs,
         target_names,
@@ -246,7 +267,23 @@ def weighting(  # noqa: PLR0913
         pums_year=pums_year,
         pums_households=pums_households,
         pums_persons=pums_persons,
+        load_replicate_weights=moe_based_importance,
+        cache_dir=cache_dir,
     )
+
+    # -- 3b. MOE-based importance (optional) -------------------------
+    if moe_based_importance and pums_hh_xw is not None and pums_per_xw is not None:
+        moe_importance = compute_moe_importance(pums_hh_xw, pums_per_xw, target_names)
+        # YAML explicit overrides take precedence over MOE-derived values
+        moe_importance.update(importance)
+        importance = moe_importance
+        # Free the large replicate-weight frames
+        del pums_hh_xw, pums_per_xw
+
+    full_importance = {name: importance.get(name, default_importance) for name in target_names}
+    imp_lines = "\n".join(f"  {k}: {v:.1f}" for k, v in full_importance.items())
+    logger.info("Importance weights:\n%s", imp_lines)
+
     logger.info(
         "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
         len(control_totals.geo_ids),
@@ -278,7 +315,8 @@ def weighting(  # noqa: PLR0913
         control_totals,
         target_names,
         merges=merge_specs,
-        geo_col="ctrl_geoid",
+        importance=importance or None,
+        default_importance=default_importance,
         max_expansion_factor=max_expansion_factor,
         min_expansion_factor=min_expansion_factor,
         min_weight=min_weight,

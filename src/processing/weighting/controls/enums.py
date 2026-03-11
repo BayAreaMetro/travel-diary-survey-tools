@@ -100,3 +100,12 @@ class StudentCategory(IntEnum):
     NOT_STUDENT = 0
     STUDENT_K12 = 1
     STUDENT_COLLEGE = 2
+
+
+# -- Structural controls ---------------------------------------------------
+
+
+class TotalCategory(IntEnum):
+    """Single-category enum for h_total / p_total structural controls."""
+
+    TOTAL = 1

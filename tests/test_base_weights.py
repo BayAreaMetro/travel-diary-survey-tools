@@ -262,11 +262,14 @@ class TestBalancerRequiresBaseWeight:
 
     def test_balance_weights_missing_base_weight_raises(self):
         """balance_weights → _prepare_zone should raise on missing col."""
-        ct = _make_control_totals({"Z1": [("h_size", 1, 500.0), ("h_size", 2, 500.0)]})
+        ct = _make_control_totals(
+            {"Z1": [("h_total", 1, 3.0), ("h_size", 1, 500.0), ("h_size", 2, 500.0)]}
+        )
         seed = pl.DataFrame(
             {
                 "hh_id": [1, 2, 3],
                 "ctrl_geoid": ["Z1", "Z1", "Z1"],
+                "h_total": [1, 1, 1],
                 "h_size": [1, 2, 1],
             }
         )
@@ -274,8 +277,7 @@ class TestBalancerRequiresBaseWeight:
             balance_weights(
                 seed,
                 ct,
-                ["h_size"],
-                geo_col="ctrl_geoid",
+                ["h_total", "h_size"],
             )
 
 
