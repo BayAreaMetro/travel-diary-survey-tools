@@ -17,6 +17,7 @@
   details { margin: .5rem 0; }
   summary { cursor: pointer; font-weight: 600; }
   .chart { margin: 1rem 0; }
+  .chart-map { margin: 1rem 0; max-width: 960px; }
   .note { color: #666; font-size: 0.9em; margin-bottom: 1rem; }
 </style>
 </head>
@@ -24,11 +25,7 @@
 
 <h1>{{ title }}</h1>
 <p class="note">
-  This map depicts the spatial crosswalk from PUMAs to the target geographies. 
-  This allows us to use any custom target geography, regardless of PUMA geography.
-  If zones overlap, the PUMAs are allocated using a block-group-level population-weighted
-  share of the PUMA that contributes to that target geography.
-  If PUMAs nest within the target geographies, then the allocations are all 100% or 0%.
+  This map depicts the spatial crosswalk from PUMAs to the target geographies. This allows us to use any custom target geography, regardless of PUMA geography. If zones overlap, the PUMAs are allocated using a block-group-level population-weighted share of the PUMA that contributes to that target geography. If PUMAs nest within the target geographies, then the allocations are all 100% or 0%.
 </p>
 {{ crosswalk_section }}
 {{ crosswalk_table }}
@@ -37,43 +34,51 @@
 <p class="note">
   Population totals are derived from the first household- and person-level control.
   What to look for:<br>
+
     &bull; <b>Convergence</b>: Did the balancer converge within the specified tolerance and iteration limit?<br>
+
     &bull; <b>Fit</b>: How close are the weighted totals to the targets? Look at MAPE and the % error bars below.<br>
-    &bull; <b>Household/Person</b>: Do both household and persons match? 
-      If not you may need to apply greater importance on h_total or p_total to overcome the inherent sampling bias
+
+    &bull; <b>Household/Person</b>: Do both household and persons match? If not you may need to apply greater importance on h_total or p_total to overcome the inherent sampling bias
       against large-households that results in total population being deflated.<br>
-    &bull; <b>Effective Sample Size (ESS)</b>: How much variability in weights?
-      If ESS is low, the balancer is relying heavily on a few records, which can lead to unstable estimates.<br>
-    &bull; <b>Coefficient of Variation (CV)</b>: Another measure of weight variability;
-      high CV indicates extreme weights.<br>
+</p>
+<p class="note">
   Metric summary:<br>
-    &bull; <b>MAPE</b> is the mean |%&nbsp;error| across all control categories for the zone.<br>
-    &bull; <b>ESS (Design Effect)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic);
-      above 80% is good, below 50% suggests a few records dominate. 
-      The formula is derived from the concept of design effect in survey sampling, 
-      which quantifies how much the variability of estimates is inflated due to weighting.
-      <br>
-    &bull; <b>CV</b> Coefficient of variation of weights: standard deviation / mean.
-      High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
+
+    &bull; <b>Mean Absolute Percent Error (MAPE)</b> is the mean |%&nbsp;error| across all control categories for the zone. Average fit.<br>
+
+    &bull; <b>P90</b> is the 90th percentile |%&nbsp;error|; highlights how bad the worst-fitting categories are without being swamped by a single outlier.<br>
+
+    &bull; <b>Max</b> is the single worst |%&nbsp;error| across all categories for the zone.<br>
+
+    &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic); above 80% is good, below 50% suggests a few records dominate. The formula is derived from the concept of design effect in survey sampling, which quantifies how much the variability of estimates is inflated due to weighting.<br>
+
+    &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean. Another measure of weight variability; High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
 </p>
 {{ zone_overview_table }}
 
 <h2>3 &mdash; Weight Distribution</h2>
 <p class="note">
   What to look for:<br>
+
   &bull; Weights not too variable (high CV) and not too extreme (EF hitting bounds).<br>
+
   &bull; We expect a roughly log-normal distribution of weights and not too lumpy;
   it is plotted on log-scale so it should be closer to &ldquo;normal&rdquo;.<br>
+
   &bull; Multi-modality is not wrong per se, but is indicative that weights are
   being driven by a few key variables (e.g. a single dominant control category)
   and may be unstable.
+
 </p>
 {{ weight_distribution_table }}
 <div class="chart">{{ violins_html }}</div>
 
 <h2>4 &mdash; Target Fit (% Error)</h2>
 <p class="note">
-  Bars show (weighted &minus; target) / target &times; 100. Hover for absolute values.
+  Bars show (weighted &minus; target) / target &times; 100. Hover for absolute values.<br>
+  What to look for:<br>
+  &bull; Bars close to zero indicate good fit; large bars indicate poor fit.<br>
 </p>
 <div class="chart">{{ fit_bars_html }}</div>
 

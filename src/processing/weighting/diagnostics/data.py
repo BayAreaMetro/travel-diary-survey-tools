@@ -152,6 +152,9 @@ def zone_fit_summary(
     for z in zones:
         zf = fit.filter(pl.col("geo_id") == z)
         mape = zf["diff_pct"].abs().mean() or 0.0
+        abs_errs = zf["diff_pct"].abs()
+        p90 = abs_errs.quantile(0.9, interpolation="higher") or 0.0
+        max_err = abs_errs.max() or 0.0
 
         ht, hw, he = _pop(zf, hh_ctrl)
         pt, pw, pe = _pop(zf, per_ctrl)
@@ -165,6 +168,8 @@ def zone_fit_summary(
                 "per_weighted": pw,
                 "per_pct_err": pe,
                 "mape": mape,
+                "p90_err": p90,
+                "max_err": max_err,
             }
         )
 

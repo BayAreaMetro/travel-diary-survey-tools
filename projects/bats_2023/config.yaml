@@ -91,11 +91,11 @@ steps:
         # Keys are group names, values are lists of zones combined into a single balancing zone.
         # Also useful for applying names to things.
         zone_groups:
-          marin_napa_solano_sonoma: ["041", "097", "095", "055"]
-          contra_costa: ["013"]
-          alameda: ["001"]
-          san_mateo_santa_clara: ["085", "081"]
-          san_francisco: ["075"]
+          "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
+          "Contra Costa": ["013"]
+          "Alameda": ["001"]
+          "San Mateo/Santa Clara": ["085", "081"]
+          "San Francisco": ["075"]
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.

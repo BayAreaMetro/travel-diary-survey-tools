@@ -57,7 +57,9 @@ def generate_report(
         xw_div = crosswalk_fig.to_html(
             full_html=False, include_plotlyjs=False, config={"responsive": False}
         )
-        crosswalk_section = f'<h2>1 &mdash; Crosswalk Map</h2>\n<div class="chart">{xw_div}</div>'
+        crosswalk_section = (
+            f'<h2>1 &mdash; Crosswalk Map</h2>\n<div class="chart-map">{xw_div}</div>'
+        )
     else:
         crosswalk_section = ""
 

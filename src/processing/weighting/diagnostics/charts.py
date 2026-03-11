@@ -104,6 +104,8 @@ def fit_diverging_figure(
     fig.update_xaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black", title_text="% Error")
     fig.update_yaxes(tickfont_size=9)
     fig.update_layout(
+        autosize=False,
+        width=960,
         height=max(350, 18 * len(cat_labels) * n_rows + 40 * n_rows),
         margin={"l": 160, "r": 20, "t": 30, "b": 20},
     )
@@ -132,6 +134,8 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
         title="Household Weight Distribution by Zone",
         yaxis_title="hh_weight",
         yaxis_type="log",
+        autosize=False,
+        width=960,
         height=max(400, 60 * len(zones)),
         margin={"l": 60, "r": 20, "t": 40, "b": 40},
     )
@@ -429,6 +433,9 @@ def crosswalk_figure(
             "center": {"lat": (bounds[1] + bounds[3]) / 2, "lon": (bounds[0] + bounds[2]) / 2},
             "zoom": 8,
         },
+        autosize=False,
+        width=960,
+        height=700,
         margin={"l": 0, "r": 0, "t": 30, "b": 0},
         title="Crosswalk: PUMA to Target Zones",
     )

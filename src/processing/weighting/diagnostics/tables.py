@@ -60,6 +60,8 @@ def zone_overview_table(
         '<th colspan="2">Household</th>'
         '<th colspan="2">Person</th>'
         '<th rowspan="2">MAPE</th>'
+        '<th rowspan="2">P90</th>'
+        '<th rowspan="2">Max</th>'
         '<th rowspan="2">ESS %</th>'
         "</tr>"
     )
@@ -90,6 +92,8 @@ def zone_overview_table(
             _tag("td", f"{f.get('per_target', 0):,.0f}"),
             _tag("td", f"{f.get('per_pct_err', 0):+.1f}%"),
             _tag("td", f"{f.get('mape', 0):.2f}%"),
+            _tag("td", f"{f.get('p90_err', 0):.2f}%"),
+            _tag("td", f"{f.get('max_err', 0):.2f}%"),
             _tag("td", f"{ess_pct:.1f}%"),
         ]
         data_rows.append("<tr>" + "".join(cells) + "</tr>")
@@ -220,7 +224,7 @@ def unweighted_cell_counts(seed: pl.DataFrame, target_names: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> str:
+def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> str:  # noqa: C901, PLR0912
     """Compact Zone -> HH Samples table with optional Zone Group column."""
     # Use original zone IDs for sample counts (zone groups remap ctrl_geoid)
     count_col = "_orig_ctrl_geoid" if "_orig_ctrl_geoid" in seed.columns else "ctrl_geoid"
@@ -249,16 +253,48 @@ def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> s
 
     headers = []
     if has_groups:
-        headers.append("Zone Group")
+        headers += ["Zone Group", "Grouped HH Samples"]
     headers += ["Zone", "HH Samples"]
     header = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
 
+    # Build runs of consecutive zones sharing the same group for rowspan
+    group_runs: list[tuple[str, int]] = []  # (group_name, span)
+    if has_groups:
+        for geo in zones:
+            grp = zone_to_group.get(geo, "")
+            if group_runs and group_runs[-1][0] == grp and grp:
+                group_runs[-1] = (grp, group_runs[-1][1] + 1)
+            else:
+                group_runs.append((grp, 1))
+
+    # Grouped sample totals
+    group_sample_totals: dict[str, int] = {}
+    if has_groups:
+        for geo, grp in zone_to_group.items():
+            group_sample_totals[grp] = group_sample_totals.get(grp, 0) + sample_counts.get(geo, 0)
+
     body_rows: list[str] = []
+    run_idx = 0
+    pos_in_run = 0
     for geo in zones:
         cells = ""
         if has_groups:
-            cells += _tag("td", zone_to_group.get(geo, ""))
-        cells += _tag("td", geo)
+            grp = zone_to_group.get(geo, "")
+            if grp and group_runs:
+                _, span = group_runs[run_idx]
+                if pos_in_run == 0:
+                    rs = f' rowspan="{span}"' if span > 1 else ""
+                    cells += f"<td{rs}>{grp}</td>"
+                    total = group_sample_totals.get(grp, 0)
+                    cells += f"<td{rs}>{total:,}</td>"
+                pos_in_run += 1
+                if pos_in_run >= span:
+                    run_idx += 1
+                    pos_in_run = 0
+            else:
+                cells += _tag("td", "")
+                cells += _tag("td", "")
+        cells += f'<td style="text-align:left">{geo}</td>'
         cells += _tag("td", f"{sample_counts.get(geo, 0):,}")
         body_rows.append(f"<tr>{cells}</tr>")
 
