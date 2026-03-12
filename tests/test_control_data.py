@@ -257,11 +257,11 @@ class TestRecodePumsPersons:
         # JWTRNS=[1, 2, 11, None, None, None, None], JWRIP=[1, None, None, ...]
         # Person 0: JWTRNS=1, JWRIP=1 → DRIVE_ALONE
         # Person 1: JWTRNS=2 → TRANSIT
-        # Person 2: JWTRNS=11 → WFH
+        # Person 2: JWTRNS=11 → MOSTLY_REMOTE
         # Persons 3-6: None → NA
         assert modes[0] == int(CommuteModeCategory.DRIVE_ALONE)
         assert modes[1] == int(CommuteModeCategory.TRANSIT)
-        assert modes[2] == int(CommuteModeCategory.WFH)
+        assert modes[2] == int(CommuteModeCategory.MOSTLY_REMOTE)
 
     def test_student_recode(self, pums_persons):
         """Student status control is derived from SCHG and SCHL."""

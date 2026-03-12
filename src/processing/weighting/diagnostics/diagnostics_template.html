@@ -5,15 +5,18 @@
 <title>{{ title }}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <script>
-/* Prevent Plotly resize observer from triggering relayout (causes scroll-jump). */
-document.addEventListener('DOMContentLoaded', function() {
-  if (window.Plotly && window.Plotly.Plots) {
-    window.Plotly.Plots.resize = function() {};
-  }
-});
+/*
+ * Neutralise Plotly's resize handler *immediately* after the synchronous CDN
+ * script finishes — no DOMContentLoaded wait.  Waiting for DOMContentLoaded
+ * left a window where Plotly could attach ResizeObservers on chart divs as
+ * they were parsed, triggering relayout and the visible flicker.
+ */
+if (window.Plotly && window.Plotly.Plots) {
+  window.Plotly.Plots.resize = function() { return Promise.resolve(); };
+}
 </script>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
+  body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; transition: opacity .15s ease-in; }
   h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
   h2 { margin-top: 2rem; color: #444; }
   table { border-collapse: collapse; margin: 1rem 0; }
@@ -24,12 +27,14 @@ document.addEventListener('DOMContentLoaded', function() {
   .failed { color: #c33; font-weight: bold; }
   details { margin: .5rem 0; }
   summary { cursor: pointer; font-weight: 600; }
-  .chart { margin: 1rem 0; }
-  .chart-map { margin: 1rem 0; max-width: 960px; }
+  .chart { margin: 1rem 0; contain: layout style; overflow: hidden; }
+  .chart-map { margin: 1rem 0; max-width: 960px; contain: layout style; }
   .note { color: #666; font-size: 0.9em; margin-bottom: 1rem; }
+  table.sparsity { table-layout: fixed; width: 100%; }
+  table.sparsity th, table.sparsity td { word-wrap: break-word; overflow-wrap: break-word; }
 </style>
 </head>
-<body>
+<body style="opacity:0">
 
 <h1>{{ title }}</h1>
 <p class="note">
@@ -89,21 +94,33 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <h2>5 &mdash; Unweighted Cell Counts (Data Sparsity)</h2>
 <p class="note">
-  Unweighted household or person counts per control category per zone versus PUMS-derived targets in italic parentheses.<br>
+  Unweighted household or person counts per control category per zone versus PUMS-derived targets in italic parentheses to provide context for how well-represented a category is in the underlying population.<br>
+<br>
   What to look for:<br>
 
   &bull; Low overall sample count in a zone is a candidate for merging that zone with another (e.g. merge two adjacent low-sample zones into one larger zone). Zones don't technically need to be adjacent to be merged, but it makes intuitive sense and usually aligns with larger contextual geography.<br>
 
   &bull; Low counts across all zones are candidate for global category merging (e.g. collapsing age 65+ instead of 65-74, 75-84, 85+).<br>
 
-  &bull; Low counts in a specific zone-category pair can be surgically merged for that cell only. But be careful with this approach as it can lead to a patchwork of different category definitions across zones, which can be hard to track and interpret.
+  &bull; Low counts in a specific zone-category pair can be surgically merged for that cell only. But be careful with this approach as it can lead to a patchwork of different category definitions across zones, which can be hard to track and interpret.<br>
   
-  &bull; There is no hard threshold for what constitutes a &ldquo;low&rdquo; count, but cells with fewer than 30 unweighted records are highlighted in red as a warning sign. The appropriate threshold can depend on the context and the variability of the data, but 10 is a common rule of thumb in survey analysis for minimum cell counts to ensure stability of estimates.
+  &bull; There is no hard threshold for what constitutes a &ldquo;low&rdquo; count, but cells with fewer than 30 unweighted records are highlighted in red as a warning sign. The appropriate threshold can depend on the context and the variability of the data, but 10 is a common rule of thumb in survey analysis for minimum cell counts to ensure stability of estimates.<br>
 
-  &bull; PUMS-derived targets in italic parentheses provide context for how well-represented a category is in the underlying population. If a category has a low sample count but also represents a small percentage of the population, it may be less concerning than a low count in a category that represents a large share of the population. If PUMS target is also low then it is a strong candidate for merging.<br>
+  &bull; If a category has a low sample count but also represents a small percentage of the population, it may be less concerning than a low count in a category that represents a large share of the population. If PUMS target is also low then it is a strong candidate for merging.<br>
 
 </p>
 {{ sparsity_html }}
+
+<script>
+/*
+ * Reveal the page after all Plotly charts have been parsed and rendered.
+ * The body starts with opacity:0 so intermediate reflows and chart
+ * initialisations are invisible, preventing flicker.  A single rAF
+ * ensures the browser has flushed the current (invisible) frame before
+ * we flip to visible, so the user sees only the fully-rendered state.
+ */
+requestAnimationFrame(function() { document.body.style.opacity = '1'; });
+</script>
 
 </body>
 </html>

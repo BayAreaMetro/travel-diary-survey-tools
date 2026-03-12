@@ -57,7 +57,7 @@ def generate_report(
     """Write the self-contained HTML diagnostics report to *output_path*."""
     weighted = seed.join(weights.select("hh_id", "hh_weight"), on="hh_id", how="left")
     weighted_totals = compute_weighted_totals(seed, weights, target_names)
-    fit = apply_fit_merges(fit_table(control_totals, weighted_totals), merge_specs)
+    fit = apply_fit_merges(fit_table(control_totals, weighted_totals), merge_specs, target_names)
     zf = zone_fit_summary(fit, target_names)
 
     # Section 1 — crosswalk map
@@ -92,7 +92,7 @@ def generate_report(
         "crosswalk_table": crosswalk_table,
         "balancer_performance_table": balancer_performance_table(statuses, weighted, zf),
         "weight_quality_table": weight_quality_table(weighted),
-        "fit_bars_html": fit_diverging_figure(fit, target_names, merges=merge_specs).to_html(
+        "fit_bars_html": fit_diverging_figure(fit, target_names).to_html(
             full_html=False,
             include_plotlyjs=False,
             config={"responsive": False},

@@ -284,13 +284,124 @@ class TestRecodeSurveyPersons:
         assert emps == expected
 
     def test_student_recode_with_school_type(self, survey_persons):
-        """Student status is derived from both student and school_type fields."""
+        """Student status is derived from student, school_type, and age fields."""
         result = recode_survey_persons(survey_persons, ["p_student"])
         students = result.sort("person_id")["p_student"].to_list()
         # student: [2, 2, 2, 2, 0, 2], school_type: [None, None, None, None, 5, None]
-        # Most are non-student (2). Person 203 (student=0, school_type=5) → K12
+        # age:     [5, 4, 6, 3, 1, 9]
+        # Persons with student=2 (NONSTUDENT) → NOT_STUDENT (tier 1)
+        # Person 203: student=0, school_type=5 (ELEMENTARY) → K12 (tier 2)
         assert students[0] == int(StudentCategory.NOT_STUDENT)
         assert students[4] == int(StudentCategory.STUDENT_K12)  # person_id=203
+
+    def test_student_tier1_explicit_nonstudent(self):
+        """Tier 1: explicit non-student overrides everything, even K-12 school_type."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1],
+                "person_id": [1, 2],
+                "student": [2, 2],  # NONSTUDENT
+                "school_type": [5, 12],  # ELEMENTARY, COLLEGE_4YEAR
+                "age": [2, 5],  # AGE_5_TO_15, AGE_25_TO_34
+            }
+        )
+        result = recode_survey_persons(persons, ["p_student"])
+        vals = result.sort("person_id")["p_student"].to_list()
+        assert vals == [int(StudentCategory.NOT_STUDENT)] * 2
+
+    def test_student_tier2_k12_school_types(self):
+        """Tier 2: K-12 school types → STUDENT_K12 (preschool through high school)."""
+        # SchoolType: PRESCHOOL=3, HOME_SCHOOL=4, ELEMENTARY=5, MIDDLE=6, HIGH=7
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1] * 5,
+                "person_id": list(range(1, 6)),
+                "student": [995] * 5,  # MISSING (children < 16)
+                "school_type": [3, 4, 5, 6, 7],
+                "age": [1, 2, 2, 2, 3],  # various child ages
+            }
+        )
+        result = recode_survey_persons(persons, ["p_student"])
+        vals = result.sort("person_id")["p_student"].to_list()
+        assert vals == [int(StudentCategory.STUDENT_K12)] * 5
+
+    def test_student_tier3_college_school_types(self):
+        """Tier 3: college school types → STUDENT_COLLEGE."""
+        # SchoolType: VOCATIONAL=10, COLLEGE_2YEAR=11, COLLEGE_4YEAR=12, GRADUATE=13
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1] * 4,
+                "person_id": list(range(1, 5)),
+                "student": [995] * 4,  # MISSING
+                "school_type": [10, 11, 12, 13],
+                "age": [4, 4, 5, 5],  # adult ages
+            }
+        )
+        result = recode_survey_persons(persons, ["p_student"])
+        vals = result.sort("person_id")["p_student"].to_list()
+        assert vals == [int(StudentCategory.STUDENT_COLLEGE)] * 4
+
+    def test_student_tier4_childcare_not_school(self):
+        """Tier 4: ATHOME/DAYCARE are not school in the Census sense → NOT_STUDENT."""
+        # SchoolType: ATHOME=1, DAYCARE=2
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1],
+                "person_id": [1, 2],
+                "student": [995, 995],  # MISSING
+                "school_type": [1, 2],  # ATHOME, DAYCARE
+                "age": [1, 1],  # AGE_UNDER_5
+            }
+        )
+        result = recode_survey_persons(persons, ["p_student"])
+        vals = result.sort("person_id")["p_student"].to_list()
+        assert vals == [int(StudentCategory.NOT_STUDENT)] * 2
+
+    def test_student_tier5_age_fallback_school_age(self):
+        """Tier 5: both missing + school-age (5-17) → K12."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1],
+                "person_id": [1, 2],
+                "student": [995, 995],  # MISSING
+                "school_type": [None, 995],  # null and MISSING
+                "age": [2, 3],  # AGE_5_TO_15, AGE_16_TO_17
+            }
+        )
+        result = recode_survey_persons(persons, ["p_student"])
+        vals = result.sort("person_id")["p_student"].to_list()
+        assert vals == [int(StudentCategory.STUDENT_K12)] * 2
+
+    def test_student_tier5_age_fallback_non_school_age(self):
+        """Tier 5: both missing + non-school-age → NOT_STUDENT."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1, 1],
+                "person_id": [1, 2, 3],
+                "student": [995, 995, 995],  # MISSING
+                "school_type": [None, None, 995],  # missing
+                "age": [1, 4, 9],  # UNDER_5, 18-24, 65-74
+            }
+        )
+        result = recode_survey_persons(persons, ["p_student"])
+        vals = result.sort("person_id")["p_student"].to_list()
+        assert vals == [int(StudentCategory.NOT_STUDENT)] * 3
+
+    def test_student_tier6_active_student_missing_school_type(self):
+        """Tier 6: active student with missing school_type defaults to COLLEGE."""
+        # Student: FULLTIME_INPERSON=0, PARTTIME_ONLINE=3
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1],
+                "person_id": [1, 2],
+                "student": [0, 3],  # active students
+                "school_type": [None, 995],  # missing school_type
+                "age": [4, 5],  # adult ages
+            }
+        )
+        result = recode_survey_persons(persons, ["p_student"])
+        vals = result.sort("person_id")["p_student"].to_list()
+        assert vals == [int(StudentCategory.STUDENT_COLLEGE)] * 2
 
     def test_age_recode(self, survey_persons):
         """Age category recode should map canonical AgeCategory values to control categories."""
@@ -324,6 +435,103 @@ class TestRecodeSurveyPersons:
             int(CommuteModeCategory.DRIVE_ALONE),
         ]
         assert modes == expected
+
+    def test_mostly_remote_job_type_wfh(self):
+        """job_type == 3 (WFH) → MOSTLY_REMOTE regardless of other fields."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1],
+                "person_id": [1, 2],
+                "work_mode": [1, None],  # walk, null
+                "job_type": [3, 3],  # WFH for both
+                "telework_freq": [None, None],
+                "commute_freq": [None, None],
+            }
+        )
+        result = recode_survey_persons(persons, ["p_commute_mode"])
+        modes = result.sort("person_id")["p_commute_mode"].to_list()
+        assert modes == [
+            int(CommuteModeCategory.MOSTLY_REMOTE),
+            int(CommuteModeCategory.MOSTLY_REMOTE),
+        ]
+
+    def test_mostly_remote_high_telework_rarely_commutes(self):
+        """Telework 5+ days/week AND rarely/never commutes → MOSTLY_REMOTE."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1, 1],
+                "person_id": [1, 2, 3],
+                "work_mode": [1, None, 1],
+                "job_type": [1, 5, 1],  # not WFH
+                "telework_freq": [2, 1, 2],  # 5 days, 6-7 days, 5 days
+                "commute_freq": [996, 8, 3],  # never, less than monthly, 4 days/week
+            }
+        )
+        result = recode_survey_persons(persons, ["p_commute_mode"])
+        modes = result.sort("person_id")["p_commute_mode"].to_list()
+        assert modes[0] == int(CommuteModeCategory.MOSTLY_REMOTE)  # 5 days tw + never commute
+        assert modes[1] == int(CommuteModeCategory.MOSTLY_REMOTE)  # 6-7 days tw + less than monthly
+        assert modes[2] != int(
+            CommuteModeCategory.MOSTLY_REMOTE
+        )  # 5 days tw + 4 days commute (close split)
+
+    def test_mostly_remote_telework_ratio_over_60(self):
+        """Telework ratio >60%: commute_freq > telework_freq + 1 → MOSTLY_REMOTE."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1, 1, 1],
+                "person_id": [1, 2, 3, 4],
+                "work_mode": [1, 1, 1, 1],
+                "job_type": [1, 1, 1, 1],
+                "telework_freq": [2, 3, 4, 2],  # 5 days, 4 days, 3 days, 5 days
+                "commute_freq": [5, 6, 6, 3],  # 2 days, 1 day, 1 day, 4 days
+            }
+        )
+        result = recode_survey_persons(persons, ["p_commute_mode"])
+        modes = result.sort("person_id")["p_commute_mode"].to_list()
+        # tw=2, cf=5: diff=3 > 1 → MOSTLY_REMOTE
+        assert modes[0] == int(CommuteModeCategory.MOSTLY_REMOTE)
+        # tw=3, cf=6: diff=3 > 1 → MOSTLY_REMOTE
+        assert modes[1] == int(CommuteModeCategory.MOSTLY_REMOTE)
+        # tw=4, cf=6: diff=2 > 1 → MOSTLY_REMOTE
+        assert modes[2] == int(CommuteModeCategory.MOSTLY_REMOTE)
+        # tw=2, cf=3: diff=1, NOT > 1 → falls through to work_mode
+        assert modes[3] != int(CommuteModeCategory.MOSTLY_REMOTE)
+
+    def test_not_mostly_remote_about_half(self):
+        """Roughly equal telework/commute (within 1 step) → NOT mostly remote."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1],
+                "person_id": [1, 2],
+                "work_mode": [1, None],
+                "job_type": [1, 1],
+                "telework_freq": [3, 4],  # 4 days, 3 days
+                "commute_freq": [4, 4],  # 3 days, 3 days
+            }
+        )
+        result = recode_survey_persons(persons, ["p_commute_mode"])
+        modes = result.sort("person_id")["p_commute_mode"].to_list()
+        # diff=1 ≤ 1 → not mostly remote → falls through to work_mode
+        assert modes[0] == int(CommuteModeCategory.WALK)  # work_mode=1
+        assert modes[1] == int(CommuteModeCategory.NA)  # work_mode=None
+
+    def test_not_mostly_remote_missing_freq(self):
+        """Missing telework/commute freq → falls through to work_mode."""
+        persons = pl.DataFrame(
+            {
+                "hh_id": [1, 1],
+                "person_id": [1, 2],
+                "work_mode": [1, None],
+                "job_type": [1, 1],
+                "telework_freq": [995, None],
+                "commute_freq": [None, 995],
+            }
+        )
+        result = recode_survey_persons(persons, ["p_commute_mode"])
+        modes = result.sort("person_id")["p_commute_mode"].to_list()
+        assert modes[0] == int(CommuteModeCategory.WALK)
+        assert modes[1] == int(CommuteModeCategory.NA)
 
     def test_missing_field_raises(self):
         """Requesting a target whose source field is absent must raise."""

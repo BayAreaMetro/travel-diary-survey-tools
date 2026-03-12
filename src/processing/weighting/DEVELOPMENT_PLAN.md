@@ -202,9 +202,10 @@ MAPE and P90 decrease (improve) as EF increases; CV worsens and ESS% drops. The 
 | # | Feature | Depends On | Complexity | Impact |
 |---|---------|-----------|------------|--------|
 | 1 | Cross-tab targets | — | Medium | High — enables joint demographic controls (age×sex, income×workers) that significantly improve weight quality |
-| 2 | Custom trip targets | — | High | Medium — useful for matching to NTD/FHWA but adds architectural complexity |
-| 3 | DOW structuring | — | Medium | High — critical for surveys with day-of-week sampling imbalance |
+| 2 | Custom trip targets | — | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
+| 3 | DOW structuring | — | High | High — critical for surveys with day-of-week sampling imbalance |
 | 4 | Platform bias | — | Low–High (method-dependent) | Medium — important for mixed-mode surveys but many surveys are single-platform |
-| 5 | EF grid search | — | Low | Medium — calibration aid; no algorithmic changes, purely diagnostic |
+| 5 | EF grid search | — | Low | Low — calibration aid; no algorithmic changes, purely diagnostic |
+| 6 | Integration tests | 1–5 | Medium | High — ensures correctness and prevents regressions as features are added |
 
 Features 1 and 3 are independent and can be developed in parallel. Feature 2 is architecturally distinct (non-linear constraints). Feature 4 is orthogonal — it modifies inputs (base weights or controls) rather than the balancer itself. Feature 5 is self-contained — it only adds a diagnostic loop and chart with no impact on the core balancer.

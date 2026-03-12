@@ -18,6 +18,7 @@ from data_canon.codebook.generic import BooleanYesNo, LocationType
 from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
+    CommuteFreq,
     Employment,
     Gender,
     JobType,
@@ -73,6 +74,8 @@ class PersonModel(BaseModel):
     school_type: SchoolType | None = step_field(required_in_steps=["extract_tours"])
     work_park: WorkParking | None = step_field(required_in_steps=["format_daysim"])
     work_mode: Mode | None = step_field(required_in_steps=["format_daysim"])
+    telework_freq: CommuteFreq | None = step_field(default=None, required_in_steps=["weighting"])
+    commute_freq: CommuteFreq | None = step_field(default=None, required_in_steps=["weighting"])
     # NOTE: These commute subsidy fields are only used in CTRAMP format
     # But might be useful elsewhere, consider standardizing to be less vague
     # and/or moved into a data model extension.

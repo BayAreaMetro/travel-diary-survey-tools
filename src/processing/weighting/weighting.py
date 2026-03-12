@@ -82,11 +82,18 @@ def _parse_controls(
     _spec_keys = ("name", "importance")
     specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
     target_names = [s.name for s in specs]
-    merge_specs = [
+
+    # Global merges first (zones=None), then per-zone merges.
+    # Order matters: zone_merges may reference labels created by global merges.
+    merge_specs: list[MergeSpec] = [
         MergeSpec(control=c["name"], groups=c["merge"], zones=c.get("merge_zones"))
         for c in controls
         if c.get("merge")
     ]
+    for c in controls:
+        for zone_id, groups in c.get("zone_merges", {}).items():
+            merge_specs.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
+
     importance = {s.name: s.importance for s in specs if s.importance is not None}
     return specs, target_names, merge_specs, importance
 

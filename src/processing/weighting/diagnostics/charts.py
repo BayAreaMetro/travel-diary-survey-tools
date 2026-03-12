@@ -8,23 +8,22 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-from .data import category_label_map
-
-_WARN_PCT = 25  # bright-red threshold
+_WARN_PCT = 10  # bright-red threshold
 
 
 def fit_diverging_figure(
     fit: pl.DataFrame,
-    target_names: list[str],
-    *,
-    merges: list | None = None,
 ) -> go.Figure:
-    """Grid of horizontal diverging bar charts (% error, one panel per zone + overall)."""
-    labels = category_label_map(target_names, merges)
+    """Grid of horizontal diverging bar charts (% error, one panel per zone + overall).
+
+    Expects *fit* to contain a ``label`` column (added by
+    :func:`~.data.apply_fit_merges`).  Null placeholder rows are rendered
+    as invisible bars so the y-axis remains consistent across panels.
+    """
     zones = sorted(fit["geo_id"].unique().to_list())
 
     overall = (
-        fit.group_by("control_name", "category")
+        fit.group_by("control_name", "category", "label")
         .agg(pl.col("target_total").sum(), pl.col("weighted_total").sum())
         .with_columns(
             ((pl.col("weighted_total") - pl.col("target_total")) / pl.col("target_total") * 100)
@@ -33,7 +32,7 @@ def fit_diverging_figure(
             .alias("diff_pct"),
             (pl.col("weighted_total") - pl.col("target_total")).alias("diff"),
         )
-        .sort("control_name", "category")
+        .sort("control_name", "category", "label")
     )
 
     panels = [*zones, "Overall"]
@@ -51,25 +50,29 @@ def fit_diverging_figure(
     )
 
     # Consistent y-label ordering from the overall panel
-    cat_labels = [
-        labels.get((r["control_name"], r["category"]), f"{r['control_name']}:{r['category']}")
-        for r in overall.iter_rows(named=True)
-    ]
+    cat_labels = [r["label"] for r in overall.iter_rows(named=True)]
 
     for idx, panel in enumerate(panels):
         r_idx, c_idx = divmod(idx, n_cols)
         pdf = (
             overall
             if panel == "Overall"
-            else fit.filter(pl.col("geo_id") == panel).sort("control_name", "category")
+            else fit.filter(pl.col("geo_id") == panel).sort("control_name", "category", "label")
         )
 
         y, x, colors, hovers = [], [], [], []
         for r in pdf.iter_rows(named=True):
-            lbl = labels.get(
-                (r["control_name"], r["category"]),
-                f"{r['control_name']}:{r['category']}",
-            )
+            lbl = r["label"]
+            target = r["target_total"]
+
+            # Null placeholder -> invisible bar for consistent y-axis
+            if target is None:
+                y.append(lbl)
+                x.append(None)
+                colors.append("rgba(0,0,0,0)")
+                hovers.append("")
+                continue
+
             pct = r["diff_pct"]
             y.append(lbl)
             x.append(pct)
@@ -81,7 +84,7 @@ def fit_diverging_figure(
                 colors.append("#5ab4ac")
             hovers.append(
                 f"<b>{lbl}</b><br>"
-                f"Target: {r['target_total']:,.1f}<br>"
+                f"Target: {target:,.1f}<br>"
                 f"Weighted: {r['weighted_total']:,.1f}<br>"
                 f"Diff: {r['diff']:+,.1f}<br>"
                 f"Diff %: {pct:+.1f}%"

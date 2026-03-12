@@ -52,7 +52,7 @@ def weight_sanity_checks(
 
     if per_ctrl and "person_weight" in per.columns and geo_col in hh.columns:
         per_with_zone = per.join(
-            hh.select("hh_id", geo_col, *(["base_weight"] if "base_weight" in hh.columns else [])),
+            hh.select("hh_id", geo_col, "base_weight"),
             on="hh_id",
             how="left",
         )
@@ -88,13 +88,11 @@ def _compare_and_log(
     target_df: pl.DataFrame,
     *,
     weight_col: str,
-    base_weight_col: str | None = None,
+    base_weight_col: str,
     geo_col: str,
     label: str,
 ) -> None:
     """Compare summed survey weights to targets per zone and log results."""
-    has_base = base_weight_col is not None and base_weight_col in df.columns
-
     # Per-zone aggregation
     agg_exprs = [
         pl.col(weight_col).sum().alias("survey_total"),
@@ -102,9 +100,8 @@ def _compare_and_log(
         pl.col(weight_col).max().alias("wt_max"),
         pl.col(weight_col).mean().alias("wt_mean"),
         pl.col(weight_col).median().alias("wt_median"),
+        pl.col(base_weight_col).sum().alias("base_total"),
     ]
-    if has_base:
-        agg_exprs.append(pl.col(base_weight_col).sum().alias("base_total"))  # pyright: ignore[reportArgumentType]
     survey_by_zone = df.group_by(geo_col).agg(agg_exprs)
 
     target_by_zone = (
@@ -124,7 +121,7 @@ def _compare_and_log(
     w = df[weight_col].drop_nulls()
     region_survey = float(comp["survey_total"].sum())
     region_target = float(comp["target_total"].sum() or 0.0)
-    region_base = float(comp["base_total"].sum()) if has_base else 0.0
+    region_base = float(comp["base_total"].sum())
     region_pct = (region_survey - region_target) / region_target * 100 if region_target else 0.0
 
     # Log: region distribution
@@ -147,7 +144,7 @@ def _compare_and_log(
         logger.info(
             "  %-8s %12.0f %12.0f %12.0f %+7.2f%% %8.1f %8.1f %8.1f %8.1f",
             str(row[geo_col]),
-            row.get("base_total", 0.0) or 0.0,
+            row["base_total"],
             row["survey_total"],
             row["target_total"] or 0.0,
             row["pct_diff"] or 0.0,

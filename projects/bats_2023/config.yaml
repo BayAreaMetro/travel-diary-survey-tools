@@ -107,28 +107,48 @@ steps:
       # and merge up to a coarser set as necessary to achieve convergence.
       # The merge can be global (all zones) or zone-specific
       # merge:
-      #   merged_control: [category1, category2, ...]
+      #   merged_label: [category1, category2, ...]
       # merge_zones: [zone1, zone2]  # omit to apply globally
+      #
+      # For additional per-zone merges on top of the global merge, use
+      # zone_merges (applied after global, so merged labels are available):
+      # zone_merges:
+      #   "06001":
+      #     further_merged: [category_a, already_merged_label]
+      #   "06075":
+      #     another_merged: [category_b, already_merged_label]
       controls:
         # Structural controls, set importance very high to ensure totals are matched exactly (if possible)
         - name: h_total
-          importance: 1000
+          importance: 500
         - name: p_total
-          importance: 1000
+          importance: 500
 
         # Household level controls
         - name: h_size
           merge:
             size_5_plus: [size_5, size_6, size_7, size_8, size_9, size_10_plus]
+          zone_merges:
+            "San Mateo/Santa Clara": # SM/SC has very few large households
+              size_4_plus: [size_4, size_5_plus]
+
         - name: h_workers
           merge:
             workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
+
         - name: h_vehicles
           merge:
             veh_3_plus: [veh_3, veh_4, veh_5, veh_6_plus]
+          zone_merges:
+            "San Francisco": # SF has very few households with 3+ vehicles
+              veh_2_plus: [veh_2, veh_3_plus]
+
         - name: h_children
           merge:
-            children_3_plus: [children_3, children_4, children_5_plus]
+            children_2_plus: [children_2,children_3, children_4, children_5_plus]
+          zone_merges:
+            "San Francisco": # SF has very few households with 2+ children
+              children_1_plus: [children_1, children_2_plus]
 
         # Person level controls (get's aggregated to household level, i.e., num age group per household)
         - name: p_gender
@@ -138,9 +158,9 @@ steps:
             car: ["carpool", "drive_alone"]
 
         - name: p_student
-          merge:
-            university: ["student_college"]
-            nonuniversity: ["student_k12", "not_student"]
+          # merge:
+          #   university: ["student_college"]
+          #   nonuniversity: ["student_k12", "not_student"]
 
         - name: p_age
           merge:

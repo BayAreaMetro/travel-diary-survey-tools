@@ -6,17 +6,20 @@ person-level weighting targets.
 
 All ``survey_expr`` / ``pums_expr`` overrides implement the interface
 documented in :class:`ControlTarget` — individual method docstrings
-are omitted for brevity (ruff noqa: D102).
+are omitted for brevity (ruff noqa: D102) because the base class
+fully documents the expected behavior and error handling.
 """
 
 import polars as pl
 
 from data_canon.codebook.persons import (
     AgeCategory,
+    CommuteFreq,
     Education,
     Employment,
     Ethnicity,
     Gender,
+    JobType,
     Race,
     SchoolType,
     Student,
@@ -136,14 +139,42 @@ class EmploymentControl(ControlTarget):
 
 
 class CommuteModeControl(ControlTarget):
-    """Commute mode (drive, carpool, transit, bike, walk, WFH, other, N/A)."""
+    """Commute mode (drive, carpool, transit, bike, walk, mostly_remote, other, N/A).
+
+    Survey side: Uses a combination of ``job_type``, ``telework_freq``, and
+    ``commute_freq`` to identify mostly-remote workers — those whose telework
+    frequency exceeds their commute frequency.  For all other workers the
+    observed ``work_mode`` determines the category.
+
+    PUMS side: ``JWTRNS=11`` ("Worked at home") maps to ``MOSTLY_REMOTE``.
+    This is the closest analog — the PUMS question asks about the *usual*
+    mode to work, so respondents who mostly remote-work select this.
+    """
 
     name = "p_commute_mode"
     level = ControlLevel.PERSON
     description = "Commute mode"
     categories = CommuteModeCategory
-    survey_fields = ("work_mode",)
+    survey_fields = ("work_mode", "job_type", "telework_freq", "commute_freq")
     pums_fields = ("JWTRNS", "JWRIP")
+
+    # -- Survey helpers ----------------------------------------------------
+
+    # Telework-freq codes that count as "weekly or more" (eligible for ratio)
+    _WEEKLY_PLUS: list[int] = [
+        CommuteFreq.DAYS_6_7.value,  # 1
+        CommuteFreq.DAYS_5.value,  # 2
+        CommuteFreq.DAYS_4.value,  # 3
+        CommuteFreq.DAYS_3.value,  # 4
+        CommuteFreq.DAYS_2.value,  # 5
+        CommuteFreq.DAY_1.value,  # 6
+    ]
+
+    # Commute-freq codes meaning "rarely or never commutes"
+    _RARELY_COMMUTES: list[int] = [
+        CommuteFreq.LESS_THAN_MONTHLY.value,  # 8
+        CommuteFreq.NEVER.value,  # 996
+    ]
 
     # ModeType → CommuteModeCategory (intermediate for building _survey_map)
     _mode_type_to_commute: dict[ModeType, int] = {
@@ -171,6 +202,8 @@ class CommuteModeControl(ControlTarget):
         for mode, mtype in ModeType.from_mode().items()
     }
 
+    # -- PUMS map ----------------------------------------------------------
+
     _pums_map: dict[int, int] = {
         PumsJwtrns.CAR_TRUCK_VAN.value: CommuteModeCategory.DRIVE_ALONE,
         PumsJwtrns.BUS.value: CommuteModeCategory.TRANSIT,
@@ -182,14 +215,49 @@ class CommuteModeControl(ControlTarget):
         PumsJwtrns.MOTORCYCLE.value: CommuteModeCategory.OTHER,
         PumsJwtrns.BICYCLE.value: CommuteModeCategory.BIKE,
         PumsJwtrns.WALKED.value: CommuteModeCategory.WALK,
-        PumsJwtrns.WORKED_AT_HOME.value: CommuteModeCategory.WFH,
+        PumsJwtrns.WORKED_AT_HOME.value: CommuteModeCategory.MOSTLY_REMOTE,
         PumsJwtrns.OTHER.value: CommuteModeCategory.OTHER,
     }
 
     def survey_expr(self) -> pl.Expr:
-        """Null work_mode → NA (not a commuter)."""
+        """Classify survey persons into commute-mode categories.
+
+        Mostly-remote detection (checked first):
+          1. ``job_type == 3`` (WFH always)
+          2. telework 5+ days/week AND rarely/never commutes
+          3. Telework ratio >60%: ``commute_freq > telework_freq + 1``
+             for weekly-or-more frequencies on both sides
+
+        Everyone else falls through to the ``work_mode`` mapping.
+        """
+        jt = pl.col("job_type")
+        tw = pl.col("telework_freq")
+        cf = pl.col("commute_freq")
         wm = pl.col("work_mode")
-        return (
+
+        # Codes are inverse-ordered: 1 = most frequent, 8 = least frequent
+        # Higher code → lower frequency.  So commute_freq > telework_freq + 1
+        # means "commutes much less often than teleworks" → mostly remote.
+        is_mostly_remote = (
+            # (a) job_type == WFH always
+            (jt == JobType.WFH.value)
+            # (b) telework 5+ days/week AND rarely/never commutes
+            | (
+                tw.is_in([CommuteFreq.DAYS_6_7.value, CommuteFreq.DAYS_5.value])
+                & cf.is_in(self._RARELY_COMMUTES)
+            )
+            # (c) >60% telework ratio among weekly+ frequencies
+            | (
+                (cf > tw + 1)
+                & tw.is_in(self._WEEKLY_PLUS)
+                & cf.is_in(self._WEEKLY_PLUS)
+                & (jt != JobType.WFH.value)
+                & (tw != CommuteFreq.MISSING.value)
+                & (cf != CommuteFreq.MISSING.value)
+            )
+        )
+
+        mode_based = (
             pl.when(wm.is_null())
             .then(CommuteModeCategory.NA)
             .otherwise(
@@ -199,6 +267,12 @@ class CommuteModeControl(ControlTarget):
                     return_dtype=pl.Int16,
                 ),
             )
+        )
+
+        return (
+            pl.when(is_mostly_remote)
+            .then(CommuteModeCategory.MOSTLY_REMOTE)
+            .otherwise(mode_based)
             .cast(pl.Int16)
         )
 
@@ -225,19 +299,35 @@ class CommuteModeControl(ControlTarget):
 
 
 class StudentControl(ControlTarget):
-    """Student status (K-12 / college / not a student)."""
+    """Student status (K-12 / college / not a student).
+
+    Classification priority:
+        1. Explicit non-student (``student == NONSTUDENT``) → NOT_STUDENT
+        2. Known K-12 school type (preschool thru high school) → K12
+        3. Known college school type → COLLEGE
+        4. Childcare / at-home (not school in the Census sense) → NOT_STUDENT
+        5. Age-based fallback when both student & school_type are missing:
+           school-age children (5-17) → K12, everyone else → NOT_STUDENT
+        6. Active student with missing school_type → COLLEGE (adult default)
+
+    The ``student`` field is only collected for persons age 16+ in the
+    survey instrument; younger children have ``student = 995`` (MISSING)
+    but typically have a valid ``school_type``, so school_type is checked
+    before discarding missing students.
+    """
 
     name = "p_student"
     level = ControlLevel.PERSON
     description = "Student status"
     categories = StudentCategory
-    survey_fields = ("student", "school_type")
+    survey_fields = ("student", "school_type", "age")
     pums_fields = ("SCHG",)
 
+    # Aligns with Census SCHG: nursery/preschool (SCHG=1) through grade 12.
+    # DAYCARE and ATHOME are excluded — the Census does not count childcare
+    # as school enrollment.
     _k12_school_types: frozenset[int] = frozenset(
         {
-            SchoolType.ATHOME.value,
-            SchoolType.DAYCARE.value,
             SchoolType.PRESCHOOL.value,
             SchoolType.HOME_SCHOOL.value,
             SchoolType.ELEMENTARY.value,
@@ -255,6 +345,21 @@ class StudentControl(ControlTarget):
         }
     )
 
+    _childcare_school_types: frozenset[int] = frozenset(
+        {
+            SchoolType.ATHOME.value,
+            SchoolType.DAYCARE.value,
+        }
+    )
+
+    # AgeCategory values corresponding to school-age children (5-17).
+    _school_age: frozenset[int] = frozenset(
+        {
+            AgeCategory.AGE_5_TO_15.value,
+            AgeCategory.AGE_16_TO_17.value,
+        }
+    )
+
     _pums_map: dict[int, int] = {
         PumsSchg.NOT_ATTENDING.value: StudentCategory.NOT_STUDENT,
         **dict.fromkeys(PumsSchg.K12, StudentCategory.STUDENT_K12),
@@ -264,15 +369,32 @@ class StudentControl(ControlTarget):
     def survey_expr(self) -> pl.Expr:
         stu = pl.col("student")
         stype = pl.col("school_type")
+        age = pl.col("age")
+
+        is_missing_student = (stu == Student.MISSING.value) | stu.is_null()
+        is_missing_school_type = (
+            stype.is_in([SchoolType.MISSING.value, SchoolType.PNTA.value]) | stype.is_null()
+        )
+
         return (
+            # 1. Explicit non-student
             pl.when(stu == Student.NONSTUDENT.value)
             .then(StudentCategory.NOT_STUDENT)
-            .when(stu == Student.MISSING.value)
-            .then(None)
+            # 2. Known K-12 school type (preschool thru high school)
             .when(stype.is_in(list(self._k12_school_types)))
             .then(StudentCategory.STUDENT_K12)
+            # 3. Known college school type
             .when(stype.is_in(list(self._college_school_types)))
             .then(StudentCategory.STUDENT_COLLEGE)
+            # 4. Childcare / at-home → not school in the Census sense
+            .when(stype.is_in(list(self._childcare_school_types)))
+            .then(StudentCategory.NOT_STUDENT)
+            # 5. Both fields missing → age-based fallback
+            .when(is_missing_student & is_missing_school_type & age.is_in(list(self._school_age)))
+            .then(StudentCategory.STUDENT_K12)
+            .when(is_missing_student & is_missing_school_type)
+            .then(StudentCategory.NOT_STUDENT)
+            # 6. Active student with missing school_type → default to college
             .otherwise(StudentCategory.STUDENT_COLLEGE)
             .cast(pl.Int16)
         )

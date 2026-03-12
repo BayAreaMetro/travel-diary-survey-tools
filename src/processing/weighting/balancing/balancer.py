@@ -36,8 +36,8 @@ from typing import NamedTuple
 
 import numpy as np
 import polars as pl
-from populationsim.balancing.balancers_numba import np_balancer_numba
 
+from processing.weighting.balancing._np_balancer import np_balancer_numba
 from processing.weighting.balancing.importance import DEFAULT_IMPORTANCE
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
@@ -246,6 +246,9 @@ def _prepare_zone(
             imp_vec[i] = overrides[ctrl_name]
 
     zone_merges = [m for m in merges if m.zones is None or geo_id in m.zones]
+    # Global merges (zones=None) must run first so targeted merges can
+    # reference the merged labels they produce.
+    zone_merges.sort(key=lambda m: (m.zones is not None,))
     if zone_merges:
         incidence, ctrl_targets, master_idx, imp_vec = _apply_merges(
             incidence,

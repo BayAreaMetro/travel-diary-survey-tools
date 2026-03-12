@@ -85,7 +85,7 @@ class CommuteModeCategory(IntEnum):
     """Commute mode for weighting."""
 
     NA = 0  # not a worker / doesn't commute
-    WFH = 1
+    MOSTLY_REMOTE = 1  # telework > commute (WFH in PUMS JWTRNS=11)
     DRIVE_ALONE = 2
     CARPOOL = 3
     TRANSIT = 4

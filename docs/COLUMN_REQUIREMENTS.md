@@ -38,6 +38,8 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `school_type` | data_canon.codebook.persons.SchoolType or None |  |  |  |  |  | ✓ |  |  |  |  |  |
 |  | `work_park` | data_canon.codebook.persons.WorkParking or None |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `work_mode` | data_canon.codebook.trips.Mode or None |  |  |  |  |  |  |  |  |  | ✓ |  |
+|  | `telework_freq` | data_canon.codebook.persons.CommuteFreq or None |  |  |  |  |  |  | ✓ |  |  |  |  |
+|  | `commute_freq` | data_canon.codebook.persons.CommuteFreq or None |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `commute_subsidy_use_3` | data_canon.codebook.generic.BooleanYesNo or None |  |  |  |  |  |  |  |  | ✓ |  |  |
 |  | `commute_subsidy_use_4` | data_canon.codebook.generic.BooleanYesNo or None |  |  |  |  |  |  |  |  | ✓ |  |  |
 |  | `is_proxy` | bool or None |  |  |  |  |  |  |  |  |  | ✓ |  |
