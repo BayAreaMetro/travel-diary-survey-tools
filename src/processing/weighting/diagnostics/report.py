@@ -92,7 +92,7 @@ def generate_report(
         "crosswalk_table": crosswalk_table,
         "balancer_performance_table": balancer_performance_table(statuses, weighted, zf),
         "weight_quality_table": weight_quality_table(weighted),
-        "fit_bars_html": fit_diverging_figure(fit, target_names).to_html(
+        "fit_bars_html": fit_diverging_figure(fit).to_html(
             full_html=False,
             include_plotlyjs=False,
             config={"responsive": False},

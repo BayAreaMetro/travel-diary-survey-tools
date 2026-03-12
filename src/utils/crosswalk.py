@@ -21,10 +21,7 @@ Usage::
 
 import contextlib
 import logging
-import os
-import tempfile
 from collections.abc import Generator
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -34,6 +31,7 @@ import rasterio.features
 import rasterio.transform
 from exactextract import exact_extract
 from rasterio.crs import CRS
+from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
 from shapely.ops import unary_union
 
@@ -186,7 +184,7 @@ def build_crosswalk(
 
     # Conservation check
     raster_pop = df["population"].sum()
-    pct = abs(raster_pop - total_weight) / max(total_weight, 1) * 100
+    pct = abs(raster_pop - total_weight) / max(total_weight, 1) * 100  # pyright: ignore[reportOperatorIssue]
     if pct > 2:  # noqa: PLR2004
         logger.warning(
             "Weight conservation: %.0f vs %.0f (%.1f%% diff)",
@@ -389,20 +387,18 @@ def _temp_tif(
     transform: rasterio.transform.Affine,
     dtypes: list[str] | None = None,
 ) -> Generator[str, None, None]:
-    """Context manager: write bands to a temp GeoTIFF, delete on exit.
+    """Context manager: write bands to an in-memory GeoTIFF (GDAL /vsimem/).
 
     A single multi-band file ensures ``exactextract`` returns aligned
-    per-cell arrays for every band.
+    per-cell arrays for every band.  Using ``rasterio.MemoryFile``
+    avoids transient Windows temp-file read errors.
     """
     count = len(arrays)
     if dtypes is None:
         dtypes = ["float32"] * count
-    fd, path = tempfile.mkstemp(suffix=".tif", prefix="crosswalk_")
-    os.close(fd)
+    memfile = MemoryFile()
     try:
-        with rasterio.open(
-            path,
-            "w",
+        with memfile.open(
             driver="GTiff",
             height=arrays[0].shape[0],
             width=arrays[0].shape[1],
@@ -413,7 +409,6 @@ def _temp_tif(
         ) as dst:
             for i, (arr, dt) in enumerate(zip(arrays, dtypes, strict=True), start=1):
                 dst.write(arr.astype(dt), i)
-        yield path
+        yield memfile.name
     finally:
-        with contextlib.suppress(OSError, PermissionError):
-            Path(path).unlink(missing_ok=True)
+        memfile.close()

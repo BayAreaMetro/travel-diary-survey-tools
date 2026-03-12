@@ -120,9 +120,9 @@ steps:
       controls:
         # Structural controls, set importance very high to ensure totals are matched exactly (if possible)
         - name: h_total
-          importance: 500
+          importance: 200
         - name: p_total
-          importance: 500
+          importance: 200
 
         # Household level controls
         - name: h_size
@@ -135,6 +135,9 @@ steps:
         - name: h_workers
           merge:
             workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
+          zone_merges:
+            "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
+              workers_1_plus: [workers_1, workers_2_plus]
 
         - name: h_vehicles
           merge:
@@ -178,7 +181,7 @@ steps:
 
       # -- Balancer settings -------------------------------------------
       max_expansion_factor: 10.0   # upper bound = initial_weight × factor
-      min_expansion_factor: 0.1    # lower bound = initial_weight × factor
+      min_expansion_factor: 0.001  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
       min_weight: 1                # absolute floor (no weight < 1)
       # max_weight:                # absolute ceiling (null = no ceiling)
       max_iterations: 10000
