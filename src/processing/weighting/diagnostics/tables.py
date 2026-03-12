@@ -5,6 +5,7 @@ import polars as pl
 from processing.weighting.balancing.balancer import ZoneStatus
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
+from processing.weighting.data_prep.control_data import ControlTotals
 
 from .data import category_label_map
 
@@ -33,69 +34,26 @@ def _html_table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Section 2 — Convergence & Weight Summary
+# Section 2 — Balancer Performance (convergence + target fit)
 # ---------------------------------------------------------------------------
 
 
-def convergence_table(
+def balancer_performance_table(
     statuses: list[ZoneStatus],
     weighted: pl.DataFrame,
-) -> str:
-    """Per-zone convergence status, weight sums, and ESS%."""
-    has_bw = "base_weight" in weighted.columns
-    status_map = {s.geo_id: s for s in statuses}
-    zones = sorted(status_map)
-
-    headers = ["Zone", "Conv?", "Iter", "N", "&sum; base_wt", "&sum; hh_wt", "ESS %", "CV"]
-    header_row = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
-
-    data_rows: list[str] = []
-    for z in zones:
-        s = status_map[z]
-        zone_df = weighted.filter(pl.col("ctrl_geoid") == z)
-        zone_w = zone_df["hh_weight"]
-        n = len(zone_w)
-        mean_w = zone_w.mean() or 0
-        sum_w = zone_w.sum()
-        sum_w2 = (zone_w * zone_w).sum()
-        ess_pct = ((sum_w**2 / sum_w2) / n * 100) if sum_w2 > 0 and n > 0 else 0.0
-        cv = f"{zone_w.std() / mean_w:.3f}" if mean_w else "N/A"
-        sum_bw = zone_df["base_weight"].sum() if has_bw else sum_w
-
-        css = "converged" if s.converged else "failed"
-        cells = [
-            _tag("td", z),
-            f'<td class="{css}">{"Y" if s.converged else "N"}</td>',
-            _tag("td", str(s.iterations)),
-            _tag("td", f"{n:,}"),
-            _tag("td", f"{sum_bw:,.0f}"),
-            _tag("td", f"{sum_w:,.0f}"),
-            _tag("td", f"{ess_pct:.1f}%"),
-            _tag("td", cv),
-        ]
-        data_rows.append("<tr>" + "".join(cells) + "</tr>")
-
-    return "<table>\n" + header_row + "\n" + "\n".join(data_rows) + "\n</table>"
-
-
-# ---------------------------------------------------------------------------
-# Section 3 — Target Fit
-# ---------------------------------------------------------------------------
-
-
-def target_fit_table(
-    statuses: list[ZoneStatus],
     zone_fit: pl.DataFrame,
 ) -> str:
-    """Per-zone fit metrics: household/person targets and error statistics."""
+    """Combined per-zone convergence status and target-fit metrics."""
     status_map = {s.geo_id: s for s in statuses}
     fit_map = {r["geo_id"]: r for r in zone_fit.iter_rows(named=True)}
     zones = sorted(status_map)
 
-    # Two-row grouped header
     group_row = (
         "<tr>"
         '<th rowspan="2">Zone</th>'
+        '<th rowspan="2">N</th>'
+        '<th rowspan="2">Conv?</th>'
+        '<th rowspan="2">Iter</th>'
         '<th colspan="2">Household</th>'
         '<th colspan="2">Person</th>'
         '<th rowspan="2">MAPE</th>'
@@ -107,9 +65,17 @@ def target_fit_table(
 
     data_rows: list[str] = []
     for z in zones:
+        s = status_map[z]
         f = fit_map.get(z, {})
+        zone_df = weighted.filter(pl.col("ctrl_geoid") == z)
+        n = zone_df.height
+
+        css = "converged" if s.converged else "failed"
         cells = [
             _tag("td", z),
+            _tag("td", f"{n:,}"),
+            f'<td class="{css}">{"Y" if s.converged else "N"}</td>',
+            _tag("td", str(s.iterations)),
             _tag("td", f"{f.get('hh_target', 0):,.0f}"),
             _tag("td", f"{f.get('hh_pct_err', 0):+.1f}%"),
             _tag("td", f"{f.get('per_target', 0):,.0f}"),
@@ -124,21 +90,26 @@ def target_fit_table(
 
 
 # ---------------------------------------------------------------------------
-# Section 3 — Weight distribution
+# Section 3 — Weight Quality (distribution + ESS + CV + expansion factors)
 # ---------------------------------------------------------------------------
 
 
 def _weight_stats(w: pl.Series, bw: pl.Series | None) -> dict[str, str]:
     """Summary statistics for a single weight Series."""
     mean = w.mean() or 0
+    n = len(w)
+    sum_w = w.sum()
+    sum_w2 = (w * w).sum()
+    ess_pct = ((sum_w**2 / sum_w2) / n * 100) if sum_w2 > 0 and n > 0 else 0.0
+    cv = f"{w.std() / mean:.3f}" if mean else "N/A"  # pyright: ignore[reportOperatorIssue]
     stats = {
-        "n": f"{len(w):,}",
         "mean": f"{mean:,.2f}",
         "median": f"{w.median():,.2f}",
         "std": f"{w.std():,.2f}",
+        "cv": cv,
         "min": f"{w.min():,.2f}",
         "max": f"{w.max():,.2f}",
-        "cv": f"{w.std() / mean:.3f}" if mean else "N/A",  # pyright: ignore[reportOperatorIssue]
+        "ess_pct": f"{ess_pct:.1f}%",
         "min_ef": "",
         "max_ef": "",
         "mean_ef": "",
@@ -153,17 +124,27 @@ def _weight_stats(w: pl.Series, bw: pl.Series | None) -> dict[str, str]:
     return stats
 
 
-def weight_distribution_table(weighted: pl.DataFrame) -> str:
-    """Per-zone + total weight distribution table."""
+def weight_quality_table(weighted: pl.DataFrame) -> str:
+    """Per-zone + total weight quality table (distribution, CV, ESS, EF)."""
     has_bw = "base_weight" in weighted.columns
-    headers = ["Zone", "N", "Mean", "Median", "Std", "Min", "Max", "CV"]
+    headers = ["Zone", "N", "Mean", "Median", "Std", "CV", "Min", "Max", "ESS %"]
     if has_bw:
         headers += ["Min&nbsp;EF", "Max&nbsp;EF", "Mean&nbsp;EF", "Median&nbsp;EF"]
 
     def _row(label: str, df: pl.DataFrame) -> list[str]:
         bw = df["base_weight"] if has_bw else None
         s = _weight_stats(df["hh_weight"], bw)
-        row = [label, s["n"], s["mean"], s["median"], s["std"], s["min"], s["max"], s["cv"]]
+        row = [
+            label,
+            f"{df.height:,}",
+            s["mean"],
+            s["median"],
+            s["std"],
+            s["cv"],
+            s["min"],
+            s["max"],
+            s["ess_pct"],
+        ]
         if has_bw:
             row += [s["min_ef"], s["max_ef"], s["mean_ef"], s["median_ef"]]
         return row
@@ -181,23 +162,52 @@ def weight_distribution_table(weighted: pl.DataFrame) -> str:
 _LOW_COUNT_THRESHOLD = 30
 
 
-def _count_cell(count: int) -> str:
-    """Format a count, highlighting values < 30 in red."""
+def _count_cell(count: int, pums_pct: float | None = None) -> str:
+    """Format a count, highlighting values < 30 in red.
+
+    When *pums_pct* is provided the PUMS-weighted share is appended
+    in italic parentheses, e.g. ``23 (41.2%)``.
+    """
+    pct_html = ""
+    if pums_pct is not None:
+        pct_html = f' <em style="color:#888;font-weight:normal">({pums_pct:.1f}%)</em>'
     if count < _LOW_COUNT_THRESHOLD:
-        return f'<td style="color:#c33;font-weight:bold">{count}</td>'
-    return _tag("td", str(count))
+        return f'<td style="color:#c33;font-weight:bold">{count}{pct_html}</td>'
+    return f"<td>{count}{pct_html}</td>"
 
 
-def unweighted_cell_counts(seed: pl.DataFrame, target_names: list[str]) -> str:
+def unweighted_cell_counts(
+    seed: pl.DataFrame,
+    target_names: list[str],
+    control_totals: ControlTotals | None = None,
+) -> str:
     """Single matrix table: categories (rows) x zones (columns).
 
     Row headers are grouped by control name using ``<th rowspan>``.
     A level separator row (Household / Person) divides the two groups.
+
+    When *control_totals* is provided, each cell also shows the
+    PUMS-weighted percentage in italic parentheses so the reader can
+    compare survey representation against the PUMS universe.
     """
     labels = category_label_map(target_names)
     zones = sorted(seed["ctrl_geoid"].unique().to_list())
     zone_dfs = {z: seed.filter(pl.col("ctrl_geoid") == z) for z in zones}
     n_zone_cols = len(zones)
+
+    # Pre-compute PUMS share per (zone, control, category) ----------------
+    pums_pct: dict[tuple[str, str, int], float] = {}
+    if control_totals is not None:
+        ct = control_totals.totals
+        zone_ctrl_totals = ct.group_by(["geo_id", "control_name"]).agg(
+            pl.col("target_total").sum().alias("zone_ctrl_total")
+        )
+        ct_with_pct = ct.join(zone_ctrl_totals, on=["geo_id", "control_name"], how="left")
+        ct_with_pct = ct_with_pct.with_columns(
+            (pl.col("target_total") / pl.col("zone_ctrl_total") * 100).alias("pct")
+        )
+        for row in ct_with_pct.iter_rows(named=True):
+            pums_pct[(row["geo_id"], row["control_name"], row["category"])] = row["pct"]
 
     header = (
         "<tr>"
@@ -235,7 +245,8 @@ def unweighted_cell_counts(seed: pl.DataFrame, target_names: list[str]) -> str:
                     else:
                         col = f"{ctrl.name}__{member.lower()}"
                         count = int(zdf[col].sum()) if col in seed.columns else 0
-                    cells += _count_cell(count)
+                    pct = pums_pct.get((z, ctrl.name, value))
+                    cells += _count_cell(count, pct)
                 data_rows.append(f"<tr>{cells}</tr>")
 
     return f"<table>\n{header}\n" + "\n".join(data_rows) + "\n</table>"

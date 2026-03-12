@@ -19,11 +19,10 @@ from processing.weighting.data_prep.control_data import ControlTotals
 from .charts import crosswalk_figure, fit_diverging_figure, violins_figure
 from .data import apply_fit_merges, compute_weighted_totals, fit_table, zone_fit_summary
 from .tables import (
-    convergence_table,
+    balancer_performance_table,
     crosswalk_summary_table,
-    target_fit_table,
     unweighted_cell_counts,
-    weight_distribution_table,
+    weight_quality_table,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,9 +90,8 @@ def generate_report(
         "title": "Weighting Diagnostics Report",
         "crosswalk_section": crosswalk_section,
         "crosswalk_table": crosswalk_table,
-        "convergence_table": convergence_table(statuses, weighted),
-        "target_fit_table": target_fit_table(statuses, weighted, zf),
-        "weight_distribution_table": weight_distribution_table(weighted),
+        "balancer_performance_table": balancer_performance_table(statuses, weighted, zf),
+        "weight_quality_table": weight_quality_table(weighted),
         "fit_bars_html": fit_diverging_figure(fit, target_names, merges=merge_specs).to_html(
             full_html=False,
             include_plotlyjs=False,
@@ -104,7 +102,7 @@ def generate_report(
             include_plotlyjs=False,
             config={"responsive": False},
         ),
-        "sparsity_html": unweighted_cell_counts(seed, target_names),
+        "sparsity_html": unweighted_cell_counts(seed, target_names, control_totals),
     }
 
     html = _TEMPLATE.render(**ctx)

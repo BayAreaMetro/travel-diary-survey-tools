@@ -134,10 +134,18 @@ steps:
         - name: p_gender
         - name: p_employment
         - name: p_commute_mode
+          merge:
+            car: ["carpool", "drive_alone"]
+
         - name: p_student
+          merge:
+            university: ["student_college"]
+            nonuniversity: ["student_k12", "not_student"]
+
         - name: p_age
           merge:
             age_75_plus: [age_75_to_84, age_85_and_up]
+
         # Need to complete imputation PR
         # - name: p_race
         #   merge:

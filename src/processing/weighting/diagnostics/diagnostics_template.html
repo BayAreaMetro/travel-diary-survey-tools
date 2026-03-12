@@ -38,26 +38,15 @@ document.addEventListener('DOMContentLoaded', function() {
 {{ crosswalk_section }}
 {{ crosswalk_table }}
 
-<h2>2 &mdash; Convergence &amp; Weight Summary</h2>
+<h2>2 &mdash; Balancer Performance</h2>
 <p class="note">
-  Did the balancer converge, and are the weights trustworthy?<br>
+  Did the balancer converge and how well do the weighted totals match PUMS-derived targets?<br>
   What to look for:<br>
 
     &bull; <b>Convergence</b>: Did the balancer converge within the specified tolerance and iteration limit?<br>
 
-    &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic); above 80% is good, below 50% suggests a few records dominate. Derived from the design effect in survey sampling, quantifying how much estimate variability is inflated due to weighting.<br>
-
-    &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
-</p>
-{{ convergence_table }}
-
-<h2>3 &mdash; Target Fit</h2>
-<p class="note">
-  How close are the weighted totals to the PUMS-derived targets?<br>
-  Population totals are derived from the first household- and person-level control.<br>
-  What to look for:<br>
-
-    &bull; <b>Household/Person</b>: Do both household and persons match? If not you may need to apply greater importance on h_total or p_total to overcome the inherent sampling bias
+    &bull; <b>Household/Person</b>: Population totals are derived from the first household- and person-level control.
+      Do both household and persons match? If not you may need to apply greater importance on h_total or p_total to overcome the inherent sampling bias
       against large-households that results in total population being deflated.<br>
 
     &bull; <b>Mean Absolute Percent Error (MAPE)</b> is the mean |%&nbsp;error| across all control categories for the zone. Average fit.<br>
@@ -66,13 +55,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     &bull; <b>Max</b> is the single worst |%&nbsp;error| across all categories for the zone.<br>
 </p>
-{{ target_fit_table }}
+{{ balancer_performance_table }}
 
-<h2>4 &mdash; Weight Distribution</h2>
+<h2>3 &mdash; Weight Quality</h2>
 <p class="note">
+  How variable or extreme are the resulting weights?<br>
   What to look for:<br>
 
-  &bull; Weights not too variable (high CV) and not too extreme (EF hitting bounds).<br>
+  &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
+
+  &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic); above 80% is good, below 50% suggests a few records dominate. Derived from the design effect in survey sampling, quantifying how much estimate variability is inflated due to weighting.<br>
+
+  &bull; <b>Expansion factors (EF)</b>: the ratio of final weight to base weight. Min/Max EF hitting the configured bounds means those households were constrained and the balancer wanted to push them further.<br>
 
   &bull; We expect a roughly log-normal distribution of weights and not too lumpy;
   it is plotted on log-scale so it should be closer to &ldquo;normal&rdquo;.<br>
@@ -82,10 +76,10 @@ document.addEventListener('DOMContentLoaded', function() {
   and may be unstable.
 
 </p>
-{{ weight_distribution_table }}
+{{ weight_quality_table }}
 <div class="chart">{{ violins_html }}</div>
 
-<h2>5 &mdash; Target Fit (% Error)</h2>
+<h2>4 &mdash; Target Fit (% Error)</h2>
 <p class="note">
   Bars show (weighted &minus; target) / target &times; 100. Hover for absolute values.<br>
   What to look for:<br>
@@ -93,9 +87,9 @@ document.addEventListener('DOMContentLoaded', function() {
 </p>
 <div class="chart">{{ fit_bars_html }}</div>
 
-<h2>6 &mdash; Unweighted Cell Counts (Data Sparsity)</h2>
+<h2>5 &mdash; Unweighted Cell Counts (Data Sparsity)</h2>
 <p class="note">
-  Unweighted household or person counts per control category per zone.<br>
+  Unweighted household or person counts per control category per zone versus PUMS-derived targets in italic parentheses.<br>
   What to look for:<br>
 
   &bull; Low overall sample count in a zone is a candidate for merging that zone with another (e.g. merge two adjacent low-sample zones into one larger zone). Zones don't technically need to be adjacent to be merged, but it makes intuitive sense and usually aligns with larger contextual geography.<br>
@@ -104,6 +98,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
   &bull; Low counts in a specific zone-category pair can be surgically merged for that cell only. But be careful with this approach as it can lead to a patchwork of different category definitions across zones, which can be hard to track and interpret.
   
+  &bull; There is no hard threshold for what constitutes a &ldquo;low&rdquo; count, but cells with fewer than 30 unweighted records are highlighted in red as a warning sign. The appropriate threshold can depend on the context and the variability of the data, but 10 is a common rule of thumb in survey analysis for minimum cell counts to ensure stability of estimates.
+
+  &bull; PUMS-derived targets in italic parentheses provide context for how well-represented a category is in the underlying population. If a category has a low sample count but also represents a small percentage of the population, it may be less concerning than a low count in a category that represents a large share of the population. If PUMS target is also low then it is a strong candidate for merging.<br>
+
 </p>
 {{ sparsity_html }}
 
