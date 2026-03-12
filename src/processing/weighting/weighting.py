@@ -37,9 +37,13 @@ from numpy.compat import Path
 
 from pipeline.cache import PipelineCache
 from pipeline.decoration import step
-from processing.weighting.balancing.balancer import MergeSpec, balance_weights
+from processing.weighting.balancing.balancer import (
+    balance_weights,
+    grid_search_expansion_factor,
+)
 from processing.weighting.balancing.base_weights import compute_base_weights, load_sample_plan
 from processing.weighting.balancing.importance import compute_moe_importance
+from processing.weighting.balancing.specs import GridPoint, MergeSpec
 from processing.weighting.balancing.weight_propagation import (
     collect_tables,
     non_null_tables,
@@ -214,6 +218,8 @@ def weighting(  # noqa: PLR0913
     max_weight: float | None = None,
     max_iterations: int = 10_000,
     n_workers: int = 1,
+    # -- Diagnostics ----------------------------------------------------
+    expansion_factor_grid: list[float] | None = None,
     # -- Canonical tables (auto-injected by pipeline) -------------------
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -469,6 +475,25 @@ def weighting(  # noqa: PLR0913
         msg = f"Balancing failed to converge for {n_failed} zones.  See logs for details."
         raise RuntimeError(msg)
 
+    # -- 5b. EF grid search (optional) ------------------------------
+    grid_results: list[GridPoint] | None = None
+    if expansion_factor_grid:
+        grid_results = grid_search_expansion_factor(
+            seed,
+            control_totals,
+            target_names,
+            ef_grid=expansion_factor_grid,
+            selected_ef=max_expansion_factor,
+            merges=merge_specs,
+            importance=importance or None,
+            default_importance=default_importance,
+            min_expansion_factor=min_expansion_factor,
+            min_weight=min_weight,
+            max_weight=max_weight,
+            max_iterations=max_iterations,
+            n_workers=n_workers,
+        )
+
     # -- 6. Diagnostics report --------------------------------------
     _report_dir = cache_dir / "weighting" if cache_dir else Path.cwd() / "weighting"
     generate_report(
@@ -483,6 +508,8 @@ def weighting(  # noqa: PLR0913
         crosswalk_df=xw.crosswalk_df,
         zone_groups=zone_groups,
         merge_specs=merge_specs,
+        grid_results=grid_results,
+        selected_ef=max_expansion_factor if grid_results else None,
     )
 
     # -- 7. Attach & propagate weights ------------------------------

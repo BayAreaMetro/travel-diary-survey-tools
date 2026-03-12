@@ -65,26 +65,23 @@ if (window.Plotly && window.Plotly.Plots) {
 <h2>3 &mdash; Weight Quality</h2>
 <p class="note">
   How variable or extreme are the resulting weights?<br>
+  We expect a roughly log-normal distribution of weights and not too lumpy; it is plotted on log-scale so it should be closer to &ldquo;normal&rdquo;. Multi-modality is not wrong per se, but is indicative that weights are being driven by a few key variables (e.g. a single dominant control category) and may be unstable.
+
   What to look for:<br>
 
   &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
 
   &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic); above 80% is good, below 50% suggests a few records dominate. Derived from the design effect in survey sampling, quantifying how much estimate variability is inflated due to weighting.<br>
 
-  &bull; <b>Expansion factors (EF)</b>: the ratio of final weight to base weight. Min/Max EF hitting the configured bounds means those households were constrained and the balancer wanted to push them further.<br>
-
-  &bull; We expect a roughly log-normal distribution of weights and not too lumpy;
-  it is plotted on log-scale so it should be closer to &ldquo;normal&rdquo;.<br>
-
-  &bull; Multi-modality is not wrong per se, but is indicative that weights are
-  being driven by a few key variables (e.g. a single dominant control category)
-  and may be unstable.
+  &bull; <b>Expansion factors (EF)</b>: the ratio of final weight to base weight. Min/Max EF hitting the configured bounds means those households were constrained and the balancer wanted to push them further. This means the data are being spread too thin and some broader aggregation is required.<br>
 
 </p>
 {{ weight_quality_table }}
 <div class="chart">{{ violins_html }}</div>
 
-<h2>4 &mdash; Target Fit (% Error)</h2>
+{{ ef_tradeoff_section }}
+
+<h2>{% if ef_tradeoff_section %}5{% else %}4{% endif %} &mdash; Target Fit (% Error)</h2>
 <p class="note">
   Bars show (weighted &minus; target) / target &times; 100. Hover for absolute values.<br>
   What to look for:<br>
@@ -92,7 +89,7 @@ if (window.Plotly && window.Plotly.Plots) {
 </p>
 <div class="chart">{{ fit_bars_html }}</div>
 
-<h2>5 &mdash; Unweighted Cell Counts (Data Sparsity)</h2>
+<h2>{% if ef_tradeoff_section %}6{% else %}5{% endif %} &mdash; Unweighted Cell Counts (Data Sparsity)</h2>
 <p class="note">
   Unweighted household or person counts per control category per zone versus PUMS-derived targets in italic parentheses to provide context for how well-represented a category is in the underlying population.<br>
 <br>

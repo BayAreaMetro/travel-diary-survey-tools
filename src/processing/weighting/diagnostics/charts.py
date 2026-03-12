@@ -79,7 +79,7 @@ def fit_diverging_figure(
             if abs(pct) > _WARN_PCT:
                 colors.append("#c33")
             elif pct > 0:
-                colors.append("#d8b365")
+                colors.append("#af8dc3")
             else:
                 colors.append("#5ab4ac")
             hovers.append(
@@ -142,7 +142,7 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
         showlegend=False,
         title="Household Weight Distribution by Zone",
         yaxis_title="hh_weight",
-        yaxis_type="log",
+        yaxis_type="linear",
         autosize=False,
         width=960,
         height=max(400, 60 * len(zones)),
@@ -161,6 +161,96 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
                 ],
             }
         ],
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Expansion-factor tradeoff chart
+# ---------------------------------------------------------------------------
+
+
+def ef_tradeoff_figure(
+    grid_results: list,
+    selected_ef: float,
+) -> go.Figure:
+    """Small-multiples chart: four stacked subplots sharing the x-axis.
+
+    Hovering at an EF value on any subplot shows aligned tooltips on
+    all four panels via ``hovermode="x unified"`` and spike lines.
+
+    Parameters
+    ----------
+    grid_results : list[GridPoint]
+        One entry per expansion-factor value with aggregate metrics.
+    selected_ef : float
+        The user's chosen ``max_expansion_factor`` — shown as a vertical
+        dashed marker line on every panel.
+    """
+    efs = [g.max_expansion_factor for g in grid_results]
+
+    metrics: list[tuple[str, list[float], str, str]] = [
+        ("MAPE (%)", [g.mape for g in grid_results], "#1f77b4", ",.2f"),
+        ("P90 (%)", [g.p90 for g in grid_results], "#ff7f0e", ",.2f"),
+        ("CV", [g.cv for g in grid_results], "#d62728", ",.3f"),
+        ("ESS (%)", [g.ess_pct for g in grid_results], "#2ca02c", ",.1f"),
+    ]
+
+    fig = make_subplots(
+        rows=4,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=[m[0] for m in metrics],
+    )
+
+    for i, (name, values, color, fmt) in enumerate(metrics, 1):
+        fig.add_trace(
+            go.Scatter(
+                x=efs,
+                y=values,
+                mode="lines+markers",
+                name=name,
+                line={"color": color, "width": 2},
+                marker={"size": 6},
+                hovertemplate=f"{name}: %{{y:{fmt}}}<extra></extra>",
+                showlegend=False,
+            ),
+            row=i,
+            col=1,
+        )
+        fig.add_vline(
+            x=selected_ef,
+            line_dash="dot",
+            line_color="#333",
+            line_width=1.5,
+            row=i,
+            col=1,
+        )
+
+    # Only the top panel gets the annotation so it doesn't repeat
+    fig.add_annotation(
+        x=selected_ef,
+        y=1,
+        yref="y domain",
+        text=f"selected EF={selected_ef}",
+        showarrow=False,
+        font={"size": 11, "color": "#333"},
+        xanchor="left",
+        xshift=5,
+        row=1,
+        col=1,
+    )
+
+    fig.update_xaxes(title_text="Max Expansion Factor", row=4, col=1)
+    fig.update_layout(
+        autosize=False,
+        width=960,
+        height=700,
+        margin={"l": 60, "r": 30, "t": 40, "b": 50},
+        hovermode="x unified",
+        hoversubplots="axis",
+        title="Expansion Factor Tradeoff",
     )
     return fig
 

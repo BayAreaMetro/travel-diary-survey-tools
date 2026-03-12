@@ -2,7 +2,7 @@
 
 import polars as pl
 
-from processing.weighting.balancing.balancer import MergeSpec
+from processing.weighting.balancing.specs import MergeSpec
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS, resolve_targets
 from processing.weighting.data_prep.control_data import ControlTotals

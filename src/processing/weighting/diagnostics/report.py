@@ -13,10 +13,10 @@ import jinja2
 import polars as pl
 from geopandas import GeoDataFrame
 
-from processing.weighting.balancing.balancer import ZoneStatus
+from processing.weighting.balancing.specs import GridPoint, ZoneStatus
 from processing.weighting.data_prep.control_data import ControlTotals
 
-from .charts import crosswalk_figure, fit_diverging_figure, violins_figure
+from .charts import crosswalk_figure, ef_tradeoff_figure, fit_diverging_figure, violins_figure
 from .data import apply_fit_merges, compute_weighted_totals, fit_table, zone_fit_summary
 from .tables import (
     balancer_performance_table,
@@ -40,7 +40,7 @@ _ENV = jinja2.Environment(
 _TEMPLATE = _ENV.get_template("diagnostics_template.html")
 
 
-def generate_report(
+def generate_report(  # noqa: PLR0913
     seed: pl.DataFrame,
     weights: pl.DataFrame,
     control_totals: ControlTotals,
@@ -53,6 +53,8 @@ def generate_report(
     crosswalk_df: pl.DataFrame | None = None,
     zone_groups: dict[str, list[str]] | None = None,
     merge_specs: list | None = None,
+    grid_results: list[GridPoint] | None = None,
+    selected_ef: float | None = None,
 ) -> Path:
     """Write the self-contained HTML diagnostics report to *output_path*."""
     weighted = seed.join(weights.select("hh_id", "hh_weight"), on="hh_id", how="left")
@@ -86,6 +88,28 @@ def generate_report(
     else:
         crosswalk_table = ""
 
+    # Section — EF tradeoff chart (optional)
+    if grid_results and selected_ef is not None:
+        ef_fig = ef_tradeoff_figure(grid_results, selected_ef)
+        ef_div = ef_fig.to_html(
+            full_html=False,
+            include_plotlyjs=False,
+            config={"responsive": False},
+        )
+        ef_tradeoff_section = (
+            "<h2>4 &mdash; Expansion Factor Calibration</h2>\n"
+            '<p class="note">\n'
+            "  Tradeoff between target fit (left axis) and weight quality "
+            "(right axis) across a grid of <code>max_expansion_factor</code> "
+            "values.  Tighter bounds (lower EF) yield more stable weights "
+            "(lower CV, higher ESS%) but may degrade fit (higher MAPE/P90). "
+            "The dashed vertical line marks the selected production EF.\n"
+            "</p>\n"
+            f'<div class="chart">{ef_div}</div>'
+        )
+    else:
+        ef_tradeoff_section = ""
+
     ctx = {
         "title": "Weighting Diagnostics Report",
         "crosswalk_section": crosswalk_section,
@@ -103,6 +127,7 @@ def generate_report(
             config={"responsive": False},
         ),
         "sparsity_html": unweighted_cell_counts(seed, target_names, control_totals),
+        "ef_tradeoff_section": ef_tradeoff_section,
     }
 
     html = _TEMPLATE.render(**ctx)

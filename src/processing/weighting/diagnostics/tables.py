@@ -4,7 +4,7 @@ import re
 
 import polars as pl
 
-from processing.weighting.balancing.balancer import ZoneStatus
+from processing.weighting.balancing.specs import ZoneStatus
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
 from processing.weighting.data_prep.control_data import ControlTotals

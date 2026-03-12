@@ -107,11 +107,8 @@ steps:
       # and merge up to a coarser set as necessary to achieve convergence.
       # The merge can be global (all zones) or zone-specific
       # merge:
-      #   merged_label: [category1, category2, ...]
-      # merge_zones: [zone1, zone2]  # omit to apply globally
-      #
+      #   merged_label: [category1, category2, ...]      #
       # For additional per-zone merges on top of the global merge, use
-      # zone_merges (applied after global, so merged labels are available):
       # zone_merges:
       #   "06001":
       #     further_merged: [category_a, already_merged_label]
@@ -132,26 +129,30 @@ steps:
             "San Mateo/Santa Clara": # SM/SC has very few large households
               size_4_plus: [size_4, size_5_plus]
 
-        - name: h_workers
-          merge:
-            workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
-          zone_merges:
-            "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
-              workers_1_plus: [workers_1, workers_2_plus]
+        # - name: h_workers
+        #   merge:
+        #     workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
+        #   zone_merges:
+        #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
+        #       workers_1_plus: [workers_1, workers_2_plus]
 
-        - name: h_vehicles
-          merge:
-            veh_3_plus: [veh_3, veh_4, veh_5, veh_6_plus]
-          zone_merges:
-            "San Francisco": # SF has very few households with 3+ vehicles
-              veh_2_plus: [veh_2, veh_3_plus]
+        # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
+        # A simpler ratio might match better
+        # - name: h_vehicles
+        #   merge:
+        #     veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
+        #   zone_merges:
+        #     "San Francisco":
+        #       veh_1_plus: [veh_1, veh_2_plus]
 
-        - name: h_children
-          merge:
-            children_2_plus: [children_2,children_3, children_4, children_5_plus]
-          zone_merges:
-            "San Francisco": # SF has very few households with 2+ children
-              children_1_plus: [children_1, children_2_plus]
+        # - name: h_autoratio
+
+        # - name: h_children
+        #   merge:
+        #     children_2_plus: [children_2,children_3, children_4, children_5_plus]
+        #   zone_merges:
+        #     "San Francisco": # SF has very few households with 2+ children
+        #       children_1_plus: [children_1, children_2_plus]
 
         # Person level controls (get's aggregated to household level, i.e., num age group per household)
         - name: p_gender
@@ -169,7 +170,7 @@ steps:
           merge:
             age_75_plus: [age_75_to_84, age_85_and_up]
 
-        # Need to complete imputation PR
+        # Just wait until we have imputation which handles this processing and more
         # - name: p_race
         #   merge:
         #     "AAPI": [asian, pacific]
@@ -180,7 +181,7 @@ steps:
         #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
 
       # -- Balancer settings -------------------------------------------
-      max_expansion_factor: 10.0   # upper bound = initial_weight × factor
+      max_expansion_factor: 7.0   # upper bound = initial_weight × factor
       min_expansion_factor: 0.001  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
       min_weight: 1                # absolute floor (no weight < 1)
       # max_weight:                # absolute ceiling (null = no ceiling)
@@ -189,6 +190,11 @@ steps:
       default_importance: 100      # baseline importance for controls without an explicit override
       # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
       moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+
+      # -- EF grid search (optional) -----------------------------------
+      # Re-run balancing across a grid of max_expansion_factor values and
+      # add a diagnostic chart showing fit vs weight quality tradeoffs.
+      expansion_factor_grid: [2, 3, 5, 7, 10, 15, 20]
 
   # -- Existing weights (alternative to computing new weights) ----------
   # Uncomment this block and comment out the 'weighting' step above

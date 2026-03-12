@@ -31,75 +31,25 @@ Configuration (YAML)::
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from typing import NamedTuple
 
 import numpy as np
 import polars as pl
 
 from processing.weighting.balancing._np_balancer import np_balancer_numba
 from processing.weighting.balancing.importance import DEFAULT_IMPORTANCE
+from processing.weighting.balancing.specs import (
+    GridPoint,
+    MergeSpec,
+    ZoneInput,
+    ZoneResult,
+    ZoneStatus,
+)
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.data_prep.control_data import ControlTotals
+from processing.weighting.diagnostics.data import compute_weighted_totals, fit_table
 
 logger = logging.getLogger(__name__)
-
-
-# -- Data structures --------------------------------------------------------
-
-
-class ZoneStatus(NamedTuple):
-    """Per-zone convergence diagnostics."""
-
-    geo_id: str
-    converged: bool
-    iterations: int
-    delta: float
-    max_gamma_diff: float
-
-
-class ZoneInput(NamedTuple):
-    """Pre-built numpy arrays for a single geography zone."""
-
-    hh_ids: pl.Series
-    incidence: np.ndarray
-    initial: np.ndarray
-    lb: np.ndarray
-    ub: np.ndarray
-    targets: np.ndarray
-    importance: np.ndarray
-    master_idx: int
-    max_iterations: int
-    geo_id: str
-
-
-class ZoneResult(NamedTuple):
-    """Balancer output for a single geography zone."""
-
-    weights: pl.DataFrame
-    status: ZoneStatus
-
-
-@dataclass
-class MergeSpec:
-    """Category-merge specification for one control.
-
-    Attributes:
-    ----------
-    control : str
-        Registry name (e.g. ``"p_employment"``).
-    groups : dict[str, list[str]]
-        Merged label -> list of base member names to combine.
-        E.g. ``{"employed": ["employed_full", "employed_part"]}``.
-    zones : list[str] | None
-        If set, apply this merge only to these geo IDs.
-        ``None`` means apply globally (all zones).
-    """
-
-    control: str
-    groups: dict[str, list[str]]
-    zones: list[str] | None = None
 
 
 # -- Public API ------------------------------------------------------------
@@ -211,6 +161,88 @@ def balance_weights(
     n_fail = sum(not s.converged for s in statuses)
     logger.info("Balancing: %d zones, %d failed", len(statuses), n_fail)
     return weights, statuses
+
+
+def grid_search_expansion_factor(  # noqa: PLR0913
+    seed: pl.DataFrame,
+    control_totals: ControlTotals,
+    targets: list[str],
+    ef_grid: list[float],
+    selected_ef: float,
+    *,
+    merges: list[MergeSpec] | None = None,
+    importance: dict[str, float] | None = None,
+    default_importance: float = DEFAULT_IMPORTANCE,
+    min_expansion_factor: float = 0.1,
+    min_weight: float | None = None,
+    max_weight: float | None = None,
+    max_iterations: int = 10_000,
+    n_workers: int = 1,
+) -> list[GridPoint]:
+    """Re-run the balancer across a grid of ``max_expansion_factor`` values.
+
+    Returns one :class:`GridPoint` per EF value with aggregate fit and
+    weight-quality metrics.  The *selected_ef* is automatically included
+    in the grid if not already present.
+
+    This is a **diagnostics-only** function — it does not modify the
+    production weights.
+    """
+    grid = sorted(set(ef_grid) | {selected_ef})
+    if not grid:
+        return []
+
+    results: list[GridPoint] = []
+    for i, ef in enumerate(grid, 1):
+        logger.info("Grid search: EF=%.1f (%d/%d)", ef, i, len(grid))
+        weights, statuses = balance_weights(
+            seed,
+            control_totals,
+            targets,
+            merges=merges,
+            importance=importance,
+            default_importance=default_importance,
+            max_expansion_factor=ef,
+            min_expansion_factor=min_expansion_factor,
+            min_weight=min_weight,
+            max_weight=max_weight,
+            max_iterations=max_iterations,
+            n_workers=n_workers,
+        )
+
+        # -- Fit metrics (MAPE, P90) -----------------------------------
+        wt = compute_weighted_totals(seed, weights, targets)
+        ft = fit_table(control_totals, wt)
+        abs_pct = ft["diff_pct"].abs()
+        mape = float(abs_pct.mean() or 0) if len(abs_pct) > 0 else 0.0
+        p90 = float(abs_pct.quantile(0.9) or 0) if len(abs_pct) > 0 else 0.0
+
+        # -- Weight quality (CV, ESS%) ---------------------------------
+        w = weights["hh_weight"]
+        n = len(w)
+        if n > 0:
+            mean_w = float(w.mean() or 0)
+            std_w = float(w.std() or 0)
+            cv = std_w / mean_w if mean_w > 0 else 0.0
+            sum_w = float(w.sum())
+            sum_w2 = float((w * w).sum())
+            ess_pct = (sum_w**2 / (n * sum_w2) * 100) if sum_w2 > 0 else 0.0
+        else:
+            cv, ess_pct = 0.0, 0.0
+
+        results.append(
+            GridPoint(
+                max_expansion_factor=ef,
+                converged_zones=sum(s.converged for s in statuses),
+                total_zones=len(statuses),
+                mape=mape,
+                p90=p90,
+                cv=cv,
+                ess_pct=ess_pct,
+            )
+        )
+
+    return results
 
 
 # -- Zone preparation -------------------------------------------------------

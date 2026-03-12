@@ -14,9 +14,9 @@ external dependencies) with the following sections:
 6. **Unweighted Cell Counts (Data Sparsity)** — seed counts per
    control category per zone.
 
-Future:
 7. **Expansion Factor Calibration** — MAPE vs CV across a grid of
-   ``max_expansion_factor`` values (not yet implemented).
+   ``max_expansion_factor`` values.  Enabled by setting
+   ``expansion_factor_grid`` in the weighting config.
 
 Configuration (YAML)::
 

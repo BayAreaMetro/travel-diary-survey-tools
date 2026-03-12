@@ -4,7 +4,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from processing.weighting.balancing.balancer import MergeSpec, _apply_merges
+from processing.weighting.balancing.balancer import _apply_merges
+from processing.weighting.balancing.specs import MergeSpec
 from processing.weighting.diagnostics.data import apply_fit_merges
 from processing.weighting.weighting import _parse_controls
 
