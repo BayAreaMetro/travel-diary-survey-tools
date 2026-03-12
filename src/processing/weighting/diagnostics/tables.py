@@ -1,4 +1,24 @@
-"""HTML table builders for the diagnostics report."""
+"""HTML table builders for the diagnostics report.
+
+This module generates the four main tables displayed in the diagnostics HTML report:
+
+1. **Balancer Performance Table** — Per-zone convergence status, target-fit metrics
+   (MAPE, P90, Max), and weight quality metrics (CV, ESS%). Combines all key
+   performance indicators into a single comprehensive table.
+
+2. **Weight Quality Table** — Per-zone weight distribution statistics (mean, median,
+   std, min, max) and expansion factor stats (min/max/mean/median EF ratio).
+
+3. **Unweighted Cell Counts** — Data sparsity matrix showing unweighted sample counts
+   per control category per zone, with optional PUMS-weighted percentages for context.
+
+4. **Crosswalk Summary Table** — Zone → HH samples mapping with optional zone group
+   aggregation.
+
+All table builders return raw HTML strings suitable for Jinja2 template insertion.
+The `_html_table()` helper provides a consistent interface for simple tables and
+supports grouped/spanned headers for complex layouts.
+"""
 
 import re
 
@@ -27,17 +47,64 @@ def _wbr(text: str) -> str:
     return re.sub(r"([/_\- ])", r"\1<wbr>", text)
 
 
-def _html_table(headers: list[str], rows: list[list[str]]) -> str:
-    """Build a ``<table>`` from *headers* and pre-formatted cell strings.
+def _html_table(
+    headers: list[str],
+    rows: list[list[str]],
+    *,
+    group_row: list[tuple[str, int]] | None = None,
+    css_class: str = "",
+) -> str:
+    r"""Build a ``<table>`` from *headers* and pre-formatted cell strings.
 
-    Cells starting with ``<td`` are inserted as-is (for pre-styled cells).
+    Provides a consistent interface for generating HTML tables with single or
+    multi-tier headers. Cells starting with ``<td`` are inserted as-is to support
+    pre-styled cells (e.g., CSS classes for coloring convergence status).
+
+    Args:
+        headers: Column header labels for a single-row header, or sub-column labels
+            when `group_row` is used.
+        rows: Table body, one list per row. Each cell is a pre-formatted string.
+        group_row: Optional two-tier header specification. Each tuple is
+            ``(label, colspan)``. Columns with ``colspan == 1`` span both header rows
+            (``rowspan="2"``). Columns with ``colspan > 1`` become group headers
+            spanning multiple sub-columns (labels consumed from `headers` list).
+        css_class: Optional CSS class name applied to the ``<table>`` element.
+
+    Returns:
+        Complete HTML ``<table>`` string.
+
+    Example:
+        Simple table:
+        >>> _html_table(["Zone", "Count"], [["A", "100"], ["B", "200"]])
+        '<table>\n<tr><th>Zone</th><th>Count</th></tr>\n...'
+
+        Grouped header:
+        >>> _html_table(
+        ...     ["Target", "% Error"],  # sub-headers
+        ...     [["A", "1000", "+2.5%"]],
+        ...     group_row=[("Zone", 1), ("Household", 2)]  # Zone spans both rows
+        ... )
     """
-    head = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
+    cls = f' class="{css_class}"' if css_class else ""
+
+    if group_row is not None:
+        top_cells: list[str] = []
+        sub_cells: list[str] = []
+        for label, span in group_row:
+            if span == 1:
+                top_cells.append(f'<th rowspan="2">{label}</th>')
+            else:
+                top_cells.append(f'<th colspan="{span}">{label}</th>')
+                sub_cells.extend(_tag("th", headers.pop(0)) for _ in range(span))
+        head = "<tr>" + "".join(top_cells) + "</tr>\n<tr>" + "".join(sub_cells) + "</tr>"
+    else:
+        head = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
+
     body = "\n".join(
         "<tr>" + "".join(c if c.startswith("<td") else _tag("td", c) for c in cells) + "</tr>"
         for cells in rows
     )
-    return f"<table>\n{head}\n{body}\n</table>"
+    return f"<table{cls}>\n{head}\n{body}\n</table>"
 
 
 # ---------------------------------------------------------------------------
@@ -50,50 +117,81 @@ def balancer_performance_table(
     weighted: pl.DataFrame,
     zone_fit: pl.DataFrame,
 ) -> str:
-    """Combined per-zone convergence status and target-fit metrics."""
+    """Generate the main balancer performance table (Section 2 of diagnostics report).
+
+    Combines three categories of per-zone metrics into a single comprehensive table:
+
+    - **Convergence:** Did the balancer converge? How many iterations?
+    - **Target Fit:** How well do weighted totals match PUMS targets? (MAPE, P90, Max)
+    - **Weight Quality:** How stable/dispersed are the weights? (CV, ESS%)
+
+    Args:
+        statuses: Per-zone convergence results from the balancer.
+        weighted: Household seed joined with final weights (must include `ctrl_geoid`,
+            `hh_weight`, `base_weight` columns).
+        zone_fit: Zone-level target fit summary (output of `zone_fit_summary()`).
+
+    Returns:
+        HTML table with 13 columns: Zone, N, Conv?, Iter, Household (Target, % Error),
+        Person (Target, % Error), MAPE, P90, Max, CV, ESS%.
+
+    Note:
+        Uses `_html_table()` with a two-tier grouped header. The "Household" and
+        "Person" columns span their respective Target/% Error sub-columns.
+    """
     status_map = {s.geo_id: s for s in statuses}
     fit_map = {r["geo_id"]: r for r in zone_fit.iter_rows(named=True)}
     zones = sorted(status_map)
 
-    group_row = (
-        "<tr>"
-        '<th rowspan="2">Zone</th>'
-        '<th rowspan="2">N</th>'
-        '<th rowspan="2">Conv?</th>'
-        '<th rowspan="2">Iter</th>'
-        '<th colspan="2">Household</th>'
-        '<th colspan="2">Person</th>'
-        '<th rowspan="2">MAPE</th>'
-        '<th rowspan="2">P90</th>'
-        '<th rowspan="2">Max</th>'
-        "</tr>"
-    )
-    sub_row = "<tr><th>Target</th><th>% Error</th><th>Target</th><th>% Error</th></tr>"
+    group_row = [
+        ("Zone", 1),
+        ("N", 1),
+        ("Conv?", 1),
+        ("Iter", 1),
+        ("Household", 2),
+        ("Person", 2),
+        ("MAPE", 1),
+        ("P90", 1),
+        ("Max", 1),
+        ("CV", 1),
+        ("ESS&nbsp;%", 1),
+    ]
+    sub_headers = ["Target", "%&nbsp;Error", "Target", "%&nbsp;Error"]
 
-    data_rows: list[str] = []
+    rows: list[list[str]] = []
     for z in zones:
         s = status_map[z]
         f = fit_map.get(z, {})
         zone_df = weighted.filter(pl.col("ctrl_geoid") == z)
         n = zone_df.height
 
-        css = "converged" if s.converged else "failed"
-        cells = [
-            _tag("td", z),
-            _tag("td", f"{n:,}"),
-            f'<td class="{css}">{"Y" if s.converged else "N"}</td>',
-            _tag("td", str(s.iterations)),
-            _tag("td", f"{f.get('hh_target', 0):,.0f}"),
-            _tag("td", f"{f.get('hh_pct_err', 0):+.1f}%"),
-            _tag("td", f"{f.get('per_target', 0):,.0f}"),
-            _tag("td", f"{f.get('per_pct_err', 0):+.1f}%"),
-            _tag("td", f"{f.get('mape', 0):.2f}%"),
-            _tag("td", f"{f.get('p90_err', 0):.2f}%"),
-            _tag("td", f"{f.get('max_err', 0):.2f}%"),
-        ]
-        data_rows.append("<tr>" + "".join(cells) + "</tr>")
+        w = zone_df["hh_weight"]
+        mean = w.mean() or 0
+        sum_w = w.sum()
+        sum_w2 = (w * w).sum()
+        cv = f"{w.std() / mean:.3f}" if mean else "N/A"  # pyright: ignore[reportOperatorIssue]
+        ess_pct = ((sum_w**2 / sum_w2) / n * 100) if sum_w2 > 0 and n > 0 else 0.0  # pyright: ignore[reportOperatorIssue]
 
-    return "<table>\n" + group_row + "\n" + sub_row + "\n" + "\n".join(data_rows) + "\n</table>"
+        css = "converged" if s.converged else "failed"
+        rows.append(
+            [
+                z,
+                f"{n:,}",
+                f'<td class="{css}">{"Y" if s.converged else "N"}</td>',
+                str(s.iterations),
+                f"{f.get('hh_target', 0):,.0f}",
+                f"{f.get('hh_pct_err', 0):+.1f}%",
+                f"{f.get('per_target', 0):,.0f}",
+                f"{f.get('per_pct_err', 0):+.1f}%",
+                f"{f.get('mape', 0):.2f}%",
+                f"{f.get('p90_err', 0):.2f}%",
+                f"{f.get('max_err', 0):.2f}%",
+                cv,
+                f"{ess_pct:.1f}%",
+            ]
+        )
+
+    return _html_table(sub_headers, rows, group_row=group_row)
 
 
 # ---------------------------------------------------------------------------
@@ -102,16 +200,23 @@ def balancer_performance_table(
 
 
 def _weight_stats(w: pl.Series, bw: pl.Series) -> dict[str, str]:
-    """Summary statistics for a single weight Series."""
-    mean = w.mean() or 0
-    n = len(w)
-    sum_w = w.sum()
-    sum_w2 = (w * w).sum()
-    ess_pct = ((sum_w**2 / sum_w2) / n * 100) if sum_w2 > 0 and n > 0 else 0.0
-    cv = f"{w.std() / mean:.3f}" if mean else "N/A"  # pyright: ignore[reportOperatorIssue]
+    """Compute weight distribution and expansion factor statistics.
+
+    Args:
+        w: Final household weights.
+        bw: Base weights (pre-balancing).
+
+    Returns:
+        Dictionary of pre-formatted strings: mean, median, std, min, max, min_ef,
+        max_ef, mean_ef, median_ef. EF (expansion factor) is the ratio w / bw.
+
+    Note:
+        CV and ESS are now computed inline in `balancer_performance_table()` rather
+        than here, as they only appear in that table.
+    """
     ratio = w / bw
     return {
-        "mean": f"{mean:,.2f}",
+        "mean": f"{w.mean() or 0:,.2f}",
         "median": f"{w.median():,.2f}",
         "std": f"{w.std():,.2f}",
         "min": f"{w.min():,.2f}",
@@ -120,13 +225,28 @@ def _weight_stats(w: pl.Series, bw: pl.Series) -> dict[str, str]:
         "max_ef": f"{ratio.max():.3f}",
         "mean_ef": f"{ratio.mean():.3f}",
         "median_ef": f"{ratio.median():.3f}",
-        "cv": cv,
-        "ess_pct": f"{ess_pct:.1f}%",
     }
 
 
 def weight_quality_table(weighted: pl.DataFrame) -> str:
-    """Per-zone + total weight quality table (distribution, CV, ESS, EF)."""
+    """Generate the weight quality table (Section 3 of diagnostics report).
+
+    Shows per-zone and total weight distribution statistics (mean, median, std,
+    min, max) and expansion factor ratios (min/max/mean/median EF). This table
+    complements the violin plot that follows it in the report.
+
+    Args:
+        weighted: Household seed joined with final weights (must include `ctrl_geoid`,
+            `hh_weight`, `base_weight` columns).
+
+    Returns:
+        HTML table with 11 columns: Zone, N, Mean, Median, Std, Min, Max, Min EF,
+        Max EF, Mean EF, Median EF, plus a TOTAL row aggregating across zones.
+
+    Note:
+        CV and ESS% were removed from this table in March 2026 and moved to the
+        balancer performance table for a unified view of all key metrics.
+    """
     headers = [
         "Zone",
         "N",
@@ -139,8 +259,6 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
         "Max&nbsp;EF",
         "Mean&nbsp;EF",
         "Median&nbsp;EF",
-        "CV",
-        "ESS %",
     ]
 
     def _row(label: str, df: pl.DataFrame) -> list[str]:
@@ -157,8 +275,6 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
             s["max_ef"],
             s["mean_ef"],
             s["median_ef"],
-            s["cv"],
-            s["ess_pct"],
         ]
 
     zones = sorted(weighted["ctrl_geoid"].unique().to_list())

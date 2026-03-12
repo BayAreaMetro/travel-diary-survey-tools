@@ -116,96 +116,97 @@ platform_adjustment:
 
 ---
 
-### 5. Expansion Factor Grid Search 🔲
+### 5. Expansion Factor Grid Search ✅
 
-**Status:** Not implemented. The `expansion_factor_grid` config key is documented in the diagnostics YAML example but never consumed.
+**Status:** Implemented (March 2026).
 
 **Goal:** Automatically re-run the balancer across a grid of `max_expansion_factor` values and produce a tradeoff chart so the user can pick the tightest bounds that still achieve acceptable fit. Tighter bounds → more stable weights (lower CV) but potentially worse fit (higher MAPE). The grid search reveals the Pareto frontier.
 
 **Metrics (per grid point, aggregated across all zones):**
 
-| Metric | Axis | Role |
-|--------|------|------|
-| **MAPE** | Left y (primary, solid) | Average fit — does the balancer hit the targets? |
-| **P90** | Left y (secondary, dashed) | Tail fit — are there badly-missed cells hiding behind a good average? |
-| **CV** | Right y (primary, solid) | Weight dispersion — are a few records carrying all the weight? |
-| **ESS %** | Right y (secondary, dashed) | Effective sample utilisation — interpretable transform of CV: ESS% ≈ 1/(1+CV²) |
+| Metric | Chart | Role |
+|--------|-------|------|
+| **MAPE** | Subplot 1 | Average fit — does the balancer hit the targets? |
+| **P90** | Subplot 2 | Tail fit — are there badly-missed cells hiding behind a good average? |
+| **CV** | Subplot 3 | Weight dispersion — are a few records carrying all the weight? |
+| **ESS %** | Subplot 4 | Effective sample utilisation — interpretable transform of CV |
 
-MAPE and P90 decrease (improve) as EF increases; CV worsens and ESS% drops. The chart should highlight the user's chosen EF value with a vertical marker.
+All four metrics are shown as separate stacked subplots with shared x-axis (EF value) and `hovermode="x unified"` for synchronized hover labels. A vertical dashed line marks the selected production EF value.
 
-**Implementation plan:**
+**Implemented components:**
 
-1. **`balancing/balancer.py` — `grid_search_expansion_factor()`**
-
-   New public function. Accepts the same `seed`, `control_totals`, `targets`, etc. as `balance_weights()`, plus an `ef_grid: list[float]`. For each EF value, calls `balance_weights()` with that `max_expansion_factor`, collects per-zone `ZoneStatus` and weights, then computes aggregate metrics.
-
+1. **`balancing/specs.py`** — Added `GridPoint` dataclass to break circular imports:
    ```python
    @dataclass
    class GridPoint:
        max_expansion_factor: float
        converged_zones: int
        total_zones: int
-       mape: float           # overall (all zones, all controls)
-       p90: float            # 90th percentile |% error|
-       cv: float             # weight CV (pooled across zones)
-       ess_pct: float        # Kish ESS % (pooled)
-
-   def grid_search_expansion_factor(
-       seed: pl.DataFrame,
-       control_totals: ControlTotals,
-       targets: list[str],
-       ef_grid: list[float],
-       *,
-       # same kwargs as balance_weights() minus max_expansion_factor
-       ...
-   ) -> list[GridPoint]:
+       mape: float
+       p90: float
+       cv: float
+       ess_pct: float
    ```
 
-   The outer loop is sequential (each EF run already uses `n_workers` threads for per-zone parallelism internally). Each run reuses the same pre-built seed/totals/incidence — only the upper bounds change.
+2. **`balancing/balancer.py`** — `grid_search_expansion_factor()` function runs the grid search loop, computing aggregate metrics from per-zone results.
 
-   The fit metrics (MAPE, P90) require comparing weighted totals against control targets. Reuse `compute_weighted_totals()` and `fit_table()` from `diagnostics/data.py`.
+3. **`diagnostics/charts.py`** — `ef_tradeoff_figure()` renders a 4-subplot stacked chart using `make_subplots(rows=4, cols=1, shared_xaxes=True)`.
 
-2. **`diagnostics/charts.py` — `ef_tradeoff_figure()`**
+4. **`diagnostics/report.py`** — Wired into `generate_report()` with optional `grid_results` and `selected_ef` parameters.
 
-   New Plotly figure: dual y-axis scatter+line chart.
-   - X-axis: `max_expansion_factor` (log scale, since the grid often spans 2–50).
-   - Left y-axis: MAPE (solid line + markers), P90 (dashed line + markers). Label: "Fit error (%)".
-   - Right y-axis: CV (solid), ESS% (dashed). Label: "Weight quality".
-   - Vertical dashed line at the user's selected EF value.
-   - Hover: shows all four metrics + convergence count.
+5. **`weighting.py`** — Parses `diagnostics.expansion_factor_grid` from YAML config and calls grid search when present.
 
-3. **`diagnostics/report.py` — wire into `generate_report()`**
+6. **`diagnostics/diagnostics_template.html`** — Added conditional section 4 "Expansion Factor Calibration" with explanatory notes.
 
-   Add optional `grid_results: list[GridPoint] | None` parameter. When present, render the tradeoff chart in a new section (between convergence and weight distribution). Template gets a `{{ ef_tradeoff_section }}` block.
+7. **Tests** — `tests/test_grid_search.py` covers grid search execution, chart generation, and report integration.
 
-4. **`weighting.py` — wire into the pipeline step**
+**Configuration:**
 
-   Parse `diagnostics.expansion_factor_grid` from the YAML config. After the main `balance_weights()` call, if the grid is present, call `grid_search_expansion_factor()` with the same inputs and pass results to `generate_report()`.
+```yaml
+diagnostics:
+  enabled: true
+  expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
+```
 
-   ```yaml
-   diagnostics:
-     enabled: true
-     expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
-   ```
+The grid search is diagnostics-only — it does not change the production weights. The user's configured `max_expansion_factor` determines the actual weights used downstream.
 
-**Design notes:**
-- The grid search is **diagnostics-only** — it does not change the actual weights used downstream. The user's configured `max_expansion_factor` determines the production weights; the grid search just shows what would happen with other values.
-- Grid runs can be expensive for large zone counts. Consider logging progress (`"Grid search: EF=4 (2/9)..."`) and a config flag to skip it (`expansion_factor_grid: []` or omitted).
-- The main balance run's EF value should always be included in the grid (inserted if missing) so the tradeoff chart has a point at the production setting.
+---
 
-**Files affected:** `balancing/balancer.py` (new function + dataclass), `diagnostics/charts.py` (new figure), `diagnostics/report.py` (new section), `diagnostics/diagnostics_template.html` (new template block), `weighting.py` (config parsing + wiring).
+### 6. Diagnostics Table Refactoring ✅
+
+**Status:** Implemented (March 2026).
+
+**Goal:** Consolidate weight quality metrics (CV and ESS%) into the main balancer performance table to provide a unified view of convergence, fit, and weight quality per zone. Standardize HTML table generation to use the shared `_html_table()` helper with support for grouped/spanned headers.
+
+**Changes:**
+
+1. **Extended `_html_table()` helper** — Added optional `group_row` parameter for two-tier headers with rowspan/colspan support, and `css_class` parameter for custom styling.
+
+2. **Enhanced `balancer_performance_table()`** — Added CV and ESS% columns (computed inline from weights). Now shows 13 columns: Zone, N, Conv?, Iter, Household (Target, % Error), Person (Target, % Error), MAPE, P90, Max, CV, ESS%. Refactored to use `_html_table()` with `group_row` instead of manual HTML string concatenation.
+
+3. **Simplified `weight_quality_table()`** — Removed CV and ESS% columns (now in balancer performance table). Retained weight distribution stats (Mean, Median, Std, Min, Max) and expansion factor stats (Min EF, Max EF, Mean EF, Median EF). Simplified `_weight_stats()` helper to remove CV/ESS computation.
+
+4. **Updated template notes** — Moved CV and ESS% descriptions from Section 3 (Weight Quality) to Section 2 (Balancer Performance) to match the new column locations.
+
+**Consistency improvements:**
+
+- `balancer_performance_table()` now uses `_html_table()` with grouped headers (was manual HTML)
+- `weight_quality_table()` continues to use `_html_table()` (no change in pattern)
+- `unweighted_cell_counts()` and `crosswalk_summary_table()` still use manual HTML due to complex rowspan logic that exceeds `_html_table()` capabilities
+
+**Files affected:** `diagnostics/tables.py`, `diagnostics/diagnostics_template.html`.
 
 ---
 
 ### Priority and Dependencies
 
-| # | Feature | Depends On | Complexity | Impact |
-|---|---------|-----------|------------|--------|
-| 1 | Cross-tab targets | — | Medium | High — enables joint demographic controls (age×sex, income×workers) that significantly improve weight quality |
-| 2 | Custom trip targets | — | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
-| 3 | DOW structuring | — | High | High — critical for surveys with day-of-week sampling imbalance |
-| 4 | Platform bias | — | Low–High (method-dependent) | Medium — important for mixed-mode surveys but many surveys are single-platform |
-| 5 | EF grid search | — | Low | Low — calibration aid; no algorithmic changes, purely diagnostic |
-| 6 | Integration tests | 1–5 | Medium | High — ensures correctness and prevents regressions as features are added |
+| # | Feature | Status | Depends On | Complexity | Impact |
+|---|---------|--------|-----------|------------|--------|
+| 1 | Cross-tab targets | 🔲 | — | Medium | High — enables joint demographic controls (age×sex, income×workers) that significantly improve weight quality |
+| 2 | Custom trip targets | 🔲 | — | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
+| 3 | DOW structuring | 🔲 | — | High | High — provides day of week weight granularity |
+| 4 | Platform bias | 🔲 | — | Low–High (method-dependent) | Medium — important for mixed-mode surveys |
+| 5 | EF grid search | ✅ | — | Low | Low — calibration aid; no algorithmic changes, purely diagnostic |
+| 6 | Table refactoring | ✅ | — | Low | Low — improved diagnostics UI and code maintainability |
 
-Features 1 and 3 are independent and can be developed in parallel. Feature 2 is architecturally distinct (non-linear constraints). Feature 4 is orthogonal — it modifies inputs (base weights or controls) rather than the balancer itself. Feature 5 is self-contained — it only adds a diagnostic loop and chart with no impact on the core balancer.
+Features 1 and 3 are independent and can be developed in parallel. Feature 2 is architecturally distinct (non-linear constraints). Feature 4 is orthogonal — it modifies inputs (base weights or controls) rather than the balancer itself. Features 5 and 6 are complete — they enhanced the diagnostics reporting without impacting the core balancer algorithm.

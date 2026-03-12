@@ -59,6 +59,10 @@ if (window.Plotly && window.Plotly.Plots) {
     &bull; <b>P90</b> is the 90th percentile |%&nbsp;error|; highlights how bad the worst-fitting categories are without being swamped by a single outlier.<br>
 
     &bull; <b>Max</b> is the single worst |%&nbsp;error| across all categories for the zone.<br>
+
+    &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
+
+    &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic); above 80% is good, below 50% suggests a few records dominate. Derived from the design effect in survey sampling, quantifying how much estimate variability is inflated due to weighting.<br>
 </p>
 {{ balancer_performance_table }}
 
@@ -68,10 +72,6 @@ if (window.Plotly && window.Plotly.Plots) {
   We expect a roughly log-normal distribution of weights and not too lumpy; it is plotted on log-scale so it should be closer to &ldquo;normal&rdquo;. Multi-modality is not wrong per se, but is indicative that weights are being driven by a few key variables (e.g. a single dominant control category) and may be unstable.
 
   What to look for:<br>
-
-  &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
-
-  &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic); above 80% is good, below 50% suggests a few records dominate. Derived from the design effect in survey sampling, quantifying how much estimate variability is inflated due to weighting.<br>
 
   &bull; <b>Expansion factors (EF)</b>: the ratio of final weight to base weight. Min/Max EF hitting the configured bounds means those households were constrained and the balancer wanted to push them further. This means the data are being spread too thin and some broader aggregation is required.<br>
 
