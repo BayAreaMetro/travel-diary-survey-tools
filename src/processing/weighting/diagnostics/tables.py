@@ -24,10 +24,9 @@ import re
 
 import polars as pl
 
-from processing.weighting.balancing.specs import ZoneStatus
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
-from processing.weighting.data_prep.control_data import ControlTotals
+from processing.weighting.specs import ControlTotals, ZoneStatus
 
 from .data import category_label_map
 
@@ -304,7 +303,7 @@ def _count_cell(count: int, pums_pct: float | None = None) -> str:
     return f"<td>{count}{pct_html}</td>"
 
 
-def unweighted_cell_counts(  # noqa: C901
+def unweighted_cell_counts(  # noqa: C901, PLR0912
     seed: pl.DataFrame,
     target_names: list[str],
     control_totals: ControlTotals | None = None,
@@ -317,11 +316,41 @@ def unweighted_cell_counts(  # noqa: C901
     When *control_totals* is provided, each cell also shows the
     PUMS-weighted percentage in italic parentheses so the reader can
     compare survey representation against the PUMS universe.
+
+    Uses uniform column handling for all controls (structural unpivoted,
+    non-structural pivoted).
     """
     labels = category_label_map(target_names)
     zones = sorted(seed["ctrl_geoid"].unique().to_list())
-    zone_dfs = {z: seed.filter(pl.col("ctrl_geoid") == z) for z in zones}
     n_zone_cols = len(zones)
+
+    # Pre-compute counts for all controls across all zones with single aggregation
+    # Build list of all control columns that exist in seed
+    all_controls = resolve_targets(target_names, ControlLevel.HOUSEHOLD) + resolve_targets(
+        target_names, ControlLevel.PERSON
+    )
+    control_cols = []
+    col_to_ctrl: dict[str, tuple[str, int]] = {}  # col_name -> (ctrl_name, category_value)
+
+    for ctrl in all_controls:
+        for value, member in ctrl.valid_members:
+            col = ctrl.name if ctrl.structural else f"{ctrl.name}__{member.lower()}"
+            if col in seed.columns:
+                control_cols.append(col)
+                col_to_ctrl[col] = (ctrl.name, value)
+
+    # Single group_by aggregation to get all zone x control counts
+    if control_cols:
+        zone_counts = seed.group_by("ctrl_geoid").agg(
+            [pl.col(c).sum().alias(c) for c in control_cols]
+        )
+        # Convert to nested dict: {zone: {col_name: count}}
+        counts_by_zone: dict[str, dict[str, int]] = {}
+        for row in zone_counts.iter_rows(named=True):
+            zone_id = row["ctrl_geoid"]
+            counts_by_zone[zone_id] = {col: int(row[col]) for col in control_cols}
+    else:
+        counts_by_zone = {}
 
     # Pre-compute PUMS share per (zone, control, category) ----------------
     pums_pct: dict[tuple[str, str, int], float] = {}
@@ -383,13 +412,10 @@ def unweighted_cell_counts(  # noqa: C901
                     f'<td style="text-align:left">{labels.get((ctrl.name, value), member)}</td>'
                 )
                 row_total = 0
+                # Use pre-computed counts instead of filtering
+                col = ctrl.name if ctrl.structural else f"{ctrl.name}__{member.lower()}"
                 for z in zones:
-                    zdf = zone_dfs[z]
-                    if level == ControlLevel.HOUSEHOLD:
-                        count = zdf.filter(pl.col(ctrl.name) == value).height
-                    else:
-                        col = f"{ctrl.name}__{member.lower()}"
-                        count = int(zdf[col].sum()) if col in seed.columns else 0
+                    count = counts_by_zone.get(z, {}).get(col, 0)
                     row_total += count
                     pct = pums_pct.get((z, ctrl.name, value))
                     cells += _count_cell(count, pct)

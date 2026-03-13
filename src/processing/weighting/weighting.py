@@ -43,16 +43,14 @@ from processing.weighting.balancing.balancer import (
 )
 from processing.weighting.balancing.base_weights import compute_base_weights, load_sample_plan
 from processing.weighting.balancing.importance import compute_moe_importance
-from processing.weighting.balancing.specs import GridPoint, MergeSpec
 from processing.weighting.balancing.weight_propagation import (
     collect_tables,
     non_null_tables,
     propagate_weights,
     safe_join_weight,
 )
+from processing.weighting.controls.registry import register_crosstabs_from_config, resolve_targets
 from processing.weighting.data_prep.control_data import (
-    ControlSpec,
-    ControlTotals,
     apply_zone_groups,
     build_control_totals,
     recode_pums_households,
@@ -70,7 +68,9 @@ from processing.weighting.data_prep.seed_data import (
     recode_survey_persons,
 )
 from processing.weighting.diagnostics import generate_report
+from processing.weighting.specs import ControlSpec, ControlTotals, GridPoint, MergeSpec
 from processing.weighting.validation.checksums import check_incidence_sums
+from processing.weighting.validation.control_validation import validate_total_control_categories
 from processing.weighting.validation.weight_checks import weight_sanity_checks
 
 logger = logging.getLogger(__name__)
@@ -79,6 +79,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers — keep the orchestrator thin
 # ---------------------------------------------------------------------------
+
+
 def _parse_controls(
     controls: list[dict],
 ) -> tuple[list[ControlSpec], list[str], list[MergeSpec], dict[str, float]]:
@@ -87,14 +89,25 @@ def _parse_controls(
     specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
     target_names = [s.name for s in specs]
 
-    # Global merges first (zones=None), then per-zone merges.
-    # Order matters: zone_merges may reference labels created by global merges.
-    merge_specs: list[MergeSpec] = [
-        MergeSpec(control=c["name"], groups=c["merge"], zones=c.get("merge_zones"))
-        for c in controls
-        if c.get("merge")
-    ]
+    # Build merge specs
+    # For cross-tabs, 'merges' is an N-D merge dict (dimensions -> members)
+    # For regular controls, 'merge' is a 1-D merge dict (merged_label -> [members])
+    merge_specs: list[MergeSpec] = []
+
     for c in controls:
+        # N-D merges for cross-tabs (uses 'merges' key with dict syntax)
+        if c.get("merges"):
+            merge_specs.append(
+                MergeSpec(control=c["name"], groups=c["merges"], zones=c.get("merge_zones"))
+            )
+
+        # 1-D merges for regular controls (uses 'merge' key)
+        if c.get("merge"):
+            merge_specs.append(
+                MergeSpec(control=c["name"], groups=c["merge"], zones=c.get("merge_zones"))
+            )
+
+        # Zone-specific merges (can be 1-D or N-D depending on control type)
         for zone_id, groups in c.get("zone_merges", {}).items():
             merge_specs.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
 
@@ -376,8 +389,15 @@ def weighting(  # noqa: PLR0913
         raise ValueError(msg)
 
     # -- 1. Parse config --------------------------------------------
+    # Register any dynamic cross-tabs from config before parsing controls
+    register_crosstabs_from_config(controls)
+
     specs, target_names, merge_specs, importance = _parse_controls(controls)
     logger.info("Controls: %s", target_names)
+
+    # Validate total category count across all controls (fail fast)
+    ctrl_instances = resolve_targets(target_names)
+    validate_total_control_categories(ctrl_instances)
 
     cache_dir = pipeline_cache.cache_dir if pipeline_cache else None
     zone_groups: dict[str, list[str]] | None = geography.get("zone_groups")
@@ -440,21 +460,15 @@ def weighting(  # noqa: PLR0913
             control_totals, seed, zone_groups, geo_col="ctrl_geoid"
         )
 
-    # -- 4c. Base weights --------------------------------------------
-    plan = None
-    if sample_plan is not None:
-        plan = load_sample_plan(sample_plan)
-    else:
-        logger.warning(
-            "No sample_plan provided; using PUMS-target response inversion "
-            "for initial weights.  Provide a sample_plan CSV for more precisely "
-            "stratified base weights."
-        )
+    # -- 5. Base weights --------------------------------------------
+    plan = load_sample_plan(sample_plan) if sample_plan is not None else None
+    if plan is None:
+        logger.info("Using PUMS-target response inversion for base weights")
     seed = compute_base_weights(
         seed, control_totals, target_names, geo_col="ctrl_geoid", sample_plan=plan
     )
 
-    # -- 5. Balance -------------------------------------------------
+    # -- 6. Balance -------------------------------------------------
     weights_df, statuses = balance_weights(
         seed,
         control_totals,
@@ -475,7 +489,7 @@ def weighting(  # noqa: PLR0913
         msg = f"Balancing failed to converge for {n_failed} zones.  See logs for details."
         raise RuntimeError(msg)
 
-    # -- 5b. EF grid search (optional) ------------------------------
+    # -- 6b. EF grid search (optional) ------------------------------
     grid_results: list[GridPoint] | None = None
     if expansion_factor_grid:
         grid_results = grid_search_expansion_factor(
@@ -494,7 +508,7 @@ def weighting(  # noqa: PLR0913
             n_workers=n_workers,
         )
 
-    # -- 6. Diagnostics report --------------------------------------
+    # -- 7. Diagnostics report --------------------------------------
     _report_dir = cache_dir / "weighting" if cache_dir else Path.cwd() / "weighting"
     generate_report(
         seed=seed,
@@ -512,7 +526,7 @@ def weighting(  # noqa: PLR0913
         selected_ef=max_expansion_factor if grid_results else None,
     )
 
-    # -- 7. Attach & propagate weights ------------------------------
+    # -- 8. Attach & propagate weights ------------------------------
     households = safe_join_weight(
         households,
         weights_df.select("hh_id", "hh_weight"),
@@ -531,7 +545,7 @@ def weighting(  # noqa: PLR0913
     has_weight: dict[str, str] = {"households": "hh_weight"}
     propagate_weights(tables, has_weight)
 
-    # -- 8. Sanity checks -------------------------------------------
+    # -- 9. Sanity checks -------------------------------------------
     weight_sanity_checks(non_null_tables(tables), control_totals, specs)
 
     return non_null_tables(tables)

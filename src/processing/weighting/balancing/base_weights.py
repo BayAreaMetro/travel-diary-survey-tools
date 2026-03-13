@@ -23,56 +23,15 @@ The public entry point is ``compute_base_weights``, which adds a
 """
 
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
-from processing.weighting.data_prep.control_data import ControlTotals
+from processing.weighting.specs import ControlTotals, SamplePlan
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Sample plan data model (future-ready)
-# ---------------------------------------------------------------------------
-@dataclass
-class SamplePlan:
-    """Stratified sampling plan mapping zones to segments and populations.
-
-    Each row represents a target zone.  Zones that share the same
-    ``sample_segment`` are treated as a single stratum for initial-weight
-    computation: ``base_weight = segment_target_pop / segment_n_responses``.
-
-    Attributes:
-    ----------
-    strata : pl.DataFrame
-        Required columns:
-
-        * ``geo_id``  (str) — target-zone identifier (matches ``ctrl_geoid``).
-        * ``target_population`` (int | float) — total HH population in that
-          zone.
-        * ``sample_segment`` (str) — sampling-stratum label.  All zones
-          sharing a segment get the same base weight.
-    """
-
-    strata: pl.DataFrame
-
-    # -- validation --
-    _REQUIRED_COLS: tuple[str, ...] = field(
-        default=("geo_id", "target_population", "sample_segment"),
-        init=False,
-        repr=False,
-    )
-
-    def __post_init__(self) -> None:
-        """Validate that *strata* has the required columns."""
-        missing = [c for c in self._REQUIRED_COLS if c not in self.strata.columns]
-        if missing:
-            msg = f"SamplePlan.strata missing required columns: {missing}"
-            raise ValueError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +235,9 @@ def _zone_weights_from_plan(
     4. ``base_weight = segment_pop / segment_responses``.
     5. Collapse back to ``(geo_id, base_weight)``.
     """
+    msg = "Sample-plan-based base weights not implemented yet. Need to download bg pops and build a sample plan first."  # noqa: E501
+    raise NotImplementedError(msg)
+
     # Zone → segment lookup
     zone_segment = plan.strata.select(
         pl.col("geo_id").cast(pl.Utf8),

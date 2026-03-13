@@ -9,7 +9,7 @@ from processing.weighting.balancing.base_weights import (
     compute_base_weights,
     load_sample_plan,
 )
-from processing.weighting.data_prep.control_data import ControlTotals
+from processing.weighting.specs import ControlTotals
 
 
 # ---------------------------------------------------------------------------

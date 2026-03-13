@@ -10,7 +10,7 @@ import polars as pl
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
-from processing.weighting.data_prep.control_data import ControlSpec, ControlTotals
+from processing.weighting.specs import ControlSpec, ControlTotals
 
 logger = logging.getLogger(__name__)
 

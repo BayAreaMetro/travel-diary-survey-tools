@@ -19,8 +19,6 @@ from processing.weighting.controls.enums import (
     StudentCategory,
 )
 from processing.weighting.data_prep.control_data import (
-    ControlSpec,
-    ControlTotals,
     apply_zone_groups,
     build_control_totals,
     recode_pums_households,
@@ -30,6 +28,7 @@ from processing.weighting.data_prep.pums_data import (
     PUMSSource,
     load_pums_from_files,
 )
+from processing.weighting.specs import ControlSpec, ControlTotals
 
 
 # ---------------------------------------------------------------------------

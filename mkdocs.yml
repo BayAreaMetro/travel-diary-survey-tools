@@ -68,7 +68,13 @@ nav:
       - Link Trips: pipeline_steps/link_trips.md
       - Detect Joint Trips: pipeline_steps/detect_joint_trips.md
       - Extract Tours: pipeline_steps/extract_tours.md
-      - Weighting: pipeline_steps/weighting.md
+      - Weighting:
+          - Overview: pipeline_steps/weighting/index.md
+          - Data Preparation: pipeline_steps/weighting/data_preparation.md
+          - Balancing: pipeline_steps/weighting/balancing.md
+          - Controls: pipeline_steps/weighting/controls.md
+          - Validation: pipeline_steps/weighting/validation.md
+          - Diagnostics: pipeline_steps/weighting/diagnostics.md
       - Format Output:
           - DaySim Format: pipeline_steps/format_output/daysim.md
           - CT-RAMP Format: pipeline_steps/format_output/ctramp.md

@@ -4,9 +4,9 @@ import numpy as np
 import polars as pl
 import pytest
 
-from processing.weighting.balancing.balancer import _apply_merges
-from processing.weighting.balancing.specs import MergeSpec
+from processing.weighting.balancing.merges import apply_category_merges
 from processing.weighting.diagnostics.data import apply_fit_merges
+from processing.weighting.specs import MergeSpec
 from processing.weighting.weighting import _parse_controls
 
 
@@ -83,7 +83,7 @@ class TestParseControlsZoneMerges:
 
 
 # ---------------------------------------------------------------------------
-# _apply_merges — targeted merge layered on global merge
+# apply_category_merges — targeted merge layered on global merge
 # ---------------------------------------------------------------------------
 def _make_arrays(labels, targets_list):
     """Helper: build incidence, targets, importance arrays from row labels."""
@@ -128,7 +128,7 @@ class TestApplyMergesTargeted:
         )
 
         # Apply both in order (global first)
-        incidence, tgt, master_idx, imp = _apply_merges(
+        incidence, tgt, master_idx, imp = apply_category_merges(
             incidence, tgt, labels, master_idx, [global_merge, targeted_merge], imp
         )
 
@@ -163,7 +163,7 @@ class TestApplyMergesTargeted:
         )
 
         with pytest.raises(ValueError, match="unknown categories"):
-            _apply_merges(incidence, tgt, labels, master_idx, [bad_merge], imp)
+            apply_category_merges(incidence, tgt, labels, master_idx, [bad_merge], imp)
 
 
 # ---------------------------------------------------------------------------

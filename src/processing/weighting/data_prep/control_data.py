@@ -41,60 +41,24 @@ Control Variable YAML Configuration Example::
 """
 
 import logging
-from dataclasses import dataclass
 
 import polars as pl
 
 from data_canon.codebook.pums import PumsEsr, PumsThresholds
-from processing.weighting.controls.base import ControlLevel, ControlTarget
+from processing.weighting.controls.base import (
+    ControlLevel,
+    ControlTarget,
+    CrosstabControlTarget,
+)
 from processing.weighting.controls.registry import CONTROLS, resolve_targets
+from processing.weighting.specs import ControlSpec, ControlTotals
 from processing.weighting.validation.checksums import check_recode_nulls
+from processing.weighting.validation.control_validation import (
+    validate_crosstab_margins,
+    validate_total_control_categories,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Data classes
-# ---------------------------------------------------------------------------
-@dataclass
-class ControlSpec:
-    """Specification for a single weighting control.
-
-    Parameters
-    ----------
-    name : str
-        Registry name (must exist in ``CONTROLS``).
-    importance : float | None
-        Explicit importance weight for the balancer.  ``None`` means use
-        the default (100 for normal controls, 1000 for structural) or
-        the MOE-derived value when ``moe_based_importance`` is enabled.
-    """
-
-    name: str
-    importance: float | None = None
-
-
-@dataclass
-class ControlTotals:
-    """Result of PUMS control-total aggregation.
-
-    Attributes:
-    ----------
-    totals : pl.DataFrame
-        Tidy frame with columns:
-        [geo_id, control_name, category, target_total]
-    pums_hh_count : int
-        Total PUMS housing unit records (before weighting).
-    pums_person_count : int
-        Total PUMS person records.
-    geo_ids : list[str]
-        Unique geography IDs in the totals.
-    """
-
-    totals: pl.DataFrame
-    pums_hh_count: int
-    pums_person_count: int
-    geo_ids: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +68,19 @@ class ControlTotals:
 
 def _apply_pums_recode(df: pl.DataFrame, ctrl: ControlTarget) -> pl.DataFrame:
     """Add ``{name}`` column via ``ctrl.pums_expr()``."""
+    # Cross-tab controls derive their values from dimension control expressions
+    # (no direct PUMS fields)
+    if isinstance(ctrl, CrosstabControlTarget):
+        # Ensure dimension controls have been recoded first
+        for dim_ctrl in ctrl.dim_controls:
+            if dim_ctrl.name not in df.columns:
+                msg = (
+                    f"Cross-tab '{ctrl.name}' requires dimension control '{dim_ctrl.name}' "
+                    f"to be recoded first"
+                )
+                raise ValueError(msg)
+        return df.with_columns(ctrl.pums_expr().alias(ctrl.name))
+
     # Add null columns for any optional PUMS fields absent from the DataFrame
     for f in ctrl.pums_fields:
         if f not in df.columns:
@@ -231,6 +208,10 @@ def build_control_totals(
     ControlTotals
         Tidy totals frame and metadata.
     """
+    # Validate total category count across all controls
+    ctrl_instances = [CONTROLS[spec.name] for spec in controls if spec.name in CONTROLS]
+    validate_total_control_categories(ctrl_instances)
+
     all_totals: list[pl.DataFrame] = []
 
     for spec in controls:
@@ -280,6 +261,9 @@ def build_control_totals(
 
     combined = pl.concat(all_totals)
     geo_ids = combined["geo_id"].unique().sort().to_list()
+
+    # Validate margin consistency for cross-tab controls
+    validate_crosstab_margins(combined, ctrl_instances, controls)
 
     return ControlTotals(
         totals=combined,

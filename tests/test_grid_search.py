@@ -5,9 +5,8 @@ import polars as pl
 import pytest
 
 from processing.weighting.balancing.balancer import grid_search_expansion_factor
-from processing.weighting.balancing.specs import GridPoint
-from processing.weighting.data_prep.control_data import ControlTotals
 from processing.weighting.diagnostics.charts import ef_tradeoff_figure
+from processing.weighting.specs import ControlTotals, GridPoint
 
 # ---------------------------------------------------------------------------
 # Helpers

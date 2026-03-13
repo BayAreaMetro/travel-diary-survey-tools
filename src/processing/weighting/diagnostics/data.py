@@ -2,10 +2,9 @@
 
 import polars as pl
 
-from processing.weighting.balancing.specs import MergeSpec
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS, resolve_targets
-from processing.weighting.data_prep.control_data import ControlTotals
+from processing.weighting.specs import ControlTotals, MergeSpec
 
 
 def _member_value_map(control_name: str) -> dict[str, int]:
@@ -237,32 +236,24 @@ def compute_weighted_totals(
     weights: pl.DataFrame,
     target_names: list[str],
 ) -> pl.DataFrame:
-    """Weighted totals per (geo_id, control_name, category)."""
+    """Weighted totals per (geo_id, control_name, category).
+
+    Uses uniform column handling for all controls:
+    - Structural controls: unpivoted column (e.g., `h_total`)
+    - Non-structural controls: pivoted columns (e.g., `h_size__size_1`)
+    """
     sw = seed.join(weights.select("hh_id", "hh_weight"), on="hh_id", how="left")
     rows: list[dict] = []
 
-    for ctrl in resolve_targets(target_names, ControlLevel.HOUSEHOLD):
-        for value, _ in ctrl.valid_members:
-            agg = (
-                sw.filter(pl.col(ctrl.name) == value)
-                .group_by("ctrl_geoid")
-                .agg(pl.col("hh_weight").sum().alias("weighted_total"))
-            )
-            rows.extend(
-                [
-                    {
-                        "geo_id": r["ctrl_geoid"],
-                        "control_name": ctrl.name,
-                        "category": value,
-                        "weighted_total": r["weighted_total"],
-                    }
-                    for r in agg.iter_rows(named=True)
-                ]
-            )
+    # Unified loop: HH and person controls use identical logic now
+    all_controls = resolve_targets(target_names, ControlLevel.HOUSEHOLD) + resolve_targets(
+        target_names, ControlLevel.PERSON
+    )
 
-    for ctrl in resolve_targets(target_names, ControlLevel.PERSON):
+    for ctrl in all_controls:
         for value, member in ctrl.valid_members:
-            col = f"{ctrl.name}__{member.lower()}"
+            # Structural controls remain unpivoted, others use {name}__{member}
+            col = ctrl.name if ctrl.structural else f"{ctrl.name}__{member.lower()}"
             if col not in sw.columns:
                 continue
             agg = sw.group_by("ctrl_geoid").agg(

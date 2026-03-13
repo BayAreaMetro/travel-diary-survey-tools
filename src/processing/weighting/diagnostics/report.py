@@ -13,8 +13,7 @@ import jinja2
 import polars as pl
 from geopandas import GeoDataFrame
 
-from processing.weighting.balancing.specs import GridPoint, ZoneStatus
-from processing.weighting.data_prep.control_data import ControlTotals
+from processing.weighting.specs import ControlTotals, GridPoint, ZoneStatus
 
 from .charts import crosswalk_figure, ef_tradeoff_figure, fit_diverging_figure, violins_figure
 from .data import apply_fit_merges, compute_weighted_totals, fit_table, zone_fit_summary

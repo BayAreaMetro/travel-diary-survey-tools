@@ -14,8 +14,6 @@ from shapely.geometry import box
 
 from processing.weighting.data_prep.census_geo import puma_vintage_for_pums_year
 from processing.weighting.data_prep.control_data import (
-    ControlSpec,
-    ControlTotals,
     build_control_totals,
     recode_pums_households,
     recode_pums_persons,
@@ -27,6 +25,7 @@ from processing.weighting.data_prep.crosswalk import (
     _load_target_zones,
 )
 from processing.weighting.diagnostics.charts import crosswalk_figure
+from processing.weighting.specs import ControlSpec, ControlTotals
 from utils.crosswalk import (
     _cross_tabulate,
     _rasterize_categorical,

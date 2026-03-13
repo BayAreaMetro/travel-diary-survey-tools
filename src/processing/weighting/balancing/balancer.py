@@ -37,17 +37,17 @@ import polars as pl
 
 from processing.weighting.balancing._np_balancer import np_balancer_numba
 from processing.weighting.balancing.importance import DEFAULT_IMPORTANCE
-from processing.weighting.balancing.specs import (
+from processing.weighting.balancing.merges import apply_category_merges
+from processing.weighting.controls.registry import CONTROLS
+from processing.weighting.diagnostics.data import compute_weighted_totals, fit_table
+from processing.weighting.specs import (
+    ControlTotals,
     GridPoint,
     MergeSpec,
     ZoneInput,
     ZoneResult,
     ZoneStatus,
 )
-from processing.weighting.controls.base import ControlLevel
-from processing.weighting.controls.registry import CONTROLS
-from processing.weighting.data_prep.control_data import ControlTotals
-from processing.weighting.diagnostics.data import compute_weighted_totals, fit_table
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # -- Public API ------------------------------------------------------------
 
 
-def balance_weights(
+def balance_weights(  # noqa: PLR0913
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
@@ -69,6 +69,7 @@ def balance_weights(
     max_weight: float | None = None,
     max_iterations: int = 10_000,
     n_workers: int = 1,
+    verbose: bool = True,
 ) -> tuple[pl.DataFrame, list[ZoneStatus]]:
     """Balance household weights to match control totals per zone.
 
@@ -104,6 +105,9 @@ def balance_weights(
     n_workers : int
         Threads for parallel zone balancing (``1`` = sequential).
         Numba releases the GIL, so real parallelism is achieved.
+    verbose : bool
+        If ``True`` (default), log convergence status for each zone.
+        Set to ``False`` to suppress per-zone logging (e.g., during grid search).
 
     Returns:
     -------
@@ -138,6 +142,7 @@ def balance_weights(
                 min_weight=min_weight,
                 max_weight=max_weight,
                 max_iterations=max_iterations,
+                verbose=verbose,
             )
         )
 
@@ -159,7 +164,8 @@ def balance_weights(
     )
 
     n_fail = sum(not s.converged for s in statuses)
-    logger.info("Balancing: %d zones, %d failed", len(statuses), n_fail)
+    if verbose:
+        logger.info("Balancing: %d zones, %d failed", len(statuses), n_fail)
     return weights, statuses
 
 
@@ -208,21 +214,22 @@ def grid_search_expansion_factor(  # noqa: PLR0913
             max_weight=max_weight,
             max_iterations=max_iterations,
             n_workers=n_workers,
+            verbose=False,
         )
 
         # -- Fit metrics (MAPE, P90) -----------------------------------
         wt = compute_weighted_totals(seed, weights, targets)
         ft = fit_table(control_totals, wt)
         abs_pct = ft["diff_pct"].abs()
-        mape = float(abs_pct.mean() or 0) if len(abs_pct) > 0 else 0.0
+        mape = float(abs_pct.mean() or 0) if len(abs_pct) > 0 else 0.0  # pyright: ignore[reportArgumentType]
         p90 = float(abs_pct.quantile(0.9) or 0) if len(abs_pct) > 0 else 0.0
 
         # -- Weight quality (CV, ESS%) ---------------------------------
         w = weights["hh_weight"]
         n = len(w)
         if n > 0:
-            mean_w = float(w.mean() or 0)
-            std_w = float(w.std() or 0)
+            mean_w = float(w.mean() or 0)  # pyright: ignore[reportArgumentType]
+            std_w = float(w.std() or 0)  # pyright: ignore[reportArgumentType]
             cv = std_w / mean_w if mean_w > 0 else 0.0
             sum_w = float(w.sum())
             sum_w2 = float((w * w).sum())
@@ -248,7 +255,7 @@ def grid_search_expansion_factor(  # noqa: PLR0913
 # -- Zone preparation -------------------------------------------------------
 
 
-def _prepare_zone(
+def _prepare_zone(  # noqa: PLR0913
     zone_seed: pl.DataFrame,
     zone_totals: pl.DataFrame,
     targets: list[str],
@@ -262,6 +269,7 @@ def _prepare_zone(
     min_weight: float | None,
     max_weight: float | None,
     max_iterations: int,
+    verbose: bool,
 ) -> ZoneInput:
     """Build ``ZoneInput`` arrays for a single geography zone."""
     incidence, ctrl_targets, master_idx, row_labels = _build_incidence(
@@ -282,7 +290,7 @@ def _prepare_zone(
     # reference the merged labels they produce.
     zone_merges.sort(key=lambda m: (m.zones is not None,))
     if zone_merges:
-        incidence, ctrl_targets, master_idx, imp_vec = _apply_merges(
+        incidence, ctrl_targets, master_idx, imp_vec = apply_category_merges(
             incidence,
             ctrl_targets,
             row_labels,
@@ -320,6 +328,7 @@ def _prepare_zone(
         master_idx=master_idx,
         max_iterations=max_iterations,
         geo_id=geo_id,
+        verbose=verbose,
     )
 
 
@@ -346,15 +355,16 @@ def _balance_zone(zone: ZoneInput) -> ZoneResult:
     converged, iters, delta, gamma = status
     zs = ZoneStatus(zone.geo_id, bool(converged), int(iters), float(delta), float(gamma))
 
-    level = logging.INFO if converged else logging.WARNING
-    logger.log(
-        level,
-        "Zone %s: %s in %d iters (delta=%.2e)",
-        zone.geo_id,
-        "converged" if converged else "NOT CONVERGED",
-        iters,
-        delta,
-    )
+    if zone.verbose:
+        level = logging.INFO if converged else logging.WARNING
+        logger.log(
+            level,
+            "Zone %s: %s in %d iters (delta=%.2e)",
+            zone.geo_id,
+            "converged" if converged else "NOT CONVERGED",
+            iters,
+            delta,
+        )
 
     frame = pl.DataFrame(
         {
@@ -375,6 +385,10 @@ def _build_incidence(
     targets: list[str],
 ) -> tuple[np.ndarray, np.ndarray, int, list[tuple[str, str]]]:
     """Build incidence matrix + target vector for one zone.
+
+    Expects seed table with:
+    - Pivoted columns for non-structural controls: ``{control_name}__{member_name}``
+    - Unpivoted columns for structural controls: ``h_total``, ``p_total``
 
     ``"h_total"`` must be present in *targets* and serves as the master
     control (incidence = 1 for every household).
@@ -418,16 +432,14 @@ def _build_incidence(
                 raise ValueError(msg)
             member = member_map[cat_val]
 
-            # Incidence row: HH controls use direct comparison,
-            # person controls use pre-expanded dummy columns
-            if ctrl.level == ControlLevel.HOUSEHOLD:
-                row = (zone_seed[name].to_numpy() == cat_val).astype(np.float64)
+            # Structural controls use unpivoted column name,
+            # all others use {control_name}__{member_name} pattern
+            col_name = name if ctrl.structural else f"{name}__{member}"
+
+            if col_name in zone_seed.columns:
+                row = zone_seed[col_name].to_numpy().astype(np.float64)
             else:
-                col_name = f"{name}__{member}"
-                if col_name in zone_seed.columns:
-                    row = zone_seed[col_name].to_numpy().astype(np.float64)
-                else:
-                    row = np.zeros(n, dtype=np.float64)
+                row = np.zeros(n, dtype=np.float64)
 
             rows.append(row)
             labels.append((name, member))
@@ -437,89 +449,3 @@ def _build_incidence(
                 master_idx = len(labels) - 1
 
     return np.vstack(rows), np.array(tgt, dtype=np.float64), master_idx, labels
-
-
-# -- Merge helpers -----------------------------------------------------------
-
-
-def _apply_merges(
-    incidence: np.ndarray,
-    targets: np.ndarray,
-    row_labels: list[tuple[str, str]],
-    master_idx: int,
-    merges: list[MergeSpec],
-    importance: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, int, np.ndarray]:
-    """Collapse incidence rows + target entries for merged categories.
-
-    For each ``MergeSpec``, every group maps several base member names to
-    a single merged row.  The incidence rows are summed element-wise and
-    the target values are summed.  Original rows are replaced by the
-    single merged row.
-
-    Parameters
-    ----------
-    incidence : np.ndarray
-        Shape ``(n_controls, n_households)``.
-    targets : np.ndarray
-        One entry per row.
-    row_labels : list[tuple[str, str]]
-        ``(control_name, member_name)`` per row.  **Modified in place**
-        to reflect the merged labels.
-    master_idx : int
-        Row index of the total-HH master control.
-    merges : list[MergeSpec]
-        Merge specifications to apply.
-    importance : np.ndarray
-        Importance weights per row.  Merged rows keep the first row's value.
-
-    Returns:
-    -------
-    incidence, targets, master_idx, importance
-        Reduced arrays and (possibly shifted) master index.
-    """
-    for spec in merges:
-        for merged_label, base_members in spec.groups.items():
-            # Validate every named member exists as a row label for this control
-            known = {member for ctrl, member in row_labels if ctrl == spec.control}
-            missing = [m for m in base_members if m not in known]
-            if missing:
-                msg = (
-                    f"Merge group '{merged_label}' for control '{spec.control}' "
-                    f"references unknown categories: {missing}. "
-                    f"Available: {sorted(known)}"
-                )
-                raise ValueError(msg)
-
-            # Find row indices matching this control + base members
-            idxs = [
-                i
-                for i, (ctrl, member) in enumerate(row_labels)
-                if ctrl == spec.control and member in base_members
-            ]
-            if len(idxs) < 2:  # noqa: PLR2004
-                continue  # single member — nothing to merge
-
-            # Sum incidence rows and target entries
-            merged_row = incidence[idxs].sum(axis=0)
-            merged_target = targets[idxs].sum()
-
-            # Keep the first index, mark rest for removal
-            keep = idxs[0]
-            remove = set(idxs[1:])
-
-            incidence[keep] = merged_row
-            targets[keep] = merged_target
-            row_labels[keep] = (spec.control, merged_label)
-
-            # Remove collapsed rows (reverse order to preserve indices)
-            keep_mask = [i not in remove for i in range(len(row_labels))]
-            incidence = incidence[keep_mask]
-            targets = targets[keep_mask]
-            importance = importance[keep_mask]
-            row_labels[:] = [lbl for i, lbl in enumerate(row_labels) if i not in remove]
-
-            # Recompute master_idx after removal
-            master_idx = next(i for i, (c, _) in enumerate(row_labels) if c == "h_total")
-
-    return incidence, targets, master_idx, importance

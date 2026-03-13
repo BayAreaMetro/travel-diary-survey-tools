@@ -76,6 +76,9 @@ steps:
       state_fips: "06"
       pums_year: 2023
 
+      # -- Sample Plan Path ------------------------------------------------
+      # sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
+
       # -- Geography crosswalk ------------------------------------------
       # Specify a polygon file for target zones.  The crosswalk module
       # auto-discovers overlapping PUMAs and builds a population-weighted
@@ -96,6 +99,22 @@ steps:
           "Alameda": ["001"]
           "San Mateo/Santa Clara": ["085", "081"]
           "San Francisco": ["075"]
+
+      # -- Balancer settings -------------------------------------------
+      max_expansion_factor: 5.0    # upper bound = initial_weight × factor
+      min_expansion_factor: 0.001  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+      min_weight: 1                # absolute floor (no weight < 1)
+      # max_weight:                # absolute ceiling (null = no ceiling)
+      max_iterations: 10000
+      n_workers: 8                 # parallel zone balancing (numba releases GIL)
+      default_importance: 100      # baseline importance for controls without an explicit override
+      # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
+      moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+
+      # -- EF grid search (optional) -----------------------------------
+      # Re-run balancing across a grid of max_expansion_factor values and
+      # add a diagnostic chart showing fit vs weight quality tradeoffs.
+      expansion_factor_grid: [2, 3, 5, 7, 10, 15, 20]
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -129,15 +148,12 @@ steps:
             "San Mateo/Santa Clara": # SM/SC has very few large households
               size_4_plus: [size_4, size_5_plus]
 
-        # - name: h_workers
-        #   merge:
-        #     workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
-        #   zone_merges:
-        #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
-        #       workers_1_plus: [workers_1, workers_2_plus]
+        # Household income controls
+        - name: h_income
+          merge:
+            income_under_100:   [income_under25, income_25to50, income_50to75, income_75to100]
 
         # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
-        # A simpler ratio might match better
         # - name: h_vehicles
         #   merge:
         #     veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
@@ -145,7 +161,14 @@ steps:
         #     "San Francisco":
         #       veh_1_plus: [veh_1, veh_2_plus]
 
-        # - name: h_autoratio
+        # Turning these off because p_employment and p_age captures this already,
+        # just adds excess double constraints that make it hard to converge in places like SF.
+        # - name: h_workers
+        #   merge:
+        #     workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
+        #   zone_merges:
+        #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
+        #       workers_1_plus: [workers_1, workers_2_plus]
 
         # - name: h_children
         #   merge:
@@ -180,21 +203,20 @@ steps:
         #   merge:
         #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
 
-      # -- Balancer settings -------------------------------------------
-      max_expansion_factor: 7.0   # upper bound = initial_weight × factor
-      min_expansion_factor: 0.001  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
-      min_weight: 1                # absolute floor (no weight < 1)
-      # max_weight:                # absolute ceiling (null = no ceiling)
-      max_iterations: 10000
-      n_workers: 4                 # parallel zone balancing (numba releases GIL)
-      default_importance: 100      # baseline importance for controls without an explicit override
-      # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
-      moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+        # Cross-tab controls, these help ensure the joint distribution of two or more variables is preserved
+        # - name: p_gender_x_ethnicity
+        #   dimensions: [p_gender, p_ethnicity]  # Uses FULL 2×5 = 10 cells from originals
+        #   # Cross-tab applies its own coarser merges
+        #   merges:
+        #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
 
-      # -- EF grid search (optional) -----------------------------------
-      # Re-run balancing across a grid of max_expansion_factor values and
-      # add a diagnostic chart showing fit vs weight quality tradeoffs.
-      expansion_factor_grid: [2, 3, 5, 7, 10, 15, 20]
+        # Result: 3x5 = 15 cells
+        - name: h_size_by_income
+          dimensions: [h_size, h_income]
+          merges:
+        #       # income_under75: [income_under25, income_25to50, income_50to75]
+              size_3_plus: [size_3, size_4, size_5_plus]
+
 
   # -- Existing weights (alternative to computing new weights) ----------
   # Uncomment this block and comment out the 'weighting' step above
