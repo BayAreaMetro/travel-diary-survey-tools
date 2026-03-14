@@ -397,7 +397,7 @@ def _build_incidence(
             col_name = name if ctrl.structural else f"{name}__{member}"
 
             if col_name in zone_seed.columns:
-                row = zone_seed[col_name].to_numpy().astype(np.float64)
+                row = zone_seed[col_name].fill_null(0).to_numpy().astype(np.float64)
             else:
                 row = np.zeros(n, dtype=np.float64)
 

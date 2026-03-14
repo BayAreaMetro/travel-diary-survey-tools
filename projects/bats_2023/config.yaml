@@ -143,7 +143,7 @@ steps:
         # Household level controls
         - name: h_size
           merge:
-            size_5_plus: [size_5, size_6, size_7, size_8, size_9, size_10_plus]
+            size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
           zone_merges:
             "San Mateo/Santa Clara": # SM/SC has very few large households
               size_4_plus: [size_4, size_5_plus]

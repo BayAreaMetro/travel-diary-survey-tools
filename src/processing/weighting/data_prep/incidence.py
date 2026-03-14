@@ -84,7 +84,7 @@ def build_incidence_table(  # noqa: C901
             for value, member_name in ctrl.valid_members:
                 col_name = f"{ctrl.name}__{member_name.lower()}"
                 incidence = incidence.with_columns(
-                    (pl.col(ctrl.name) == value).cast(pl.Int32).alias(col_name)
+                    (pl.col(ctrl.name) == value).cast(pl.Int32).fill_null(0).alias(col_name)
                 )
             incidence = incidence.drop(ctrl.name)
 
