@@ -182,7 +182,97 @@ def recode_pums_persons(
 
 
 # ---------------------------------------------------------------------------
-# Aggregation
+# Zone allocation for PUMS incidence
+# ---------------------------------------------------------------------------
+
+
+def allocate_pums_zones(
+    pums_incidence: pl.DataFrame,
+    crosswalk_df: pl.DataFrame,
+    *,
+    puma_col: str = "PUMA",
+    weight_col: str = "WGTP",
+) -> pl.DataFrame:
+    """Assign target-zone IDs and scale PUMS weights via the crosswalk.
+
+    Takes the pivoted PUMS incidence table (from
+    :func:`~processing.weighting.data_prep.seed_data.build_incidence_table`)
+    and joins the PUMA → target-zone crosswalk.  Each PUMS household is
+    duplicated per overlapping target zone, and its weight is scaled by the
+    zone's ``allocation_weight``.
+
+    Parameters
+    ----------
+    pums_incidence : pl.DataFrame
+        Pivoted PUMS incidence table.  Must contain *puma_col* and
+        *weight_col*.
+    crosswalk_df : pl.DataFrame
+        Crosswalk with columns ``puma_id``, ``study_geoid``,
+        ``ctrl_geoid``, ``allocation_weight``.
+    puma_col : str
+        Column in *pums_incidence* identifying the PUMA (default ``"PUMA"``).
+    weight_col : str
+        Original PUMS weight column to scale (default ``"WGTP"``).
+
+    Returns:
+        pl.DataFrame with ``study_geoid`` and ``ctrl_geoid`` added, and
+        *weight_col* scaled by ``allocation_weight``.  Rows are multiplied
+        per zone overlap.
+    """
+    xw = crosswalk_df.select("puma_id", "study_geoid", "ctrl_geoid", "allocation_weight")
+
+    result = (
+        pums_incidence.join(
+            xw,
+            left_on=pl.col(puma_col).cast(pl.Utf8),
+            right_on="puma_id",
+            how="inner",
+        )
+        .with_columns(
+            (pl.col(weight_col).cast(pl.Float64) * pl.col("allocation_weight")).alias(weight_col),
+        )
+        .drop("allocation_weight")
+    )
+
+    logger.info(
+        "PUMS zone allocation: %d HHs → %d rows (%d zones)",
+        len(pums_incidence),
+        len(result),
+        result["study_geoid"].n_unique(),
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Control-total aggregation from incidence tables
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Zone grouping
+# ---------------------------------------------------------------------------
+
+
+def remap_zones(
+    df: pl.DataFrame,
+    zone_groups: dict[str, list[str]],
+    geo_col: str = "study_geoid",
+) -> pl.DataFrame:
+    """Remap zone IDs into ``ctrl_geoid`` for balancing.
+
+    Reads *geo_col* (the raw crosswalk geography), applies the zone-group
+    mapping, and writes the result as ``ctrl_geoid``.  Zones not listed
+    in any group pass through unchanged.
+    """
+    remap = _build_zone_remap(zone_groups)
+    return df.with_columns(
+        pl.col(geo_col).replace(remap).alias("ctrl_geoid"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Aggregation (legacy — kept for tests; prefer aggregate_control_totals)
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 def build_control_totals(
     hh_df: pl.DataFrame,

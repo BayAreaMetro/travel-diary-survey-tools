@@ -7,107 +7,51 @@ from processing.weighting.controls.registry import CONTROLS, resolve_targets
 from processing.weighting.specs import ControlTotals, MergeSpec
 
 
-def _member_value_map(control_name: str) -> dict[str, int]:
-    """Lowercase member name → category int for one control."""
-    ctrl = CONTROLS.get(control_name)
-    if ctrl is None:
-        return {}
-    return {name.lower(): value for value, name in ctrl.valid_members}
+def _collect_merge_labels(
+    merges: list[MergeSpec] | None,
+) -> tuple[set[tuple[str, str]], dict[tuple[str, str], str]]:
+    """Parse merge specs into hidden-member set and merged-label dict."""
+    hidden: set[tuple[str, str]] = set()
+    labels: dict[tuple[str, str], str] = {}
+    for spec in merges or []:
+        for merged_label, base_members in spec.groups.items():
+            if isinstance(base_members, dict):
+                continue
+            # Only hide constituents for global merges (originals dropped).
+            if spec.zones is None:
+                for m in base_members:
+                    hidden.add((spec.control, m.lower()))
+            labels[(spec.control, merged_label.lower())] = merged_label.replace("_", " ").title()
+    return hidden, labels
 
 
 def category_label_map(
     target_names: list[str],
     merges: list[MergeSpec] | None = None,
-) -> dict[tuple[str, int], str]:
-    """Map ``(control_name, category_int)`` to a human-readable label.
+) -> dict[tuple[str, str], str]:
+    """Map ``(control_name, category_str)`` to a human-readable label.
 
-    When *merges* are provided the constituent categories are removed and
-    replaced by a single entry keyed on the **minimum** category int in
-    each group.
+    Categories are string member names (e.g. ``"size_1"``).  Merged
+    categories (e.g. ``"size_4_plus"``) get a title-cased label from
+    their merge spec.
     """
-    merged_cats: set[tuple[str, int]] = set()
-    merged_labels: dict[tuple[str, int], str] = {}
+    merged_members, merged_labels = _collect_merge_labels(merges)
 
-    for spec in merges or []:
-        vmap = _member_value_map(spec.control)
-        for merged_label, base_members in spec.groups.items():
-            ints = sorted(vmap[m] for m in base_members if m in vmap)
-            if not ints:
-                continue
-            merged_cats.update((spec.control, v) for v in ints)
-            merged_labels[(spec.control, ints[0])] = merged_label.replace("_", " ").title()
-
-    labels = {}
+    labels: dict[tuple[str, str], str] = {}
     for name in target_names:
         ctrl = CONTROLS.get(name)
         if ctrl is None:
             continue
-        for value, member in ctrl.valid_members:
-            if (name, value) in merged_cats:
+        for _value, member in ctrl.valid_members:
+            key = (name, member.lower())
+            if key in merged_members:
                 continue
             lbl = member.replace("_", " ").title()
-            # Disambiguate single-category controls (e.g. h_total vs p_total)
             if len(ctrl.valid_members) == 1:
                 lbl = ctrl.description
-            labels[(name, value)] = lbl
+            labels[key] = lbl
     labels.update(merged_labels)
     return labels
-
-
-def _process_single_merge(
-    result: pl.DataFrame,
-    spec: MergeSpec,
-    base_vmap: dict[str, int],
-    ext_vmap: dict[tuple[str, str], int],
-) -> tuple[pl.DataFrame, dict[tuple[str, str], int]]:
-    """Process a single merge specification and update the result dataframe."""
-    combined = dict(base_vmap)
-    for (ctrl, name), val in ext_vmap.items():
-        if ctrl == spec.control:
-            combined[name] = val
-
-    for merged_label_raw, base_members in spec.groups.items():
-        ints = sorted(combined[m] for m in base_members if m in combined)
-        if len(ints) < 2:  # noqa: PLR2004
-            continue
-
-        merged_cat = ints[0]
-        label_str = merged_label_raw.replace("_", " ").title()
-        ext_vmap[(spec.control, merged_label_raw.lower())] = merged_cat
-
-        cat_match = (pl.col("control_name") == spec.control) & pl.col("category").is_in(ints)
-        if spec.zones is not None:
-            cat_match = cat_match & pl.col("geo_id").is_in(spec.zones)
-
-        keep = result.filter(~cat_match)
-        to_merge = result.filter(cat_match)
-        if to_merge.is_empty():
-            continue
-
-        agg = (
-            to_merge.group_by("geo_id")
-            .agg(
-                pl.col("target_total").sum(),
-                pl.col("weighted_total").sum(),
-            )
-            .with_columns(
-                pl.lit(spec.control).alias("control_name"),
-                pl.lit(merged_cat, dtype=pl.Int16).alias("category"),
-                pl.lit(label_str).alias("label"),
-            )
-            .with_columns(
-                (pl.col("weighted_total") - pl.col("target_total")).alias("diff"),
-            )
-            .with_columns(
-                (pl.col("diff") / pl.col("target_total") * 100)
-                .fill_nan(0)
-                .fill_null(0)
-                .alias("diff_pct"),
-            )
-        )
-        result = pl.concat([keep, agg.select(result.columns)])
-
-    return result, ext_vmap
 
 
 def _pad_missing_rows(result: pl.DataFrame) -> pl.DataFrame:
@@ -133,40 +77,23 @@ def apply_fit_merges(
     merges: list | None,
     target_names: list[str],
 ) -> pl.DataFrame:
-    """Collapse merged categories in the fit table.
+    """Add human-readable ``label`` column to the fit table.
 
-    Adds a ``label`` column.  Global merges collapse rows for every zone.
-    Zone-specific merges only collapse for the listed zones.  After all
-    merges, missing ``(control_name, label)`` pairs are padded with null
-    rows so that every zone panel has consistent y-axis entries.
+    With category merges already applied at the data level (both
+    incidence tables and control totals), the fit table already
+    reflects the correct merged/unmerged categories per zone.
+    This function only adds labels and pads missing rows.
     """
-    # ---- initial label column from enum definitions ----
-    label_rows = []
-    for name in target_names:
-        ctrl = CONTROLS.get(name)
-        if ctrl is None:
-            continue
-        for value, member in ctrl.valid_members:
-            lbl = member.replace("_", " ").title()
-            if len(ctrl.valid_members) == 1:
-                lbl = ctrl.description
-            label_rows.append({"control_name": name, "category": value, "label": lbl})
-
+    # Build label lookup from registry + merge specs
+    lmap = category_label_map(target_names, merges)
+    label_rows = [
+        {"control_name": ctrl, "category": cat, "label": lbl} for (ctrl, cat), lbl in lmap.items()
+    ]
     label_df = pl.DataFrame(label_rows)
     result = fit.join(label_df, on=["control_name", "category"], how="left").with_columns(
-        pl.col("label").fill_null(pl.col("control_name") + ":" + pl.col("category").cast(pl.Utf8))
+        pl.col("label").fill_null(pl.col("control_name") + ":" + pl.col("category"))
     )
 
-    if not merges:
-        return result
-
-    # ---- process merges sequentially ----
-    ext_vmap: dict[tuple[str, str], int] = {}
-    for spec in merges:
-        base_vmap = _member_value_map(spec.control)
-        result, ext_vmap = _process_single_merge(result, spec, base_vmap, ext_vmap)
-
-    # ---- pad: every (control_name, label) in every geo_id ----
     result = _pad_missing_rows(result)
     return result.sort("control_name", "category", "label", "geo_id")
 
@@ -251,25 +178,41 @@ def compute_weighted_totals(
     )
 
     for ctrl in all_controls:
-        for value, member in ctrl.valid_members:
-            # Structural controls remain unpivoted, others use {name}__{member}
-            col = ctrl.name if ctrl.structural else f"{ctrl.name}__{member.lower()}"
+        if ctrl.structural:
+            col = ctrl.name
+            member = ctrl.valid_members[0][1].lower()
             if col not in sw.columns:
                 continue
             agg = sw.group_by("ctrl_geoid").agg(
                 (pl.col(col) * pl.col("hh_weight")).sum().alias("weighted_total")
             )
             rows.extend(
-                [
+                {
+                    "geo_id": r["ctrl_geoid"],
+                    "control_name": ctrl.name,
+                    "category": member,
+                    "weighted_total": r["weighted_total"],
+                }
+                for r in agg.iter_rows(named=True)
+            )
+        else:
+            # Discover all {ctrl.name}__* columns (includes merged)
+            prefix = f"{ctrl.name}__"
+            ctrl_cols = [c for c in sw.columns if c.startswith(prefix)]
+            for col in ctrl_cols:
+                member = col[len(prefix) :]
+                agg = sw.group_by("ctrl_geoid").agg(
+                    (pl.col(col) * pl.col("hh_weight")).sum().alias("weighted_total")
+                )
+                rows.extend(
                     {
                         "geo_id": r["ctrl_geoid"],
                         "control_name": ctrl.name,
-                        "category": value,
+                        "category": member,
                         "weighted_total": r["weighted_total"],
                     }
                     for r in agg.iter_rows(named=True)
-                ]
-            )
+                )
 
     return pl.DataFrame(rows)
 

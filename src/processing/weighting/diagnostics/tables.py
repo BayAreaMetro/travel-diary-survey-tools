@@ -303,7 +303,7 @@ def _count_cell(count: int, pums_pct: float | None = None) -> str:
     return f"<td>{count}{pct_html}</td>"
 
 
-def unweighted_cell_counts(  # noqa: C901, PLR0912
+def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     seed: pl.DataFrame,
     target_names: list[str],
     control_totals: ControlTotals | None = None,
@@ -324,27 +324,38 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912
     zones = sorted(seed["ctrl_geoid"].unique().to_list())
     n_zone_cols = len(zones)
 
-    # Pre-compute counts for all controls across all zones with single aggregation
-    # Build list of all control columns that exist in seed
+    # Pre-compute counts for all controls across all zones with single aggregation.
+    # Discover categories from actual seed columns (includes merged,
+    # excludes dropped originals).
     all_controls = resolve_targets(target_names, ControlLevel.HOUSEHOLD) + resolve_targets(
         target_names, ControlLevel.PERSON
     )
-    control_cols = []
-    col_to_ctrl: dict[str, tuple[str, int]] = {}  # col_name -> (ctrl_name, category_value)
+
+    # Build (ctrl, col_name, member_key) triples from actual seed columns
+    ctrl_members: dict[str, list[tuple[str, str]]] = {}  # ctrl_name -> [(col, member_key)]
+    control_cols: list[str] = []
 
     for ctrl in all_controls:
-        for value, member in ctrl.valid_members:
-            col = ctrl.name if ctrl.structural else f"{ctrl.name}__{member.lower()}"
+        members: list[tuple[str, str]] = []
+        if ctrl.structural:
+            col = ctrl.name
             if col in seed.columns:
+                member_key = ctrl.valid_members[0][1].lower()
+                members.append((col, member_key))
                 control_cols.append(col)
-                col_to_ctrl[col] = (ctrl.name, value)
+        else:
+            prefix = f"{ctrl.name}__"
+            for col in sorted(c for c in seed.columns if c.startswith(prefix)):
+                member_key = col[len(prefix) :]
+                members.append((col, member_key))
+                control_cols.append(col)
+        ctrl_members[ctrl.name] = members
 
     # Single group_by aggregation to get all zone x control counts
     if control_cols:
         zone_counts = seed.group_by("ctrl_geoid").agg(
             [pl.col(c).sum().alias(c) for c in control_cols]
         )
-        # Convert to nested dict: {zone: {col_name: count}}
         counts_by_zone: dict[str, dict[str, int]] = {}
         for row in zone_counts.iter_rows(named=True):
             zone_id = row["ctrl_geoid"]
@@ -353,9 +364,8 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912
         counts_by_zone = {}
 
     # Pre-compute PUMS share per (zone, control, category) ----------------
-    pums_pct: dict[tuple[str, str, int], float] = {}
-    # Also compute an all-zone total PUMS share per (control, category)
-    pums_pct_total: dict[tuple[str, int], float] = {}
+    pums_pct: dict[tuple[str, str, str], float] = {}
+    pums_pct_total: dict[tuple[str, str], float] = {}
     if control_totals is not None:
         ct = control_totals.totals
         zone_ctrl_totals = ct.group_by(["geo_id", "control_name"]).agg(
@@ -368,7 +378,6 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912
         for row in ct_with_pct.iter_rows(named=True):
             pums_pct[(row["geo_id"], row["control_name"], row["category"])] = row["pct"]
 
-        # Total across all zones
         all_ctrl_totals = ct.group_by("control_name").agg(
             pl.col("target_total").sum().alias("all_ctrl_total")
         )
@@ -396,30 +405,26 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912
         ctrls = resolve_targets(target_names, level)
         if not ctrls:
             continue
-        # Level separator row
         level_label = "Household" if level == ControlLevel.HOUSEHOLD else "Person"
         data_rows.append(
             f'<tr><td colspan="{n_zone_cols + 3}" '
             f'style="background:#e8e8e8;font-weight:bold;text-align:left">{level_label}</td></tr>'
         )
         for ctrl in ctrls:
-            members = list(ctrl.valid_members)
-            for i, (value, member) in enumerate(members):
+            members = ctrl_members.get(ctrl.name, [])
+            for i, (col, member_key) in enumerate(members):
                 cells = ""
                 if i == 0:
                     cells += f'<th rowspan="{len(members)}">{ctrl.name}</th>'
-                cells += (
-                    f'<td style="text-align:left">{labels.get((ctrl.name, value), member)}</td>'
-                )
+                lbl = labels.get((ctrl.name, member_key), member_key.replace("_", " ").title())
+                cells += f'<td style="text-align:left">{lbl}</td>'
                 row_total = 0
-                # Use pre-computed counts instead of filtering
-                col = ctrl.name if ctrl.structural else f"{ctrl.name}__{member.lower()}"
                 for z in zones:
                     count = counts_by_zone.get(z, {}).get(col, 0)
                     row_total += count
-                    pct = pums_pct.get((z, ctrl.name, value))
+                    pct = pums_pct.get((z, ctrl.name, member_key))
                     cells += _count_cell(count, pct)
-                total_pct = pums_pct_total.get((ctrl.name, value))
+                total_pct = pums_pct_total.get((ctrl.name, member_key))
                 cells += _count_cell(row_total, total_pct)
                 data_rows.append(f"<tr>{cells}</tr>")
 
@@ -433,27 +438,27 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912
 
 def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> str:  # noqa: C901, PLR0912
     """Compact Zone -> HH Samples table with optional Zone Group column."""
-    # Use original zone IDs for sample counts (zone groups remap ctrl_geoid)
-    count_col = "_orig_ctrl_geoid" if "_orig_ctrl_geoid" in seed.columns else "ctrl_geoid"
+    # study_geoid is the raw crosswalk geography; ctrl_geoid may be grouped.
     sample_counts = dict(
-        seed.filter(pl.col(count_col).is_not_null()).group_by(count_col).len().iter_rows()
+        seed.filter(pl.col("study_geoid").is_not_null()).group_by("study_geoid").len().iter_rows()
     )
 
-    # Zone group mapping (original zone → group name)
+    # Zone group mapping (study_geoid → ctrl_geoid when they differ)
     zone_to_group: dict[str, str] = {}
-    if "zone_group" in seed.columns:
-        zone_to_group = dict(
-            seed.filter(pl.col("zone_group").is_not_null())
-            .select(count_col, "zone_group")
+    if "ctrl_geoid" in seed.columns and "study_geoid" in seed.columns:
+        pairs = (
+            seed.filter(pl.col("study_geoid") != pl.col("ctrl_geoid"))
+            .select("study_geoid", "ctrl_geoid")
             .unique()
-            .iter_rows()
         )
+        if pairs.height > 0:
+            zone_to_group = dict(pairs.iter_rows())
     has_groups = bool(zone_to_group)
 
     raw_zones = (
-        crosswalk_df.select("ctrl_geoid")
+        crosswalk_df.select("study_geoid")
         .unique()
-        .filter(pl.col("ctrl_geoid").is_not_null())
+        .filter(pl.col("study_geoid").is_not_null())
         .to_series()
         .to_list()
     )

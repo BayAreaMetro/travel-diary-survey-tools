@@ -211,11 +211,13 @@ steps:
         #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
 
         # Result: 3x5 = 15 cells
-        - name: h_size_by_income
-          dimensions: [h_size, h_income]
-          merges:
-        #       # income_under75: [income_under25, income_25to50, income_50to75]
-              size_3_plus: [size_3, size_4, size_5_plus]
+        # - name: h_size_by_income
+        #   dimensions: [h_size, h_income]
+        #   merges:
+        #     h_income:
+        #       income_under_100: [income_under25, income_25to50, income_50to75, income_75to100]
+        #     h_size:
+        #         size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
 
 
   # -- Existing weights (alternative to computing new weights) ----------

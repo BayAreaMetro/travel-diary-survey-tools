@@ -76,7 +76,7 @@ def compute_base_weights(
     targets: list[str],
     geo_col: str = "ctrl_geoid",
     *,
-    sample_plan: SamplePlan | None = None,
+    sample_plan: str | Path | SamplePlan | None = None,
 ) -> pl.DataFrame:
     """Add ``base_weight`` column to the seed table.
 
@@ -91,8 +91,10 @@ def compute_base_weights(
         Control registry names (used to identify the master HH control).
     geo_col : str
         Geography column on *seed*.
-    sample_plan : SamplePlan | None
-        Optional explicit sampling plan.  When ``None``, default response
+    sample_plan : str | Path | SamplePlan | None
+        Optional sample plan.  Accepts a file path (loaded via
+        :func:`load_sample_plan`) or an already-loaded
+        :class:`SamplePlan`.  When ``None``, default response
         inversion is used.
 
     Returns:
@@ -108,8 +110,10 @@ def compute_base_weights(
         correctly filtered).
     """
     if sample_plan is not None:
-        zone_weights = _zone_weights_from_plan(seed, sample_plan, geo_col)
+        plan = sample_plan if isinstance(sample_plan, SamplePlan) else load_sample_plan(sample_plan)
+        zone_weights = _zone_weights_from_plan(seed, plan, geo_col)
     else:
+        logger.info("Using PUMS-target response inversion for base weights")
         zone_weights = _zone_weights_from_response_inversion(seed, control_totals, targets, geo_col)
 
     return seed.join(

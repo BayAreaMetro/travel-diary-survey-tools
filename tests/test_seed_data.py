@@ -20,8 +20,8 @@ from processing.weighting.controls.enums import (
     HHWorkersCategory,
     StudentCategory,
 )
+from processing.weighting.data_prep.incidence import build_incidence_table
 from processing.weighting.data_prep.seed_data import (
-    build_seed_table,
     recode_survey_households,
     recode_survey_persons,
 )
@@ -563,13 +563,13 @@ class TestRecodeSurveyPersons:
 
 
 # ---------------------------------------------------------------------------
-# build_seed_table
+# build_incidence_table
 # ---------------------------------------------------------------------------
-class TestBuildSeedTable:
-    """Tests for building the seed table from recoded survey households and persons."""
+class TestBuildIncidenceTable:
+    """Tests for building the incidence table from recoded survey households and persons."""
 
     def test_basic_seed_table(self, survey_households, survey_persons):
-        """Seed table should have one row per household, with hh_id and geo_col preserved."""
+        """Seed table should have one row per household, with hh_id preserved."""
         hh_recoded = recode_survey_households(
             survey_households,
             survey_persons,
@@ -577,14 +577,16 @@ class TestBuildSeedTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(
+            hh_recoded, per_recoded, ALL_TARGETS, extra_cols=["ctrl_geoid"]
+        )
 
         assert "hh_id" in seed.columns
         assert "ctrl_geoid" in seed.columns
         assert len(seed) == 3  # one row per household
 
     def test_hh_ctrl_columns_preserved(self, survey_households, survey_persons):
-        """Household-level category columns should be in the seed table."""
+        """Household-level controls should be pivoted into indicator columns."""
         hh_recoded = recode_survey_households(
             survey_households,
             survey_persons,
@@ -592,10 +594,11 @@ class TestBuildSeedTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
 
-        assert "h_size" in seed.columns
-        assert "h_income" in seed.columns
+        # Non-structural HH controls are pivoted: h_size__one_person, h_income__*, etc.
+        hh_indicator_cols = [c for c in seed.columns if c.startswith("h_size__")]
+        assert len(hh_indicator_cols) > 0
 
     def test_person_incidence_columns_created(
         self,
@@ -610,7 +613,7 @@ class TestBuildSeedTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
 
         # Person incidence columns use p_ prefix, e.g. p_gender__male
         incidence_cols = [c for c in seed.columns if "__" in c]
@@ -629,7 +632,7 @@ class TestBuildSeedTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
 
         # Gender incidence columns
         gender_inc_cols = [c for c in seed.columns if c.startswith("p_gender__")]
@@ -657,7 +660,7 @@ class TestBuildSeedTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_seed_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
 
         incidence_cols = [c for c in seed.columns if "__" in c]
         for col in incidence_cols:

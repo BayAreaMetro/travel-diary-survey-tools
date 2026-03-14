@@ -37,13 +37,11 @@ import polars as pl
 
 from processing.weighting.balancing._np_balancer import np_balancer_numba
 from processing.weighting.balancing.importance import DEFAULT_IMPORTANCE
-from processing.weighting.balancing.merges import apply_category_merges
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.diagnostics.data import compute_weighted_totals, fit_table
 from processing.weighting.specs import (
     ControlTotals,
     GridPoint,
-    MergeSpec,
     ZoneInput,
     ZoneResult,
     ZoneStatus,
@@ -55,12 +53,11 @@ logger = logging.getLogger(__name__)
 # -- Public API ------------------------------------------------------------
 
 
-def balance_weights(  # noqa: PLR0913
+def balance_weights(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
     *,
-    merges: list[MergeSpec] | None = None,
     importance: dict[str, float] | None = None,
     default_importance: float = DEFAULT_IMPORTANCE,
     max_expansion_factor: float = 10.0,
@@ -76,38 +73,27 @@ def balance_weights(  # noqa: PLR0913
     Parameters
     ----------
     seed : pl.DataFrame
-        From ``build_seed_table``.  Must have ``hh_id``, *geo_col*,
-        HH category columns (e.g. ``h_size``) and person incidence
-        columns (e.g. ``p_gender_male``).
+        Incidence table with ``hh_id``, ``ctrl_geoid``, ``base_weight``,
+        and pivoted control columns (``{ctrl}__{member}`` or structural).
+        All merges (global and zone-specific) must already be applied.
     control_totals : ControlTotals
-        PUMS-derived targets from ``build_control_totals``.
+        Per-zone targets (with merges already applied).
     targets : list[str]
         Control registry names.
-    merges : list[MergeSpec] | None
-        Optional category merges applied at the matrix level before
-        balancing.  Each spec collapses incidence rows + target entries
-        for the specified categories.  Zone-specific merges are supported
-        via ``MergeSpec.zones``.
     importance : dict[str, float] | None
-        Per-control importance overrides.  Keys are control registry names,
-        values are importance weights.  Controls not listed use
-        *default_importance*.  ``None`` uses defaults for all.
+        Per-control importance overrides.
     default_importance : float
-        Baseline importance for controls without an explicit override
-        (default 100).
+        Baseline importance (default 100).
     max_expansion_factor, min_expansion_factor : float
         Bounds on final / initial weight ratio.
     min_weight, max_weight : float | None
-        Optional absolute floor / ceiling applied after expansion-factor
-        scaling.  ``None`` means no absolute bound.
+        Optional absolute floor / ceiling.
     max_iterations : int
         Newton-Raphson cap per zone.
     n_workers : int
         Threads for parallel zone balancing (``1`` = sequential).
-        Numba releases the GIL, so real parallelism is achieved.
     verbose : bool
-        If ``True`` (default), log convergence status for each zone.
-        Set to ``False`` to suppress per-zone logging (e.g., during grid search).
+        Log per-zone convergence (default ``True``).
 
     Returns:
     -------
@@ -116,7 +102,6 @@ def balance_weights(  # noqa: PLR0913
     statuses : list[ZoneStatus]
         One entry per zone with convergence info.
     """
-    merges = merges or []
     geo_col = "ctrl_geoid"
 
     # Build per-zone inputs
@@ -133,7 +118,6 @@ def balance_weights(  # noqa: PLR0913
                 zone_seed,
                 zone_totals,
                 targets,
-                merges,
                 geo_id,
                 importance=importance,
                 default_importance=default_importance,
@@ -169,14 +153,13 @@ def balance_weights(  # noqa: PLR0913
     return weights, statuses
 
 
-def grid_search_expansion_factor(  # noqa: PLR0913
+def grid_search_expansion_factor(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
     ef_grid: list[float],
     selected_ef: float,
     *,
-    merges: list[MergeSpec] | None = None,
     importance: dict[str, float] | None = None,
     default_importance: float = DEFAULT_IMPORTANCE,
     min_expansion_factor: float = 0.1,
@@ -205,7 +188,6 @@ def grid_search_expansion_factor(  # noqa: PLR0913
             seed,
             control_totals,
             targets,
-            merges=merges,
             importance=importance,
             default_importance=default_importance,
             max_expansion_factor=ef,
@@ -255,11 +237,10 @@ def grid_search_expansion_factor(  # noqa: PLR0913
 # -- Zone preparation -------------------------------------------------------
 
 
-def _prepare_zone(  # noqa: PLR0913
+def _prepare_zone(
     zone_seed: pl.DataFrame,
     zone_totals: pl.DataFrame,
     targets: list[str],
-    merges: list[MergeSpec],
     geo_id: str,
     *,
     importance: dict[str, float] | None,
@@ -284,20 +265,6 @@ def _prepare_zone(  # noqa: PLR0913
     for i, (ctrl_name, _member) in enumerate(row_labels):
         if ctrl_name in overrides:
             imp_vec[i] = overrides[ctrl_name]
-
-    zone_merges = [m for m in merges if m.zones is None or geo_id in m.zones]
-    # Global merges (zones=None) must run first so targeted merges can
-    # reference the merged labels they produce.
-    zone_merges.sort(key=lambda m: (m.zones is not None,))
-    if zone_merges:
-        incidence, ctrl_targets, master_idx, imp_vec = apply_category_merges(
-            incidence,
-            ctrl_targets,
-            row_labels,
-            master_idx,
-            zone_merges,
-            imp_vec,
-        )
 
     if "base_weight" not in zone_seed.columns:
         msg = (
@@ -420,18 +387,11 @@ def _build_incidence(
         if len(ctrl_rows) == 0:
             continue
 
-        member_map = {v: m.lower() for v, m in ctrl.valid_members}
-
-        for cat_val, target_val in zip(
+        for member, target_val in zip(
             ctrl_rows["category"].to_list(),
             ctrl_rows["target_total"].to_list(),
             strict=True,
         ):
-            if cat_val not in member_map:
-                msg = f"Category {cat_val} not in {ctrl.name}.valid_members"
-                raise ValueError(msg)
-            member = member_map[cat_val]
-
             # Structural controls use unpivoted column name,
             # all others use {control_name}__{member_name} pattern
             col_name = name if ctrl.structural else f"{name}__{member}"

@@ -285,8 +285,8 @@ def _build_tooltips(
 ) -> dict[str, str]:
     """Build per-zone tooltips showing PUMA allocation weights."""
     tooltips: dict[str, str] = {}
-    for geo_id in target_4326["ctrl_geoid"]:
-        rows = xw.filter(pl.col("ctrl_geoid") == geo_id).sort(
+    for geo_id in target_4326["study_geoid"]:
+        rows = xw.filter(pl.col("study_geoid") == geo_id).sort(
             "allocation_weight",
             descending=True,
         )
@@ -316,7 +316,7 @@ def _build_zone_labels_and_colors(
     """Build zone labels and colors for centroid labels."""
     zone_labels: list[str] = []
     zone_colors: list[str] = []
-    for gid in target_4326["ctrl_geoid"]:
+    for gid in target_4326["study_geoid"]:
         gname = zone_to_group_name.get(gid)
         label = f"Zone {gid} ({gname})" if gname else f"Zone {gid}"
         zone_labels.append(label)
@@ -341,7 +341,7 @@ def _build_zone_group_index(
 
     # Assign each ungrouped zone its own cycling colour
     for _, row in target_4326.iterrows():
-        gid = row["ctrl_geoid"]
+        gid = row["study_geoid"]
         if gid not in zone_to_group_idx:
             zone_to_group_idx[gid] = next_idx % len(_GROUP_FILLS)
             next_idx += 1
@@ -358,7 +358,7 @@ def _add_zone_traces(
     group_rows: dict[int, list] = defaultdict(list)
     group_tooltips: dict[int, list[str]] = defaultdict(list)
     for _, row in target_4326.iterrows():
-        gi = zone_to_group_idx.get(row["ctrl_geoid"], 0)
+        gi = zone_to_group_idx.get(row["study_geoid"], 0)
         group_rows[gi].append(row)
         group_tooltips[gi].append(row["tooltip"])
 
@@ -432,12 +432,12 @@ def crosswalk_figure(
     puma_gdf : gpd.GeoDataFrame
         PUMA boundary polygons (must have ``puma_id`` column).
     target_gdf : gpd.GeoDataFrame
-        Target zone polygons (must have ``ctrl_geoid`` column).
+        Target zone polygons (must have ``study_geoid`` column).
     crosswalk_df : pl.DataFrame
-        Crosswalk table with ``puma_id``, ``ctrl_geoid``,
+        Crosswalk table with ``puma_id``, ``study_geoid``,
         ``population``, ``allocation_weight``.
     households : pl.DataFrame | None
-        Assigned households (must contain ``ctrl_geoid``).  When
+        Assigned households (must contain ``study_geoid``).  When
         provided, per-zone sample counts appear in the tooltip.
     zone_groups : dict[str, list[str]] | None
         Optional zone group mapping.  When provided, grouped zones
@@ -454,24 +454,24 @@ def crosswalk_figure(
     # Build tooltip per target zone showing allocation weights
     xw = crosswalk_df.select(
         "puma_id",
-        "ctrl_geoid",
+        "study_geoid",
         "population",
         "allocation_weight",
     )
 
     # Per-zone sample counts from assigned households (Polars only)
     sample_counts: dict[str, int] = {}
-    if households is not None and "ctrl_geoid" in households.columns:
+    if households is not None and "study_geoid" in households.columns:
         sample_counts = dict(
-            households.filter(pl.col("ctrl_geoid").is_not_null())
-            .group_by("ctrl_geoid")
+            households.filter(pl.col("study_geoid").is_not_null())
+            .group_by("study_geoid")
             .len()
             .iter_rows()
         )
 
     tooltips = _build_tooltips(target_4326, xw, sample_counts)
     target_4326 = target_4326.copy()
-    target_4326["tooltip"] = target_4326["ctrl_geoid"].map(tooltips)
+    target_4326["tooltip"] = target_4326["study_geoid"].map(tooltips)
 
     fig = go.Figure()
 

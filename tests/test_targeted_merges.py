@@ -167,17 +167,17 @@ class TestApplyMergesTargeted:
 
 
 # ---------------------------------------------------------------------------
-# apply_fit_merges — diagnostics table zone-aware collapsing
+# apply_fit_merges — diagnostics table labelling
 # ---------------------------------------------------------------------------
 
 
-def _make_fit(zones: list[str], categories: list[int], control: str = "h_size") -> pl.DataFrame:
-    """Build a minimal fit DataFrame for testing."""
+def _make_fit(zones: list[str], categories: list[str], control: str = "h_size") -> pl.DataFrame:
+    """Build a minimal fit DataFrame with string categories for testing."""
     rows = []
     for z in zones:
         for cat in categories:
-            t = float(cat * 10 + hash(z) % 7)
-            w = t + (cat - 3)  # small diff for realistic data
+            t = float(hash(cat) % 50 + hash(z) % 7 + 10)
+            w = t + 1.0  # small diff
             rows.append(
                 {
                     "geo_id": z,
@@ -189,7 +189,7 @@ def _make_fit(zones: list[str], categories: list[int], control: str = "h_size") 
                     "diff_pct": (w - t) / t * 100 if t else 0.0,
                 }
             )
-    return pl.DataFrame(rows).with_columns(pl.col("category").cast(pl.Int16))
+    return pl.DataFrame(rows)
 
 
 class TestApplyFitMergesLabel:
@@ -197,39 +197,39 @@ class TestApplyFitMergesLabel:
 
     def test_adds_label_column(self):
         """A label column should be added based on the control and category."""
-        fit = _make_fit(["Z1"], [1, 2, 3])
+        fit = _make_fit(["Z1"], ["size_1", "size_2", "size_3"])
         result = apply_fit_merges(fit, None, ["h_size"])
         assert "label" in result.columns
         labels = result["label"].to_list()
         assert "Size 1" in labels
         assert "Size 2" in labels
 
-    def test_global_merge_collapses_all_zones(self):
-        """A global merge should collapse categories for all zones."""
-        fit = _make_fit(["Z1", "Z2"], [4, 5, 6])
+    def test_merged_category_gets_label(self):
+        """A merged category string gets a title-cased label from the merge spec."""
+        fit = _make_fit(["Z1"], ["size_3", "size_5_plus"])
         merge = MergeSpec(
             control="h_size",
             groups={"size_5_plus": ["size_5", "size_6"]},
             zones=None,
         )
         result = apply_fit_merges(fit, [merge], ["h_size"])
-        # 5 and 6 should be collapsed into "Size 5 Plus" for both zones
-        for z in ["Z1", "Z2"]:
-            zone_labels = result.filter(
-                (pl.col("geo_id") == z) & pl.col("target_total").is_not_null()
-            )["label"].to_list()
-            assert "Size 5 Plus" in zone_labels
-            assert "Size 5" not in zone_labels
-            assert "Size 6" not in zone_labels
-            assert "Size 4" in zone_labels
+        labels = result["label"].to_list()
+        assert "Size 5 Plus" in labels
+        assert "Size 3" in labels
 
 
 class TestApplyFitMergesZoneAware:
-    """Zone merges should only collapse rows for the listed zones."""
+    """Zone merge labels should appear correctly in the fit table."""
 
-    def test_zone_merge_collapses_only_target_zone(self):
-        """A zone merge should only collapse categories for the specified zones."""
-        fit = _make_fit(["Z1", "Z2"], [3, 4, 5, 6])
+    def test_zone_merge_labels_present(self):
+        """Zone-specific merged categories get proper labels."""
+        # Simulate a fit table where zone Z1 has the merged category
+        # and zone Z2 has the originals (this is how the data arrives
+        # after apply_zone_merges + merge_control_totals upstream).
+        z1_data = _make_fit(["Z1"], ["size_3", "size_4_plus"])
+        z2_data = _make_fit(["Z2"], ["size_3", "size_4", "size_5_plus"])
+        fit = pl.concat([z1_data, z2_data])
+
         global_merge = MergeSpec(
             control="h_size",
             groups={"size_5_plus": ["size_5", "size_6"]},
@@ -242,26 +242,25 @@ class TestApplyFitMergesZoneAware:
         )
         result = apply_fit_merges(fit, [global_merge, zone_merge], ["h_size"])
 
-        # Z1 should have "Size 4 Plus" with real data
-        z1 = result.filter(pl.col("geo_id") == "Z1")
-        z1_real = z1.filter(pl.col("target_total").is_not_null())
-        z1_labels = z1_real["label"].to_list()
+        # Z1 should have the merged label
+        z1 = result.filter((pl.col("geo_id") == "Z1") & pl.col("target_total").is_not_null())
+        z1_labels = z1["label"].to_list()
         assert "Size 4 Plus" in z1_labels
-        assert "Size 4" not in z1_labels
-        assert "Size 5 Plus" not in z1_labels
         assert "Size 3" in z1_labels
 
-        # Z2 should keep original categories with real data
-        z2 = result.filter(pl.col("geo_id") == "Z2")
-        z2_real = z2.filter(pl.col("target_total").is_not_null())
-        z2_labels = z2_real["label"].to_list()
+        # Z2 should have the original labels
+        z2 = result.filter((pl.col("geo_id") == "Z2") & pl.col("target_total").is_not_null())
+        z2_labels = z2["label"].to_list()
         assert "Size 4" in z2_labels
         assert "Size 5 Plus" in z2_labels
-        assert "Size 4 Plus" not in z2_labels
 
     def test_null_placeholders_for_consistency(self):
         """Every zone should have every label (real or null placeholder)."""
-        fit = _make_fit(["Z1", "Z2"], [3, 4, 5, 6])
+        # Simulate post-merge data: Z1 has merged, Z2 has originals
+        z1_data = _make_fit(["Z1"], ["size_3", "size_4_plus"])
+        z2_data = _make_fit(["Z2"], ["size_3", "size_4", "size_5_plus"])
+        fit = pl.concat([z1_data, z2_data])
+
         global_merge = MergeSpec(
             control="h_size",
             groups={"size_5_plus": ["size_5", "size_6"]},
@@ -279,23 +278,18 @@ class TestApplyFitMergesZoneAware:
             zone_labels = result.filter(pl.col("geo_id") == z)["label"].unique().sort().to_list()
             assert zone_labels == all_labels, f"Zone {z} missing some labels"
 
-    def test_zone_merge_target_sums_correct(self):
-        """Merged row totals should equal sum of constituents."""
-        fit = _make_fit(["Z1", "Z2"], [4, 5, 6])
-        global_merge = MergeSpec(
-            control="h_size",
-            groups={"size_5_plus": ["size_5", "size_6"]},
-            zones=None,
-        )
+    def test_zone_merge_target_preserved(self):
+        """Merged category preserves its target total from upstream merge."""
+        z1_data = _make_fit(["Z1"], ["size_4_plus"])
+        z2_data = _make_fit(["Z2"], ["size_4", "size_5_plus"])
+        fit = pl.concat([z1_data, z2_data])
+
         zone_merge = MergeSpec(
             control="h_size",
             groups={"size_4_plus": ["size_4", "size_5_plus"]},
             zones=["Z1"],
         )
-        # Get original Z1 targets for cats 4, 5, 6 before any merge
-        z1_orig = fit.filter(pl.col("geo_id") == "Z1")
-        expected_target = z1_orig["target_total"].sum()
-
-        result = apply_fit_merges(fit, [global_merge, zone_merge], ["h_size"])
+        result = apply_fit_merges(fit, [zone_merge], ["h_size"])
         z1_merged = result.filter((pl.col("geo_id") == "Z1") & (pl.col("label") == "Size 4 Plus"))
-        assert z1_merged["target_total"].item() == pytest.approx(expected_target)
+        assert z1_merged.height == 1
+        assert z1_merged["target_total"].item() is not None
