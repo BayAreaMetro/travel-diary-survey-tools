@@ -56,6 +56,20 @@ def _make_seed(geo_col: str, zone_hh: dict[str, int]) -> pl.DataFrame:
     return pl.DataFrame(rows).cast({"hh_id": pl.Int64, geo_col: pl.Utf8})
 
 
+def _make_seed_with_bg(geo_col: str, bg_hh: dict[str, tuple[str, int]]) -> pl.DataFrame:
+    """Build a seed table with hh_id, geo_col, and bg_geo_id.
+
+    *bg_hh* maps ``bg_geo_id → (ctrl_geoid, n_households)``.
+    """
+    rows: list[dict] = []
+    hh_id = 1
+    for bg_id, (zone_id, n) in bg_hh.items():
+        for _ in range(n):
+            rows.append({"hh_id": hh_id, geo_col: zone_id, "bg_geo_id": bg_id})
+            hh_id += 1
+    return pl.DataFrame(rows).cast({"hh_id": pl.Int64, geo_col: pl.Utf8, "bg_geo_id": pl.Utf8})
+
+
 # ---------------------------------------------------------------------------
 # Response inversion tests
 # ---------------------------------------------------------------------------
@@ -147,26 +161,38 @@ class TestResponseInversion:
 
 
 # ---------------------------------------------------------------------------
-# Sample plan tests
+# Sample plan tests (block-group level)
 # ---------------------------------------------------------------------------
 class TestSamplePlan:
-    """Explicit sample plan with segment-based stratification."""
+    """Explicit sample plan with BG-level segment-based stratification."""
 
-    def test_single_segment_all_zones(self):
-        """All zones in one segment → weight = total_pop / total_responses."""
+    def test_single_segment_all_bgs(self):
+        """All BGs in one segment → weight = total_bg_pop / total_responses."""
         plan = SamplePlan(
             strata=pl.DataFrame(
                 {
-                    "geo_id": ["Z1", "Z2"],
-                    "target_population": [60_000, 40_000],
+                    "bg_geo_id": ["060010001001", "060010001002"],
                     "sample_segment": ["seg_a", "seg_a"],
                 }
             )
         )
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
-        # 10 + 20 = 30 responses, segment pop = 100_000 → weight = 100_000/30
-        seed = _make_seed("ctrl_geoid", {"Z1": 10, "Z2": 20})
-        result = compute_base_weights(seed, ct, ["h_size"], geo_col="ctrl_geoid", sample_plan=plan)
+        bg_pops = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060010001002"], "bg_population": [60_000, 40_000]}
+        )
+        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
+        # 10 + 20 = 30 responses in one segment, pop = 100k → weight = 100k/30
+        seed = _make_seed_with_bg(
+            "ctrl_geoid",
+            {"060010001001": ("Z1", 10), "060010001002": ("Z1", 20)},
+        )
+        result = compute_base_weights(
+            seed,
+            ct,
+            ["h_size"],
+            geo_col="ctrl_geoid",
+            sample_plan=plan,
+            bg_populations=bg_pops,
+        )
         expected = 100_000.0 / 30
         assert result["base_weight"][0] == pytest.approx(expected)
 
@@ -175,23 +201,36 @@ class TestSamplePlan:
         plan = SamplePlan(
             strata=pl.DataFrame(
                 {
-                    "geo_id": ["Z1", "Z2", "Z3"],
-                    "target_population": [100_000, 50_000, 50_000],
+                    "bg_geo_id": ["060010001001", "060130001001", "060130001002"],
                     "sample_segment": ["urban", "rural", "rural"],
                 }
             )
         )
-        ct = _make_control_totals(
+        bg_pops = pl.DataFrame(
             {
-                "Z1": [("h_size", 1, 999.0)],
-                "Z2": [("h_size", 1, 999.0)],
-                "Z3": [("h_size", 1, 999.0)],
+                "bg_geo_id": ["060010001001", "060130001001", "060130001002"],
+                "bg_population": [100_000, 50_000, 50_000],
             }
         )
-        # urban: 100 responses, pop=100k → 1000
-        # rural: Z2(50) + Z3(50) = 100 responses, pop=100k → 1000
-        seed = _make_seed("ctrl_geoid", {"Z1": 100, "Z2": 50, "Z3": 50})
-        result = compute_base_weights(seed, ct, ["h_size"], geo_col="ctrl_geoid", sample_plan=plan)
+        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
+        # urban: 100 HHs, pop=100k → 1000
+        # rural: 50+50 = 100 HHs, pop=100k → 1000
+        seed = _make_seed_with_bg(
+            "ctrl_geoid",
+            {
+                "060010001001": ("Z1", 100),
+                "060130001001": ("Z2", 50),
+                "060130001002": ("Z2", 50),
+            },
+        )
+        result = compute_base_weights(
+            seed,
+            ct,
+            ["h_size"],
+            geo_col="ctrl_geoid",
+            sample_plan=plan,
+            bg_populations=bg_pops,
+        )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
         assert z1["base_weight"][0] == pytest.approx(1_000.0)
@@ -202,16 +241,28 @@ class TestSamplePlan:
         plan = SamplePlan(
             strata=pl.DataFrame(
                 {
-                    "geo_id": ["Z1", "Z2"],
-                    "target_population": [200_000, 50_000],
+                    "bg_geo_id": ["060010001001", "060750001001"],
                     "sample_segment": ["big", "small"],
                 }
             )
         )
+        bg_pops = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060750001001"], "bg_population": [200_000, 50_000]}
+        )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
         # big: 200k/100 = 2000, small: 50k/50 = 1000
-        seed = _make_seed("ctrl_geoid", {"Z1": 100, "Z2": 50})
-        result = compute_base_weights(seed, ct, ["h_size"], geo_col="ctrl_geoid", sample_plan=plan)
+        seed = _make_seed_with_bg(
+            "ctrl_geoid",
+            {"060010001001": ("Z1", 100), "060750001001": ("Z2", 50)},
+        )
+        result = compute_base_weights(
+            seed,
+            ct,
+            ["h_size"],
+            geo_col="ctrl_geoid",
+            sample_plan=plan,
+            bg_populations=bg_pops,
+        )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
         assert z1["base_weight"][0] == pytest.approx(2_000.0)
@@ -222,29 +273,72 @@ class TestSamplePlan:
         plan = SamplePlan(
             strata=pl.DataFrame(
                 {
-                    "geo_id": ["Z1", "Z2"],
-                    "target_population": [100_000, 50_000],
+                    "bg_geo_id": ["060010001001", "060750001001"],
                     "sample_segment": ["has_data", "empty"],
                 }
             )
         )
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
-        # Only Z1 has responses; Z2 (segment "empty") has none
-        seed = _make_seed("ctrl_geoid", {"Z1": 10})
+        bg_pops = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060750001001"], "bg_population": [100_000, 50_000]}
+        )
+        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
+        # Only BG1 has responses; BG2 (segment "empty") has none
+        seed = _make_seed_with_bg("ctrl_geoid", {"060010001001": ("Z1", 10)})
         with pytest.raises(ValueError, match="zero survey responses"):
-            compute_base_weights(seed, ct, ["h_size"], geo_col="ctrl_geoid", sample_plan=plan)
+            compute_base_weights(
+                seed,
+                ct,
+                ["h_size"],
+                geo_col="ctrl_geoid",
+                sample_plan=plan,
+                bg_populations=bg_pops,
+            )
 
     def test_sample_plan_missing_column_raises(self):
         """SamplePlan validates required columns on construction."""
         with pytest.raises(ValueError, match="missing required columns"):
             SamplePlan(strata=pl.DataFrame({"geo_id": ["Z1"], "target_population": [100]}))
 
+    def test_missing_bg_populations_raises(self):
+        """sample_plan without bg_populations should raise."""
+        plan = SamplePlan(
+            strata=pl.DataFrame({"bg_geo_id": ["060010001001"], "sample_segment": ["seg_a"]})
+        )
+        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
+        seed = _make_seed_with_bg("ctrl_geoid", {"060010001001": ("Z1", 10)})
+        with pytest.raises(ValueError, match="bg_populations is required"):
+            compute_base_weights(
+                seed,
+                ct,
+                ["h_size"],
+                geo_col="ctrl_geoid",
+                sample_plan=plan,
+            )
+
+    def test_missing_bg_geo_id_raises(self):
+        """Seed without bg_geo_id should raise when sample plan is used."""
+        plan = SamplePlan(
+            strata=pl.DataFrame({"bg_geo_id": ["060010001001"], "sample_segment": ["seg_a"]})
+        )
+        bg_pops = pl.DataFrame({"bg_geo_id": ["060010001001"], "bg_population": [100_000]})
+        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
+        seed = _make_seed("ctrl_geoid", {"Z1": 10})  # no bg_geo_id
+        with pytest.raises(ValueError, match="missing 'bg_geo_id'"):
+            compute_base_weights(
+                seed,
+                ct,
+                ["h_size"],
+                geo_col="ctrl_geoid",
+                sample_plan=plan,
+                bg_populations=bg_pops,
+            )
+
     def test_sample_plan_extra_columns_ok(self):
         """Extra columns are allowed."""
         plan = SamplePlan(
             strata=pl.DataFrame(
                 {
-                    "geo_id": ["Z1"],
+                    "bg_geo_id": ["060010001001"],
                     "sample_segment": ["seg1"],
                     "county": ["Alameda"],
                 }
@@ -289,11 +383,11 @@ class TestLoadSamplePlan:
     def test_load_valid_csv(self, tmp_path):
         """A well-formed CSV should load without error."""
         csv = tmp_path / "plan.csv"
-        csv.write_text("geo_id,target_population,sample_segment\nZ1,100000,seg_a\nZ2,50000,seg_a\n")
+        csv.write_text("bg_geo_id,sample_segment\n060010001001,seg_a\n060010001002,seg_a\n")
         plan = load_sample_plan(csv)
         assert isinstance(plan, SamplePlan)
         assert plan.strata.height == 2
-        assert plan.strata["geo_id"].to_list() == ["Z1", "Z2"]
+        assert plan.strata["bg_geo_id"].to_list() == ["060010001001", "060010001002"]
 
     def test_load_file_not_found(self, tmp_path):
         """Loading a nonexistent file should raise FileNotFoundError."""
@@ -303,32 +397,37 @@ class TestLoadSamplePlan:
     def test_load_missing_columns(self, tmp_path):
         """Loading a CSV with missing required columns should raise ValueError."""
         csv = tmp_path / "bad.csv"
-        csv.write_text("geo_id,target_population\nZ1,100000\n")
+        csv.write_text("bg_geo_id,target_population\n060010001001,100000\n")
         with pytest.raises(ValueError, match="missing required columns"):
             load_sample_plan(csv)
 
     def test_load_with_extra_columns(self, tmp_path):
         """Loading a CSV with extra columns should succeed (extra columns ignored)."""
         csv = tmp_path / "extra.csv"
-        csv.write_text("geo_id,target_population,sample_segment,county\nZ1,100000,seg_a,Alameda\n")
+        csv.write_text("bg_geo_id,sample_segment,county\n060010001001,seg_a,Alameda\n")
         plan = load_sample_plan(csv)
         assert "county" in plan.strata.columns
 
     def test_end_to_end_csv_to_base_weights(self, tmp_path):
         """Load CSV → SamplePlan → compute_base_weights."""
         csv = tmp_path / "plan.csv"
-        csv.write_text("geo_id,sample_segment\nZ1,urban\nZ2,rural\n")
+        csv.write_text("bg_geo_id,sample_segment\n060010001001,urban\n060750001001,rural\n")
         plan = load_sample_plan(csv)
-        zone_pops = pl.DataFrame({"geo_id": ["Z1", "Z2"], "target_population": [100_000, 50_000]})
+        bg_pops = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060750001001"], "bg_population": [100_000, 50_000]}
+        )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
-        seed = _make_seed("ctrl_geoid", {"Z1": 200, "Z2": 100})
+        seed = _make_seed_with_bg(
+            "ctrl_geoid",
+            {"060010001001": ("Z1", 200), "060750001001": ("Z2", 100)},
+        )
         result = compute_base_weights(
             seed,
             ct,
             ["h_size"],
             geo_col="ctrl_geoid",
             sample_plan=plan,
-            zone_populations=zone_pops,
+            bg_populations=bg_pops,
         )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")

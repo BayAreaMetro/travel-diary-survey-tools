@@ -28,7 +28,7 @@ def _make_control_totals(
                 }
             )
     totals = pl.DataFrame(rows).cast(
-        {"geo_id": pl.Utf8, "category": pl.Int64, "target_total": pl.Float64}
+        {"geo_id": pl.Utf8, "category": pl.Utf8, "target_total": pl.Float64}
     )
     return ControlTotals(
         totals=totals,
@@ -81,6 +81,7 @@ class TestGridPoint:
             total_zones=12,
             mape=3.5,
             p90=8.2,
+            max_error=15.0,
             cv=0.45,
             ess_pct=78.0,
         )
@@ -89,6 +90,7 @@ class TestGridPoint:
         assert gp.total_zones == 12
         assert gp.mape == 3.5
         assert gp.p90 == 8.2
+        assert gp.max_error == 15.0
         assert gp.cv == 0.45
         assert gp.ess_pct == 78.0
 
@@ -187,9 +189,9 @@ class TestEFTradeoffFigure:
 
     def _sample_grid(self) -> list[GridPoint]:
         return [
-            GridPoint(2.0, 10, 10, 5.0, 12.0, 0.3, 90.0),
-            GridPoint(5.0, 10, 10, 3.0, 8.0, 0.5, 75.0),
-            GridPoint(10.0, 10, 10, 2.0, 5.0, 0.8, 60.0),
+            GridPoint(2.0, 10, 10, 5.0, 12.0, 20.0, 0.3, 90.0),
+            GridPoint(5.0, 10, 10, 3.0, 8.0, 15.0, 0.5, 75.0),
+            GridPoint(10.0, 10, 10, 2.0, 5.0, 10.0, 0.8, 60.0),
         ]
 
     def test_returns_figure(self):
@@ -197,19 +199,19 @@ class TestEFTradeoffFigure:
         fig = ef_tradeoff_figure(self._sample_grid(), selected_ef=5.0)
         assert isinstance(fig, go.Figure)
 
-    def test_has_four_traces(self):
-        """One trace each for MAPE, P90, CV, and ESS%."""
+    def test_has_five_traces(self):
+        """Three fit-error traces plus CV and ESS%."""
         fig = ef_tradeoff_figure(self._sample_grid(), selected_ef=5.0)
-        assert len(fig.data) == 4  # pyright: ignore[reportArgumentType] # MAPE, P90, CV, ESS%
+        assert len(fig.data) == 5  # pyright: ignore[reportArgumentType] # MAPE, P90, Max Error, CV, ESS%
 
     def test_trace_names(self):
         """Traces should be named correctly for legend."""
         fig = ef_tradeoff_figure(self._sample_grid(), selected_ef=5.0)
         names = {t.name for t in fig.data}  # pyright: ignore[reportAttributeAccessIssue]
-        assert names == {"MAPE (%)", "P90 (%)", "CV", "ESS (%)"}
+        assert names == {"MAPE (%)", "P90 (%)", "Max Error (%)", "CV", "ESS (%)"}
 
     def test_layout_dimensions(self):
         """Figure should have specified width and height for consistent rendering."""
         fig = ef_tradeoff_figure(self._sample_grid(), selected_ef=5.0)
         assert fig.layout.width == 960
-        assert fig.layout.height == 700
+        assert fig.layout.height == 600

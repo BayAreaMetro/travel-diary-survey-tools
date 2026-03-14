@@ -51,6 +51,38 @@ _MAX_API_WORKERS = 4
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _drop_gq(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Drop group-quarters households (TYPEHUGQ != 1) and their persons."""
+    if "TYPEHUGQ" not in hh_df.columns:
+        return hh_df, person_df
+    n_before = len(hh_df)
+    hh_df = hh_df.filter(pl.col("TYPEHUGQ") == 1)
+    n_dropped = n_before - len(hh_df)
+    if n_dropped > 0:
+        logger.info(
+            "Dropped %d / %d group-quarters HH records (TYPEHUGQ != 1)", n_dropped, n_before
+        )
+
+    # Always filter persons to surviving HH serials (handles stale caches
+    # where GQ households were already removed but GQ persons were not).
+    hh_serials = hh_df["SERIALNO"]
+    n_per_before = len(person_df)
+    person_df = person_df.filter(pl.col("SERIALNO").is_in(hh_serials))
+    n_per_dropped = n_per_before - len(person_df)
+    if n_per_dropped > 0:
+        logger.info(
+            "Dropped %d / %d group-quarters person records",
+            n_per_dropped,
+            n_per_before,
+        )
+    return hh_df, person_df
+
+
+# ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 @dataclass
@@ -131,6 +163,7 @@ def fetch_pums_data(
                 len(hh_df),
                 len(person_df),
             )
+            hh_df, person_df = _drop_gq(hh_df, person_df)
             return hh_df, person_df
 
     dataset_name = f"ACSPUMS1Y{source.pums_year}"
@@ -153,16 +186,14 @@ def fetch_pums_data(
     hh_df = _cast_pums_types(hh_df, _HH_VARS | hh_extra)
     person_df = _cast_pums_types(person_df, _PERSON_VARS | person_extra)
 
-    # Filter to housing units only (TYPEHUGQ == 1)
-    if "TYPEHUGQ" in hh_df.columns:
-        hh_df = hh_df.filter(pl.col("TYPEHUGQ") == 1)
-
-    # Save to cache
+    # Save raw data to cache (before any filtering)
     if cache_dir is not None:
         hh_cache.parent.mkdir(parents=True, exist_ok=True)
         hh_df.write_parquet(hh_cache)
         person_df.write_parquet(per_cache)
         logger.info("Cached PUMS data to %s", hh_cache.parent)
+
+    hh_df, person_df = _drop_gq(hh_df, person_df)
 
     logger.info(
         "Fetched %d household records, %d person records",
@@ -222,9 +253,7 @@ def load_pums_from_files(
     hh_df = _cast_pums_types(hh_df, hh_known)
     person_df = _cast_pums_types(person_df, person_known)
 
-    # Filter
-    if "TYPEHUGQ" in hh_df.columns:
-        hh_df = hh_df.filter(pl.col("TYPEHUGQ") == 1)
+    hh_df, person_df = _drop_gq(hh_df, person_df)
 
     if state_fips is not None and "ST" in hh_df.columns:
         hh_df = hh_df.filter(pl.col("ST") == state_fips)

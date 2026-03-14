@@ -125,14 +125,14 @@ class TestLoadTargetZones:
     def test_with_id_field(self, three_target_zones):
         """Verify that target zones are loaded with the correct ID field."""
         gdf = _load_target_zones(three_target_zones, "target_id")
-        assert "ctrl_geoid" in gdf.columns
+        assert "study_geoid" in gdf.columns
         assert len(gdf) == 3
 
     def test_single_boundary_mode(self, three_target_zones):
-        """When id_field is None, should dissolve to a single geometry with ctrl_geoid=1."""
+        """When id_field is None, should dissolve to a single geometry with study_geoid=1."""
         gdf = _load_target_zones(three_target_zones, None)
         assert len(gdf) == 1
-        assert gdf["ctrl_geoid"].iloc[0] == "1"
+        assert gdf["study_geoid"].iloc[0] == "1"
 
     def test_from_file(self, target_zone_file):
         """Verify that target zones can be loaded from a file path."""
@@ -240,8 +240,9 @@ class TestAssignHouseholds:
     def _make_xw(target_gdf: gpd.GeoDataFrame) -> PumaCrosswalk:
         """Build a bare PumaCrosswalk with only target_gdf set."""
         obj = object.__new__(PumaCrosswalk)
-        # _load_target_zones normalises the column to ctrl_geoid
         obj.target_gdf = _load_target_zones(target_gdf, "target_id")
+        obj.zone_groups = {}
+        obj._zone_remap = {}
         return obj
 
     def test_assigns_correct_zones(self, three_target_zones):
@@ -576,6 +577,7 @@ class TestControlDataCrosswalk:
         crosswalk_df = pl.DataFrame(
             {
                 "puma_id": ["A", "A", "B"],
+                "study_geoid": ["T1", "T2", "T2"],
                 "ctrl_geoid": ["T1", "T2", "T2"],
                 "allocation_weight": [0.7, 0.3, 1.0],
             }
@@ -663,10 +665,10 @@ class TestPlotCrosswalk:
             target_gdf=target_gdf,
             weight_gdf=uniform_blocks,
             source_id_col="puma_id",
-            target_id_col="ctrl_geoid",
+            target_id_col="study_geoid",
             weight_col="pop20",
             resolution=50,
-        ).rename({"source_id": "puma_id", "target_id": "ctrl_geoid"})
+        ).rename({"source_id": "puma_id", "target_id": "study_geoid"})
         return two_pumas, target_gdf, xw_df
 
     def test_produces_html(self, crosswalk_data):

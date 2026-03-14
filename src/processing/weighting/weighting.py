@@ -1,6 +1,6 @@
 """Top-level weighting pipeline step.
 
-Orchestrates the full weighting pipeline as a single ``@step`` entry point:
+Orchestrates the full weighting pipeline via :class:`WeightingPipeline`:
 
 1.  **Setup** — parse YAML config → specs, target names, merges, importance.
 2.  **Data fetching** — load PUMS (API or files); receive survey tables.
@@ -48,9 +48,9 @@ Algorithm:
 """
 
 import logging
+from pathlib import Path
 
 import polars as pl
-from numpy.compat import Path
 
 from pipeline.cache import PipelineCache
 from pipeline.decoration import step
@@ -92,7 +92,14 @@ from processing.weighting.data_prep.seed_data import (
     recode_survey_persons,
 )
 from processing.weighting.diagnostics import generate_report
-from processing.weighting.specs import ControlSpec, GridPoint, MergeSpec
+from processing.weighting.specs import (
+    BalancingConfig,
+    ControlRegistryConfig,
+    ControlTotals,
+    GridPoint,
+    ImportanceConfig,
+    ZoneStatus,
+)
 from processing.weighting.validation.checksums import check_incidence_sums
 from processing.weighting.validation.control_validation import validate_total_control_categories
 from processing.weighting.validation.weight_checks import weight_sanity_checks
@@ -100,102 +107,413 @@ from processing.weighting.validation.weight_checks import weight_sanity_checks
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Helpers — keep the orchestrator thin
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Pipeline class
+# ===========================================================================
 
 
-def _parse_controls(
-    controls: list[dict],
-) -> tuple[list[ControlSpec], list[str], list[MergeSpec], list[MergeSpec], dict[str, float]]:
-    """Extract specs, target names, merge specs, and explicit importance overrides.
+class WeightingPipeline:
+    """Stateful weighting pipeline.
 
-    Returns:
-    -------
-    specs, target_names, crosstab_merges, merges_1d, importance
+    Separates *configuration* (frozen dataclasses set in ``__init__``)
+    from *intermediate state* (built up phase-by-phase during ``run()``).
+
+    Public workflow::
+
+        pipeline = WeightingPipeline(controls=..., balancing=..., ...)
+        tables = pipeline.run(households=hh, persons=per, ...)
+
+    Individual phases can also be called in isolation for testing /
+    inspection — each stores results as instance attributes.
     """
-    _spec_keys = ("name", "importance")
-    specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
-    target_names = [s.name for s in specs]
 
-    crosstab_merges: list[MergeSpec] = []
-    merges_1d: list[MergeSpec] = []
+    # -- Intermediate state (populated during run) ----------------------
+    crosswalk: PumaCrosswalk
+    pums_hh: pl.DataFrame
+    pums_per: pl.DataFrame
+    seed_incidence: pl.DataFrame
+    pums_incidence: pl.DataFrame
+    control_totals: ControlTotals
+    resolved_importance: dict[str, float]
+    control_moe: pl.DataFrame | None
+    weights: pl.DataFrame
+    statuses: list[ZoneStatus]
+    grid_results: list[GridPoint] | None
 
-    for c in controls:
-        # N-D merges for cross-tabs (YAML 'merges' key)
-        if c.get("merges"):
-            crosstab_merges.append(MergeSpec(control=c["name"], groups=c["merges"]))
+    def __init__(
+        self,
+        *,
+        controls: ControlRegistryConfig,
+        balancing: BalancingConfig | None = None,
+        importance: ImportanceConfig | None = None,
+        geography: dict,
+        state_fips: str,
+        pums_year: int,
+        pums_households: str | None = None,
+        pums_persons: str | None = None,
+        sample_plan: str | None = None,
+        cache_dir: Path | None = None,
+        expansion_factor_grid: list[float] | None = None,
+    ) -> None:
+        """Initialise with frozen configuration parameters."""
+        self.controls = controls
+        self.balancing = balancing or BalancingConfig()
+        self.importance_cfg = importance or ImportanceConfig()
+        self.geography = geography
+        self.state_fips = state_fips
+        self.pums_year = pums_year
+        self.pums_households = pums_households
+        self.pums_persons = pums_persons
+        self.sample_plan = sample_plan
+        self.cache_dir = cache_dir
+        self.expansion_factor_grid = expansion_factor_grid
 
-        # 1-D merges for regular controls (YAML 'merge' key)
-        if c.get("merge"):
-            merges_1d.append(MergeSpec(control=c["name"], groups=c["merge"]))
+        # State initialised to None; populated by phases
+        self.control_moe = None
+        self.grid_results = None
 
-        # Zone-specific 1-D merges
-        for zone_id, groups in c.get("zone_merges", {}).items():
-            merges_1d.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
+    # ------------------------------------------------------------------
+    # Phase methods
+    # ------------------------------------------------------------------
 
-    importance = {s.name: s.importance for s in specs if s.importance is not None}
-    return specs, target_names, crosstab_merges, merges_1d, importance
+    def setup(self) -> None:
+        """Register crosstabs, resolve control instances, build crosswalk."""
+        register_crosstabs_from_config(
+            [
+                {
+                    "name": s.name,
+                    **({"importance": s.importance} if s.importance is not None else {}),
+                }
+                for s in self.controls.specs
+            ]
+        )
+        ctrl_instances = resolve_targets(self.controls.target_names)
+        validate_total_control_categories(ctrl_instances)
+        logger.info("Controls: %s", self.controls.target_names)
 
+        zone_groups: dict[str, list[str]] | None = self.geography.get("zone_groups")
+        self.crosswalk = PumaCrosswalk(
+            GeographyConfig(**self.geography),
+            state_fips=self.state_fips,
+            pums_year=self.pums_year,
+            cache_dir=self.cache_dir,
+            zone_groups=zone_groups,
+        )
 
-def _resolve_importance(
-    target_names: list[str],
-    explicit: dict[str, float],
-    *,
-    moe_based: bool,
-    default: float,
-    crosswalk: PumaCrosswalk | None = None,
-    pums_hh: pl.DataFrame | None = None,
-    pums_per: pl.DataFrame | None = None,
-) -> dict[str, float]:
-    """Build the final importance dict and log it.
-
-    When *moe_based* is True, builds crosswalk-allocated PUMS frames
-    (with replicate-weight columns) internally so that per-control CVs
-    can be computed.  YAML explicit overrides always take precedence.
-    """
-    importance = dict(explicit)
-    if moe_based:
-        if crosswalk is None or pums_hh is None or pums_per is None:
-            msg = (
-                "MOE-based importance requires crosswalk and PUMS data "
-                "loaded with replicate weights."
+    def fetch_pums(self) -> None:
+        """Load PUMS microdata from local files or the Census API."""
+        load_reps = self.importance_cfg.moe_based
+        if self.pums_households is not None and self.pums_persons is not None:
+            logger.info("Loading PUMS from local files")
+            self.pums_hh, self.pums_per = load_pums_from_files(
+                self.pums_households,
+                self.pums_persons,
+                load_replicate_weights=load_reps,
             )
-            raise ValueError(msg)
-        pums_hh_xw, pums_per_xw = crosswalk.allocate_pums_weights(pums_hh, pums_per)
-        moe_importance = compute_moe_importance(pums_hh_xw, pums_per_xw, target_names)
-        # YAML explicit overrides take precedence over MOE-derived values
-        moe_importance.update(importance)
-        importance = moe_importance
+        else:
+            source = PUMSSource(state_fips=self.state_fips, pums_year=self.pums_year)
+            logger.info(
+                "Fetching PUMS via Census API: state=%s year=%d", self.state_fips, self.pums_year
+            )
+            self.pums_hh, self.pums_per = fetch_pums_data(
+                source,
+                load_replicate_weights=load_reps,
+                cache_dir=self.cache_dir,
+            )
 
-    full = {name: importance.get(name, default) for name in target_names}
-    imp_lines = "\n".join(f"  {k}: {v:.1f}" for k, v in full.items())
-    logger.info("Importance weights:\n%s", imp_lines)
-    return importance
+    def recode_and_pivot(
+        self,
+        households: pl.DataFrame,
+        persons: pl.DataFrame,
+    ) -> None:
+        """Recode both datasets through control expressions, then pivot to incidence."""
+        names = self.controls.target_names
+
+        # Conformance: identical control-column schemas
+        hh_recoded = recode_survey_households(households, persons, names)
+        per_recoded = recode_survey_persons(persons, names)
+        self.pums_hh = recode_pums_households(self.pums_hh, self.pums_per, names)
+        self.pums_per = recode_pums_persons(self.pums_per, names)
+
+        # Incidence pivot — identical column layout
+        self.seed_incidence = build_incidence_table(hh_recoded, per_recoded, names)
+        self.pums_incidence = build_incidence_table(
+            self.pums_hh,
+            self.pums_per,
+            names,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
+        )
+
+        check_incidence_sums(self.seed_incidence, names, source_label="survey")
+        check_incidence_sums(self.pums_incidence, names, source_label="pums")
+
+    def assign_zones(self, households: pl.DataFrame) -> pl.DataFrame:
+        """Point-in-polygon zone assignment + optional block-group assignment.
+
+        Returns the updated households frame (with geo columns attached).
+        Also joins geo columns onto ``self.seed_incidence`` and allocates
+        PUMS weights via the crosswalk.
+        """
+        households = self.crosswalk.assign_households(households)
+        n_assigned = households.filter(pl.col("study_geoid").is_not_null()).height
+        logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(households))
+
+        if self.sample_plan is not None:
+            households = self.crosswalk.assign_block_groups(households)
+            n_bg = households.filter(pl.col("bg_geo_id").is_not_null()).height
+            logger.info("Assigned %d / %d HHs to block groups", n_bg, len(households))
+
+        hh_join_cols = ["hh_id", "study_geoid", "ctrl_geoid"]
+        if "bg_geo_id" in households.columns:
+            hh_join_cols.append("bg_geo_id")
+
+        self.seed_incidence = self.seed_incidence.join(
+            households.select(hh_join_cols),
+            on="hh_id",
+            how="left",
+        )
+        self.pums_incidence = allocate_pums_zones(
+            self.pums_incidence,
+            self.crosswalk.crosswalk_df,
+        )
+        return households
+
+    def apply_merges(self) -> None:
+        """Apply crosstab (N-D) and 1-D merges symmetrically to both incidence tables."""
+        if self.controls.crosstab_merges:
+            self.seed_incidence = apply_crosstab_merges(
+                self.seed_incidence,
+                self.controls.crosstab_merges,
+            )
+            self.pums_incidence = apply_crosstab_merges(
+                self.pums_incidence,
+                self.controls.crosstab_merges,
+            )
+            logger.info("Applied %d crosstab merge specs", len(self.controls.crosstab_merges))
+
+        if self.controls.merges_1d:
+            self.seed_incidence = apply_1d_merges(
+                self.seed_incidence,
+                self.controls.merges_1d,
+            )
+            self.pums_incidence = apply_1d_merges(
+                self.pums_incidence,
+                self.controls.merges_1d,
+            )
+            logger.info(
+                "Applied %d 1-D merge specs; incidence now %d columns",
+                len(self.controls.merges_1d),
+                len(self.seed_incidence.columns),
+            )
+
+    def aggregate_totals(self) -> None:
+        """Aggregate PUMS incidence into per-zone control totals."""
+        names = self.controls.target_names
+        self.control_totals = aggregate_control_totals(
+            self.pums_incidence,
+            names,
+            weight_col="WGTP",
+            geo_col="ctrl_geoid",
+        )
+        if self.controls.merges_1d:
+            self.control_totals = merge_control_totals(
+                self.control_totals,
+                self.controls.merges_1d,
+            )
+        logger.info(
+            "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
+            len(self.control_totals.geo_ids),
+            self.control_totals.pums_hh_count,
+            self.control_totals.pums_person_count,
+        )
+
+    def resolve_importance(self) -> None:
+        """Build the final importance dict (MOE-based, explicit overrides, or default)."""
+        overrides = dict(self.controls.importance_overrides)
+
+        if self.importance_cfg.moe_based:
+            pums_hh_xw, pums_per_xw = self.crosswalk.allocate_pums_weights(
+                self.pums_hh,
+                self.pums_per,
+            )
+            moe_importance = compute_moe_importance(
+                pums_hh_xw,
+                pums_per_xw,
+                self.controls.target_names,
+            )
+            # YAML explicit overrides take precedence over MOE-derived
+            moe_importance.update(overrides)
+            overrides = moe_importance
+
+            # Per-cell MOE for diagnostics
+            self.control_moe = compute_control_moe(
+                pums_hh_xw,
+                pums_per_xw,
+                self.controls.target_names,
+            )
+
+        default = self.importance_cfg.default
+        full = {name: overrides.get(name, default) for name in self.controls.target_names}
+        imp_lines = "\n".join(f"  {k}: {v:.1f}" for k, v in full.items())
+        logger.info("Importance weights:\n%s", imp_lines)
+        self.resolved_importance = overrides
+
+    def balance(self) -> None:
+        """Compute base weights, run max-entropy balancing, optional grid search."""
+        names = self.controls.target_names
+        self.seed_incidence = compute_base_weights(
+            self.seed_incidence,
+            self.control_totals,
+            names,
+            geo_col="ctrl_geoid",
+            sample_plan=self.sample_plan,
+            bg_populations=(self.crosswalk.block_group_populations if self.sample_plan else None),
+        )
+
+        imp_cfg = ImportanceConfig(
+            explicit=self.resolved_importance,
+            moe_based=False,  # already resolved
+            default=self.importance_cfg.default,
+        )
+        self.weights, self.statuses = balance_weights(
+            self.seed_incidence,
+            self.control_totals,
+            names,
+            balancing=self.balancing,
+            importance=imp_cfg,
+        )
+
+        n_failed = sum(not s.converged for s in self.statuses)
+        if n_failed:
+            msg = f"Balancing failed to converge for {n_failed} zones.  See logs for details."
+            raise RuntimeError(msg)
+
+        if self.expansion_factor_grid:
+            self.grid_results = grid_search_expansion_factor(
+                self.seed_incidence,
+                self.control_totals,
+                names,
+                ef_grid=self.expansion_factor_grid,
+                selected_ef=self.balancing.max_expansion_factor,
+                balancing=self.balancing,
+                importance=imp_cfg,
+            )
+
+    def generate_diagnostics(self, output_dir: Path) -> None:
+        """Write the self-contained HTML diagnostics report."""
+        zone_groups: dict[str, list[str]] | None = self.geography.get("zone_groups")
+        generate_report(
+            seed=self.seed_incidence,
+            weights=self.weights,
+            control_totals=self.control_totals,
+            target_names=self.controls.target_names,
+            statuses=self.statuses,
+            output_path=output_dir / "diagnostics.html",
+            puma_gdf=self.crosswalk.puma_gdf,
+            target_gdf=self.crosswalk.target_gdf,
+            crosswalk_df=self.crosswalk.crosswalk_df,
+            zone_groups=zone_groups,
+            merge_specs=self.controls.all_merges,
+            grid_results=self.grid_results,
+            selected_ef=(self.balancing.max_expansion_factor if self.grid_results else None),
+            control_moe=self.control_moe,
+        )
+
+    def propagate(
+        self,
+        households: pl.DataFrame,
+        persons: pl.DataFrame,
+        **extra_tables: pl.DataFrame | None,
+    ) -> dict[str, pl.DataFrame]:
+        """Attach weights to households and propagate to all tables."""
+        households = safe_join_weight(
+            households,
+            self.weights.select("hh_id", "hh_weight"),
+            "hh_id",
+        )
+        households = households.join(
+            self.seed_incidence.select("hh_id", "base_weight"),
+            on="hh_id",
+            how="left",
+        )
+        tables = collect_tables(
+            households=households,
+            persons=persons,
+            **extra_tables,
+        )
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+        propagate_weights(tables, has_weight)
+        weight_sanity_checks(
+            non_null_tables(tables),
+            self.control_totals,
+            self.controls.specs,
+        )
+        return non_null_tables(tables)
+
+    # ------------------------------------------------------------------
+    # Full pipeline
+    # ------------------------------------------------------------------
+
+    def run(
+        self,
+        households: pl.DataFrame,
+        persons: pl.DataFrame,
+        **extra_tables: pl.DataFrame | None,
+    ) -> dict[str, pl.DataFrame]:
+        """Execute the full weighting pipeline end-to-end.
+
+        Parameters
+        ----------
+        households, persons : pl.DataFrame
+            Required canonical tables.
+        **extra_tables
+            Optional canonical tables (days, linked_trips, tours, etc.).
+
+        Returns:
+        -------
+        dict[str, pl.DataFrame]
+            All tables with weight columns attached.
+        """
+        self.setup()
+        self.fetch_pums()
+        self.recode_and_pivot(households, persons)
+        households = self.assign_zones(households)
+        self.apply_merges()
+        self.aggregate_totals()
+        self.resolve_importance()
+        self.balance()
+
+        report_dir = self.cache_dir / "weighting" if self.cache_dir else Path.cwd() / "weighting"
+        self.generate_diagnostics(report_dir)
+
+        return self.propagate(households, persons, **extra_tables)
 
 
-# ---------------------------------------------------------------------------
-# Pipeline step
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Pipeline step entry point
+# ===========================================================================
+
+
 @step()
-def weighting(  # noqa: PLR0913, PLR0915
+def weighting(  # noqa: PLR0913
     # -- Config params (from YAML) --------------------------------------
     state_fips: str,
     pums_year: int,
     controls: list[dict],
     geography: dict,
     *,
-    # -- Existing PUMS files (optional) --------------------------------------
+    # -- Existing PUMS files (optional) ---------------------------------
     pums_households: str | None = None,
     pums_persons: str | None = None,
     # -- Sample plan (optional) -----------------------------------------
     sample_plan: str | None = None,
     # -- Pipeline plumbing (auto-injected by @step decorator) -----------
     pipeline_cache: PipelineCache | None = None,
-    # -- Importance / MOE -----------------------------------------
+    # -- Importance / MOE -----------------------------------------------
     moe_based_importance: bool = False,
     default_importance: float = 100.0,
-    # -- Balancing params --------------------------------------
+    # -- Balancing params -----------------------------------------------
     max_expansion_factor: float = 10.0,
     min_expansion_factor: float = 0.1,
     min_weight: float | None = 1,
@@ -215,370 +533,41 @@ def weighting(  # noqa: PLR0913, PLR0915
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
-    The step produces **expansion weights** that scale the survey sample to
-    represent the full population.  Internally it orchestrates: geography
-    crosswalk → PUMS control totals → survey seed prep → maximum-entropy
-    balancing → weight propagation.
+    Flat-parameter entry point required by the ``@step()`` decorator
+    (YAML → keyword args).  Constructs a :class:`WeightingPipeline` and
+    delegates to :meth:`WeightingPipeline.run`.
 
-    Control Variable Configuration:
-        Each entry in ``controls`` defines one marginal target.  Names must
-        match keys in the ``CONTROLS`` registry (see
-        :mod:`processing.weighting.controls.registry`).  Example::
-
-            controls:
-              - name: h_size
-              - name: h_income
-              - name: gender
-                importance: 200      # explicit override
-              - name: commute_mode
-                merge:               # collapse categories
-                  active: [bike, walk]
-
-    Importance Tiers:
-        Three-tier system controlling how hard the balancer tries to match
-        each control:
-
-        1. **Default** — ``default_importance`` (100) for all controls.
-        2. **MOE-based** — when ``moe_based_importance=True``, PUMS replicate
-           weights (``WGTP1``-``WGTP80`` / ``PWGTP1``-``PWGTP80``) are used
-           to estimate per-control CV, then normalised so
-           median importance = 100.  Transfer function: ``1 / sqrt(CV)``.
-        3. **Explicit override** — per-control ``importance:`` in YAML takes
-           highest precedence.
-
-        Structural controls (``h_total``, ``p_total``) always receive fixed
-        importance of 1000 regardless of MOE.
-
-    Field Mapping:
-        The ``field_mapping`` key inside the YAML maps PUMS variable names
-        to canonical survey field names so the same bin/group definitions
-        can be applied to both datasets::
-
-            field_mapping:
-              households:
-                NP: num_people
-                HINCP: income
-              persons:
-                AGEP: age
-                SEX: sex
-                JWTRNS: commute_mode_code
-
-    Diagnostics:
-        When enabled, produces a self-contained interactive HTML report
-        (Plotly + Jinja2) with: recode coverage, weight summary, target-fit
-        bar charts, expansion-factor calibration, weight-distribution
-        violins, seed-vs-targets detail, and convergence / ESS metrics::
-
-            diagnostics:
-              enabled: true
-              output_path: "weighting_diagnostics.html"
-              fit_error_thresholds: [2, 5]
-              min_seed_count_warning: 10
-              expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
-              plotly_cdn: true
-
-    Parameters
-    ----------
-    state_fips : str
-        Two-digit FIPS code (e.g. ``"06"`` for California).
-    pums_year : int
-        ACS 1-year PUMS vintage (e.g. ``2023``).
-    controls : list[dict]
-        Control specifications, each with ``name``.
-        Names must match keys in the ``CONTROLS`` registry.
-    geography : dict
-        Geography crosswalk configuration.  Builds a PUMA → target-zone
-        crosswalk from a user-supplied polygon file using Census block
-        population.  See :class:`GeographyConfig`.
-    pums_households, pums_persons : str | None
-        Optional local file paths.  When both are provided the Census
-        API is skipped and data is loaded from disk instead.
-    sample_plan : str | None
-        Path to a sample-plan CSV (columns: ``geo_id``,
-        ``target_population``, ``expected_responses``).  When provided,
-        base weights are derived from stratified response inversion
-        instead of the default PUMS-target fallback.  If the file does
-        not exist a ``FileNotFoundError`` is raised.
-    moe_based_importance : bool
-        Compute per-control importance from PUMS replicate-weight MOEs
-        (default: False).
-    default_importance : float
-        Fallback importance when neither MOE nor explicit override is
-        set (default: 100.0).
-    max_expansion_factor, min_expansion_factor : float
-        Bounds on balanced / initial weight ratio.
-    min_weight, max_weight : float | None
-        Optional absolute floor / ceiling on final weights.
-    max_iterations : int
-        Newton-Raphson cap per zone.
-    n_workers : int
-        Threads for parallel zone balancing.
-    households, persons, days, ... : pl.DataFrame | None
-        Canonical tables auto-injected by the pipeline.
-
-    Returns:
-    -------
-    dict[str, pl.DataFrame]
-        All canonical tables with weight columns attached.
-
-    Example config:
-        .. code-block:: yaml
-
-            - name: weighting
-              params:
-                state_fips: "06"
-                pums_year: 2023
-                pums_households: "pums/psam_h06.csv"
-                pums_persons: "pums/psam_p06.csv"
-
-                geography:
-                  target_zones:
-                    path: "geo/weighting_zones.shp"
-                    id_field: zone_id
-                  state_fips: "06"
-                  pums_year: 2023
-
-                field_mapping:
-                  households:
-                    NP: num_people
-                  persons:
-                    AGEP: age
-                    SEX: sex
-
-                controls:
-                  - name: h_size
-                  - name: h_income
-                  - name: gender
-                  - name: age
-
-                max_expansion_factor: 10
-                min_expansion_factor: 0.1
-                max_iterations: 1000
+    See :class:`WeightingPipeline` for full documentation of the algorithm,
+    configuration, and diagnostics.
     """
     if households is None or persons is None:
         msg = "Weighting requires at least households and persons tables."
         raise ValueError(msg)
 
-    # ===================================================================
-    # Step 1 — Setup
-    # ===================================================================
-    register_crosstabs_from_config(controls)
-
-    specs, target_names, crosstab_merges, merges_1d, importance_overrides = _parse_controls(
-        controls
-    )
-    logger.info("Controls: %s", target_names)
-
-    ctrl_instances = resolve_targets(target_names)
-    validate_total_control_categories(ctrl_instances)
-
-    cache_dir = pipeline_cache.cache_dir if pipeline_cache else None
-    zone_groups: dict[str, list[str]] | None = geography.get("zone_groups")
-
-    # ===================================================================
-    # Step 2 — Data fetching
-    # ===================================================================
-    if pums_households is not None and pums_persons is not None:
-        logger.info("Loading PUMS from local files")
-        pums_hh, pums_per = load_pums_from_files(
-            pums_households, pums_persons, load_replicate_weights=moe_based_importance
-        )
-    else:
-        source = PUMSSource(state_fips=state_fips, pums_year=pums_year)
-        logger.info("Fetching PUMS via Census API: state=%s year=%d", state_fips, pums_year)
-        pums_hh, pums_per = fetch_pums_data(
-            source, load_replicate_weights=moe_based_importance, cache_dir=cache_dir
-        )
-
-    # ===================================================================
-    # Step 3 — Conformance (recoding)
-    # ===================================================================
-    # Both datasets are recoded through the same control expressions,
-    # producing identical control-column schemas.
-    hh_recoded = recode_survey_households(households, persons, target_names)
-    per_recoded = recode_survey_persons(persons, target_names)
-
-    pums_hh = recode_pums_households(pums_hh, pums_per, target_names)
-    pums_per = recode_pums_persons(pums_per, target_names)
-
-    # ===================================================================
-    # Step 4 — Incidence pivot
-    # ===================================================================
-    # Unified pivoter applied to both — identical column layout.
-    seed_incidence = build_incidence_table(hh_recoded, per_recoded, target_names)
-
-    pums_incidence = build_incidence_table(
-        pums_hh,
-        pums_per,
-        target_names,
-        hh_id_col="SERIALNO",
-        extra_cols=["WGTP", "PUMA"],
-    )
-
-    # Checksums to verify correct recode + pivot logic before zone assignment.
-    check_incidence_sums(seed_incidence, target_names, source_label="survey")
-    check_incidence_sums(pums_incidence, target_names, source_label="pums")
-
-    # ===================================================================
-    # Step 5 — Zone assignment (+ zone groups applied in crosswalk)
-    # ===================================================================
-    xw = PumaCrosswalk(
-        GeographyConfig(**geography),
-        state_fips=state_fips,
-        pums_year=pums_year,
-        cache_dir=cache_dir,
-        zone_groups=zone_groups,
-    )
-
-    # Survey: point-in-polygon → join study_geoid + ctrl_geoid.
-    households = xw.assign_households(households)
-    n_assigned = households.filter(pl.col("study_geoid").is_not_null()).height
-    logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(households))
-
-    seed_incidence = seed_incidence.join(
-        households.select("hh_id", "study_geoid", "ctrl_geoid"), on="hh_id", how="left"
-    )
-
-    # PUMS: crosswalk weight allocation → adds study_geoid + ctrl_geoid, scales WGTP.
-    pums_incidence = allocate_pums_zones(pums_incidence, xw.crosswalk_df)
-
-    # ===================================================================
-    # Step 6 — Crosstab dimension merges
-    # ===================================================================
-    # Crosstabs are independent targets with their own N-D merge specs.
-    # Applied first — they don't interact with 1-D merges.
-    if crosstab_merges:
-        seed_incidence = apply_crosstab_merges(seed_incidence, crosstab_merges)
-        pums_incidence = apply_crosstab_merges(pums_incidence, crosstab_merges)
-        logger.info("Applied %d crosstab merge specs", len(crosstab_merges))
-
-    # ===================================================================
-    # Step 7 — 1-D merges (global + zone-specific)
-    # ===================================================================
-    # Global (zones=None): collapse incidence columns, drop originals.
-    # Zone-specific: add merged columns, keep originals.
-    if merges_1d:
-        seed_incidence = apply_1d_merges(seed_incidence, merges_1d)
-        pums_incidence = apply_1d_merges(pums_incidence, merges_1d)
-        logger.info(
-            "Applied %d 1-D merge specs; incidence now %d columns",
-            len(merges_1d),
-            len(seed_incidence.columns),
-        )
-
-    # ===================================================================
-    # Step 8 — Control totals (aggregate PUMS incidence)
-    # ===================================================================
-    control_totals = aggregate_control_totals(
-        pums_incidence, target_names, weight_col="WGTP", geo_col="ctrl_geoid"
-    )
-
-    # Zone-specific merges: collapse constituent targets for merged zones.
-    if merges_1d:
-        control_totals = merge_control_totals(control_totals, merges_1d)
-
-    logger.info(
-        "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
-        len(control_totals.geo_ids),
-        control_totals.pums_hh_count,
-        control_totals.pums_person_count,
-    )
-
-    # Importance
-    importance = _resolve_importance(
-        target_names,
-        importance_overrides,
-        moe_based=moe_based_importance,
-        default=default_importance,
-        crosswalk=xw,
-        pums_hh=pums_hh,
-        pums_per=pums_per,
-    )
-
-    # Per-cell MOE for diagnostics (reuses crosswalk-allocated PUMS frames)
-    control_moe: pl.DataFrame | None = None
-    if moe_based_importance:
-        pums_hh_xw, pums_per_xw = xw.allocate_pums_weights(pums_hh, pums_per)
-        control_moe = compute_control_moe(pums_hh_xw, pums_per_xw, target_names)
-
-    # ===================================================================
-    # Step 9 — Balancer
-    # ===================================================================
-    seed_incidence = compute_base_weights(
-        seed_incidence,
-        control_totals,
-        target_names,
-        geo_col="ctrl_geoid",
-        sample_plan=sample_plan,
-        zone_populations=xw.zone_populations if sample_plan else None,
-    )
-
-    weights_df, statuses = balance_weights(
-        seed_incidence,
-        control_totals,
-        target_names,
-        importance=importance or None,
-        default_importance=default_importance,
-        max_expansion_factor=max_expansion_factor,
-        min_expansion_factor=min_expansion_factor,
-        min_weight=min_weight,
-        max_weight=max_weight,
-        max_iterations=max_iterations,
-        n_workers=n_workers,
-    )
-
-    n_failed = sum(not s.converged for s in statuses)
-    if n_failed:
-        msg = f"Balancing failed to converge for {n_failed} zones.  See logs for details."
-        raise RuntimeError(msg)
-
-    # EF grid search (optional diagnostics)
-    grid_results: list[GridPoint] | None = None
-    if expansion_factor_grid:
-        grid_results = grid_search_expansion_factor(
-            seed_incidence,
-            control_totals,
-            target_names,
-            ef_grid=expansion_factor_grid,
-            selected_ef=max_expansion_factor,
-            importance=importance or None,
-            default_importance=default_importance,
+    pipeline = WeightingPipeline(
+        controls=ControlRegistryConfig.from_yaml(controls),
+        balancing=BalancingConfig(
+            max_expansion_factor=max_expansion_factor,
             min_expansion_factor=min_expansion_factor,
             min_weight=min_weight,
             max_weight=max_weight,
             max_iterations=max_iterations,
             n_workers=n_workers,
-        )
-
-    # -- Diagnostics report -----------------------------------------
-    _report_dir = cache_dir / "weighting" if cache_dir else Path.cwd() / "weighting"
-    generate_report(
-        seed=seed_incidence,
-        weights=weights_df,
-        control_totals=control_totals,
-        target_names=target_names,
-        statuses=statuses,
-        output_path=_report_dir / "diagnostics.html",
-        puma_gdf=xw.puma_gdf,
-        target_gdf=xw.target_gdf,
-        crosswalk_df=xw.crosswalk_df,
-        zone_groups=zone_groups,
-        merge_specs=crosstab_merges + merges_1d,
-        grid_results=grid_results,
-        selected_ef=max_expansion_factor if grid_results else None,
-        control_moe=control_moe,
+        ),
+        importance=ImportanceConfig(
+            moe_based=moe_based_importance,
+            default=default_importance,
+        ),
+        geography=geography,
+        state_fips=state_fips,
+        pums_year=pums_year,
+        pums_households=pums_households,
+        pums_persons=pums_persons,
+        sample_plan=sample_plan,
+        cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
+        expansion_factor_grid=expansion_factor_grid,
     )
-
-    # -- Attach & propagate weights ---------------------------------
-    households = safe_join_weight(
-        households,
-        weights_df.select("hh_id", "hh_weight"),
-        "hh_id",
-    )
-    households = households.join(
-        seed_incidence.select("hh_id", "base_weight"), on="hh_id", how="left"
-    )
-    tables = collect_tables(
+    return pipeline.run(
         households=households,
         persons=persons,
         days=days,
@@ -587,10 +576,3 @@ def weighting(  # noqa: PLR0913, PLR0915
         joint_trips=joint_trips,
         tours=tours,
     )
-    has_weight: dict[str, str] = {"households": "hh_weight"}
-    propagate_weights(tables, has_weight)
-
-    # -- Sanity checks ----------------------------------------------
-    weight_sanity_checks(non_null_tables(tables), control_totals, specs)
-
-    return non_null_tables(tables)

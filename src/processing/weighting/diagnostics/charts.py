@@ -231,22 +231,45 @@ def ef_tradeoff_figure(
     """
     efs = [g.max_expansion_factor for g in grid_results]
 
-    metrics: list[tuple[str, list[float], str, str]] = [
+    # Panel 1: Fit error metrics (all on same % scale)
+    fit_traces: list[tuple[str, list[float], str, str]] = [
         ("MAPE (%)", [g.mape for g in grid_results], "#1f77b4", ",.2f"),
         ("P90 (%)", [g.p90 for g in grid_results], "#ff7f0e", ",.2f"),
+        ("Max Error (%)", [g.max_error for g in grid_results], "#9467bd", ",.2f"),
+    ]
+    # Panels 2-3: Weight quality
+    quality_panels: list[tuple[str, list[float], str, str]] = [
         ("CV", [g.cv for g in grid_results], "#d62728", ",.3f"),
         ("ESS (%)", [g.ess_pct for g in grid_results], "#2ca02c", ",.1f"),
     ]
 
     fig = make_subplots(
-        rows=4,
+        rows=3,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.06,
-        subplot_titles=[m[0] for m in metrics],
+        vertical_spacing=0.08,
+        subplot_titles=["Fit Error (%)", "CV", "ESS (%)"],
     )
 
-    for i, (name, values, color, fmt) in enumerate(metrics, 1):
+    # Panel 1 — three fit-error traces overlaid
+    for name, values, color, fmt in fit_traces:
+        fig.add_trace(
+            go.Scatter(
+                x=efs,
+                y=values,
+                mode="lines+markers",
+                name=name,
+                line={"color": color, "width": 2},
+                marker={"size": 6},
+                hovertemplate=f"{name}: %{{y:{fmt}}}<extra></extra>",
+                showlegend=True,
+            ),
+            row=1,
+            col=1,
+        )
+
+    # Panels 2-3 — CV and ESS
+    for i, (name, values, color, fmt) in enumerate(quality_panels, 2):
         fig.add_trace(
             go.Scatter(
                 x=efs,
@@ -261,12 +284,15 @@ def ef_tradeoff_figure(
             row=i,
             col=1,
         )
+
+    # Vertical marker on all panels
+    for row in range(1, 4):
         fig.add_vline(
             x=selected_ef,
             line_dash="dot",
             line_color="#333",
             line_width=1.5,
-            row=i,
+            row=row,
             col=1,
         )
 
@@ -284,15 +310,16 @@ def ef_tradeoff_figure(
         col=1,
     )
 
-    fig.update_xaxes(title_text="Max Expansion Factor", row=4, col=1)
+    fig.update_xaxes(title_text="Max Expansion Factor", row=3, col=1)
     fig.update_layout(
         autosize=False,
         width=960,
-        height=700,
+        height=600,
         margin={"l": 60, "r": 30, "t": 40, "b": 50},
         hovermode="x unified",
         hoversubplots="axis",
         title="Expansion Factor Tradeoff",
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
     )
     return fig
 

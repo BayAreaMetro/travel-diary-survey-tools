@@ -6,15 +6,14 @@ import pytest
 
 from processing.weighting.balancing.merges import apply_category_merges
 from processing.weighting.diagnostics.data import apply_fit_merges
-from processing.weighting.specs import MergeSpec
-from processing.weighting.weighting import _parse_controls
+from processing.weighting.specs import ControlRegistryConfig, MergeSpec
 
 
 # ---------------------------------------------------------------------------
-# _parse_controls — zone_merges config key
+# ControlRegistryConfig.from_yaml — zone_merges config key
 # ---------------------------------------------------------------------------
 class TestParseControlsZoneMerges:
-    """_parse_controls should emit MergeSpecs for zone_merges entries."""
+    """ControlRegistryConfig.from_yaml should emit MergeSpecs for zone_merges entries."""
 
     def test_no_zone_merges(self):
         """Controls without zone_merges produce only global MergeSpecs."""
@@ -24,9 +23,9 @@ class TestParseControlsZoneMerges:
                 "merge": {"size_5_plus": ["size_5", "size_6"]},
             },
         ]
-        _, _, _, merges, _ = _parse_controls(controls)
-        assert len(merges) == 1
-        assert merges[0].zones is None
+        cfg = ControlRegistryConfig.from_yaml(controls)
+        assert len(cfg.merges_1d) == 1
+        assert cfg.merges_1d[0].zones is None
 
     def test_zone_merges_appended(self):
         """zone_merges produce zone-specific MergeSpecs after the global one."""
@@ -39,7 +38,8 @@ class TestParseControlsZoneMerges:
                 },
             },
         ]
-        _, _, _, merges, _ = _parse_controls(controls)
+        cfg = ControlRegistryConfig.from_yaml(controls)
+        merges = cfg.merges_1d
         assert len(merges) == 2
         # Global first
         assert merges[0].zones is None
@@ -60,7 +60,8 @@ class TestParseControlsZoneMerges:
                 },
             },
         ]
-        _, _, _, merges, _ = _parse_controls(controls)
+        cfg = ControlRegistryConfig.from_yaml(controls)
+        merges = cfg.merges_1d
         assert len(merges) == 3
         zone_map = {m.zones[0]: m for m in merges if m.zones is not None}
         assert "size_4_plus" in zone_map["Z1"].groups
@@ -76,7 +77,8 @@ class TestParseControlsZoneMerges:
                 },
             },
         ]
-        _, _, _, merges, _ = _parse_controls(controls)
+        cfg = ControlRegistryConfig.from_yaml(controls)
+        merges = cfg.merges_1d
         assert len(merges) == 1
         assert merges[0].zones == ["Z1"]
         assert merges[0].control == "h_size"

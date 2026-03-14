@@ -77,7 +77,7 @@ steps:
       pums_year: 2023
 
       # -- Sample Plan Path ------------------------------------------------
-      # sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
+      sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
 
       # -- Geography crosswalk ------------------------------------------
       # Specify a polygon file for target zones.  The crosswalk module
@@ -95,9 +95,17 @@ steps:
         # Also useful for applying names to things.
         zone_groups:
           "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
-          "Contra Costa/Alameda": ["013", "001"]
+          # "Contra Costa/Alameda": ["013", "001"]
           "San Mateo/Santa Clara": ["085", "081"]
+          "Alameda": ["001"]
+          "Contra Costa": ["013"]
+          # "Marin": ["041"]
+          # "Sonoma": ["055"]
           "San Francisco": ["075"]
+          # "Santa Clara": ["081"]
+          # "San Mateo": ["085"]
+          # "Solano": ["095"]
+          # "Napa": ["097"]
 
       # -- Balancer settings -------------------------------------------
       max_expansion_factor: 5.0    # upper bound = initial_weight × factor

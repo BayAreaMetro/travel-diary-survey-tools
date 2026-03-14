@@ -55,7 +55,6 @@ from processing.weighting.specs import ControlSpec, ControlTotals
 from processing.weighting.validation.checksums import check_recode_nulls
 from processing.weighting.validation.control_validation import (
     validate_crosstab_margins,
-    validate_total_control_categories,
 )
 
 logger = logging.getLogger(__name__)
@@ -300,7 +299,6 @@ def build_control_totals(
     """
     # Validate total category count across all controls
     ctrl_instances = [CONTROLS[spec.name] for spec in controls if spec.name in CONTROLS]
-    validate_total_control_categories(ctrl_instances)
 
     all_totals: list[pl.DataFrame] = []
 

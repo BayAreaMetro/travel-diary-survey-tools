@@ -357,9 +357,10 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
             null_count = df.select(pl.col(weight).is_null().sum()).item()
             if null_count > 0:
                 logger.warning(
-                    "Table %s has %d NULL values in weight column %s",
+                    "Table %s has %d / %d NULL values in weight column %s",
                     table,
                     null_count,
+                    len(df),
                     weight,
                 )
 

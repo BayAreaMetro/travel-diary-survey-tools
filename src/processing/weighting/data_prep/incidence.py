@@ -18,7 +18,6 @@ import polars as pl
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
 from processing.weighting.specs import ControlTotals
-from processing.weighting.validation.control_validation import validate_total_control_categories
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +144,6 @@ def aggregate_control_totals(
         Geography column (default ``"ctrl_geoid"``).
     """
     ctrl_instances = resolve_targets(targets)
-    validate_total_control_categories(ctrl_instances)
 
     all_totals: list[pl.DataFrame] = []
 

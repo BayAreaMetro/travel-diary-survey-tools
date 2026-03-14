@@ -117,6 +117,87 @@ class MergeSpec:
 
 
 @dataclass
+class BalancingConfig:
+    """Maximum-entropy balancer configuration.
+
+    Controls Newton-Raphson iteration bounds, weight expansion limits,
+    and parallel execution.  Consumed by :func:`balance_weights`,
+    :func:`grid_search_expansion_factor`, and the pipeline orchestrator.
+    """
+
+    max_expansion_factor: float = 10.0
+    min_expansion_factor: float = 0.1
+    min_weight: float | None = None
+    max_weight: float | None = None
+    max_iterations: int = 10_000
+    n_workers: int = 1
+
+
+@dataclass
+class ImportanceConfig:
+    """Importance weighting configuration.
+
+    Determines how per-control importance weights are computed:
+
+    - ``explicit`` — YAML-declared overrides (always highest precedence).
+    - ``moe_based`` — derive importance from PUMS replicate-weight CVs.
+    - ``default`` — fallback value when neither of the above applies.
+    """
+
+    explicit: dict[str, float] = field(default_factory=dict)
+    moe_based: bool = False
+    default: float = 100.0
+
+
+@dataclass
+class ControlRegistryConfig:
+    """Parsed control definitions, merge specs, and derived target names.
+
+    Built via :meth:`from_yaml` from the YAML ``controls`` block.
+    """
+
+    specs: list[ControlSpec]
+    target_names: list[str]
+    crosstab_merges: list[MergeSpec]
+    merges_1d: list[MergeSpec]
+
+    @classmethod
+    def from_yaml(cls, controls: list[dict]) -> "ControlRegistryConfig":
+        """Parse the YAML controls block into a config object."""
+        _spec_keys = ("name", "importance")
+        specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
+        target_names = [s.name for s in specs]
+
+        crosstab_merges: list[MergeSpec] = []
+        merges_1d: list[MergeSpec] = []
+
+        for c in controls:
+            if c.get("merges"):
+                crosstab_merges.append(MergeSpec(control=c["name"], groups=c["merges"]))
+            if c.get("merge"):
+                merges_1d.append(MergeSpec(control=c["name"], groups=c["merge"]))
+            for zone_id, groups in c.get("zone_merges", {}).items():
+                merges_1d.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
+
+        return cls(
+            specs=specs,
+            target_names=target_names,
+            crosstab_merges=crosstab_merges,
+            merges_1d=merges_1d,
+        )
+
+    @property
+    def importance_overrides(self) -> dict[str, float]:
+        """Explicit importance overrides from YAML."""
+        return {s.name: s.importance for s in self.specs if s.importance is not None}
+
+    @property
+    def all_merges(self) -> list[MergeSpec]:
+        """All merge specs (crosstab + 1-D) for diagnostics."""
+        return self.crosstab_merges + self.merges_1d
+
+
+@dataclass
 class GridPoint:
     """Aggregate metrics for one expansion-factor grid point."""
 
@@ -125,36 +206,38 @@ class GridPoint:
     total_zones: int
     mape: float
     p90: float
+    max_error: float
     cv: float
     ess_pct: float
 
 
 @dataclass
 class SamplePlan:
-    """Stratified sampling plan mapping zones to segments.
+    """Stratified sampling plan mapping Census block groups to segments.
 
-    Each row represents a target zone.  Zones that share the same
-    ``sample_segment`` are treated as a single stratum for initial-weight
-    computation: ``base_weight = segment_target_pop / segment_n_responses``.
+    Each row represents a Census block group.  Block groups that share
+    the same ``sample_segment`` are treated as a single stratum for
+    initial-weight computation:
+    ``base_weight = segment_bg_pop / segment_n_responses``.
 
-    Population totals per zone are sourced from the crosswalk
-    (:attr:`PumaCrosswalk.zone_populations`), not from this table.
+    Block-group population totals are sourced from the crosswalk
+    (:attr:`PumaCrosswalk.block_group_populations`), not from this table.
 
     Attributes:
     ----------
     strata : pl.DataFrame
         Required columns:
 
-        * ``geo_id``  (str) — target-zone identifier (matches ``ctrl_geoid``).
-        * ``sample_segment`` (str) — sampling-stratum label.  All zones
-          sharing a segment get the same base weight.
+        * ``bg_geo_id``  (str) — 12-character Census block-group FIPS code.
+        * ``sample_segment`` (str) — sampling-stratum label.  All block
+          groups sharing a segment get the same base weight.
     """
 
     strata: pl.DataFrame
 
     # -- validation --
     _REQUIRED_COLS: tuple[str, ...] = field(
-        default=("geo_id", "sample_segment"),
+        default=("bg_geo_id", "sample_segment"),
         init=False,
         repr=False,
     )

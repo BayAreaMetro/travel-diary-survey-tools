@@ -116,12 +116,15 @@ class EmploymentControl(ControlTarget):
         )
 
     def pums_expr(self) -> pl.Expr:
-        """ESR + WKHP → employment category (WKHP < 35 = part-time)."""
+        """ESR + WKHP → employment category (WKHP < 35 = part-time).
+
+        ESR is null for persons under 16 — they are coded as not employed.
+        """
         esr = pl.col("ESR")
         wkhp = pl.col("WKHP")
         return (
             pl.when(esr.is_null())
-            .then(None)
+            .then(EmploymentCategory.NOT_EMPLOYED)
             .when(esr.is_in(self._pums_not_employed_esr))
             .then(EmploymentCategory.NOT_EMPLOYED)
             .when(

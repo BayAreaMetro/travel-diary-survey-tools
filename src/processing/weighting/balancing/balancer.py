@@ -36,12 +36,13 @@ import numpy as np
 import polars as pl
 
 from processing.weighting.balancing._np_balancer import np_balancer_numba
-from processing.weighting.balancing.importance import DEFAULT_IMPORTANCE
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.diagnostics.data import compute_weighted_totals, fit_table
 from processing.weighting.specs import (
+    BalancingConfig,
     ControlTotals,
     GridPoint,
+    ImportanceConfig,
     ZoneInput,
     ZoneResult,
     ZoneStatus,
@@ -57,15 +58,9 @@ def balance_weights(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
+    balancing: BalancingConfig | None = None,
+    importance: ImportanceConfig | None = None,
     *,
-    importance: dict[str, float] | None = None,
-    default_importance: float = DEFAULT_IMPORTANCE,
-    max_expansion_factor: float = 10.0,
-    min_expansion_factor: float = 0.1,
-    min_weight: float | None = None,
-    max_weight: float | None = None,
-    max_iterations: int = 10_000,
-    n_workers: int = 1,
     verbose: bool = True,
 ) -> tuple[pl.DataFrame, list[ZoneStatus]]:
     """Balance household weights to match control totals per zone.
@@ -80,18 +75,10 @@ def balance_weights(
         Per-zone targets (with merges already applied).
     targets : list[str]
         Control registry names.
-    importance : dict[str, float] | None
-        Per-control importance overrides.
-    default_importance : float
-        Baseline importance (default 100).
-    max_expansion_factor, min_expansion_factor : float
-        Bounds on final / initial weight ratio.
-    min_weight, max_weight : float | None
-        Optional absolute floor / ceiling.
-    max_iterations : int
-        Newton-Raphson cap per zone.
-    n_workers : int
-        Threads for parallel zone balancing (``1`` = sequential).
+    balancing : BalancingConfig | None
+        Solver bounds, iteration limits, and parallelism (defaults apply).
+    importance : ImportanceConfig | None
+        Per-control importance weights (defaults apply).
     verbose : bool
         Log per-zone convergence (default ``True``).
 
@@ -102,6 +89,8 @@ def balance_weights(
     statuses : list[ZoneStatus]
         One entry per zone with convergence info.
     """
+    bal = balancing or BalancingConfig()
+    imp = importance or ImportanceConfig()
     geo_col = "ctrl_geoid"
 
     # Build per-zone inputs
@@ -119,20 +108,20 @@ def balance_weights(
                 zone_totals,
                 targets,
                 geo_id,
-                importance=importance,
-                default_importance=default_importance,
-                min_expansion_factor=min_expansion_factor,
-                max_expansion_factor=max_expansion_factor,
-                min_weight=min_weight,
-                max_weight=max_weight,
-                max_iterations=max_iterations,
+                importance=imp.explicit or None,
+                default_importance=imp.default,
+                min_expansion_factor=bal.min_expansion_factor,
+                max_expansion_factor=bal.max_expansion_factor,
+                min_weight=bal.min_weight,
+                max_weight=bal.max_weight,
+                max_iterations=bal.max_iterations,
                 verbose=verbose,
             )
         )
 
     # Run balancer — numba @njit releases the GIL so threads parallelize
-    if n_workers > 1 and len(zone_inputs) > 1:
-        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+    if bal.n_workers > 1 and len(zone_inputs) > 1:
+        with ThreadPoolExecutor(max_workers=bal.n_workers) as pool:
             results = list(pool.map(_balance_zone, zone_inputs))
     else:
         results = [_balance_zone(z) for z in zone_inputs]
@@ -159,14 +148,8 @@ def grid_search_expansion_factor(
     targets: list[str],
     ef_grid: list[float],
     selected_ef: float,
-    *,
-    importance: dict[str, float] | None = None,
-    default_importance: float = DEFAULT_IMPORTANCE,
-    min_expansion_factor: float = 0.1,
-    min_weight: float | None = None,
-    max_weight: float | None = None,
-    max_iterations: int = 10_000,
-    n_workers: int = 1,
+    balancing: BalancingConfig | None = None,
+    importance: ImportanceConfig | None = None,
 ) -> list[GridPoint]:
     """Re-run the balancer across a grid of ``max_expansion_factor`` values.
 
@@ -177,6 +160,7 @@ def grid_search_expansion_factor(
     This is a **diagnostics-only** function — it does not modify the
     production weights.
     """
+    bal = balancing or BalancingConfig()
     grid = sorted(set(ef_grid) | {selected_ef})
     if not grid:
         return []
@@ -184,18 +168,20 @@ def grid_search_expansion_factor(
     results: list[GridPoint] = []
     for i, ef in enumerate(grid, 1):
         logger.info("Grid search: EF=%.1f (%d/%d)", ef, i, len(grid))
+        ef_bal = BalancingConfig(
+            max_expansion_factor=ef,
+            min_expansion_factor=bal.min_expansion_factor,
+            min_weight=bal.min_weight,
+            max_weight=bal.max_weight,
+            max_iterations=bal.max_iterations,
+            n_workers=bal.n_workers,
+        )
         weights, statuses = balance_weights(
             seed,
             control_totals,
             targets,
+            balancing=ef_bal,
             importance=importance,
-            default_importance=default_importance,
-            max_expansion_factor=ef,
-            min_expansion_factor=min_expansion_factor,
-            min_weight=min_weight,
-            max_weight=max_weight,
-            max_iterations=max_iterations,
-            n_workers=n_workers,
             verbose=False,
         )
 
@@ -205,6 +191,7 @@ def grid_search_expansion_factor(
         abs_pct = ft["diff_pct"].abs()
         mape = float(abs_pct.mean() or 0) if len(abs_pct) > 0 else 0.0  # pyright: ignore[reportArgumentType]
         p90 = float(abs_pct.quantile(0.9) or 0) if len(abs_pct) > 0 else 0.0
+        max_error = float(abs_pct.max() or 0) if len(abs_pct) > 0 else 0.0  # pyright: ignore[reportArgumentType]
 
         # -- Weight quality (CV, ESS%) ---------------------------------
         w = weights["hh_weight"]
@@ -226,6 +213,7 @@ def grid_search_expansion_factor(
                 total_zones=len(statuses),
                 mape=mape,
                 p90=p90,
+                max_error=max_error,
                 cv=cv,
                 ess_pct=ess_pct,
             )

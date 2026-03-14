@@ -188,7 +188,7 @@ class PumaCrosswalk:
 
     @property
     def zone_populations(self) -> pl.DataFrame:
-        """Census block-group population totals per balancing zone.
+        """Census block population totals per balancing zone.
 
         Returns a DataFrame with columns ``[geo_id, target_population]``
         where ``target_population`` is the sum of Census block population
@@ -201,6 +201,59 @@ class PumaCrosswalk:
             .with_columns(pl.col("geo_id").cast(pl.Utf8))
             .sort("geo_id")
         )
+
+    @property
+    def block_group_populations(self) -> pl.DataFrame:
+        """Census block population summed to block-group level.
+
+        Block group GEOID = first 12 characters of the 15-character
+        Census block GEOID (FIPS state + county + tract + block group).
+
+        Returns a DataFrame with columns ``[bg_geo_id, bg_population]``.
+        """
+        bg_df = pl.from_pandas(self.block_gdf[["block_id", "pop20"]].copy()).with_columns(
+            pl.col("block_id").str.slice(0, 12).alias("bg_geo_id"),
+        )
+        return (
+            bg_df.group_by("bg_geo_id")
+            .agg(pl.col("pop20").sum().alias("bg_population"))
+            .sort("bg_geo_id")
+        )
+
+    def assign_block_groups(
+        self,
+        households: pl.DataFrame,
+        lon_col: str = "home_lon",
+        lat_col: str = "home_lat",
+    ) -> pl.DataFrame:
+        """Point-in-polygon assignment of households to Census block groups.
+
+        Returns *households* with a ``bg_geo_id`` column added (null for
+        points outside all block groups).  Block group boundaries are
+        derived by dissolving Census blocks on the first 12 characters
+        of their GEOID.
+        """
+        # Dissolve blocks → block groups
+        bg_gdf = self.block_gdf.copy()
+        bg_gdf["bg_geo_id"] = bg_gdf["block_id"].str[:12]
+        bg_dissolved = bg_gdf.dissolve(by="bg_geo_id").reset_index()[["bg_geo_id", "geometry"]]
+
+        points = gpd.GeoDataFrame(
+            {"hh_id": households["hh_id"].to_list()},
+            geometry=gpd.points_from_xy(
+                households[lon_col].to_list(),
+                households[lat_col].to_list(),
+            ),
+            crs="EPSG:4326",
+        )
+        bg_dissolved = bg_dissolved.to_crs("EPSG:4326")
+        joined = gpd.sjoin(points, bg_dissolved, how="left", predicate="within")
+        joined = joined.drop(columns=["geometry", "index_right"])
+
+        result_pl = pl.from_pandas(joined[["hh_id", "bg_geo_id"]]).unique(
+            subset=["hh_id"], keep="first"
+        )
+        return households.join(result_pl, on="hh_id", how="left")
 
     def assign_households(
         self,
