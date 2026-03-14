@@ -131,11 +131,14 @@ class GridPoint:
 
 @dataclass
 class SamplePlan:
-    """Stratified sampling plan mapping zones to segments and populations.
+    """Stratified sampling plan mapping zones to segments.
 
     Each row represents a target zone.  Zones that share the same
     ``sample_segment`` are treated as a single stratum for initial-weight
     computation: ``base_weight = segment_target_pop / segment_n_responses``.
+
+    Population totals per zone are sourced from the crosswalk
+    (:attr:`PumaCrosswalk.zone_populations`), not from this table.
 
     Attributes:
     ----------
@@ -143,8 +146,6 @@ class SamplePlan:
         Required columns:
 
         * ``geo_id``  (str) — target-zone identifier (matches ``ctrl_geoid``).
-        * ``target_population`` (int | float) — total HH population in that
-          zone.
         * ``sample_segment`` (str) — sampling-stratum label.  All zones
           sharing a segment get the same base weight.
     """

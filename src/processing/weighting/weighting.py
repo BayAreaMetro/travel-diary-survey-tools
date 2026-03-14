@@ -59,7 +59,7 @@ from processing.weighting.balancing.balancer import (
     grid_search_expansion_factor,
 )
 from processing.weighting.balancing.base_weights import compute_base_weights
-from processing.weighting.balancing.importance import compute_moe_importance
+from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
 from processing.weighting.balancing.weight_propagation import (
     collect_tables,
     non_null_tables,
@@ -136,30 +136,6 @@ def _parse_controls(
 
     importance = {s.name: s.importance for s in specs if s.importance is not None}
     return specs, target_names, crosstab_merges, merges_1d, importance
-
-
-def _load_pums(
-    *,
-    state_fips: str,
-    pums_year: int,
-    pums_households: str | None,
-    pums_persons: str | None,
-    puma_ids: list[str] | None = None,
-    load_replicate_weights: bool = False,
-    cache_dir: Path | None = None,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Load PUMS household and person microdata from local files or Census API."""
-    if pums_households is not None and pums_persons is not None:
-        logger.info("Loading PUMS from local files")
-        return load_pums_from_files(
-            pums_households, pums_persons, load_replicate_weights=load_replicate_weights
-        )
-
-    source = PUMSSource(state_fips=state_fips, pums_year=pums_year, puma_ids=puma_ids)
-    logger.info("Fetching PUMS via Census API: state=%s year=%d", state_fips, pums_year)
-    return fetch_pums_data(
-        source, load_replicate_weights=load_replicate_weights, cache_dir=cache_dir
-    )
 
 
 def _resolve_importance(
@@ -402,14 +378,17 @@ def weighting(  # noqa: PLR0913, PLR0915
     # ===================================================================
     # Step 2 — Data fetching
     # ===================================================================
-    pums_hh, pums_per = _load_pums(
-        state_fips=state_fips,
-        pums_year=pums_year,
-        pums_households=pums_households,
-        pums_persons=pums_persons,
-        load_replicate_weights=moe_based_importance,
-        cache_dir=cache_dir,
-    )
+    if pums_households is not None and pums_persons is not None:
+        logger.info("Loading PUMS from local files")
+        pums_hh, pums_per = load_pums_from_files(
+            pums_households, pums_persons, load_replicate_weights=moe_based_importance
+        )
+    else:
+        source = PUMSSource(state_fips=state_fips, pums_year=pums_year)
+        logger.info("Fetching PUMS via Census API: state=%s year=%d", state_fips, pums_year)
+        pums_hh, pums_per = fetch_pums_data(
+            source, load_replicate_weights=moe_based_importance, cache_dir=cache_dir
+        )
 
     # ===================================================================
     # Step 3 — Conformance (recoding)
@@ -516,6 +495,12 @@ def weighting(  # noqa: PLR0913, PLR0915
         pums_per=pums_per,
     )
 
+    # Per-cell MOE for diagnostics (reuses crosswalk-allocated PUMS frames)
+    control_moe: pl.DataFrame | None = None
+    if moe_based_importance:
+        pums_hh_xw, pums_per_xw = xw.allocate_pums_weights(pums_hh, pums_per)
+        control_moe = compute_control_moe(pums_hh_xw, pums_per_xw, target_names)
+
     # ===================================================================
     # Step 9 — Balancer
     # ===================================================================
@@ -525,6 +510,7 @@ def weighting(  # noqa: PLR0913, PLR0915
         target_names,
         geo_col="ctrl_geoid",
         sample_plan=sample_plan,
+        zone_populations=xw.zone_populations if sample_plan else None,
     )
 
     weights_df, statuses = balance_weights(
@@ -580,6 +566,7 @@ def weighting(  # noqa: PLR0913, PLR0915
         merge_specs=crosstab_merges + merges_1d,
         grid_results=grid_results,
         selected_ef=max_expansion_factor if grid_results else None,
+        control_moe=control_moe,
     )
 
     # -- Attach & propagate weights ---------------------------------

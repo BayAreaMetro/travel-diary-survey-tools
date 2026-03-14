@@ -60,9 +60,14 @@ if (window.Plotly && window.Plotly.Plots) {
 
     &bull; <b>Max</b> is the single worst |%&nbsp;error| across all categories for the zone.<br>
 
-    &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. High CV (e.g. above 0.5) indicates extreme weight variability, which can lead to unstable estimates.<br>
+    &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. For multi-dimensional IPF with many controls, CV in the 0.6&ndash;0.9 range is typical and acceptable. CV above 1.0 indicates extreme weight variability that may lead to unstable estimates.<br>
 
-    &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic); above 80% is good, below 50% suggests a few records dominate. Derived from the design effect in survey sampling, quantifying how much estimate variability is inflated due to weighting.<br>
+    &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic), expressed as a percentage of the unweighted sample size. ESS is inversely related to the design effect (DEFF&nbsp;=&nbsp;1/ESS%). For multi-dimensional balancing with many controls, realistic expectations are:<br>
+    &nbsp;&nbsp;&bull; <b>&gt;&thinsp;75%</b> &mdash; excellent (DEFF&nbsp;&lt;&nbsp;1.33)<br>
+    &nbsp;&nbsp;&bull; <b>60&ndash;75%</b> &mdash; typical, acceptable for travel diary surveys<br>
+    &nbsp;&nbsp;&bull; <b>50&ndash;60%</b> &mdash; review controls for sparsity or competing constraints<br>
+    &nbsp;&nbsp;&bull; <b>&lt;&thinsp;50%</b> &mdash; a few records likely dominate; investigate merges or drop controls<br>
+    Near-uniform weights (ESS&nbsp;&gt;&nbsp;80%) are generally only achievable with very few controls. Each additional control dimension increases weight variability, particularly person-level controls aggregated to households (e.g.&nbsp;commute mode, age) which create heterogeneous incidence vectors.<br>
 </p>
 {{ balancer_performance_table }}
 
@@ -86,6 +91,7 @@ if (window.Plotly && window.Plotly.Plots) {
   Bars show (weighted &minus; target) / target &times; 100. Hover for absolute values.<br>
   What to look for:<br>
   &bull; Bars close to zero indicate good fit; large bars indicate poor fit.<br>
+  &bull; <b>Error bars</b> (when present) show the PUMS margin of error (MOE) derived from Census replicate weights. Bars within the MOE whiskers are within expected sampling noise of the target &mdash; the deviation may reflect uncertainty in the target itself rather than a weighting problem. Grey bars indicate fit within MOE.<br>
 </p>
 <div class="chart">{{ fit_bars_html }}</div>
 

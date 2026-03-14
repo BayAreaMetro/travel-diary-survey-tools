@@ -19,12 +19,31 @@ def fit_diverging_figure(
     Expects *fit* to contain a ``label`` column (added by
     :func:`~.data.apply_fit_merges`).  Null placeholder rows are rendered
     as invisible bars so the y-axis remains consistent across panels.
+
+    When ``moe_pct`` is present (from PUMS replicate weights), horizontal
+    error bars show the sampling margin of error on each target.
     """
+    has_moe = "moe_pct" in fit.columns
     zones = sorted(fit["geo_id"].unique().to_list())
+
+    # Overall aggregation — sum targets/weighted across zones
+    agg_exprs = [pl.col("target_total").sum(), pl.col("weighted_total").sum()]
+    if has_moe:
+        # Propagate MOE: SE_overall = sqrt(Σ SE_i²), then moe_pct = SE / target * 100
+        # SE_i = moe_pct_i / 100 * target_i
+        agg_exprs.append(
+            (
+                ((pl.col("moe_pct") / 100 * pl.col("target_total")) ** 2).sum().sqrt()
+                / pl.col("target_total").sum()
+                * 100
+            )
+            .fill_nan(None)
+            .alias("moe_pct")
+        )
 
     overall = (
         fit.group_by("control_name", "category", "label")
-        .agg(pl.col("target_total").sum(), pl.col("weighted_total").sum())
+        .agg(*agg_exprs)
         .with_columns(
             ((pl.col("weighted_total") - pl.col("target_total")) / pl.col("target_total") * 100)
             .fill_nan(0)
@@ -60,7 +79,7 @@ def fit_diverging_figure(
             else fit.filter(pl.col("geo_id") == panel).sort("control_name", "category", "label")
         )
 
-        y, x, colors, hovers = [], [], [], []
+        y, x, colors, hovers, moe_values = [], [], [], [], []
         for r in pdf.iter_rows(named=True):
             lbl = r["label"]
             target = r["target_total"]
@@ -71,24 +90,46 @@ def fit_diverging_figure(
                 x.append(None)
                 colors.append("rgba(0,0,0,0)")
                 hovers.append("")
+                moe_values.append(None)
                 continue
 
             pct = r["diff_pct"]
+            moe = r.get("moe_pct") if has_moe else None
             y.append(lbl)
             x.append(pct)
-            if abs(pct) > _WARN_PCT:
+
+            # Color: within MOE → muted grey, else original scheme
+            if moe is not None and abs(pct) <= moe:
+                colors.append("#999")
+            elif abs(pct) > _WARN_PCT:
                 colors.append("#c33")
             elif pct > 0:
                 colors.append("#af8dc3")
             else:
                 colors.append("#5ab4ac")
-            hovers.append(
-                f"<b>{lbl}</b><br>"
-                f"Target: {target:,.1f}<br>"
-                f"Weighted: {r['weighted_total']:,.1f}<br>"
-                f"Diff: {r['diff']:+,.1f}<br>"
-                f"Diff %: {pct:+.1f}%"
-            )
+
+            hover_lines = [
+                f"<b>{lbl}</b>",
+                f"Target: {target:,.1f}",
+                f"Weighted: {r['weighted_total']:,.1f}",
+                f"Diff: {r['diff']:+,.1f}",
+                f"Diff %: {pct:+.1f}%",
+            ]
+            if moe is not None:
+                hover_lines.append(f"PUMS MOE: \u00b1{moe:.1f}%")
+            hovers.append("<br>".join(hover_lines))
+            moe_values.append(moe)
+
+        error_x = None
+        if has_moe and any(v is not None for v in moe_values):
+            error_x = {
+                "type": "data",
+                "array": [v if v is not None else 0 for v in moe_values],
+                "visible": True,
+                "color": "rgba(0,0,0,0.25)",
+                "thickness": 1.5,
+                "width": 3,
+            }
 
         fig.add_trace(
             go.Bar(
@@ -99,6 +140,7 @@ def fit_diverging_figure(
                 hovertext=hovers,
                 hoverinfo="text",
                 showlegend=False,
+                error_x=error_x,
             ),
             row=r_idx + 1,
             col=c_idx + 1,

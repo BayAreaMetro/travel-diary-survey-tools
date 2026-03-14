@@ -54,11 +54,18 @@ def generate_report(  # noqa: PLR0913
     merge_specs: list | None = None,
     grid_results: list[GridPoint] | None = None,
     selected_ef: float | None = None,
+    control_moe: pl.DataFrame | None = None,
 ) -> Path:
     """Write the self-contained HTML diagnostics report to *output_path*."""
     weighted = seed.join(weights.select("hh_id", "hh_weight"), on="hh_id", how="left")
     weighted_totals = compute_weighted_totals(seed, weights, target_names)
     fit = apply_fit_merges(fit_table(control_totals, weighted_totals), merge_specs, target_names)
+
+    # Join per-cell MOE from PUMS replicate weights (when available)
+    if control_moe is not None:
+        moe_cols = control_moe.select("geo_id", "control_name", "category", "moe_pct")
+        fit = fit.join(moe_cols, on=["geo_id", "control_name", "category"], how="left")
+
     zf = zone_fit_summary(fit, target_names)
 
     # Section 1 — crosswalk map

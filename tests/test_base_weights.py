@@ -245,7 +245,6 @@ class TestSamplePlan:
             strata=pl.DataFrame(
                 {
                     "geo_id": ["Z1"],
-                    "target_population": [50_000],
                     "sample_segment": ["seg1"],
                     "county": ["Alameda"],
                 }
@@ -318,11 +317,19 @@ class TestLoadSamplePlan:
     def test_end_to_end_csv_to_base_weights(self, tmp_path):
         """Load CSV → SamplePlan → compute_base_weights."""
         csv = tmp_path / "plan.csv"
-        csv.write_text("geo_id,target_population,sample_segment\nZ1,100000,urban\nZ2,50000,rural\n")
+        csv.write_text("geo_id,sample_segment\nZ1,urban\nZ2,rural\n")
         plan = load_sample_plan(csv)
+        zone_pops = pl.DataFrame({"geo_id": ["Z1", "Z2"], "target_population": [100_000, 50_000]})
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
         seed = _make_seed("ctrl_geoid", {"Z1": 200, "Z2": 100})
-        result = compute_base_weights(seed, ct, ["h_size"], geo_col="ctrl_geoid", sample_plan=plan)
+        result = compute_base_weights(
+            seed,
+            ct,
+            ["h_size"],
+            geo_col="ctrl_geoid",
+            sample_plan=plan,
+            zone_populations=zone_pops,
+        )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
         # urban: 100k/200 = 500, rural: 50k/100 = 500

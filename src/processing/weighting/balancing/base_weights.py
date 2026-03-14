@@ -13,10 +13,11 @@ This module provides two paths:
    per zone.  Works whenever PUMS-derived control totals are available
    (always, in our pipeline).
 
-2. **Sample plan** (future) — a ``SamplePlan`` object mapping strata to
-   expected populations and response counts.  When provided, each
-   household is attributed to its stratum and receives a stratum-specific
-   initial weight.
+2. **Sample plan** — a ``SamplePlan`` object mapping zones to sampling
+   strata.  Zone-level populations are sourced from the crosswalk
+   (Census block population), not from the sample plan CSV itself.
+   Each household is attributed to its stratum and receives a
+   stratum-specific initial weight.
 
 The public entry point is ``compute_base_weights``, which adds a
 ``base_weight`` column to the seed table.
@@ -43,9 +44,9 @@ def load_sample_plan(path: str | Path) -> SamplePlan:
     Parameters
     ----------
     path : str | Path
-        Path to a CSV file.  Must contain the columns required by
-        ``SamplePlan``: ``geo_id``, ``target_population``,
-        ``expected_responses``.
+        Path to a CSV file.  Must contain at minimum: ``geo_id`` and
+        ``sample_segment``.  Population totals are sourced from the
+        crosswalk, not from the CSV.
 
     Returns:
     -------
@@ -77,6 +78,7 @@ def compute_base_weights(
     geo_col: str = "ctrl_geoid",
     *,
     sample_plan: str | Path | SamplePlan | None = None,
+    zone_populations: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Add ``base_weight`` column to the seed table.
 
@@ -96,6 +98,10 @@ def compute_base_weights(
         :func:`load_sample_plan`) or an already-loaded
         :class:`SamplePlan`.  When ``None``, default response
         inversion is used.
+    zone_populations : pl.DataFrame | None
+        Census-derived population totals per zone with columns
+        ``[geo_id, target_population]``.  Required when *sample_plan*
+        is provided; sourced from :attr:`PumaCrosswalk.zone_populations`.
 
     Returns:
     -------
@@ -111,7 +117,13 @@ def compute_base_weights(
     """
     if sample_plan is not None:
         plan = sample_plan if isinstance(sample_plan, SamplePlan) else load_sample_plan(sample_plan)
-        zone_weights = _zone_weights_from_plan(seed, plan, geo_col)
+        if zone_populations is None:
+            msg = (
+                "zone_populations is required when using a sample plan. "
+                "Pass PumaCrosswalk.zone_populations from the crosswalk step."
+            )
+            raise ValueError(msg)
+        zone_weights = _zone_weights_from_plan(seed, plan, geo_col, zone_populations)
     else:
         logger.info("Using PUMS-target response inversion for base weights")
         zone_weights = _zone_weights_from_response_inversion(seed, control_totals, targets, geo_col)
@@ -230,27 +242,42 @@ def _zone_weights_from_plan(
     seed: pl.DataFrame,
     plan: SamplePlan,
     geo_col: str,
+    zone_populations: pl.DataFrame,
 ) -> pl.DataFrame:
     """Return ``(geo_id, base_weight)`` via segment_target_pop / segment_n_responses.
 
-    1. Map each zone → sample_segment via the plan.
-    2. Sum ``target_population`` per segment from the plan.
-    3. Count actual survey responses per segment from the seed.
-    4. ``base_weight = segment_pop / segment_responses``.
-    5. Collapse back to ``(geo_id, base_weight)``.
-    """
-    msg = "Sample-plan-based base weights not implemented yet. Need to download bg pops and build a sample plan first."  # noqa: E501
-    raise NotImplementedError(msg)
+    Population totals per zone come from the crosswalk (Census blocks),
+    not from the sample plan CSV.  The plan only needs ``geo_id`` and
+    ``sample_segment``.
 
+    1. Attach ``target_population`` from *zone_populations* to the plan.
+    2. Map each zone → sample_segment via the plan.
+    3. Sum ``target_population`` per segment.
+    4. Count actual survey responses per segment from the seed.
+    5. ``base_weight = segment_pop / segment_responses``.
+    6. Collapse back to ``(geo_id, base_weight)``.
+    """
     # Zone → segment lookup
     zone_segment = plan.strata.select(
         pl.col("geo_id").cast(pl.Utf8),
         pl.col("sample_segment").cast(pl.Utf8),
     )
 
+    # Attach crosswalk-derived population to each zone
+    zone_with_pop = zone_segment.join(
+        zone_populations.with_columns(pl.col("geo_id").cast(pl.Utf8)),
+        on="geo_id",
+        how="left",
+    )
+    missing_pop = zone_with_pop.filter(pl.col("target_population").is_null())
+    if len(missing_pop) > 0:
+        bad = missing_pop["geo_id"].to_list()
+        msg = f"Zones in sample plan have no crosswalk population: {bad}"
+        raise ValueError(msg)
+
     # Segment-level target population (sum zone pops within each segment)
     seg_pop = (
-        plan.strata.group_by("sample_segment")
+        zone_with_pop.group_by("sample_segment")
         .agg(pl.col("target_population").sum().alias("_seg_target_pop"))
         .with_columns(pl.col("sample_segment").cast(pl.Utf8))
     )

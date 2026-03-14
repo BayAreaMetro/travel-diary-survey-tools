@@ -186,6 +186,22 @@ class PumaCrosswalk:
 
     # -- public methods ---------------------------------------------------
 
+    @property
+    def zone_populations(self) -> pl.DataFrame:
+        """Census block-group population totals per balancing zone.
+
+        Returns a DataFrame with columns ``[geo_id, target_population]``
+        where ``target_population`` is the sum of Census block population
+        (``pop20``) allocated to each ``ctrl_geoid``.
+        """
+        return (
+            self.crosswalk_df.group_by("ctrl_geoid")
+            .agg(pl.col("population").sum().alias("target_population"))
+            .rename({"ctrl_geoid": "geo_id"})
+            .with_columns(pl.col("geo_id").cast(pl.Utf8))
+            .sort("geo_id")
+        )
+
     def assign_households(
         self,
         households: pl.DataFrame,

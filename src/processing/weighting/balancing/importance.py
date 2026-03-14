@@ -83,21 +83,57 @@ def compute_moe_importance(
     return importance
 
 
+def compute_control_moe(
+    hh_df: pl.DataFrame,
+    person_df: pl.DataFrame,
+    target_names: list[str],
+    *,
+    geo_col: str = "ctrl_geoid",
+) -> pl.DataFrame:
+    """Compute per-cell MOE from PUMS replicate weights for all controls.
+
+    Returns a DataFrame with columns ``[geo_id, control_name, category,
+    target_total, se, moe_pct]``.  Controls with no PUMS records are
+    silently skipped.
+    """
+    frames: list[pl.DataFrame] = []
+    for name in target_names:
+        ctrl = CONTROLS.get(name)
+        if ctrl is None:
+            continue
+        cell_df = _control_cell_moe(ctrl, hh_df, person_df, geo_col)
+        if cell_df is not None:
+            frames.append(cell_df)
+
+    if not frames:
+        return pl.DataFrame(
+            schema={
+                "geo_id": pl.Utf8,
+                "control_name": pl.Utf8,
+                "category": pl.Utf8,
+                "target_total": pl.Float64,
+                "se": pl.Float64,
+                "moe_pct": pl.Float64,
+            }
+        )
+    return pl.concat(frames)
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 
-def _control_cv(
+def _control_cell_moe(
     ctrl: ControlTarget,
     hh_df: pl.DataFrame,
     person_df: pl.DataFrame,
     geo_col: str,
-) -> float | None:
-    """Compute a representative CV for one control across all zones.
+) -> pl.DataFrame | None:
+    """Compute per-cell SE and MOE% for one control across all zones.
 
-    Returns the *median CV across cells* (geo x category), or ``None``
-    if no PUMS records exist for this control's categories.
+    Returns a DataFrame with columns ``[geo_id, control_name, category,
+    target_total, se, moe_pct]``, or ``None`` if no PUMS records exist.
     """
     if ctrl.level == ControlLevel.HOUSEHOLD:
         source, wt_col, rep_prefix = hh_df, "_xw_WGTP", "_xw_WGTP"
@@ -114,7 +150,10 @@ def _control_cv(
         msg = f"Control column {ctrl.name!r} not found in data"
         raise ValueError(msg)
 
-    valid_values = [v for v, _ in ctrl.valid_members]
+    # Map int enum values → category string names
+    value_to_name = {v: name.lower() for v, name in ctrl.valid_members}
+    valid_values = list(value_to_name.keys())
+
     cells = (
         source.filter(pl.col(ctrl.name).is_in(valid_values))
         .group_by([geo_col, ctrl.name])
@@ -130,11 +169,46 @@ def _control_cv(
     diff = rep_matrix - estimates[:, np.newaxis]
     se = np.sqrt((4.0 / _N_REPLICATES) * np.sum(diff**2, axis=1))
 
-    mask = estimates > 0
+    # Build result DataFrame with string category names
+    geo_ids = cells[geo_col].to_list()
+    cat_ints = cells[ctrl.name].to_list()
+    cat_names = [value_to_name.get(v, str(v)) for v in cat_ints]
+    moe_pct = np.where(estimates > 0, se / estimates * 100, 0.0)
+
+    return pl.DataFrame(
+        {
+            "geo_id": geo_ids,
+            "control_name": [ctrl.name] * len(geo_ids),
+            "category": cat_names,
+            "target_total": estimates.tolist(),
+            "se": se.tolist(),
+            "moe_pct": moe_pct.tolist(),
+        }
+    )
+
+
+def _control_cv(
+    ctrl: ControlTarget,
+    hh_df: pl.DataFrame,
+    person_df: pl.DataFrame,
+    geo_col: str,
+) -> float | None:
+    """Compute a representative CV for one control across all zones.
+
+    Returns the *median CV across cells* (geo x category), or ``None``
+    if no PUMS records exist for this control's categories.
+    """
+    cell_df = _control_cell_moe(ctrl, hh_df, person_df, geo_col)
+    if cell_df is None:
+        return None
+
+    targets = cell_df["target_total"].to_numpy()
+    ses = cell_df["se"].to_numpy()
+    mask = targets > 0
     if not mask.any():
         return None
 
-    return float(np.median(se[mask] / estimates[mask]))
+    return float(np.median(ses[mask] / targets[mask]))
 
 
 def _normalize_cvs(control_cvs: dict[str, float]) -> dict[str, float]:
