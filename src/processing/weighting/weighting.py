@@ -154,6 +154,7 @@ class WeightingPipeline:
         sample_plan: str | None = None,
         cache_dir: Path | None = None,
         expansion_factor_grid: list[float] | None = None,
+        strict_survey_nulls: bool = False,
     ) -> None:
         """Initialise with frozen configuration parameters."""
         self.controls = controls
@@ -167,6 +168,7 @@ class WeightingPipeline:
         self.sample_plan = sample_plan
         self.cache_dir = cache_dir
         self.expansion_factor_grid = expansion_factor_grid
+        self.strict_survey_nulls = strict_survey_nulls
 
         # State initialised to None; populated by phases
         self.control_moe = None
@@ -228,10 +230,10 @@ class WeightingPipeline:
     ) -> None:
         """Recode both datasets through control expressions, then pivot to incidence."""
         names = self.controls.target_names
-
+        strict_nulls = self.strict_survey_nulls
         # Conformance: identical control-column schemas
-        hh_recoded = recode_survey_households(households, persons, names)
-        per_recoded = recode_survey_persons(persons, names)
+        hh_recoded = recode_survey_households(households, persons, names, strict_nulls=strict_nulls)
+        per_recoded = recode_survey_persons(persons, names, strict_nulls=strict_nulls)
         self.pums_hh = recode_pums_households(self.pums_hh, self.pums_per, names)
         self.pums_per = recode_pums_persons(self.pums_per, names)
 
@@ -487,7 +489,9 @@ class WeightingPipeline:
         report_dir = self.cache_dir / "weighting" if self.cache_dir else Path.cwd() / "weighting"
         self.generate_diagnostics(report_dir)
 
-        return self.propagate(households, persons, **extra_tables)
+        weighted_tables = self.propagate(households, persons, **extra_tables)
+
+        return weighted_tables
 
 
 # ===========================================================================
@@ -522,6 +526,8 @@ def weighting(  # noqa: PLR0913
     n_workers: int = 1,
     # -- Diagnostics ----------------------------------------------------
     expansion_factor_grid: list[float] | None = None,
+    # -- Validation ------------------------------------------------------
+    strict_survey_nulls: bool = False,
     # -- Canonical tables (auto-injected by pipeline) -------------------
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -566,8 +572,9 @@ def weighting(  # noqa: PLR0913
         sample_plan=sample_plan,
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
         expansion_factor_grid=expansion_factor_grid,
+        strict_survey_nulls=strict_survey_nulls,
     )
-    return pipeline.run(
+    weighted_tables = pipeline.run(
         households=households,
         persons=persons,
         days=days,
@@ -576,3 +583,4 @@ def weighting(  # noqa: PLR0913
         joint_trips=joint_trips,
         tours=tours,
     )
+    return weighted_tables

@@ -60,14 +60,19 @@ if (window.Plotly && window.Plotly.Plots) {
 
     &bull; <b>Max</b> is the single worst |%&nbsp;error| across all categories for the zone.<br>
 
-    &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights. For multi-dimensional IPF with many controls, CV in the 0.6&ndash;0.9 range is typical and acceptable. CV above 1.0 indicates extreme weight variability that may lead to unstable estimates.<br>
+    &bull; <b>Coefficient of Variation (CV)</b>: standard deviation / mean of the weights.
+    CV depends heavily on the number and type of controls:<br>
+    &nbsp;&nbsp;&bull; <b>&lt;&thinsp;0.6</b> &mdash; excellent; typical only with few (2&ndash;3) household-level controls<br>
+    &nbsp;&nbsp;&bull; <b>0.6&ndash;1.0</b> &mdash; good; expected with a moderate control spec (4&ndash;6 controls)<br>
+    &nbsp;&nbsp;&bull; <b>1.0&ndash;1.5</b> &mdash; typical for rich control specs with many person-level controls aggregated to households (e.g.&nbsp;age, commute mode, employment, gender, student status); not inherently problematic if fit is acceptable<br>
+    &nbsp;&nbsp;&bull; <b>&gt;&thinsp;1.5</b> &mdash; high; review whether controls are competing or cells are too sparse<br>
 
-    &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic), expressed as a percentage of the unweighted sample size. ESS is inversely related to the design effect (DEFF&nbsp;=&nbsp;1/ESS%). For multi-dimensional balancing with many controls, realistic expectations are:<br>
-    &nbsp;&nbsp;&bull; <b>&gt;&thinsp;75%</b> &mdash; excellent (DEFF&nbsp;&lt;&nbsp;1.33)<br>
-    &nbsp;&nbsp;&bull; <b>60&ndash;75%</b> &mdash; typical, acceptable for travel diary surveys<br>
-    &nbsp;&nbsp;&bull; <b>50&ndash;60%</b> &mdash; review controls for sparsity or competing constraints<br>
-    &nbsp;&nbsp;&bull; <b>&lt;&thinsp;50%</b> &mdash; a few records likely dominate; investigate merges or drop controls<br>
-    Near-uniform weights (ESS&nbsp;&gt;&nbsp;80%) are generally only achievable with very few controls. Each additional control dimension increases weight variability, particularly person-level controls aggregated to households (e.g.&nbsp;commute mode, age) which create heterogeneous incidence vectors.<br>
+    &bull; <b>Effective Sample Size (ESS)</b> = (&sum;w)<sup>2</sup> / &sum;w<sup>2</sup> (Kish statistic), expressed as a percentage of the unweighted sample size. ESS is inversely related to the design effect (DEFF&nbsp;=&nbsp;1/ESS%). Expected values depend on the control specification complexity:<br>
+    &nbsp;&nbsp;&bull; <b>&gt;&thinsp;60%</b> &mdash; excellent; generally only achievable with few controls or very large samples<br>
+    &nbsp;&nbsp;&bull; <b>40&ndash;60%</b> &mdash; good; typical for travel diary surveys balancing 6&ndash;10 controls including person-level variables<br>
+    &nbsp;&nbsp;&bull; <b>30&ndash;40%</b> &mdash; acceptable; common when many person-level controls create high-dimensional household incidence vectors<br>
+    &nbsp;&nbsp;&bull; <b>&lt;&thinsp;30%</b> &mdash; low; a few records likely dominate &mdash; investigate merges, drop competing controls, or relax expansion bounds<br>
+    Person-level controls (age, gender, employment, commute mode, etc.) are each aggregated to household counts, creating high-dimensional incidence vectors. Each additional person-level control can substantially reduce ESS because household-level weights must simultaneously satisfy many per-person constraints. A rich spec with 5+ person-level controls will typically land in the 35&ndash;55% range.<br>
 </p>
 {{ balancer_performance_table }}
 

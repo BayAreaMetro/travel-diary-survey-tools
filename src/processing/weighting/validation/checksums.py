@@ -53,6 +53,7 @@ def _emit(
     col_header: str,
     row_fmt: str,
     raise_: bool,
+    total: int | None = None,
 ) -> None:
     """Format *rows*, log them, and optionally raise ``ValueError``."""
     if not rows:
@@ -62,7 +63,11 @@ def _emit(
     n = len(rows)
     if n > _MAX_ROWS:
         lines.append(f"  ... and {n - _MAX_ROWS} more")
-    lines.append(f"\n{n} total failure(s).")
+    if total is not None and total > 0:
+        pct = n / total * 100
+        lines.append(f"\n{n} / {total} ({pct:.1f}%) failure(s).")
+    else:
+        lines.append(f"\n{n} total failure(s).")
     msg = "\n".join(lines)
     if raise_:
         logger.error(msg)
@@ -80,8 +85,9 @@ def check_recode_nulls(
     level: ControlLevel,
     id_col: str,
     source_label: str,
+    strict: bool = False,
 ) -> None:
-    """Warn about records whose control recode evaluated to null.
+    """Check for records whose control recode evaluated to null.
 
     Parameters
     ----------
@@ -95,6 +101,11 @@ def check_recode_nulls(
         Record identifier column (e.g. ``"hh_id"``, ``"person_id"``).
     source_label : str
         Human label for log messages (e.g. ``"PUMS"`` or ``"survey"``).
+    strict : bool
+        If ``True``, raise ``ValueError`` on null recodes instead of
+        just logging a warning.  PUMS recodes should always be strict
+        (every person must land in exactly one category); survey recodes
+        may tolerate nulls until imputation is implemented.
     """
     rows: list[tuple[str | int, str]] = []
     for name, _ctrl in _resolve(targets, level):
@@ -116,7 +127,8 @@ def check_recode_nulls(
         header=f"Null recode values ({level.value})",
         col_header=f"  {id_col:<16} {'control':<20}",
         row_fmt="  {:<16} {:<20}",
-        raise_=False,
+        raise_=strict,
+        total=len(df),
     )
 
 

@@ -109,7 +109,7 @@ steps:
 
       # -- Balancer settings -------------------------------------------
       max_expansion_factor: 5.0    # upper bound = initial_weight × factor
-      min_expansion_factor: 0.001  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+      min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
       min_weight: 1                # absolute floor (no weight < 1)
       # max_weight:                # absolute ceiling (null = no ceiling)
       max_iterations: 10000
@@ -161,12 +161,12 @@ steps:
             income_under_100:   [income_under25, income_25to50, income_50to75, income_75to100]
 
         # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
-        # - name: h_vehicles
-        #   merge:
-        #     veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
-        #   zone_merges:
-        #     "San Francisco":
-        #       veh_1_plus: [veh_1, veh_2_plus]
+        - name: h_vehicles
+          merge:
+            veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
+          # zone_merges:
+          #   "San Francisco":
+          #     veh_1_plus: [veh_1, veh_2_plus]
 
         # Turning these off because p_employment and p_age captures this already,
         # just adds excess double constraints that make it hard to converge in places like SF.

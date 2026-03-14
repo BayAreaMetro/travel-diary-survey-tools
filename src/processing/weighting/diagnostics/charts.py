@@ -8,7 +8,8 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-_WARN_PCT = 10  # bright-red threshold
+_WARN_PCT = 15  # fallback red threshold when MOE is unavailable or zero
+_MIN_MOE = 5  # floor for MOE-based red trigger (avoids over-sensitivity on precise targets)
 
 
 def fit_diverging_figure(
@@ -98,15 +99,14 @@ def fit_diverging_figure(
             y.append(lbl)
             x.append(pct)
 
-            # Color: within MOE → muted grey, else original scheme
-            if moe is not None and abs(pct) <= moe:
+            # Color: grey if within MOE, red if outside MOE or above fallback threshold
+            effective_moe = max(moe, _MIN_MOE) if moe is not None and moe > 0 else None
+            if effective_moe is not None and abs(pct) <= effective_moe:
                 colors.append("#999")
-            elif abs(pct) > _WARN_PCT:
+            elif (effective_moe is not None and abs(pct) > effective_moe) or abs(pct) > _WARN_PCT:
                 colors.append("#c33")
-            elif pct > 0:
-                colors.append("#af8dc3")
             else:
-                colors.append("#5ab4ac")
+                colors.append("#999")
 
             hover_lines = [
                 f"<b>{lbl}</b>",
@@ -120,17 +120,6 @@ def fit_diverging_figure(
             hovers.append("<br>".join(hover_lines))
             moe_values.append(moe)
 
-        error_x = None
-        if has_moe and any(v is not None for v in moe_values):
-            error_x = {
-                "type": "data",
-                "array": [v if v is not None else 0 for v in moe_values],
-                "visible": True,
-                "color": "rgba(0,0,0,0.25)",
-                "thickness": 1.5,
-                "width": 3,
-            }
-
         fig.add_trace(
             go.Bar(
                 y=y,
@@ -140,11 +129,33 @@ def fit_diverging_figure(
                 hovertext=hovers,
                 hoverinfo="text",
                 showlegend=False,
-                error_x=error_x,
             ),
             row=r_idx + 1,
             col=c_idx + 1,
         )
+
+        # MOE whiskers centered on zero (separate invisible scatter trace)
+        if has_moe and any(v is not None for v in moe_values):
+            fig.add_trace(
+                go.Scatter(
+                    y=y,
+                    x=[0] * len(y),
+                    mode="markers",
+                    marker={"size": 0, "color": "rgba(0,0,0,0)"},
+                    error_x={
+                        "type": "data",
+                        "array": [v if v is not None else 0 for v in moe_values],
+                        "visible": True,
+                        "color": "rgba(0,0,0,0.25)",
+                        "thickness": 1.5,
+                        "width": 3,
+                    },
+                    hoverinfo="skip",
+                    showlegend=False,
+                ),
+                row=r_idx + 1,
+                col=c_idx + 1,
+            )
 
     fig.update_xaxes(
         zeroline=True,
@@ -315,10 +326,10 @@ def ef_tradeoff_figure(
         autosize=False,
         width=960,
         height=600,
-        margin={"l": 60, "r": 30, "t": 40, "b": 50},
+        margin={"l": 60, "r": 30, "t": 80, "b": 50},
         hovermode="x unified",
         hoversubplots="axis",
-        title="Expansion Factor Tradeoff",
+        title={"text": "Expansion Factor Tradeoff", "y": 0.98, "yanchor": "top"},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
     )
     return fig

@@ -16,7 +16,13 @@ from geopandas import GeoDataFrame
 from processing.weighting.specs import ControlTotals, GridPoint, ZoneStatus
 
 from .charts import crosswalk_figure, ef_tradeoff_figure, fit_diverging_figure, violins_figure
-from .data import apply_fit_merges, compute_weighted_totals, fit_table, zone_fit_summary
+from .data import (
+    apply_fit_merges,
+    compute_weighted_totals,
+    fit_table,
+    merge_control_moe,
+    zone_fit_summary,
+)
 from .tables import (
     balancer_performance_table,
     crosswalk_summary_table,
@@ -63,7 +69,8 @@ def generate_report(  # noqa: PLR0913
 
     # Join per-cell MOE from PUMS replicate weights (when available)
     if control_moe is not None:
-        moe_cols = control_moe.select("geo_id", "control_name", "category", "moe_pct")
+        merged_moe = merge_control_moe(control_moe, merge_specs)
+        moe_cols = merged_moe.select("geo_id", "control_name", "category", "moe_pct")
         fit = fit.join(moe_cols, on=["geo_id", "control_name", "category"], how="left")
 
     zf = zone_fit_summary(fit, target_names)

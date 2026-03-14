@@ -103,16 +103,25 @@ class EmploymentControl(ControlTarget):
         Employment.UNEMPLOYED_LOOKING.value: EmploymentCategory.NOT_EMPLOYED,
         Employment.EMPLOYED_UNPAID.value: EmploymentCategory.NOT_EMPLOYED,
         Employment.EMPLOYED_FURLOUGHED.value: EmploymentCategory.EMPLOYED_PART,
+        Employment.MISSING.value: EmploymentCategory.NOT_EMPLOYED,
     }
 
     _pums_employed_esr: list[int] = PumsEsr.EMPLOYED
     _pums_not_employed_esr: list[int] = PumsEsr.NOT_EMPLOYED
 
     def survey_expr(self) -> pl.Expr:
-        return pl.col("employment").replace_strict(
-            self._survey_map,
-            default=None,
-            return_dtype=pl.Int16,
+        emp = pl.col("employment")
+        return (
+            pl.when(emp.is_null())
+            .then(EmploymentCategory.NOT_EMPLOYED)
+            .otherwise(
+                emp.replace_strict(
+                    self._survey_map,
+                    default=None,
+                    return_dtype=pl.Int16,
+                )
+            )
+            .cast(pl.Int16)
         )
 
     def pums_expr(self) -> pl.Expr:
@@ -123,20 +132,16 @@ class EmploymentControl(ControlTarget):
         esr = pl.col("ESR")
         wkhp = pl.col("WKHP")
         return (
-            pl.when(esr.is_null())
-            .then(EmploymentCategory.NOT_EMPLOYED)
-            .when(esr.is_in(self._pums_not_employed_esr))
-            .then(EmploymentCategory.NOT_EMPLOYED)
-            .when(
+            pl.when(
                 esr.is_in(self._pums_employed_esr)
                 & wkhp.is_not_null()
                 & (wkhp > 0)
-                & (wkhp < PumsThresholds.PART_TIME_HOURS),
+                & (wkhp < PumsThresholds.PART_TIME_HOURS)
             )
             .then(EmploymentCategory.EMPLOYED_PART)
             .when(esr.is_in(self._pums_employed_esr))
             .then(EmploymentCategory.EMPLOYED_FULL)
-            .otherwise(None)
+            .otherwise(EmploymentCategory.NOT_EMPLOYED)
             .cast(pl.Int16)
         )
 

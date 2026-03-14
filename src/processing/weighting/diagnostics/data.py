@@ -72,6 +72,61 @@ def _pad_missing_rows(result: pl.DataFrame) -> pl.DataFrame:
     return pl.concat([result, pad.select(result.columns)])
 
 
+def merge_control_moe(
+    control_moe: pl.DataFrame,
+    merges: list[MergeSpec] | None,
+) -> pl.DataFrame:
+    """Apply category merges to the MOE table so it matches post-merge fit categories.
+
+    For each merge spec, constituent category rows are combined:
+    SE_merged = sqrt(Σ SE_i²), target_merged = Σ target_i, then
+    moe_pct_merged = SE_merged / target_merged * 100.
+
+    Global merges (``zones=None``) replace originals for all zones.
+    Zone-specific merges replace originals only for the listed zones.
+    """
+    if not merges:
+        return control_moe
+
+    df = control_moe
+    for spec in merges:
+        for merged_label, base_members in spec.groups.items():
+            if isinstance(base_members, dict):
+                continue  # skip N-D merges (not applicable to flat MOE table)
+            member_names = [m.lower() for m in base_members]
+            is_match = (pl.col("control_name") == spec.control) & pl.col("category").is_in(
+                member_names
+            )
+            if spec.zones is not None:
+                is_match = is_match & pl.col("geo_id").is_in(spec.zones)
+
+            to_merge = df.filter(is_match)
+            if to_merge.is_empty() or len(to_merge) < 2:  # noqa: PLR2004
+                continue
+
+            keep = df.filter(~is_match)
+            merged_rows = (
+                to_merge.group_by("geo_id")
+                .agg(
+                    pl.col("target_total").sum(),
+                    (pl.col("se") ** 2).sum().sqrt().alias("se"),
+                )
+                .with_columns(
+                    pl.lit(spec.control).alias("control_name"),
+                    pl.lit(merged_label.lower()).alias("category"),
+                    (
+                        pl.when(pl.col("target_total") > 0)
+                        .then(pl.col("se") / pl.col("target_total") * 100)
+                        .otherwise(0.0)
+                    ).alias("moe_pct"),
+                )
+                .select("geo_id", "control_name", "category", "target_total", "se", "moe_pct")
+            )
+            df = pl.concat([keep, merged_rows])
+
+    return df
+
+
 def apply_fit_merges(
     fit: pl.DataFrame,
     merges: list | None,

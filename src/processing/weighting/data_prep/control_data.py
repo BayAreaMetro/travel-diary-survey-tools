@@ -143,6 +143,7 @@ def recode_pums_households(
         level=ControlLevel.HOUSEHOLD,
         id_col="SERIALNO",
         source_label="PUMS",
+        strict=True,
     )
     return hh
 
@@ -176,6 +177,7 @@ def recode_pums_persons(
         level=ControlLevel.PERSON,
         id_col="SERIALNO",
         source_label="PUMS",
+        strict=True,
     )
     return df
 

@@ -92,8 +92,12 @@ class HHVehiclesControl(ControlTarget):
         return pl.col("num_vehicles").clip(0, 6).cast(pl.Int16)
 
     def pums_expr(self) -> pl.Expr:
+        # VEH is -1 / null for GQ records (already filtered) and
+        # occasionally for housing-unit records with missing data.
+        # Map any non-positive / null → 0 vehicles so every HH lands
+        # in exactly one category.
         v = pl.col("VEH")
-        return pl.when(v.is_null() | (v < 0)).then(None).otherwise(v.clip(0, 6)).cast(pl.Int16)
+        return pl.when(v.is_null() | (v < 0)).then(0).otherwise(v.clip(0, 6)).cast(pl.Int16)
 
 
 class HHChildrenControl(ControlTarget):

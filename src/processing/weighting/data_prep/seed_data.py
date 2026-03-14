@@ -39,6 +39,7 @@ def recode_survey_households(
     households: pl.DataFrame,
     persons: pl.DataFrame,
     targets: list[str],
+    strict_nulls: bool = False,
 ) -> pl.DataFrame:
     """Recode canonical survey households into control categories.
 
@@ -109,6 +110,7 @@ def recode_survey_households(
         level=ControlLevel.HOUSEHOLD,
         id_col="hh_id",
         source_label="survey",
+        strict=strict_nulls,
     )
     return hh
 
@@ -116,6 +118,7 @@ def recode_survey_households(
 def recode_survey_persons(
     persons: pl.DataFrame,
     targets: list[str],
+    strict_nulls: bool = False,
 ) -> pl.DataFrame:
     """Recode canonical survey persons into control categories.
 
@@ -144,6 +147,7 @@ def recode_survey_persons(
         level=ControlLevel.PERSON,
         id_col="person_id",
         source_label="survey",
+        strict=strict_nulls,
     )
     return df
 
