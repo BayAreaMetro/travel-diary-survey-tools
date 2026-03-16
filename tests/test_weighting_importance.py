@@ -8,12 +8,13 @@ import pytest
 
 from processing.weighting.balancing.importance import (
     DEFAULT_IMPORTANCE,
+    _control_cell_moe,
     _control_cv,
     _normalize_cvs,
     compute_moe_importance,
 )
 from processing.weighting.controls.base import ControlLevel, ControlTarget
-from processing.weighting.controls.registry import CONTROLS
+from processing.weighting.controls.registry import CONTROLS, register_crosstab
 
 
 # ---------------------------------------------------------------------------
@@ -297,3 +298,67 @@ class TestComputeMoeImportance:
         assert cv_tight is not None
         assert cv_noisy is not None
         assert cv_tight < cv_noisy
+
+
+# ---------------------------------------------------------------------------
+# Cross-tab MOE support
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _clean_registry():
+    """Remove dynamically registered cross-tabs after each test."""
+    before = set(CONTROLS.keys())
+    yield
+    for name in list(CONTROLS.keys()):
+        if name not in before:
+            del CONTROLS[name]
+
+
+@pytest.mark.usefixtures("_clean_registry")
+class TestCrosstabMoe:
+    """Tests for MOE computation on cross-tab controls."""
+
+    @staticmethod
+    def _xtab_hh_frame(n: int = 80, noise: float = 3.0) -> pl.DataFrame:
+        """Build PUMS HH data with dimension columns and replicate weights."""
+        rng = np.random.default_rng(42)
+        size_ctrl = CONTROLS["h_size"]
+        income_ctrl = CONTROLS["h_income"]
+        size_vals = [m[0] for m in size_ctrl.valid_members]
+        income_vals = [m[0] for m in income_ctrl.valid_members]
+        data: dict[str, list] = {
+            "ctrl_geoid": ["Z1"] * n,
+            "h_size": rng.choice(size_vals, size=n).tolist(),
+            "h_income": rng.choice(income_vals, size=n).tolist(),
+            "_xw_WGTP": [100.0] * n,
+        }
+        for r in range(1, 81):
+            data[f"_xw_WGTP{r}"] = (100.0 + rng.normal(0, noise, n)).tolist()
+        return pl.DataFrame(data)
+
+    def test_cell_moe_returns_dataframe_for_crosstab(self):
+        """_control_cell_moe computes MOE for cross-tab by adding composite column."""
+        xtab = register_crosstab("h_size_x_income", ["h_size", "h_income"])
+        hh = self._xtab_hh_frame()
+        result = _control_cell_moe(xtab, hh, pl.DataFrame(), "ctrl_geoid")
+        assert result is not None
+        assert "control_name" in result.columns
+        assert result["control_name"][0] == "h_size_x_income"
+        assert len(result) > 0
+
+    def test_crosstab_cv_is_positive(self):
+        """_control_cv on a cross-tab returns a positive float."""
+        xtab = register_crosstab("h_size_x_income", ["h_size", "h_income"])
+        hh = self._xtab_hh_frame(n=200)
+        cv = _control_cv(xtab, hh, pl.DataFrame(), "ctrl_geoid")
+        assert cv is not None
+        assert cv > 0
+
+    def test_compute_moe_importance_includes_crosstab(self):
+        """compute_moe_importance returns importance for cross-tab controls."""
+        register_crosstab("h_size_x_income", ["h_size", "h_income"])
+        hh = self._xtab_hh_frame(n=200)
+        result = compute_moe_importance(hh, pl.DataFrame(), ["h_size", "h_size_x_income"])
+        assert "h_size_x_income" in result
+        assert result["h_size_x_income"] > 0

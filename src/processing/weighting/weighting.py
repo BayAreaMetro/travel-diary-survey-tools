@@ -100,7 +100,10 @@ from processing.weighting.specs import (
     ZoneStatus,
 )
 from processing.weighting.validation.checksums import check_incidence_sums
-from processing.weighting.validation.control_validation import validate_total_control_categories
+from processing.weighting.validation.control_validation import (
+    validate_total_control_categories,
+    warn_crosstab_sparsity,
+)
 from processing.weighting.validation.weight_checks import weight_sanity_checks
 
 logger = logging.getLogger(__name__)
@@ -471,18 +474,32 @@ class WeightingPipeline:
         dict[str, pl.DataFrame]
             All tables with weight columns attached.
         """
+        # Phase methods build up intermediate state on the pipeline instance, which is
         self.setup()
+        # Data fetching and preparation phases mutate the incidence tables in-place
         self.fetch_pums()
+        # Recode and pivot after fetching but before zone assignment
         self.recode_and_pivot(households, persons)
+        # Zone assignment and merges modify the incidence tables in-place, so must
         households = self.assign_zones(households)
+        # Apply merges after zone assignment so they operate on the final control geographies
         self.apply_merges()
+        # Control totals must be aggregated after all merges are applied
+        ctrl_instances = resolve_targets(self.controls.target_names)
+        warn_crosstab_sparsity(self.seed_incidence, ctrl_instances)
+        # Aggregate totals after all merges so the balancer gets the final post-merge targets
         self.aggregate_totals()
+        # Calculate importance weights (MOE-based, explicit overrides, or default)
         self.resolve_importance()
+        # Run the balancer to compute expansion weights; optional grid search if configured
         self.balance()
 
+        # Generate diagnostics
         report_dir = self.cache_dir / "weighting" if self.cache_dir else Path.cwd() / "weighting"
         self.generate_diagnostics(report_dir)
 
+        # Propagate weights to all tables and return
+        # hh -> per -> days -> trips -> tours
         weighted_tables = self.propagate(households, persons, **extra_tables)
 
         return weighted_tables

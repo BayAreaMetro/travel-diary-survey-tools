@@ -16,7 +16,11 @@ import logging
 import numpy as np
 import polars as pl
 
-from processing.weighting.controls.base import ControlLevel, ControlTarget
+from processing.weighting.controls.base import (
+    ControlLevel,
+    ControlTarget,
+    CrosstabControlTarget,
+)
 from processing.weighting.controls.registry import CONTROLS
 
 logger = logging.getLogger(__name__)
@@ -146,9 +150,15 @@ def _control_cell_moe(
     if missing:
         msg = f"Replicate weight columns missing for {ctrl.name}: {missing[:3]}..."
         raise ValueError(msg)
+
+    # Cross-tab composite columns don't exist in raw PUMS, but we can
+    # derive them from the dimension columns using pums_expr().
     if ctrl.name not in source.columns:
-        msg = f"Control column {ctrl.name!r} not found in data"
-        raise ValueError(msg)
+        if isinstance(ctrl, CrosstabControlTarget):
+            source = source.with_columns(ctrl.pums_expr().alias(ctrl.name))
+        else:
+            msg = f"Control column {ctrl.name!r} not found in data"
+            raise ValueError(msg)
 
     # Map int enum values → category string names
     value_to_name = {v: name.lower() for v, name in ctrl.valid_members}

@@ -243,3 +243,73 @@ def _validate_single_margin(
         dim_ctrl.name,
         comparison["abs_diff"].max(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Cross-tab sparsity check
+# ---------------------------------------------------------------------------
+
+_SPARSE_CELL_THRESHOLD = 30
+
+
+def warn_crosstab_sparsity(
+    seed_incidence: pl.DataFrame,
+    ctrl_instances: list[ControlTarget],
+    *,
+    geo_col: str = "ctrl_geoid",
+    threshold: int = _SPARSE_CELL_THRESHOLD,
+) -> None:
+    """Log warnings for cross-tab cells with low unweighted sample counts.
+
+    For each cross-tab control, sums the binary incidence columns per
+    zone and reports any cells below *threshold*.  This catches data
+    sparsity that may cause the balancer to produce extreme weights.
+
+    Only cross-tab controls are checked — 1-D controls are already
+    covered by the diagnostics sparsity table.
+
+    Parameters
+    ----------
+    seed_incidence : pl.DataFrame
+        Household-level incidence matrix with ``ctrl_geoid`` and
+        binary ``{control}__{category}`` columns.
+    ctrl_instances : list[ControlTarget]
+        Resolved control instances (may include both 1-D and cross-tab).
+    geo_col : str
+        Geography column in the incidence table.
+    threshold : int
+        Minimum unweighted count per cell.  Cells below this trigger a
+        warning log message.
+    """
+    crosstab_ctrls = [c for c in ctrl_instances if isinstance(c, CrosstabControlTarget)]
+    if not crosstab_ctrls:
+        return
+
+    for ctrl in crosstab_ctrls:
+        prefix = f"{ctrl.name}__"
+        inc_cols = sorted(c for c in seed_incidence.columns if c.startswith(prefix))
+        if not inc_cols:
+            continue
+
+        # Sum incidence per zone → unweighted cell counts
+        counts = seed_incidence.group_by(geo_col).agg([pl.col(c).sum() for c in inc_cols])
+
+        sparse_cells: list[str] = []
+        for col in inc_cols:
+            min_count = counts[col].min()
+            if min_count is not None and min_count < threshold:
+                cell_label = col[len(prefix) :]
+                zones_below = counts.filter(pl.col(col) < threshold)[geo_col].to_list()
+                sparse_cells.append(
+                    f"  {cell_label}: min={min_count} "
+                    f"({len(zones_below)} zone(s) below {threshold})"
+                )
+
+        if sparse_cells:
+            logger.warning(
+                "Cross-tab '%s' has sparse cells (<%d unweighted records):\n%s\n"
+                "Consider pre-merging categories to reduce sparsity.",
+                ctrl.name,
+                threshold,
+                "\n".join(sparse_cells),
+            )

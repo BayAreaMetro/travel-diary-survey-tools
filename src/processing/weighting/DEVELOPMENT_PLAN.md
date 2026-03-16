@@ -10,18 +10,9 @@ Remaining features for the weighting module. For documentation of the implemente
 
 The core pipeline (geography crosswalk → PUMS controls → seed prep → base weights → max-entropy balancing → weight propagation → HTML diagnostics) is fully implemented and operational. The items below extend the pipeline to handle more complex weighting scenarios.
 
-### 1. Cross-Tab Targets [x]
-
-**Status:** Implemented (March 2026). Dynamic cross-tab controls work end-to-end: YAML registration with per-dimension merges applied at registration time, composite expression recode, incidence pivot, and aggregation. Tests in `tests/test_crosstab_controls.py`.
-
-**Remaining polish:**
-- MOE-based importance weights for cross-tab categories are not yet defined.
-- Sparsity warnings for cross-tab cells are not wired into diagnostics.
-- Needs end-to-end validation with real PUMS + survey data.
-
 ---
 
-### 2. Custom Trip-Level Targets [ ]
+### 1. Custom Trip-Level Targets [ ]
 
 **Status:** Not implemented. The current system controls only household and person-level variables.
 
@@ -53,7 +44,7 @@ trip_targets:
 
 ---
 
-### 3. Day-of-Week Structuring [ ]
+### 2. Day-of-Week Structuring [ ]
 
 **Status:** Not implemented. The development plan spec above describes the design. The `dow.py` module is planned but not yet created.
 
@@ -78,7 +69,7 @@ dow_groups:
 
 ---
 
-### 4. Platform / Mode Bias Adjustment [ ]
+### 3. Platform / Mode Bias Adjustment [ ]
 
 **Status:** Not implemented. Not currently in the development plan.
 
@@ -113,10 +104,9 @@ platform_adjustment:
 
 | # | Feature | Status | Complexity | Impact |
 |---|---------|--------|------------|--------|
-| 1 | Cross-tab targets | [x] | Medium | High — enables joint demographic controls (age x sex, income x workers) that significantly improve weight quality |
-| 2 | Custom trip targets | [ ] | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
-| 3 | DOW structuring | [ ] | High | High — provides day-of-week weight granularity |
-| 4 | Platform bias | [ ] | Low-High | Medium — important for mixed-mode surveys |
+| 1 | Custom trip targets | [ ] | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
+| 2 | DOW structuring | [ ] | High | High — provides day-of-week weight granularity |
+| 3 | Platform bias | [ ] | Low-High | Medium — important for mixed-mode surveys |
 
 `[ ]` Not started · `[x]` Complete
 

@@ -18,6 +18,7 @@ from processing.weighting.data_prep.incidence import (
 from processing.weighting.data_prep.merges import apply_1d_merges, apply_crosstab_merges
 from processing.weighting.data_prep.seed_data import recode_survey_households
 from processing.weighting.specs import ControlRegistryConfig, MergeSpec
+from processing.weighting.validation.control_validation import warn_crosstab_sparsity
 
 
 @pytest.fixture(autouse=True)
@@ -539,3 +540,79 @@ class TestCrosstabAggregation:
         )
         xtab_rows = totals.totals.filter(pl.col("control_name") == "h_size_x_income")
         assert len(xtab_rows) > 0
+
+
+# ---------------------------------------------------------------------------
+# Sparsity warnings
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("size_income_xtab")
+class TestCrosstabSparsity:
+    """Tests for cross-tab cell sparsity warnings."""
+
+    def test_no_warning_when_all_cells_above_threshold(self, caplog):
+        """No warning when every cross-tab cell has enough records."""
+        ctrl = CONTROLS["h_size_x_income"]
+        prefix = f"{ctrl.name}__"
+        cols = [
+            f"{prefix}{m.name.lower()}"
+            for m in ctrl.categories
+            if m.name not in ("MISSING", "PNTA")
+        ]
+        data: dict[str, list] = {"ctrl_geoid": ["Z1"] * 50}
+        for col in cols:
+            data[col] = [1] * 50  # 50 records per cell
+        seed = pl.DataFrame(data)
+
+        with caplog.at_level("WARNING"):
+            warn_crosstab_sparsity(seed, [ctrl], threshold=30)
+        assert "sparse" not in caplog.text.lower()
+
+    def test_warning_when_cells_below_threshold(self, caplog):
+        """Warning logged when cross-tab cells have fewer than threshold records."""
+        ctrl = CONTROLS["h_size_x_income"]
+        prefix = f"{ctrl.name}__"
+        members = [m for m in ctrl.categories if m.name not in ("MISSING", "PNTA")]
+        cols = [f"{prefix}{m.name.lower()}" for m in members]
+
+        data: dict[str, list] = {"ctrl_geoid": ["Z1"] * 5}
+        for i, col in enumerate(cols):
+            # First cell has only 5 records (sparse), rest have 0
+            data[col] = [1 if i == 0 else 0] * 5
+        seed = pl.DataFrame(data)
+
+        with caplog.at_level("WARNING"):
+            warn_crosstab_sparsity(seed, [ctrl], threshold=30)
+        assert "sparse" in caplog.text.lower()
+        assert ctrl.name in caplog.text
+
+    def test_no_warning_for_1d_controls(self, caplog):
+        """1-D controls are not checked by warn_crosstab_sparsity."""
+        ctrl = CONTROLS["h_size"]
+        data: dict[str, list] = {
+            "ctrl_geoid": ["Z1"],
+            "h_size__size_1": [1],
+        }
+        seed = pl.DataFrame(data)
+
+        with caplog.at_level("WARNING"):
+            warn_crosstab_sparsity(seed, [ctrl], threshold=30)
+        assert "sparse" not in caplog.text.lower()
+
+    def test_multiple_zones_reports_zone_count(self, caplog):
+        """Warning message includes how many zones are below threshold."""
+        ctrl = CONTROLS["h_size_x_income"]
+        prefix = f"{ctrl.name}__"
+        members = [m for m in ctrl.categories if m.name not in ("MISSING", "PNTA")]
+        cols = [f"{prefix}{m.name.lower()}" for m in members]
+
+        # Two zones, both with sparse first cell
+        data: dict[str, list] = {"ctrl_geoid": ["Z1", "Z2"]}
+        for i, col in enumerate(cols):
+            data[col] = [1 if i == 0 else 0, 1 if i == 0 else 0]
+        seed = pl.DataFrame(data)
+
+        with caplog.at_level("WARNING"):
+            warn_crosstab_sparsity(seed, [ctrl], threshold=30)
+        assert "2 zone(s)" in caplog.text
