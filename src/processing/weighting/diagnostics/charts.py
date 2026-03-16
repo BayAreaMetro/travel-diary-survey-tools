@@ -8,8 +8,114 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
+from processing.weighting.controls.registry import CONTROLS
+
 _WARN_PCT = 15  # fallback red threshold when MOE is unavailable or zero
 _MIN_MOE = 5  # floor for MOE-based red trigger (avoids over-sensitivity on precise targets)
+
+
+def _add_panel_traces(
+    fig: go.Figure,
+    pdf: pl.DataFrame,
+    has_moe: bool,
+    row: int,
+    col: int,
+) -> None:
+    """Add bar (and optional MOE whisker) traces for one panel of the fit chart."""
+    y, x, colors, hovers, moe_values = [], [], [], [], []
+    for r in pdf.iter_rows(named=True):
+        lbl = r["label"]
+        target = r["target_total"]
+
+        if target is None:
+            y.append(lbl)
+            x.append(None)
+            colors.append("rgba(0,0,0,0)")
+            hovers.append("")
+            moe_values.append(None)
+            continue
+
+        pct = r["diff_pct"]
+        moe = r.get("moe_pct") if has_moe else None
+        y.append(lbl)
+        x.append(pct)
+
+        effective_moe = max(moe, _MIN_MOE) if moe is not None and moe > 0 else None
+        if effective_moe is not None and abs(pct) <= effective_moe:
+            colors.append("#999")
+        elif (effective_moe is not None and abs(pct) > effective_moe) or abs(pct) > _WARN_PCT:
+            colors.append("#c33")
+        else:
+            colors.append("#999")
+
+        hover_lines = [
+            f"<b>{lbl}</b>",
+            f"Target: {target:,.1f}",
+            f"Weighted: {r['weighted_total']:,.1f}",
+            f"Diff: {r['diff']:+,.1f}",
+            f"Diff %: {pct:+.1f}%",
+        ]
+        if moe is not None:
+            hover_lines.append(f"PUMS MOE: \u00b1{moe:.1f}%")
+        hovers.append("<br>".join(hover_lines))
+        moe_values.append(moe)
+
+    fig.add_trace(
+        go.Bar(
+            y=y,
+            x=x,
+            orientation="h",
+            marker_color=colors,
+            hovertext=hovers,
+            hoverinfo="text",
+            showlegend=False,
+        ),
+        row=row,
+        col=col,
+    )
+
+    if has_moe and any(v is not None for v in moe_values):
+        fig.add_trace(
+            go.Scatter(
+                y=y,
+                x=[0] * len(y),
+                mode="markers",
+                marker={"size": 0, "color": "rgba(0,0,0,0)"},
+                error_x={
+                    "type": "data",
+                    "array": [v if v is not None else 0 for v in moe_values],
+                    "visible": True,
+                    "color": "rgba(0,0,0,0.25)",
+                    "thickness": 1.5,
+                    "width": 3,
+                },
+                hoverinfo="skip",
+                showlegend=False,
+            ),
+            row=row,
+            col=col,
+        )
+
+
+def _format_group_name(ctrl_name: str) -> str:
+    """Format control name as a compact group label for chart y-axis."""
+    if ctrl_name.startswith("h_"):
+        return "HH " + ctrl_name[2:].replace("_", " ").title()
+    if ctrl_name.startswith("p_"):
+        return "Person " + ctrl_name[2:].replace("_", " ").title()
+    return ctrl_name.replace("_", " ").title()
+
+
+def _add_group_prefixes(cat_labels: list[str], ctrl_per_label: list[str]) -> list[str]:
+    """Add bold control group prefix to the first label of each control group."""
+    ticktext = list(cat_labels)
+    prev_ctrl = None
+    for i, ctrl_name in enumerate(ctrl_per_label):
+        if ctrl_name != prev_ctrl:
+            group_label = _format_group_name(ctrl_name)
+            ticktext[i] = f"<b>{group_label}:</b>  {ticktext[i]}"
+            prev_ctrl = ctrl_name
+    return ticktext
 
 
 def fit_diverging_figure(
@@ -55,6 +161,16 @@ def fit_diverging_figure(
         .sort("control_name", "category", "label")
     )
 
+    # Re-sort: structural controls first (h_total, p_total), then alphabetical
+    _structural = {n for n, c in CONTROLS.items() if c.structural}
+    overall = (
+        overall.with_columns(
+            pl.when(pl.col("control_name").is_in(_structural)).then(0).otherwise(1).alias("_prio")
+        )
+        .sort("_prio", "control_name", "category", "label")
+        .drop("_prio")
+    )
+
     panels = [*zones, "Overall"]
     n_cols = min(4, len(panels))
     n_rows = math.ceil(len(panels) / n_cols)
@@ -70,7 +186,9 @@ def fit_diverging_figure(
     )
 
     # Consistent y-label ordering from the overall panel
-    cat_labels = [r["label"] for r in overall.iter_rows(named=True)]
+    _overall_rows = list(overall.iter_rows(named=True))
+    cat_labels = [r["label"] for r in _overall_rows]
+    ctrl_per_label = [r["control_name"] for r in _overall_rows]
 
     for idx, panel in enumerate(panels):
         r_idx, c_idx = divmod(idx, n_cols)
@@ -79,83 +197,7 @@ def fit_diverging_figure(
             if panel == "Overall"
             else fit.filter(pl.col("geo_id") == panel).sort("control_name", "category", "label")
         )
-
-        y, x, colors, hovers, moe_values = [], [], [], [], []
-        for r in pdf.iter_rows(named=True):
-            lbl = r["label"]
-            target = r["target_total"]
-
-            # Null placeholder -> invisible bar for consistent y-axis
-            if target is None:
-                y.append(lbl)
-                x.append(None)
-                colors.append("rgba(0,0,0,0)")
-                hovers.append("")
-                moe_values.append(None)
-                continue
-
-            pct = r["diff_pct"]
-            moe = r.get("moe_pct") if has_moe else None
-            y.append(lbl)
-            x.append(pct)
-
-            # Color: grey if within MOE, red if outside MOE or above fallback threshold
-            effective_moe = max(moe, _MIN_MOE) if moe is not None and moe > 0 else None
-            if effective_moe is not None and abs(pct) <= effective_moe:
-                colors.append("#999")
-            elif (effective_moe is not None and abs(pct) > effective_moe) or abs(pct) > _WARN_PCT:
-                colors.append("#c33")
-            else:
-                colors.append("#999")
-
-            hover_lines = [
-                f"<b>{lbl}</b>",
-                f"Target: {target:,.1f}",
-                f"Weighted: {r['weighted_total']:,.1f}",
-                f"Diff: {r['diff']:+,.1f}",
-                f"Diff %: {pct:+.1f}%",
-            ]
-            if moe is not None:
-                hover_lines.append(f"PUMS MOE: \u00b1{moe:.1f}%")
-            hovers.append("<br>".join(hover_lines))
-            moe_values.append(moe)
-
-        fig.add_trace(
-            go.Bar(
-                y=y,
-                x=x,
-                orientation="h",
-                marker_color=colors,
-                hovertext=hovers,
-                hoverinfo="text",
-                showlegend=False,
-            ),
-            row=r_idx + 1,
-            col=c_idx + 1,
-        )
-
-        # MOE whiskers centered on zero (separate invisible scatter trace)
-        if has_moe and any(v is not None for v in moe_values):
-            fig.add_trace(
-                go.Scatter(
-                    y=y,
-                    x=[0] * len(y),
-                    mode="markers",
-                    marker={"size": 0, "color": "rgba(0,0,0,0)"},
-                    error_x={
-                        "type": "data",
-                        "array": [v if v is not None else 0 for v in moe_values],
-                        "visible": True,
-                        "color": "rgba(0,0,0,0.25)",
-                        "thickness": 1.5,
-                        "width": 3,
-                    },
-                    hoverinfo="skip",
-                    showlegend=False,
-                ),
-                row=r_idx + 1,
-                col=c_idx + 1,
-            )
+        _add_panel_traces(fig, pdf, has_moe, row=r_idx + 1, col=c_idx + 1)
 
     fig.update_xaxes(
         zeroline=True,
@@ -164,7 +206,18 @@ def fit_diverging_figure(
         title_text="% Error",
         matches="x",  # shared x-range across all panels
     )
-    fig.update_yaxes(tickfont_size=9)
+    # Control group labels on the y-axis (bold prefix on first tick per group).
+    # categoryarray + autorange="reversed" ensures first-in-list renders at the
+    # top of the chart, so the group prefix appears above its members.
+    ticktext = _add_group_prefixes(cat_labels, ctrl_per_label)
+    fig.update_yaxes(
+        categoryorder="array",
+        categoryarray=cat_labels,
+        tickvals=cat_labels,
+        ticktext=ticktext,
+        tickfont_size=9,
+        autorange="reversed",
+    )
     fig.update_layout(
         autosize=False,
         width=960,

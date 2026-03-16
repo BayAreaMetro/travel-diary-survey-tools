@@ -3,6 +3,8 @@
 Orchestrates the full weighting pipeline via :class:`WeightingPipeline`:
 
 1.  **Setup** — parse YAML config → specs, target names, merges, importance.
+    Cross-tab controls are registered with pre-merged dimensions so the
+    enum reflects the effective cell count.
 2.  **Data fetching** — load PUMS (API or files); receive survey tables.
 3.  **Conformance** — recode both PUMS and survey through identical control
     expressions → same control-column schema.
@@ -12,14 +14,12 @@ Orchestrates the full weighting pipeline via :class:`WeightingPipeline`:
     ``ctrl_geoid`` to survey HHs (point-in-polygon) and allocates PUMS
     weights to target zones.  Zone groups (if configured) are applied
     inside the crosswalk so ``ctrl_geoid`` is ready for balancing.
-6.  **Crosstab merges** — N-D merge specs collapse composite incidence
-    columns on both tables before any 1-D merges are applied.
-7.  **1-D merges** — global merges collapse incidence columns symmetrically
+6.  **1-D merges** — global merges collapse incidence columns symmetrically
     on both tables (originals dropped).  Zone-specific merges add merged
     columns (originals kept) and modify control totals for the specified
     zones after aggregation.
-8.  **Control totals** — aggregate PUMS incidence into target totals per zone.
-9.  **Balancer** — base weights → max-entropy balancing → weight propagation.
+7.  **Control totals** — aggregate PUMS incidence into target totals per zone.
+8.  **Balancer** — base weights → max-entropy balancing → weight propagation.
 
 Design decisions:
 
@@ -79,7 +79,6 @@ from processing.weighting.data_prep.incidence import (
 )
 from processing.weighting.data_prep.merges import (
     apply_1d_merges,
-    apply_crosstab_merges,
     merge_control_totals,
 )
 from processing.weighting.data_prep.pums_data import (
@@ -185,6 +184,8 @@ class WeightingPipeline:
                 {
                     "name": s.name,
                     **({"importance": s.importance} if s.importance is not None else {}),
+                    **({"dimensions": s.dimensions} if s.dimensions is not None else {}),
+                    **({"merges": s.merges} if s.merges is not None else {}),
                 }
                 for s in self.controls.specs
             ]
@@ -282,18 +283,11 @@ class WeightingPipeline:
         return households
 
     def apply_merges(self) -> None:
-        """Apply crosstab (N-D) and 1-D merges symmetrically to both incidence tables."""
-        if self.controls.crosstab_merges:
-            self.seed_incidence = apply_crosstab_merges(
-                self.seed_incidence,
-                self.controls.crosstab_merges,
-            )
-            self.pums_incidence = apply_crosstab_merges(
-                self.pums_incidence,
-                self.controls.crosstab_merges,
-            )
-            logger.info("Applied %d crosstab merge specs", len(self.controls.crosstab_merges))
+        """Apply 1-D merges symmetrically to both incidence tables.
 
+        Cross-tab merges are applied at registration time (pre-merge into
+        the enum), so only 1-D merges need post-pivot application here.
+        """
         if self.controls.merges_1d:
             self.seed_incidence = apply_1d_merges(
                 self.seed_incidence,

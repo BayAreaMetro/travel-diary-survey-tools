@@ -29,10 +29,18 @@ class ControlSpec:
         Explicit importance weight for the balancer.  ``None`` means use
         the default (100 for normal controls, 1000 for structural) or
         the MOE-derived value when ``moe_based_importance`` is enabled.
+    dimensions : list[str] | None
+        For cross-tab controls only: list of dimension control names
+        (e.g. ``["h_size", "h_income"]``).  ``None`` for standard controls.
+    merges : dict | None
+        For cross-tab controls only: per-dimension merge specs applied
+        at registration time.  ``None`` for standard controls.
     """
 
     name: str
     importance: float | None = None
+    dimensions: list[str] | None = None
+    merges: dict | None = None
 
 
 @dataclass
@@ -164,7 +172,7 @@ class ControlRegistryConfig:
     @classmethod
     def from_yaml(cls, controls: list[dict]) -> "ControlRegistryConfig":
         """Parse the YAML controls block into a config object."""
-        _spec_keys = ("name", "importance")
+        _spec_keys = ("name", "importance", "dimensions", "merges")
         specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
         target_names = [s.name for s in specs]
 
@@ -172,8 +180,8 @@ class ControlRegistryConfig:
         merges_1d: list[MergeSpec] = []
 
         for c in controls:
-            if c.get("merges"):
-                crosstab_merges.append(MergeSpec(control=c["name"], groups=c["merges"]))
+            # Cross-tab merges are applied at registration time, not here.
+            # Only parse 1-D merges and zone-specific merges.
             if c.get("merge"):
                 merges_1d.append(MergeSpec(control=c["name"], groups=c["merge"]))
             for zone_id, groups in c.get("zone_merges", {}).items():

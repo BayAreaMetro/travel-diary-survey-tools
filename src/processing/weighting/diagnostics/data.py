@@ -1,8 +1,10 @@
 """Data transformations for the diagnostics report."""
 
+from itertools import product as itertools_product
+
 import polars as pl
 
-from processing.weighting.controls.base import ControlLevel
+from processing.weighting.controls.base import ControlLevel, CrosstabControlTarget
 from processing.weighting.controls.registry import CONTROLS, resolve_targets
 from processing.weighting.specs import ControlTotals, MergeSpec
 
@@ -42,14 +44,24 @@ def category_label_map(
         ctrl = CONTROLS.get(name)
         if ctrl is None:
             continue
-        for _value, member in ctrl.valid_members:
-            key = (name, member.lower())
-            if key in merged_members:
-                continue
-            lbl = member.replace("_", " ").title()
-            if len(ctrl.valid_members) == 1:
-                lbl = ctrl.description
-            labels[key] = lbl
+        if isinstance(ctrl, CrosstabControlTarget):
+            # Build labels with "by" separator between dimensions
+            for combo in itertools_product(*ctrl.dim_value_groups):
+                composite_name = "_".join(grp_name for grp_name, _ in combo)
+                key = (name, composite_name.lower())
+                if key in merged_members:
+                    continue
+                dim_labels = [grp_name.replace("_", " ").title() for grp_name, _ in combo]
+                labels[key] = " by ".join(dim_labels)
+        else:
+            for _value, member in ctrl.valid_members:
+                key = (name, member.lower())
+                if key in merged_members:
+                    continue
+                lbl = member.replace("_", " ").title()
+                if len(ctrl.valid_members) == 1:
+                    lbl = ctrl.description
+                labels[key] = lbl
     labels.update(merged_labels)
     return labels
 

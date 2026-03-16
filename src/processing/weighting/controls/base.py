@@ -117,31 +117,24 @@ class ControlTarget:
 class CrosstabControlTarget(ControlTarget):
     """Base class for N-dimensional cross-tabulated weighting control.
 
-    Cross-tabs are built from the cartesian product of base controls' original
-    (unmerged) categories. They then apply their own independent merge specs
-    via the balancer's merge mechanism.
+    Cross-tabs are built from the cartesian product of **effective**
+    dimension members — after any per-dimension merges have been applied.
+    Merges are resolved at registration time so the enum, expression,
+    and validation all reflect the actual cell count.
 
     Subclasses set these additional attributes:
 
     - ``dim_controls`` : tuple of ControlTarget instances to cross-tabulate
-    - ``categories`` : IntEnum generated via ``make_crosstab_enum()``
+    - ``categories`` : IntEnum generated at registration from effective dims
+    - ``dim_value_groups`` : per-dimension list of (name, values) tuples
+      describing the effective members (may include merged groups)
 
-    The survey_expr() and pums_expr() methods are implemented automatically
-    to combine dimension expressions into composite integer keys.
-
-    Examples:
-    ---------
-    >>> class HHIncomeBySizeControl(CrosstabControlTarget):
-    ...     name = "h_income_x_size"
-    ...     level = ControlLevel.HOUSEHOLD
-    ...     description = "Household income by size"
-    ...     dim_controls = (HHIncomeControl(), HHSizeControl())
-    ...     categories = make_crosstab_enum("IncomeSizeCategory", IncomeBroad, HHSizeCategory)
-    ...     survey_fields = tuple()  # Derived from dim_controls
-    ...     pums_fields = tuple()    # Derived from dim_controls
+    The ``survey_expr()`` / ``pums_expr()`` methods are implemented
+    automatically to map dimension column values to composite indices.
     """
 
     dim_controls: tuple[ControlTarget, ...]
+    dim_value_groups: list[list[tuple[str, list[int]]]]
 
     def __init__(self) -> None:
         """Validate cross-tab dimensions on initialization."""
@@ -166,64 +159,45 @@ class CrosstabControlTarget(ControlTarget):
             )
 
     def _compute_cell_count(self) -> int:
-        """Compute total cells in cross-tab (product of dimension sizes)."""
-        return prod(len(c.valid_members) for c in self.dim_controls)
+        """Compute total cells in cross-tab (product of effective dimension sizes)."""
+        return prod(len(groups) for groups in self.dim_value_groups)
 
     def survey_expr(self) -> pl.Expr:
-        """Combine dimension survey expressions into composite key.
+        """Combine dimension control columns into composite key.
 
-        Returns sequential integer (0, 1, 2, ...) corresponding to position
-        in cartesian product of dimension categories.
+        Requires dimension control columns to already exist in the
+        DataFrame (recoded earlier in the control loop).  Returns
+        sequential integer (0, 1, 2, ...) corresponding to position
+        in the cartesian product of dimension categories.
         """
-        # Get expressions for each dimension
-        dim_exprs = [c.survey_expr() for c in self.dim_controls]
-
-        # Build lookup dict: (dim1_val, dim2_val, ...) -> composite_idx
-        member_map = {}
-        for idx, member_combo in enumerate(product(*[c.valid_members for c in self.dim_controls])):
-            key = tuple(val for val, _ in member_combo)
-            member_map[key] = idx
-
-        # Create pl.struct of dimension values, then map to composite index
-        struct_expr = pl.struct(*[expr.alias(f"_dim_{i}") for i, expr in enumerate(dim_exprs)])
-
-        # Map struct to composite value using when/then chain
-        # Start with FALSE condition to initialize the when/then expression
-        result_expr = pl.when(pl.lit(value=False)).then(None)
-        for key, composite_val in member_map.items():
-            # Build condition: dim0 == key[0] AND dim1 == key[1] AND ...
-            condition = pl.lit(value=True)
-            for i, val in enumerate(key):
-                condition = condition & (struct_expr.struct.field(f"_dim_{i}") == val)
-            result_expr = result_expr.when(condition).then(composite_val)
-
-        return result_expr.otherwise(None).cast(pl.Int16)
+        return self._composite_expr()
 
     def pums_expr(self) -> pl.Expr:
-        """Combine dimension PUMS expressions into composite key.
+        """Combine dimension control columns into composite key.
 
-        Uses same mapping as survey_expr() but with PUMS expressions.
+        Requires dimension control columns to already exist in the
+        DataFrame (recoded earlier in the control loop).  Uses same
+        mapping as survey_expr().
         """
-        # Get expressions for each dimension
-        dim_exprs = [c.pums_expr() for c in self.dim_controls]
+        return self._composite_expr()
 
-        # Build lookup dict: (dim1_val, dim2_val, ...) -> composite_idx
-        member_map = {}
-        for idx, member_combo in enumerate(product(*[c.valid_members for c in self.dim_controls])):
-            key = tuple(val for val, _ in member_combo)
-            member_map[key] = idx
+    def _composite_expr(self) -> pl.Expr:
+        """Build a when/then chain mapping dimension column values to composite index.
 
-        # Create pl.struct of dimension values, then map to composite index
-        struct_expr = pl.struct(*[expr.alias(f"_dim_{i}") for i, expr in enumerate(dim_exprs)])
+        Uses ``dim_value_groups`` so merged groups correctly match
+        multiple original values via ``is_in()``.
+        """
+        # Build cartesian product of effective groups across dimensions
+        cells: list[tuple[tuple[str, list[int]], ...]] = list(product(*self.dim_value_groups))
 
-        # Map struct to composite value using when/then chain
-        # Start with FALSE condition to initialize the when/then expression
-        result_expr = pl.when(pl.lit(value=False)).then(None)
-        for key, composite_val in member_map.items():
-            # Build condition: dim0 == key[0] AND dim1 == key[1] AND ...
+        result = pl.when(pl.lit(value=False)).then(None)
+        for idx, cell in enumerate(cells):
             condition = pl.lit(value=True)
-            for i, val in enumerate(key):
-                condition = condition & (struct_expr.struct.field(f"_dim_{i}") == val)
-            result_expr = result_expr.when(condition).then(composite_val)
+            for dim_ctrl, (_, values) in zip(self.dim_controls, cell, strict=False):
+                if len(values) == 1:
+                    condition = condition & (pl.col(dim_ctrl.name) == values[0])
+                else:
+                    condition = condition & pl.col(dim_ctrl.name).is_in(values)
+            result = result.when(condition).then(idx)
 
-        return result_expr.otherwise(None).cast(pl.Int16)
+        return result.otherwise(None).cast(pl.Int16)

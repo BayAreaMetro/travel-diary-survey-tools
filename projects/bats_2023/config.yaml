@@ -218,7 +218,7 @@ steps:
         #   merges:
         #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
 
-        # Result: 3x5 = 15 cells
+        # Result: 3x3 = 9 cells
         # - name: h_size_by_income
         #   dimensions: [h_size, h_income]
         #   merges:

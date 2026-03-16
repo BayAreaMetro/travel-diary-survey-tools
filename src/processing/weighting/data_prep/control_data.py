@@ -51,6 +51,7 @@ from processing.weighting.controls.base import (
     CrosstabControlTarget,
 )
 from processing.weighting.controls.registry import CONTROLS, resolve_targets
+from processing.weighting.data_prep.crosswalk import _build_zone_remap
 from processing.weighting.specs import ControlSpec, ControlTotals
 from processing.weighting.validation.checksums import check_recode_nulls
 from processing.weighting.validation.control_validation import (
@@ -250,28 +251,6 @@ def allocate_pums_zones(
 
 
 # ---------------------------------------------------------------------------
-# Zone grouping
-# ---------------------------------------------------------------------------
-
-
-def remap_zones(
-    df: pl.DataFrame,
-    zone_groups: dict[str, list[str]],
-    geo_col: str = "study_geoid",
-) -> pl.DataFrame:
-    """Remap zone IDs into ``ctrl_geoid`` for balancing.
-
-    Reads *geo_col* (the raw crosswalk geography), applies the zone-group
-    mapping, and writes the result as ``ctrl_geoid``.  Zones not listed
-    in any group pass through unchanged.
-    """
-    remap = _build_zone_remap(zone_groups)
-    return df.with_columns(
-        pl.col(geo_col).replace(remap).alias("ctrl_geoid"),
-    )
-
-
-# ---------------------------------------------------------------------------
 # Aggregation (legacy — kept for tests; prefer aggregate_control_totals)
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -364,18 +343,8 @@ def build_control_totals(
 
 
 # ---------------------------------------------------------------------------
-# Zone grouping
+# Zone grouping (legacy — kept for tests)
 # ---------------------------------------------------------------------------
-def _build_zone_remap(zone_groups: dict[str, list[str]]) -> dict[str, str]:
-    """Invert ``{group: [zone, ...]}`` → ``{zone: group}``."""
-    remap: dict[str, str] = {}
-    for group, zones in zone_groups.items():
-        for z in zones:
-            if z in remap:
-                msg = f"Zone {z!r} appears in multiple groups ({remap[z]!r} and {group!r})"
-                raise ValueError(msg)
-            remap[z] = group
-    return remap
 
 
 def apply_zone_groups(

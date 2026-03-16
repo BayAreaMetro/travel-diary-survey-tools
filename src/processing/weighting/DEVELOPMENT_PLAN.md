@@ -10,25 +10,18 @@ Remaining features for the weighting module. For documentation of the implemente
 
 The core pipeline (geography crosswalk → PUMS controls → seed prep → base weights → max-entropy balancing → weight propagation → HTML diagnostics) is fully implemented and operational. The items below extend the pipeline to handle more complex weighting scenarios.
 
-### 1. Cross-Tab Targets 🔲
+### 1. Cross-Tab Targets [x]
 
-**Status:** Not implemented. The current control system supports only marginal (single-variable) targets. Each `ControlTarget` maps one PUMS variable to one set of bins.
+**Status:** Implemented (March 2026). Dynamic cross-tab controls work end-to-end: YAML registration with per-dimension merges applied at registration time, composite expression recode, incidence pivot, and aggregation. Tests in `tests/test_crosstab_controls.py`.
 
-**Goal:** Allow two or more control variables to be crossed, producing joint targets (e.g., age × sex, income × workers). The control totals become the full Cartesian product of the component categories.
-
-**Design considerations:**
-- Cross-tabs must be defined in YAML (see control data spec in [README.md](README.md)).
-- The `ControlTarget` base class needs a variant (or a new `CrossTabTarget` subclass) that holds multiple PUMS fields and produces joint category labels (e.g., `"18-34 × female"`).
-- The incidence matrix builder (`_build_incidence` in `balancer.py`) must generate a row for each cell in the cross-tab, with incidence = 1 only when a record matches all component categories simultaneously.
-- Control totals aggregation in `control_data.py` must group by the joint category.
-- Diagnostics already handle arbitrary category labels — no changes needed there.
-- Cross-tabs increase the control count multiplicatively, so sparsity warnings (cells with few seed records) become more important.
-
-**Files affected:** `controls/base.py`, `controls/registry.py`, `data_prep/control_data.py`, `data_prep/seed_data.py`, `balancing/balancer.py` (incidence builder).
+**Remaining polish:**
+- MOE-based importance weights for cross-tab categories are not yet defined.
+- Sparsity warnings for cross-tab cells are not wired into diagnostics.
+- Needs end-to-end validation with real PUMS + survey data.
 
 ---
 
-### 2. Custom Trip-Level Targets 🔲
+### 2. Custom Trip-Level Targets [ ]
 
 **Status:** Not implemented. The current system controls only household and person-level variables.
 
@@ -60,7 +53,7 @@ trip_targets:
 
 ---
 
-### 3. Day-of-Week Structuring 🔲
+### 3. Day-of-Week Structuring [ ]
 
 **Status:** Not implemented. The development plan spec above describes the design. The `dow.py` module is planned but not yet created.
 
@@ -85,7 +78,7 @@ dow_groups:
 
 ---
 
-### 4. Platform / Mode Bias Adjustment 🔲
+### 4. Platform / Mode Bias Adjustment [ ]
 
 **Status:** Not implemented. Not currently in the development plan.
 
@@ -116,97 +109,23 @@ platform_adjustment:
 
 ---
 
-### 5. Expansion Factor Grid Search ✅
-
-**Status:** Implemented (March 2026).
-
-**Goal:** Automatically re-run the balancer across a grid of `max_expansion_factor` values and produce a tradeoff chart so the user can pick the tightest bounds that still achieve acceptable fit. Tighter bounds → more stable weights (lower CV) but potentially worse fit (higher MAPE). The grid search reveals the Pareto frontier.
-
-**Metrics (per grid point, aggregated across all zones):**
-
-| Metric | Chart | Role |
-|--------|-------|------|
-| **MAPE** | Subplot 1 | Average fit — does the balancer hit the targets? |
-| **P90** | Subplot 2 | Tail fit — are there badly-missed cells hiding behind a good average? |
-| **CV** | Subplot 3 | Weight dispersion — are a few records carrying all the weight? |
-| **ESS %** | Subplot 4 | Effective sample utilisation — interpretable transform of CV |
-
-All four metrics are shown as separate stacked subplots with shared x-axis (EF value) and `hovermode="x unified"` for synchronized hover labels. A vertical dashed line marks the selected production EF value.
-
-**Implemented components:**
-
-1. **`balancing/specs.py`** — Added `GridPoint` dataclass to break circular imports:
-   ```python
-   @dataclass
-   class GridPoint:
-       max_expansion_factor: float
-       converged_zones: int
-       total_zones: int
-       mape: float
-       p90: float
-       cv: float
-       ess_pct: float
-   ```
-
-2. **`balancing/balancer.py`** — `grid_search_expansion_factor()` function runs the grid search loop, computing aggregate metrics from per-zone results.
-
-3. **`diagnostics/charts.py`** — `ef_tradeoff_figure()` renders a 4-subplot stacked chart using `make_subplots(rows=4, cols=1, shared_xaxes=True)`.
-
-4. **`diagnostics/report.py`** — Wired into `generate_report()` with optional `grid_results` and `selected_ef` parameters.
-
-5. **`weighting.py`** — Parses `diagnostics.expansion_factor_grid` from YAML config and calls grid search when present.
-
-6. **`diagnostics/diagnostics_template.html`** — Added conditional section 4 "Expansion Factor Calibration" with explanatory notes.
-
-7. **Tests** — `tests/test_grid_search.py` covers grid search execution, chart generation, and report integration.
-
-**Configuration:**
-
-```yaml
-diagnostics:
-  enabled: true
-  expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
-```
-
-The grid search is diagnostics-only — it does not change the production weights. The user's configured `max_expansion_factor` determines the actual weights used downstream.
-
----
-
-### 6. Diagnostics Table Refactoring ✅
-
-**Status:** Implemented (March 2026).
-
-**Goal:** Consolidate weight quality metrics (CV and ESS%) into the main balancer performance table to provide a unified view of convergence, fit, and weight quality per zone. Standardize HTML table generation to use the shared `_html_table()` helper with support for grouped/spanned headers.
-
-**Changes:**
-
-1. **Extended `_html_table()` helper** — Added optional `group_row` parameter for two-tier headers with rowspan/colspan support, and `css_class` parameter for custom styling.
-
-2. **Enhanced `balancer_performance_table()`** — Added CV and ESS% columns (computed inline from weights). Now shows 13 columns: Zone, N, Conv?, Iter, Household (Target, % Error), Person (Target, % Error), MAPE, P90, Max, CV, ESS%. Refactored to use `_html_table()` with `group_row` instead of manual HTML string concatenation.
-
-3. **Simplified `weight_quality_table()`** — Removed CV and ESS% columns (now in balancer performance table). Retained weight distribution stats (Mean, Median, Std, Min, Max) and expansion factor stats (Min EF, Max EF, Mean EF, Median EF). Simplified `_weight_stats()` helper to remove CV/ESS computation.
-
-4. **Updated template notes** — Moved CV and ESS% descriptions from Section 3 (Weight Quality) to Section 2 (Balancer Performance) to match the new column locations.
-
-**Consistency improvements:**
-
-- `balancer_performance_table()` now uses `_html_table()` with grouped headers (was manual HTML)
-- `weight_quality_table()` continues to use `_html_table()` (no change in pattern)
-- `unweighted_cell_counts()` and `crosswalk_summary_table()` still use manual HTML due to complex rowspan logic that exceeds `_html_table()` capabilities
-
-**Files affected:** `diagnostics/tables.py`, `diagnostics/diagnostics_template.html`.
-
----
-
 ### Priority and Dependencies
 
-| # | Feature | Status | Depends On | Complexity | Impact |
-|---|---------|--------|-----------|------------|--------|
-| 1 | Cross-tab targets | 🔲 | — | Medium | High — enables joint demographic controls (age×sex, income×workers) that significantly improve weight quality |
-| 2 | Custom trip targets | 🔲 | — | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
-| 3 | DOW structuring | 🔲 | — | High | High — provides day of week weight granularity |
-| 4 | Platform bias | 🔲 | — | Low–High (method-dependent) | Medium — important for mixed-mode surveys |
-| 5 | EF grid search | ✅ | — | Low | Low — calibration aid; no algorithmic changes, purely diagnostic |
-| 6 | Table refactoring | ✅ | — | Low | Low — improved diagnostics UI and code maintainability |
+| # | Feature | Status | Complexity | Impact |
+|---|---------|--------|------------|--------|
+| 1 | Cross-tab targets | [x] | Medium | High — enables joint demographic controls (age x sex, income x workers) that significantly improve weight quality |
+| 2 | Custom trip targets | [ ] | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
+| 3 | DOW structuring | [ ] | High | High — provides day-of-week weight granularity |
+| 4 | Platform bias | [ ] | Low-High | Medium — important for mixed-mode surveys |
 
-Features 1 and 3 are independent and can be developed in parallel. Feature 2 is architecturally distinct (non-linear constraints). Feature 4 is orthogonal — it modifies inputs (base weights or controls) rather than the balancer itself. Features 5 and 6 are complete — they enhanced the diagnostics reporting without impacting the core balancer algorithm.
+`[ ]` Not started · `[x]` Complete
+
+Features 1 and 3 are independent and can be developed in parallel. Feature 2 is architecturally distinct (non-linear constraints). Feature 4 is orthogonal — it modifies inputs (base weights or controls) rather than the balancer itself.
+
+---
+
+## Previously Completed
+
+- **Cross-Tab Targets** (March 2026) — `CrosstabControlTarget` in `controls/base.py`, `make_crosstab_enum()` in `controls/enums.py`, `register_crosstab()` / `register_crosstabs_from_config()` in `controls/registry.py`, pre-merge at registration via `_build_dim_value_groups()`, N-D merges in `data_prep/merges.py`, margin validation in `validation/control_validation.py`. Human-readable cross-tab labels ("by" separator) in `diagnostics/data.py`. Control group headers in fit chart y-axis (`diagnostics/charts.py`). Tests in `tests/test_crosstab_controls.py`.
+- **Expansion Factor Grid Search** (March 2026) — `grid_search_expansion_factor()` in `balancing/balancer.py`, `GridPoint` in `specs.py`, `ef_tradeoff_figure()` in `diagnostics/charts.py`, wired into `generate_report()` and `weighting.py`. Tests in `tests/test_grid_search.py`.
+- **Diagnostics Table Refactoring** (March 2026) — `_html_table()` `group_row` support, CV/ESS% consolidated into `balancer_performance_table()`, simplified `weight_quality_table()`. Files: `diagnostics/tables.py`, `diagnostics/diagnostics_template.html`.

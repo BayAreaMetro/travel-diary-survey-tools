@@ -6,7 +6,7 @@ canonical survey granularity is reduced to fewer bins for weighting.  The
 canonical ``LabeledEnum`` directly and are not duplicated here.
 """
 
-from enum import Enum, IntEnum
+from enum import IntEnum
 from itertools import product
 
 # -- Household-level -------------------------------------------------------
@@ -117,19 +117,24 @@ class TotalCategory(IntEnum):
 _SENTINEL_NAMES = frozenset({"MISSING", "PNTA"})
 
 
-def make_crosstab_enum(name: str, *control_enums: type[Enum]) -> type[IntEnum]:
+def make_crosstab_enum(
+    name: str,
+    dim_value_groups: list[list[tuple[str, list[int]]]],
+) -> type[IntEnum]:
     """Create an IntEnum for N-dimensional cross-tabulated control.
 
-    Generates a cartesian product of member names from the input enums,
-    excluding sentinel values (MISSING, PNTA). Each composite member is
+    Generates a cartesian product of **effective** dimension members
+    (which may include merged groups).  Each composite member is
     assigned a sequential integer value (0, 1, 2, ...).
 
     Parameters
     ----------
     name : str
-        Name for the generated IntEnum class (e.g., "IncomeBySizeCategory").
-    *control_enums : type[Enum]
-        Base control category enums to cross-tabulate.
+        Name for the generated IntEnum class.
+    dim_value_groups : list[list[tuple[str, list[int]]]]
+        Per-dimension list of ``(member_name, original_values)`` tuples.
+        Single-value entries are unmerged; multi-value entries are merged
+        groups.
 
     Returns:
     -------
@@ -138,25 +143,17 @@ def make_crosstab_enum(name: str, *control_enums: type[Enum]) -> type[IntEnum]:
 
     Examples:
     --------
-    >>> IncomeSizeCategory = make_crosstab_enum(
-    ...     "IncomeSizeCategory",
-    ...     IncomeBroad,
-    ...     HHSizeCategory
-    ... )
-    >>> # Creates: INC_UNDER_25K_SIZE_1 = 0, INC_UNDER_25K_SIZE_2 = 1, ...
+    >>> groups = [
+    ...     [("SIZE_1", [1]), ("SIZE_2", [2]), ("SIZE_3_PLUS", [3,4,5])],
+    ...     [("INCOME_UNDER_100", [1,2,3,4]), ("INCOME_100TO200", [5])],
+    ... ]
+    >>> SizeIncomeCategory = make_crosstab_enum("SizeIncomeCategory", groups)
+    >>> len(SizeIncomeCategory)  # 3 x 2 = 6
+    6
     """
-    # Extract non-sentinel members from each enum
-    member_lists = []
-    for enum_cls in control_enums:
-        members = [m for m in enum_cls if m.name not in _SENTINEL_NAMES]
-        member_lists.append(members)
-
-    # Build cartesian product with sequential values
     members = {}
-    for idx, member_combo in enumerate(product(*member_lists)):
-        # Combine names: INC_UNDER_25K_SIZE_1_WORKERS_0
-        composite_name = "_".join(m.name for m in member_combo)
+    for idx, combo in enumerate(product(*dim_value_groups)):
+        composite_name = "_".join(grp_name for grp_name, _ in combo)
         members[composite_name] = idx
 
-    # Dynamically create IntEnum class
     return IntEnum(name, members)  # pyright: ignore[reportReturnType]
