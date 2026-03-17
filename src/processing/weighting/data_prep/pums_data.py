@@ -312,10 +312,18 @@ def fetch_pums_data(
     optional_vars = _HH_REPLICATE_WEIGHTS | _PERSON_REPLICATE_WEIGHTS
     aliases = _PRE2020_ALIASES if source.pums_year < 2020 else {}  # noqa: PLR2004
     hh_vars = _validate_variables(
-        hh_vars, api_vars, "households", optional=optional_vars, aliases=aliases,
+        hh_vars,
+        api_vars,
+        "households",
+        optional=optional_vars,
+        aliases=aliases,
     )
     person_vars = _validate_variables(
-        person_vars, api_vars, "persons", optional=optional_vars, aliases=aliases,
+        person_vars,
+        api_vars,
+        "persons",
+        optional=optional_vars,
+        aliases=aliases,
     )
 
     # Swap canonical 2020+ names for their pre-2020 equivalents when needed.

@@ -52,10 +52,7 @@ def _find_column(gdf: gpd.GeoDataFrame, *prefixes: str) -> str:
             candidate = f"{prefix}{suffix}"
             if candidate in cols:
                 return candidate
-    msg = (
-        f"Cannot find column {'/'.join(prefixes)}[20|10] in shapefile. "
-        f"Available: {sorted(cols)}"
-    )
+    msg = f"Cannot find column {'/'.join(prefixes)}[20|10] in shapefile. Available: {sorted(cols)}"
     raise ValueError(msg)
 
 
@@ -104,8 +101,9 @@ def get_puma_gdf(
     vintage = puma_vintage_for_pums_year(pums_year)
 
     def _build() -> gpd.GeoDataFrame:
-        logger.info("Downloading %d-vintage PUMAs (TIGER %d) for state %s",
-                     vintage, pums_year, state_fips)
+        logger.info(
+            "Downloading %d-vintage PUMAs (TIGER %d) for state %s", vintage, pums_year, state_fips
+        )
         gdf = pygris.pumas(state=state_fips, year=pums_year, cache=True)
         id_col = _find_column(gdf, "PUMACE")
         return (

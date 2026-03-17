@@ -208,27 +208,27 @@ def clean_households(households: pl.DataFrame) -> pl.DataFrame:
 
     # income_detailed (10 categories) → IncomeBroad
     _DETAILED_TO_BROAD: dict[int, int] = {  # noqa: N806
-        1: IncomeBroad.INCOME_UNDER25.value,    # Under $15,000
-        2: IncomeBroad.INCOME_UNDER25.value,    # $15,000-$24,999
-        3: IncomeBroad.INCOME_25TO50.value,     # $25,000-$34,999
-        4: IncomeBroad.INCOME_25TO50.value,     # $35,000-$49,999
-        5: IncomeBroad.INCOME_50TO75.value,     # $50,000-$74,999
-        6: IncomeBroad.INCOME_75TO100.value,    # $75,000-$99,999
-        7: IncomeBroad.INCOME_100TO200.value,   # $100,000-$149,999
-        8: IncomeBroad.INCOME_100TO200.value,   # $150,000-$199,999
-        9: IncomeBroad.INCOME_200_OR_MORE.value, # $200,000-$249,999
-        10: IncomeBroad.INCOME_200_OR_MORE.value, # $250,000 or more
+        1: IncomeBroad.INCOME_UNDER25.value,  # Under $15,000
+        2: IncomeBroad.INCOME_UNDER25.value,  # $15,000-$24,999
+        3: IncomeBroad.INCOME_25TO50.value,  # $25,000-$34,999
+        4: IncomeBroad.INCOME_25TO50.value,  # $35,000-$49,999
+        5: IncomeBroad.INCOME_50TO75.value,  # $50,000-$74,999
+        6: IncomeBroad.INCOME_75TO100.value,  # $75,000-$99,999
+        7: IncomeBroad.INCOME_100TO200.value,  # $100,000-$149,999
+        8: IncomeBroad.INCOME_100TO200.value,  # $150,000-$199,999
+        9: IncomeBroad.INCOME_200_OR_MORE.value,  # $200,000-$249,999
+        10: IncomeBroad.INCOME_200_OR_MORE.value,  # $250,000 or more
         999: IncomeBroad.PNTA.value,
     }
 
     # income_followup (6 categories) → IncomeBroad
     _FOLLOWUP_TO_BROAD: dict[int, int] = {  # noqa: N806
-        1: IncomeBroad.INCOME_UNDER25.value,    # Under $25,000
-        2: IncomeBroad.INCOME_25TO50.value,     # $25,000-$49,999
-        3: IncomeBroad.INCOME_50TO75.value,     # $50,000-$74,999
-        4: IncomeBroad.INCOME_75TO100.value,    # $75,000-$99,999
-        5: IncomeBroad.INCOME_100TO200.value,   # $100,000-$249,999 (followup lumps 100-249k)
-        6: IncomeBroad.INCOME_200_OR_MORE.value, # $250,000 or more
+        1: IncomeBroad.INCOME_UNDER25.value,  # Under $25,000
+        2: IncomeBroad.INCOME_25TO50.value,  # $25,000-$49,999
+        3: IncomeBroad.INCOME_50TO75.value,  # $50,000-$74,999
+        4: IncomeBroad.INCOME_75TO100.value,  # $75,000-$99,999
+        5: IncomeBroad.INCOME_100TO200.value,  # $100,000-$249,999 (followup lumps 100-249k)
+        6: IncomeBroad.INCOME_200_OR_MORE.value,  # $250,000 or more
         999: IncomeBroad.PNTA.value,
     }
 
@@ -245,7 +245,9 @@ def clean_households(households: pl.DataFrame) -> pl.DataFrame:
     n_pnta = households.filter(pl.col("income_bin") == IncomeBroad.PNTA.value).height
     logger.info(
         "Income recode: %d MISSING, %d PNTA out of %d households",
-        n_missing, n_pnta, len(households),
+        n_missing,
+        n_pnta,
+        len(households),
     )
 
     return households

@@ -170,9 +170,7 @@ def clean_2023_bats(
         households = households.rename({"income_broad": "income_bin"})
     elif "income_bin" not in households.columns:
         logger.warning("No income column found — creating income_bin as MISSING")
-        households = households.with_columns(
-            pl.lit(IncomeBroad.MISSING.value).alias("income_bin")
-        )
+        households = households.with_columns(pl.lit(IncomeBroad.MISSING.value).alias("income_bin"))
 
     # Clamp any unrecognised codes to MISSING
     valid_codes = {int(m) for m in IncomeBroad}
