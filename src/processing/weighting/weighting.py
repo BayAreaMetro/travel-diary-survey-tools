@@ -185,7 +185,7 @@ class WeightingPipeline:
         self.pums_households = config.pums_households
         self.pums_persons = config.pums_persons
         self.sample_plan = config.sample_plan
-        self.cache_dir = config.cache_dir
+        self.cache_dir = config.cache_dir / "weighting" if config.cache_dir else None
         self.expansion_factor_grid = config.expansion_factor_grid
         self.strict_survey_nulls = config.strict_survey_nulls
 
@@ -429,7 +429,7 @@ class WeightingPipeline:
 
     def generate_diagnostics(self) -> None:
         """Write the self-contained HTML diagnostics report."""
-        report_dir = self.cache_dir / "weighting" if self.cache_dir else Path.cwd() / "weighting"
+        report_dir = self.cache_dir or Path.cwd() / "weighting"
         zone_groups: dict[str, list[str]] | None = self.geography.get("zone_groups")
         generate_report(
             seed=self.seed_incidence,
@@ -543,6 +543,8 @@ def weighting(  # noqa: PLR0913
         msg = "Weighting requires at least households and persons tables."
         raise ValueError(msg)
 
+    # Prepare our data for the weighting pipeline
+    # We reused the canonical data handler :)
     data = CanonicalData(
         households=households,
         persons=persons,
@@ -552,17 +554,19 @@ def weighting(  # noqa: PLR0913
         tours=tours,
         joint_trips=joint_trips,
     )
+    # Prepare the pipeline configuration objects
     wt_config = WeightingConfig(
         geography=geography,
         state_fips=state_fips,
         pums_year=pums_year,
-        pums_households=pums_households,
-        pums_persons=pums_persons,
+        pums_households=pums_households,  # Optional local files take precedence over API fetching
+        pums_persons=pums_persons,  # Optional local files take precedence over API fetching
         sample_plan=sample_plan,
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
         expansion_factor_grid=expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
     )
+    # Prepare the balancing configs (max expansion factor, weight bounds, max iterations, etc.)
     balance_cfg = BalancingConfig(
         max_expansion_factor=max_expansion_factor,
         min_expansion_factor=min_expansion_factor,
@@ -571,10 +575,12 @@ def weighting(  # noqa: PLR0913
         max_iterations=max_iterations,
         n_workers=n_workers,
     )
+    # Prepare the importance config (MOE-based, explicit overrides, or default).
     importance_cfg = ImportanceConfig(
         moe_based=moe_based_importance,
         default=default_importance,
     )
+    # Initialize and run the pipeline with the provided configs and data
     pipeline = WeightingPipeline(
         controls=ControlRegistryConfig.from_yaml(controls),
         config=wt_config,
