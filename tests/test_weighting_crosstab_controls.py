@@ -43,7 +43,7 @@ def households() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "hh_id": [1, 2, 3, 4],
-            "income_broad": [1, 5, 3, 2],  # UNDER25, 100TO200, 50TO75, 25TO50
+            "income_bin": [1, 5, 3, 2],  # UNDER25, 100TO200, 50TO75, 25TO50
             "ctrl_geoid": ["Z1", "Z1", "Z2", "Z2"],
         }
     )

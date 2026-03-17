@@ -59,9 +59,9 @@ class IncomeFollowup(LabeledEnum):
 
 
 class IncomeBroad(LabeledEnum):
-    """income_broad value labels."""
+    """income_bin value labels."""
 
-    canonical_field_name = "income_broad"
+    canonical_field_name = "income_bin"
 
     INCOME_UNDER25 = (1, "Under $25,000")
     INCOME_25TO50 = (2, "$25,000-$49,999")

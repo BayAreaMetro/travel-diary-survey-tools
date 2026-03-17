@@ -166,7 +166,7 @@ class PumaCrosswalk:
             weight_gdf=self.block_gdf,
             source_id_col="puma_id",
             target_id_col="study_geoid",
-            weight_col="pop20",
+            weight_col="block_pop",
             resolution=config.resolution,
             min_allocation=config.min_allocation,
         ).rename({"source_id": "puma_id", "target_id": "study_geoid"})
@@ -192,7 +192,7 @@ class PumaCrosswalk:
 
         Returns a DataFrame with columns ``[geo_id, target_population]``
         where ``target_population`` is the sum of Census block population
-        (``pop20``) allocated to each ``ctrl_geoid``.
+        allocated to each ``ctrl_geoid``.
         """
         return (
             self.crosswalk_df.group_by("ctrl_geoid")
@@ -211,12 +211,12 @@ class PumaCrosswalk:
 
         Returns a DataFrame with columns ``[bg_geo_id, bg_population]``.
         """
-        bg_df = pl.from_pandas(self.block_gdf[["block_id", "pop20"]].copy()).with_columns(
+        bg_df = pl.from_pandas(self.block_gdf[["block_id", "block_pop"]].copy()).with_columns(
             pl.col("block_id").str.slice(0, 12).alias("bg_geo_id"),
         )
         return (
             bg_df.group_by("bg_geo_id")
-            .agg(pl.col("pop20").sum().alias("bg_population"))
+            .agg(pl.col("block_pop").sum().alias("bg_population"))
             .sort("bg_geo_id")
         )
 
@@ -349,7 +349,17 @@ def _load_target_zones(
     source: str | Path | gpd.GeoDataFrame,
     id_field: str | None,
 ) -> gpd.GeoDataFrame:
-    """Load and normalise target zone polygons."""
+    """Load and normalise target zone polygons.
+
+    The target zones is a custom polygon or multi-polygon file defining
+    the custom geographies for which the controls should be balanced.
+    For example, counties or target districts.
+
+    The file must contain a column with unique identifiers for each zone,
+    which will be used as the ``study_geoid`` in the crosswalk.
+    If *id_field* is not provided, the zones will be dissolved into a
+    single geometry with a dummy ``study_geoid`` of "1".
+    """
     gdf = source.copy() if isinstance(source, gpd.GeoDataFrame) else gpd.read_file(source)
     if id_field is None:
         gdf = gdf.dissolve()

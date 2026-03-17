@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
+from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from pipeline.decoration import step
 from utils.helpers import add_time_columns, expr_haversine
 
@@ -162,6 +162,26 @@ def clean_2023_bats(
     )
     # Join to households
     households = households.join(hh_attributes, on="hh_id", how="left")
+
+    # RECODE INCOME =========================================
+    # Vendor column "income_broad" already uses IncomeBroad-compatible codes
+    # (1-6, 995, 999).  Rename to canonical "income_bin" and validate.
+    if "income_broad" in households.columns:
+        households = households.rename({"income_broad": "income_bin"})
+    elif "income_bin" not in households.columns:
+        logger.warning("No income column found — creating income_bin as MISSING")
+        households = households.with_columns(
+            pl.lit(IncomeBroad.MISSING.value).alias("income_bin")
+        )
+
+    # Clamp any unrecognised codes to MISSING
+    valid_codes = {int(m) for m in IncomeBroad}
+    households = households.with_columns(
+        pl.when(pl.col("income_bin").is_in(valid_codes))
+        .then(pl.col("income_bin"))
+        .otherwise(IncomeBroad.MISSING.value)
+        .alias("income_bin")
+    )
 
     return {
         "households": households,

@@ -3,8 +3,8 @@
 Orchestrates the external data pipeline that feeds the balancer:
 
 1. **Census geography** (``census_geo``) -- download and cache TIGER PUMA
-   and block shapefiles via pygris.  TABBLOCK20 files include ``POP20``
-   directly from the 2020 decennial census.
+   and block shapefiles via pygris.  Block shapefiles include population
+   directly from the corresponding decennial census.
 2. **Geography crosswalk** (``crosswalk``) -- build a population-weighted
    allocation table from PUMAs to custom project zones using rasterised
    Census block population and ``exactextract`` fractional zonal statistics.

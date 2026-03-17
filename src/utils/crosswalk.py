@@ -15,7 +15,7 @@ Usage::
     xw = build_crosswalk(
         source_gdf=pumas, target_gdf=counties, weight_gdf=blocks,
         source_id_col="PUMACE20", target_id_col="COUNTYFP",
-        weight_col="pop20", resolution=250,
+        weight_col="block_pop", resolution=250,
     )
 """
 
@@ -50,7 +50,7 @@ def build_crosswalk(
     *,
     source_id_col: str = "source_id",
     target_id_col: str = "target_id",
-    weight_col: str = "pop20",
+    weight_col: str = "block_pop",
     resolution: int = 100,
     min_allocation: float = 0.0,
 ) -> pl.DataFrame:
@@ -65,7 +65,7 @@ def build_crosswalk(
         *target_id_col*.
     weight_gdf:
         Weight polygons carrying a numeric attribute (e.g. Census blocks
-        with ``pop20``).  Must contain *weight_col* and geometry.
+        with ``block_pop``).  Must contain *weight_col* and geometry.
     source_id_col:
         Column in *source_gdf* identifying source zones.
     target_id_col:

@@ -334,7 +334,7 @@ This section shows the categorical values and labels for custom enum fields.
 
 ## IncomeBroad
 
-**Field name:** `income_broad`
+**Field name:** `income_bin`
 
 | Value | Label |
 | --- | --- |

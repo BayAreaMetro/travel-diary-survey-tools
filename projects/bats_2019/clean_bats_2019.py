@@ -7,6 +7,7 @@ from typing import get_args
 
 import polars as pl
 
+from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import JobType
 from data_canon.codebook.trips import Purpose, PurposeCategory
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
@@ -175,6 +176,77 @@ def clean_households(households: pl.DataFrame) -> pl.DataFrame:
     # Replace -9998 with 995
     households = replace_with_code(households, "residence_type", {-9998: 995})
     households = replace_with_code(households, "residence_rent_own", {-9998: 995})
+
+    # CODEBOOK VALUES:
+    # INCOME DETAILED:
+    # 1	Under $15,000
+    # 2	$15,000-$24,999
+    # 3	$25,000-$34,999
+    # 4	$35,000-$49,999
+    # 5	$50,000-$74,999
+    # 6	$75,000-$99,999
+    # 7	$100,000-$149,999
+    # 8	$150,000-$199,999
+    # 9	$200,000-$249,999
+    # 10	$250,000 or more
+    # 999	Prefer not to answer
+
+    # INCOME FOLLOWUP:
+    # 1	Under $25,000
+    # 2	$25,000-$49,999
+    # 3	$50,000-$74,999
+    # 4	$75,000-$99,999
+    # 5	$100,000-$249,999
+    # 6	$250,000 or more
+    # 999	Prefer not to answer
+
+    # RECODE TO MATCH CANONICAL INCOME GROUPS:
+    # IncomeBroad enum values:
+    # INCOME_UNDER25 = 1, INCOME_25TO50 = 2, INCOME_50TO75 = 3,
+    # INCOME_75TO100 = 4, INCOME_100TO200 = 5, INCOME_200_OR_MORE = 6,
+    # MISSING = 995, PNTA = 999
+
+    # income_detailed (10 categories) → IncomeBroad
+    _DETAILED_TO_BROAD: dict[int, int] = {  # noqa: N806
+        1: IncomeBroad.INCOME_UNDER25.value,    # Under $15,000
+        2: IncomeBroad.INCOME_UNDER25.value,    # $15,000-$24,999
+        3: IncomeBroad.INCOME_25TO50.value,     # $25,000-$34,999
+        4: IncomeBroad.INCOME_25TO50.value,     # $35,000-$49,999
+        5: IncomeBroad.INCOME_50TO75.value,     # $50,000-$74,999
+        6: IncomeBroad.INCOME_75TO100.value,    # $75,000-$99,999
+        7: IncomeBroad.INCOME_100TO200.value,   # $100,000-$149,999
+        8: IncomeBroad.INCOME_100TO200.value,   # $150,000-$199,999
+        9: IncomeBroad.INCOME_200_OR_MORE.value, # $200,000-$249,999
+        10: IncomeBroad.INCOME_200_OR_MORE.value, # $250,000 or more
+        999: IncomeBroad.PNTA.value,
+    }
+
+    # income_followup (6 categories) → IncomeBroad
+    _FOLLOWUP_TO_BROAD: dict[int, int] = {  # noqa: N806
+        1: IncomeBroad.INCOME_UNDER25.value,    # Under $25,000
+        2: IncomeBroad.INCOME_25TO50.value,     # $25,000-$49,999
+        3: IncomeBroad.INCOME_50TO75.value,     # $50,000-$74,999
+        4: IncomeBroad.INCOME_75TO100.value,    # $75,000-$99,999
+        5: IncomeBroad.INCOME_100TO200.value,   # $100,000-$249,999 (followup lumps 100-249k)
+        6: IncomeBroad.INCOME_200_OR_MORE.value, # $250,000 or more
+        999: IncomeBroad.PNTA.value,
+    }
+
+    # Prefer income_detailed; fall back to income_followup; else MISSING
+    detailed_expr = pl.col("income_detailed").replace_strict(_DETAILED_TO_BROAD, default=None)
+    followup_expr = pl.col("income_followup").replace_strict(_FOLLOWUP_TO_BROAD, default=None)
+    households = households.with_columns(
+        pl.coalesce(detailed_expr, followup_expr)
+        .fill_null(IncomeBroad.MISSING.value)
+        .alias("income_bin")
+    )
+
+    n_missing = households.filter(pl.col("income_bin") == IncomeBroad.MISSING.value).height
+    n_pnta = households.filter(pl.col("income_bin") == IncomeBroad.PNTA.value).height
+    logger.info(
+        "Income recode: %d MISSING, %d PNTA out of %d households",
+        n_missing, n_pnta, len(households),
+    )
 
     return households
 

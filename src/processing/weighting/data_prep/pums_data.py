@@ -16,6 +16,7 @@ API behaviour:
 Transformation (recoding, aggregation) lives in ``control_data``.
 """
 
+import difflib
 import hashlib
 import json
 import logging
@@ -32,9 +33,18 @@ from processing.weighting.controls.registry import pums_variables
 
 logger = logging.getLogger(__name__)
 
-# Infrastructure vars that don't come from any ControlTarget
+# Infrastructure vars that don't come from any ControlTarget.
+# Names use the **2020+** (canonical) convention; for older vintages the
+# aliases in ``_PRE2020_ALIASES`` are requested instead and then renamed.
 _HH_INFRA = {"SERIALNO", "PUMA", "STATE", "WGTP", "TYPEHUGQ"}
 _PERSON_INFRA = {"SERIALNO", "SPORDER", "PUMA", "STATE", "PWGTP"}
+
+# Variable renames between pre-2020 and 2020+ PUMS vintages.
+# Keys = canonical (2020+) name, values = pre-2020 name.
+_PRE2020_ALIASES: dict[str, str] = {
+    "STATE": "ST",
+    "TYPEHUGQ": "TYPE",
+}
 
 # Replicate weight columns for variance estimation (80 per table)
 _HH_REPLICATE_WEIGHTS = {f"WGTP{i}" for i in range(1, 81)}
@@ -53,6 +63,121 @@ _MAX_API_WORKERS = 4
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _apply_vintage_aliases(
+    variables: list[str],
+    available: set[str],
+    pums_year: int,
+) -> tuple[list[str], dict[str, str]]:
+    """Swap canonical variable names for their pre-2020 equivalents when needed.
+
+    Returns ``(api_vars, rename_map)`` where *api_vars* contains the names
+    to actually request from the Census API and *rename_map* maps
+    ``old_name -> canonical_name`` for post-fetch renaming.
+    """
+    if pums_year >= 2020 or not available:  # noqa: PLR2004
+        return variables, {}
+
+    rename_map: dict[str, str] = {}  # old -> canonical
+    out: list[str] = []
+    for var in variables:
+        alias = _PRE2020_ALIASES.get(var)
+        if alias and var not in available and alias in available:
+            out.append(alias)
+            rename_map[alias] = var
+        else:
+            out.append(var)
+    if rename_map:
+        logger.info(
+            "Vintage aliases applied (pre-2020): %s",
+            {v: k for k, v in rename_map.items()},
+        )
+    return out, rename_map
+
+
+def _available_variables(base_url: str) -> set[str]:
+    """Fetch the set of valid variable names from the Census API.
+
+    Hits ``{base_url}/variables.json`` (typically <1 MB) and returns
+    the set of variable names.  Falls back to an empty set on error
+    (skipping validation rather than blocking the pipeline).
+    """
+    url = f"{base_url}/variables.json"
+    try:
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        return set(data.get("variables", {}).keys())
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not fetch variable list from %s — skipping validation", url)
+        return set()
+
+
+def _validate_variables(
+    requested: list[str],
+    available: set[str],
+    label: str,
+    *,
+    optional: set[str] | None = None,
+    aliases: dict[str, str] | None = None,
+) -> list[str]:
+    """Check *requested* variables against *available* from the Census API.
+
+    If *available* is empty (pre-flight failed), returns *requested*
+    unchanged as a fallback.
+
+    Variables in *optional* (e.g. replicate weights) are silently dropped
+    with a log message if missing.  Variables in *aliases* whose alias
+    **is** present are accepted (they will be swapped later).  All other
+    missing variables are **required** — the function raises ``ValueError``
+    with the closest matching variable names as suggestions (likely a rename
+    across Census vintages).
+    """
+    if not available:
+        return requested
+
+    optional = optional or set()
+    aliases = aliases or {}
+    valid: list[str] = []
+    dropped_optional: list[str] = []
+    missing_required: list[tuple[str, list[str]]] = []
+
+    for var in requested:
+        if var in available:
+            valid.append(var)
+        elif var in aliases and aliases[var] in available:
+            # Known vintage alias — keep the canonical name; will be
+            # swapped for the actual API name in _apply_vintage_aliases.
+            valid.append(var)
+        elif var in optional:
+            dropped_optional.append(var)
+        else:
+            # Find similar names as suggestions
+            similar = difflib.get_close_matches(var, sorted(available), n=5, cutoff=0.5)
+            missing_required.append((var, similar))
+
+    if dropped_optional:
+        logger.info(
+            "%s: %d optional variable(s) not in this vintage (dropped): %s",
+            label,
+            len(dropped_optional),
+            dropped_optional[:10],
+        )
+
+    if missing_required:
+        lines = []
+        for var, similar in missing_required:
+            hint = f"  similar: {similar}" if similar else "  (no similar names found)"
+            lines.append(f"  - {var}\n{hint}")
+        msg = (
+            f"{label}: {len(missing_required)} required variable(s) not found in "
+            f"this PUMS vintage.  This usually means the variable was renamed "
+            f"across Census years.\n" + "\n".join(lines)
+        )
+        raise ValueError(msg)
+
+    return valid
 
 
 def _drop_gq(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -179,8 +304,33 @@ def fetch_pums_data(
         puma_label,
     )
 
+    # Pre-flight: check which variables the API actually exposes for
+    # this year.  Raises ValueError for missing control variables (likely
+    # renamed across Census vintages) with similar-name suggestions.
+    # Replicate weights are optional — silently dropped if absent.
+    api_vars = _available_variables(base_url)
+    optional_vars = _HH_REPLICATE_WEIGHTS | _PERSON_REPLICATE_WEIGHTS
+    aliases = _PRE2020_ALIASES if source.pums_year < 2020 else {}  # noqa: PLR2004
+    hh_vars = _validate_variables(
+        hh_vars, api_vars, "households", optional=optional_vars, aliases=aliases,
+    )
+    person_vars = _validate_variables(
+        person_vars, api_vars, "persons", optional=optional_vars, aliases=aliases,
+    )
+
+    # Swap canonical 2020+ names for their pre-2020 equivalents when needed.
+    hh_vars, hh_rename = _apply_vintage_aliases(hh_vars, api_vars, source.pums_year)
+    person_vars, per_rename = _apply_vintage_aliases(person_vars, api_vars, source.pums_year)
+
     hh_df = _fetch_table(base_url, hh_vars, source.state_fips, puma_geo, label="households")
     person_df = _fetch_table(base_url, person_vars, source.state_fips, puma_geo, label="persons")
+
+    # Rename vintage-specific columns back to canonical names so all
+    # downstream code uses a single set of column names.
+    if hh_rename:
+        hh_df = hh_df.rename(hh_rename)
+    if per_rename:
+        person_df = person_df.rename(per_rename)
 
     # Cast types
     hh_df = _cast_pums_types(hh_df, _HH_VARS | hh_extra)

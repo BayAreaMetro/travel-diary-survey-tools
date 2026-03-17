@@ -47,7 +47,7 @@ def survey_households() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "hh_id": [1, 2, 3],
-            "income_broad": [1, 5, 3],  # Under 25k, $100-200k, $50-75k
+            "income_bin": [1, 5, 3],  # Under 25k, $100-200k, $50-75k
             "hh_weight": [1.5, 2.0, 1.0],
             "ctrl_geoid": ["00100", "00100", "00200"],
         }
@@ -115,7 +115,7 @@ class TestRecodeSurveyHouseholds:
             ["h_income"],
         )
         incomes = result.sort("hh_id")["h_income"].to_list()
-        # income_broad: 1=Under 25k, 5=$100-200k, 3=$50-75k
+        # income_bin: 1=Under 25k, 5=$100-200k, 3=$50-75k
         assert incomes == [
             IncomeBroad.INCOME_UNDER25.value,
             IncomeBroad.INCOME_100TO200.value,
@@ -188,7 +188,7 @@ class TestRecodeSurveyHouseholds:
             )
 
     def test_missing_income_field_raises(self, survey_persons):
-        """Requesting income control when income_broad field is absent must raise."""
+        """Requesting income control when income_bin field is absent must raise."""
         hh_no_income = pl.DataFrame(
             {
                 "hh_id": [1],
@@ -196,7 +196,7 @@ class TestRecodeSurveyHouseholds:
                 "ctrl_geoid": ["00100"],
             }
         )
-        with pytest.raises(KeyError, match="income_broad"):
+        with pytest.raises(KeyError, match="income_bin"):
             recode_survey_households(hh_no_income, survey_persons, ["h_income"])
 
     def test_only_requested_columns_created(

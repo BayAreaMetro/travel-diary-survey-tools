@@ -3,8 +3,11 @@
 Uses `pygris <https://github.com/walkerke/pygris>`_ to download and cache
 PUMA and block shapefiles from the Census Bureau's TIGER/Line server.
 
-Block shapefiles (TABBLOCK20) include ``POP20`` and ``HOUSING20`` columns
-from the 2020 decennial census -- no separate population table is needed.
+Block population comes from the **decennial census** TABBLOCK product
+(``POP20`` from 2020 decennial, ``POP10`` from 2010 decennial).  Only
+decennial TIGER vintages include these population columns — regular
+annual files do not.  Column names are normalised to ``block_pop`` /
+``puma_id`` so downstream code is vintage-agnostic.
 
 Processed GeoDataFrames are cached as GeoParquet under
 ``<pipeline-cache-dir>/census_geo/`` for fast repeat loads.
@@ -19,12 +22,10 @@ import pygris
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# PUMA vintage helpers
-# ---------------------------------------------------------------------------
 
-# PUMA vintage -> TIGER year that pygris should request.
-_PUMA_TIGER_YEAR: dict[int, int] = {2020: 2023, 2010: 2021}
+# ---------------------------------------------------------------------------
+# Vintage helpers
+# ---------------------------------------------------------------------------
 
 
 def puma_vintage_for_pums_year(pums_year: int) -> int:
@@ -40,20 +41,35 @@ def puma_vintage_for_pums_year(pums_year: int) -> int:
     raise ValueError(msg)
 
 
+def _find_column(gdf: gpd.GeoDataFrame, *prefixes: str) -> str:
+    """Find the first column matching ``{prefix}20`` or ``{prefix}10``.
+
+    Raises ``ValueError`` if none of the candidates exist.
+    """
+    cols = set(gdf.columns)
+    for suffix in ("20", "10"):
+        for prefix in prefixes:
+            candidate = f"{prefix}{suffix}"
+            if candidate in cols:
+                return candidate
+    msg = (
+        f"Cannot find column {'/'.join(prefixes)}[20|10] in shapefile. "
+        f"Available: {sorted(cols)}"
+    )
+    raise ValueError(msg)
+
+
 # ---------------------------------------------------------------------------
 # GeoParquet cache
 # ---------------------------------------------------------------------------
+
+
 def _cached_geoparquet(
     key: str,
     builder: Callable[[], gpd.GeoDataFrame],
     cache_dir: Path | None = None,
 ) -> gpd.GeoDataFrame:
-    """Return a GeoDataFrame from the parquet cache, building it if absent.
-
-    When *cache_dir* is ``None`` the builder is called every time (no
-    caching).  Otherwise the result is persisted as GeoParquet under
-    ``<cache_dir>/census_geo/<key>.parquet``.
-    """
+    """Return a GeoDataFrame, building and caching as GeoParquet if needed."""
     if cache_dir is None:
         return builder()
     path = cache_dir / "census_geo" / f"{key}.parquet"
@@ -70,6 +86,8 @@ def _cached_geoparquet(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
 def get_puma_gdf(
     state_fips: str,
     pums_year: int,
@@ -78,15 +96,18 @@ def get_puma_gdf(
 ) -> gpd.GeoDataFrame:
     """Download PUMA polygons for *state_fips* via pygris.
 
+    Requests the TIGER file for *pums_year* directly — each vintage
+    carries the matching PUMA IDs (``PUMACE10`` or ``PUMACE20``).
+
     Returns a GeoDataFrame with ``puma_id`` (str) and ``geometry``.
     """
     vintage = puma_vintage_for_pums_year(pums_year)
-    tiger_year = _PUMA_TIGER_YEAR[vintage]
 
     def _build() -> gpd.GeoDataFrame:
-        logger.info("Downloading %d-vintage PUMAs for state %s", vintage, state_fips)
-        gdf = pygris.pumas(state=state_fips, year=tiger_year, cache=True)
-        id_col = "PUMACE20" if vintage == 2020 else "PUMACE10"  # noqa: PLR2004
+        logger.info("Downloading %d-vintage PUMAs (TIGER %d) for state %s",
+                     vintage, pums_year, state_fips)
+        gdf = pygris.pumas(state=state_fips, year=pums_year, cache=True)
+        id_col = _find_column(gdf, "PUMACE")
         return (
             gdf[[id_col, "geometry"]]
             .rename(columns={id_col: "puma_id"})
@@ -102,23 +123,28 @@ def get_block_gdf(
     *,
     cache_dir: Path | None = None,
 ) -> gpd.GeoDataFrame:
-    """Download Census block polygons for *state_fips* via pygris.
+    """Download Census block polygons with population for *state_fips*.
 
-    Returns a GeoDataFrame with ``block_id`` (str), ``pop20`` (int),
+    Uses the decennial TABBLOCK product matching the PUMA vintage
+    (year=2010 for pre-2022 PUMS, year=2020 for 2022+) — the only
+    vintages that include population columns.
+
+    Returns a GeoDataFrame with ``block_id`` (str), ``block_pop`` (int),
     and ``geometry``.
     """
     vintage = puma_vintage_for_pums_year(pums_year)
-    tiger_year = _PUMA_TIGER_YEAR[vintage]
 
     def _build() -> gpd.GeoDataFrame:
-        logger.info("Downloading %d-vintage blocks for state %s", vintage, state_fips)
-        gdf = pygris.blocks(state=state_fips, year=tiger_year, cache=True)
+        logger.info("Downloading decennial %d blocks for state %s", vintage, state_fips)
+        gdf = pygris.blocks(state=state_fips, year=vintage, cache=True)
+        geoid_col = _find_column(gdf, "GEOID")
+        pop_col = _find_column(gdf, "POP")
         return (
-            gdf[["GEOID20", "POP20", "geometry"]]
-            .rename(columns={"GEOID20": "block_id", "POP20": "pop20"})
+            gdf[[geoid_col, pop_col, "geometry"]]
+            .rename(columns={geoid_col: "block_id", pop_col: "block_pop"})
             .assign(
                 block_id=lambda df: df["block_id"].astype(str),
-                pop20=lambda df: df["pop20"].astype(int),
+                block_pop=lambda df: df["block_pop"].astype(int),
             )
         )
 

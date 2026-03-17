@@ -51,11 +51,11 @@ class HHIncomeControl(ControlTarget):
     level = ControlLevel.HOUSEHOLD
     description = "Household income"
     categories = IncomeBroad
-    survey_fields = ("income_broad",)
+    survey_fields = ("income_bin",)
     pums_fields = ("HINCP",)
 
     def survey_expr(self) -> pl.Expr:
-        return identity_expr("income_broad", IncomeBroad)
+        return identity_expr("income_bin", IncomeBroad)
 
     def pums_expr(self) -> pl.Expr:
         return breakpoint_expr("HINCP", IncomeBroad)

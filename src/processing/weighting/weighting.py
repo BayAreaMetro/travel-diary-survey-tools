@@ -198,6 +198,8 @@ class WeightingPipeline:
         logger.info("Controls: %s", self.controls.target_names)
 
         zone_groups: dict[str, list[str]] | None = self.geography.get("zone_groups")
+        # Prepare the crosswalk with the full set of zones (including zone groups)
+        # Store as an instance attribute for use in zone assignment and diagnostics
         self.crosswalk = PumaCrosswalk(
             GeographyConfig(**self.geography),
             state_fips=self.state_fips,
@@ -226,6 +228,10 @@ class WeightingPipeline:
                 load_replicate_weights=load_reps,
                 cache_dir=self.cache_dir,
             )
+
+        # Ensure that PUMA is 0 padded to 5 digits for consistency with crosswalk
+        self.pums_hh = self.pums_hh.with_columns(pl.col("PUMA").cast(pl.Utf8).str.zfill(5))
+        self.pums_per = self.pums_per.with_columns(pl.col("PUMA").cast(pl.Utf8).str.zfill(5))
 
     def recode_and_pivot(
         self,
@@ -474,13 +480,16 @@ class WeightingPipeline:
         dict[str, pl.DataFrame]
             All tables with weight columns attached.
         """
+        # TODO: Consider having these methods return a value so we can easily track
+        # intermediate outputs
+
         # Phase methods build up intermediate state on the pipeline instance, which is
         self.setup()
         # Data fetching and preparation phases mutate the incidence tables in-place
         self.fetch_pums()
         # Recode and pivot after fetching but before zone assignment
         self.recode_and_pivot(households, persons)
-        # Zone assignment and merges modify the incidence tables in-place, so must
+        # Assign zones to households and PUMS using crosswalk
         households = self.assign_zones(households)
         # Apply merges after zone assignment so they operate on the final control geographies
         self.apply_merges()
@@ -561,20 +570,24 @@ def weighting(  # noqa: PLR0913
         msg = "Weighting requires at least households and persons tables."
         raise ValueError(msg)
 
-    pipeline = WeightingPipeline(
-        controls=ControlRegistryConfig.from_yaml(controls),
-        balancing=BalancingConfig(
+    balancing_cfg = BalancingConfig(
             max_expansion_factor=max_expansion_factor,
             min_expansion_factor=min_expansion_factor,
             min_weight=min_weight,
             max_weight=max_weight,
             max_iterations=max_iterations,
             n_workers=n_workers,
-        ),
-        importance=ImportanceConfig(
-            moe_based=moe_based_importance,
-            default=default_importance,
-        ),
+        )
+    importance_cfg = ImportanceConfig(
+        moe_based=moe_based_importance,
+        default=default_importance,
+    )
+
+    # TODO: Lets move more of these into a config data class to avoid the explosion of parameters
+    pipeline = WeightingPipeline(
+        controls=ControlRegistryConfig.from_yaml(controls),
+        balancing=balancing_cfg,
+        importance=importance_cfg,
         geography=geography,
         state_fips=state_fips,
         pums_year=pums_year,
@@ -585,6 +598,8 @@ def weighting(  # noqa: PLR0913
         expansion_factor_grid=expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
     )
+    # TODO: I think we may want to put these tables into a dataclass to avoid the explosion AND
+    # consider moving them into the pipeline state instead of passing them around as parameters
     weighted_tables = pipeline.run(
         households=households,
         persons=persons,

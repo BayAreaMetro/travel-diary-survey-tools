@@ -15,7 +15,7 @@ This module provides two paths:
 
 2. **Sample plan** — a ``SamplePlan`` object mapping Census block groups
    to sampling strata (segments).  Block-group populations are sourced
-   from the crosswalk (Census block ``pop20`` summed to BG level).
+   from the crosswalk (Census block population summed to BG level).
    Each household is assigned a block group (via spatial join), mapped
    to a segment via the plan, and receives a segment-level initial
    weight: ``segment_pop / segment_responses``.

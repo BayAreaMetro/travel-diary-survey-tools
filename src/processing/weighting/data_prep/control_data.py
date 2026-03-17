@@ -187,7 +187,8 @@ def recode_pums_persons(
 # Zone allocation for PUMS incidence
 # ---------------------------------------------------------------------------
 
-
+# TODO: Should this just be part of crosswalk?
+# Or should the internal crosswalk functions become external?
 def allocate_pums_zones(
     pums_incidence: pl.DataFrame,
     crosswalk_df: pl.DataFrame,
@@ -235,6 +236,37 @@ def allocate_pums_zones(
         )
         .drop("allocation_weight")
     )
+
+    # --- Guard: every crosswalk ctrl_geoid must appear in the result ------
+    # This is the hard check — a missing control zone means the balancing
+    # step will have no seed data for that zone.  If *all* geos are missing
+    # it's almost certainly a PUMA ID type mismatch (e.g. leading zeros).
+    expected_geos = set(xw["ctrl_geoid"].unique().to_list())
+    actual_geos = set(result["ctrl_geoid"].unique().to_list())
+    missing_geos = expected_geos - actual_geos
+
+    pums_puma_ids = pums_incidence[puma_col].cast(pl.Utf8).unique()
+    xw_puma_ids = xw["puma_id"].unique()
+
+    if missing_geos:
+        # Provide extra context when everything is missing — likely a
+        # systemic join failure rather than a small-zone issue.
+        if actual_geos:
+            msg = (
+                f"{len(missing_geos)} control zone(s) from the crosswalk received "
+                f"zero PUMS allocation: {sorted(missing_geos)}"
+            )
+        else:
+            pums_samples = pums_puma_ids.sort().head(5).to_list()
+            xw_samples = xw_puma_ids.sort().head(5).to_list()
+            msg = (
+                f"ALL {len(missing_geos)} control zone(s) missing after PUMA join — "
+                f"no PUMS records matched the crosswalk.  This is almost certainly "
+                f"a PUMA ID type mismatch (e.g. integer vs. zero-padded string).  "
+                f"PUMS PUMAs (first 5): {pums_samples}.  "
+                f"Crosswalk PUMAs (first 5): {xw_samples}."
+            )
+        raise ValueError(msg)
 
     logger.info(
         "PUMS zone allocation: %d HHs → %d rows (%d zones)",
