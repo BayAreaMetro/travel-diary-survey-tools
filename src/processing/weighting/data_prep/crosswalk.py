@@ -341,6 +341,91 @@ class PumaCrosswalk:
         )
         return hh_xw, person_xw
 
+    def allocate_pums_incidence(
+        self,
+        pums_incidence: pl.DataFrame,
+        *,
+        puma_col: str = "PUMA",
+        weight_col: str = "WGTP",
+    ) -> pl.DataFrame:
+        """Assign target-zone IDs and scale PUMS weights via the crosswalk.
+
+        Each PUMS household is duplicated per overlapping target zone, and
+        its weight is scaled by the zone's ``allocation_weight``.
+
+        Parameters
+        ----------
+        pums_incidence : pl.DataFrame
+            Pivoted PUMS incidence table.  Must contain *puma_col* and
+            *weight_col*.
+        puma_col : str
+            Column identifying the PUMA (default ``"PUMA"``).
+        weight_col : str
+            Original PUMS weight column to scale (default ``"WGTP"``).
+
+        Returns:
+        -------
+        pl.DataFrame
+            Incidence table with ``study_geoid`` and ``ctrl_geoid`` added,
+            *weight_col* scaled by ``allocation_weight``, and rows
+            multiplied per zone overlap.
+        """
+        xw = self.crosswalk_df.select(
+            "puma_id",
+            "study_geoid",
+            "ctrl_geoid",
+            "allocation_weight",
+        )
+
+        result = (
+            pums_incidence.join(
+                xw,
+                left_on=pl.col(puma_col).cast(pl.Utf8),
+                right_on="puma_id",
+                how="inner",
+            )
+            .with_columns(
+                (pl.col(weight_col).cast(pl.Float64) * pl.col("allocation_weight")).alias(
+                    weight_col
+                ),
+            )
+            .drop("allocation_weight")
+        )
+
+        # Guard: every crosswalk ctrl_geoid must appear in the result.
+        # A missing zone means the balancer will have no seed data for it.
+        expected_geos = set(xw["ctrl_geoid"].unique().to_list())
+        actual_geos = set(result["ctrl_geoid"].unique().to_list())
+        missing_geos = expected_geos - actual_geos
+
+        if missing_geos:
+            pums_puma_ids = pums_incidence[puma_col].cast(pl.Utf8).unique()
+            xw_puma_ids = xw["puma_id"].unique()
+            if actual_geos:
+                msg = (
+                    f"{len(missing_geos)} control zone(s) from the crosswalk received "
+                    f"zero PUMS allocation: {sorted(missing_geos)}"
+                )
+            else:
+                pums_samples = pums_puma_ids.sort().head(5).to_list()
+                xw_samples = xw_puma_ids.sort().head(5).to_list()
+                msg = (
+                    f"ALL {len(missing_geos)} control zone(s) missing after PUMA join \u2014 "
+                    f"no PUMS records matched the crosswalk.  This is almost certainly "
+                    f"a PUMA ID type mismatch (e.g. integer vs. zero-padded string).  "
+                    f"PUMS PUMAs (first 5): {pums_samples}.  "
+                    f"Crosswalk PUMAs (first 5): {xw_samples}."
+                )
+            raise ValueError(msg)
+
+        logger.info(
+            "PUMS zone allocation: %d HHs \u2192 %d rows (%d zones)",
+            len(pums_incidence),
+            len(result),
+            result["study_geoid"].n_unique(),
+        )
+        return result
+
 
 # ---------------------------------------------------------------------------
 # Helpers

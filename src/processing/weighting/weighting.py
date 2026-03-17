@@ -52,6 +52,7 @@ from pathlib import Path
 
 import polars as pl
 
+from data_canon.core.dataclass import CanonicalData
 from pipeline.cache import PipelineCache
 from pipeline.decoration import step
 from processing.weighting.balancing.balancer import (
@@ -68,7 +69,6 @@ from processing.weighting.balancing.weight_propagation import (
 )
 from processing.weighting.controls.registry import register_crosstabs_from_config, resolve_targets
 from processing.weighting.data_prep.control_data import (
-    allocate_pums_zones,
     recode_pums_households,
     recode_pums_persons,
 )
@@ -97,6 +97,7 @@ from processing.weighting.specs import (
     ControlTotals,
     GridPoint,
     ImportanceConfig,
+    WeightingConfig,
     ZoneStatus,
 )
 from processing.weighting.validation.checksums import check_incidence_sums
@@ -117,19 +118,34 @@ logger = logging.getLogger(__name__)
 class WeightingPipeline:
     """Stateful weighting pipeline.
 
-    Separates *configuration* (frozen dataclasses set in ``__init__``)
-    from *intermediate state* (built up phase-by-phase during ``run()``).
+    Separates *configuration* (frozen at ``__init__``) from *intermediate
+    state* (built up phase-by-phase).  Phase methods are designed to be
+    called in sequence from the ``@step() weighting()`` entry-point; each
+    stores results as instance attributes.
 
-    Public workflow::
+    Usage::
 
-        pipeline = WeightingPipeline(controls=..., balancing=..., ...)
-        tables = pipeline.run(households=hh, persons=per, ...)
+        pipeline = WeightingPipeline(controls=..., config=..., data=...)
 
-    Individual phases can also be called in isolation for testing /
-    inspection — each stores results as instance attributes.
+        pipeline.setup()
+        pipeline.fetch_pums()
+
+        pipeline.recode_and_pivot()
+        pipeline.assign_zones()
+        pipeline.apply_merges()
+
+        pipeline.aggregate_totals()
+        pipeline.resolve_importance()
+
+        pipeline.balance()
+        pipeline.propagate()
+
+        pipeline.generate_diagnostics()
+
+        weights = pipeline.household_weights
     """
 
-    # -- Intermediate state (populated during run) ----------------------
+    # -- Intermediate state (populated by phase methods) ----------------
     crosswalk: PumaCrosswalk
     pums_hh: pl.DataFrame
     pums_per: pl.DataFrame
@@ -146,33 +162,34 @@ class WeightingPipeline:
         self,
         *,
         controls: ControlRegistryConfig,
+        config: WeightingConfig,
+        data: CanonicalData,
         balancing: BalancingConfig | None = None,
         importance: ImportanceConfig | None = None,
-        geography: dict,
-        state_fips: str,
-        pums_year: int,
-        pums_households: str | None = None,
-        pums_persons: str | None = None,
-        sample_plan: str | None = None,
-        cache_dir: Path | None = None,
-        expansion_factor_grid: list[float] | None = None,
-        strict_survey_nulls: bool = False,
     ) -> None:
-        """Initialise with frozen configuration parameters."""
+        """Initialise with configuration and survey data."""
+        if data.households is None or data.persons is None:
+            msg = "WeightingPipeline requires at least households and persons tables."
+            raise ValueError(msg)
+
         self.controls = controls
+        self.config = config
+        self.data = data
         self.balancing = balancing or BalancingConfig()
         self.importance_cfg = importance or ImportanceConfig()
-        self.geography = geography
-        self.state_fips = state_fips
-        self.pums_year = pums_year
-        self.pums_households = pums_households
-        self.pums_persons = pums_persons
-        self.sample_plan = sample_plan
-        self.cache_dir = cache_dir
-        self.expansion_factor_grid = expansion_factor_grid
-        self.strict_survey_nulls = strict_survey_nulls
 
-        # State initialised to None; populated by phases
+        # Convenience aliases from config
+        self.geography = config.geography
+        self.state_fips = config.state_fips
+        self.pums_year = config.pums_year
+        self.pums_households = config.pums_households
+        self.pums_persons = config.pums_persons
+        self.sample_plan = config.sample_plan
+        self.cache_dir = config.cache_dir
+        self.expansion_factor_grid = config.expansion_factor_grid
+        self.strict_survey_nulls = config.strict_survey_nulls
+
+        # Mutable state initialised to None; populated by phases
         self.control_moe = None
         self.grid_results = None
 
@@ -233,22 +250,25 @@ class WeightingPipeline:
         self.pums_hh = self.pums_hh.with_columns(pl.col("PUMA").cast(pl.Utf8).str.zfill(5))
         self.pums_per = self.pums_per.with_columns(pl.col("PUMA").cast(pl.Utf8).str.zfill(5))
 
-    def recode_and_pivot(
-        self,
-        households: pl.DataFrame,
-        persons: pl.DataFrame,
-    ) -> None:
-        """Recode both datasets through control expressions, then pivot to incidence."""
+    def recode_survey(self) -> None:
+        """Recode survey HH/persons through control expressions and pivot to incidence."""
         names = self.controls.target_names
         strict_nulls = self.strict_survey_nulls
-        # Conformance: identical control-column schemas
-        hh_recoded = recode_survey_households(households, persons, names, strict_nulls=strict_nulls)
-        per_recoded = recode_survey_persons(persons, names, strict_nulls=strict_nulls)
+        hh_recoded = recode_survey_households(
+            self.data.households,  # pyright: ignore[reportArgumentType]
+            self.data.persons,  # pyright: ignore[reportArgumentType]
+            names,
+            strict_nulls=strict_nulls,
+        )
+        per_recoded = recode_survey_persons(self.data.persons, names, strict_nulls=strict_nulls)  # pyright: ignore[reportArgumentType]
+        self.seed_incidence = build_incidence_table(hh_recoded, per_recoded, names)
+        check_incidence_sums(self.seed_incidence, names, source_label="survey")
+
+    def recode_pums(self) -> None:
+        """Recode PUMS HH/persons through control expressions and pivot to incidence."""
+        names = self.controls.target_names
         self.pums_hh = recode_pums_households(self.pums_hh, self.pums_per, names)
         self.pums_per = recode_pums_persons(self.pums_per, names)
-
-        # Incidence pivot — identical column layout
-        self.seed_incidence = build_incidence_table(hh_recoded, per_recoded, names)
         self.pums_incidence = build_incidence_table(
             self.pums_hh,
             self.pums_per,
@@ -256,40 +276,38 @@ class WeightingPipeline:
             hh_id_col="SERIALNO",
             extra_cols=["WGTP", "PUMA"],
         )
-
-        check_incidence_sums(self.seed_incidence, names, source_label="survey")
         check_incidence_sums(self.pums_incidence, names, source_label="pums")
 
-    def assign_zones(self, households: pl.DataFrame) -> pl.DataFrame:
+    def assign_zones(self) -> None:
         """Point-in-polygon zone assignment + optional block-group assignment.
 
-        Returns the updated households frame (with geo columns attached).
-        Also joins geo columns onto ``self.seed_incidence`` and allocates
-        PUMS weights via the crosswalk.
+        Mutates ``self.data.households`` in place (adds geo columns) and
+        updates ``self.seed_incidence`` and ``self.pums_incidence`` with
+        zone info.
         """
-        households = self.crosswalk.assign_households(households)
-        n_assigned = households.filter(pl.col("study_geoid").is_not_null()).height
-        logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(households))
+        hh = self.crosswalk.assign_households(self.data.households)  # pyright: ignore[reportArgumentType]
+        n_assigned = hh.filter(pl.col("study_geoid").is_not_null()).height
+        logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(hh))
 
         if self.sample_plan is not None:
-            households = self.crosswalk.assign_block_groups(households)
-            n_bg = households.filter(pl.col("bg_geo_id").is_not_null()).height
-            logger.info("Assigned %d / %d HHs to block groups", n_bg, len(households))
+            hh = self.crosswalk.assign_block_groups(hh)
+            n_bg = hh.filter(pl.col("bg_geo_id").is_not_null()).height
+            logger.info("Assigned %d / %d HHs to block groups", n_bg, len(hh))
+
+        self.data.households = hh
 
         hh_join_cols = ["hh_id", "study_geoid", "ctrl_geoid"]
-        if "bg_geo_id" in households.columns:
+        if "bg_geo_id" in hh.columns:
             hh_join_cols.append("bg_geo_id")
 
         self.seed_incidence = self.seed_incidence.join(
-            households.select(hh_join_cols),
+            hh.select(hh_join_cols),
             on="hh_id",
             how="left",
         )
-        self.pums_incidence = allocate_pums_zones(
+        self.pums_incidence = self.crosswalk.allocate_pums_incidence(
             self.pums_incidence,
-            self.crosswalk.crosswalk_df,
         )
-        return households
 
     def apply_merges(self) -> None:
         """Apply 1-D merges symmetrically to both incidence tables.
@@ -311,6 +329,10 @@ class WeightingPipeline:
                 len(self.controls.merges_1d),
                 len(self.seed_incidence.columns),
             )
+
+        # Check for sparse cross-tab cells that may cause balancing issues
+        ctrl_instances = resolve_targets(self.controls.target_names)
+        warn_crosstab_sparsity(self.seed_incidence, ctrl_instances)
 
     def aggregate_totals(self) -> None:
         """Aggregate PUMS incidence into per-zone control totals."""
@@ -405,8 +427,9 @@ class WeightingPipeline:
                 importance=imp_cfg,
             )
 
-    def generate_diagnostics(self, output_dir: Path) -> None:
+    def generate_diagnostics(self) -> None:
         """Write the self-contained HTML diagnostics report."""
+        report_dir = self.cache_dir / "weighting" if self.cache_dir else Path.cwd() / "weighting"
         zone_groups: dict[str, list[str]] | None = self.geography.get("zone_groups")
         generate_report(
             seed=self.seed_incidence,
@@ -414,7 +437,7 @@ class WeightingPipeline:
             control_totals=self.control_totals,
             target_names=self.controls.target_names,
             statuses=self.statuses,
-            output_path=output_dir / "diagnostics.html",
+            output_path=report_dir / "diagnostics.html",
             puma_gdf=self.crosswalk.puma_gdf,
             target_gdf=self.crosswalk.target_gdf,
             crosswalk_df=self.crosswalk.crosswalk_df,
@@ -425,27 +448,31 @@ class WeightingPipeline:
             control_moe=self.control_moe,
         )
 
-    def propagate(
-        self,
-        households: pl.DataFrame,
-        persons: pl.DataFrame,
-        **extra_tables: pl.DataFrame | None,
-    ) -> dict[str, pl.DataFrame]:
-        """Attach weights to households and propagate to all tables."""
-        households = safe_join_weight(
-            households,
+    @property
+    def household_weights(self) -> pl.DataFrame:
+        """The core pipeline output: ``hh_id → hh_weight``."""
+        return self.weights.select("hh_id", "hh_weight")
+
+    def propagate(self) -> None:
+        """Attach weights to households and propagate to all tables on ``self.data``."""
+        self.data.households = safe_join_weight(
+            self.data.households,  # pyright: ignore[reportArgumentType]
             self.weights.select("hh_id", "hh_weight"),
             "hh_id",
         )
-        households = households.join(
+        self.data.households = self.data.households.join(
             self.seed_incidence.select("hh_id", "base_weight"),
             on="hh_id",
             how="left",
         )
         tables = collect_tables(
-            households=households,
-            persons=persons,
-            **extra_tables,
+            households=self.data.households,
+            persons=self.data.persons,
+            days=self.data.days,
+            unlinked_trips=self.data.unlinked_trips,
+            linked_trips=self.data.linked_trips,
+            joint_trips=self.data.joint_trips,
+            tours=self.data.tours,
         )
         has_weight: dict[str, str] = {"households": "hh_weight"}
         propagate_weights(tables, has_weight)
@@ -454,64 +481,10 @@ class WeightingPipeline:
             self.control_totals,
             self.controls.specs,
         )
-        return non_null_tables(tables)
-
-    # ------------------------------------------------------------------
-    # Full pipeline
-    # ------------------------------------------------------------------
-
-    def run(
-        self,
-        households: pl.DataFrame,
-        persons: pl.DataFrame,
-        **extra_tables: pl.DataFrame | None,
-    ) -> dict[str, pl.DataFrame]:
-        """Execute the full weighting pipeline end-to-end.
-
-        Parameters
-        ----------
-        households, persons : pl.DataFrame
-            Required canonical tables.
-        **extra_tables
-            Optional canonical tables (days, linked_trips, tours, etc.).
-
-        Returns:
-        -------
-        dict[str, pl.DataFrame]
-            All tables with weight columns attached.
-        """
-        # TODO: Consider having these methods return a value so we can easily track
-        # intermediate outputs
-
-        # Phase methods build up intermediate state on the pipeline instance, which is
-        self.setup()
-        # Data fetching and preparation phases mutate the incidence tables in-place
-        self.fetch_pums()
-        # Recode and pivot after fetching but before zone assignment
-        self.recode_and_pivot(households, persons)
-        # Assign zones to households and PUMS using crosswalk
-        households = self.assign_zones(households)
-        # Apply merges after zone assignment so they operate on the final control geographies
-        self.apply_merges()
-        # Control totals must be aggregated after all merges are applied
-        ctrl_instances = resolve_targets(self.controls.target_names)
-        warn_crosstab_sparsity(self.seed_incidence, ctrl_instances)
-        # Aggregate totals after all merges so the balancer gets the final post-merge targets
-        self.aggregate_totals()
-        # Calculate importance weights (MOE-based, explicit overrides, or default)
-        self.resolve_importance()
-        # Run the balancer to compute expansion weights; optional grid search if configured
-        self.balance()
-
-        # Generate diagnostics
-        report_dir = self.cache_dir / "weighting" if self.cache_dir else Path.cwd() / "weighting"
-        self.generate_diagnostics(report_dir)
-
-        # Propagate weights to all tables and return
-        # hh -> per -> days -> trips -> tours
-        weighted_tables = self.propagate(households, persons, **extra_tables)
-
-        return weighted_tables
+        # Write propagated tables back to self.data
+        for name, df in tables.items():
+            if df is not None:
+                setattr(self.data, name, df)
 
 
 # ===========================================================================
@@ -570,24 +543,16 @@ def weighting(  # noqa: PLR0913
         msg = "Weighting requires at least households and persons tables."
         raise ValueError(msg)
 
-    balancing_cfg = BalancingConfig(
-            max_expansion_factor=max_expansion_factor,
-            min_expansion_factor=min_expansion_factor,
-            min_weight=min_weight,
-            max_weight=max_weight,
-            max_iterations=max_iterations,
-            n_workers=n_workers,
-        )
-    importance_cfg = ImportanceConfig(
-        moe_based=moe_based_importance,
-        default=default_importance,
+    data = CanonicalData(
+        households=households,
+        persons=persons,
+        days=days,
+        unlinked_trips=unlinked_trips,
+        linked_trips=linked_trips,
+        tours=tours,
+        joint_trips=joint_trips,
     )
-
-    # TODO: Lets move more of these into a config data class to avoid the explosion of parameters
-    pipeline = WeightingPipeline(
-        controls=ControlRegistryConfig.from_yaml(controls),
-        balancing=balancing_cfg,
-        importance=importance_cfg,
+    wt_config = WeightingConfig(
         geography=geography,
         state_fips=state_fips,
         pums_year=pums_year,
@@ -598,15 +563,62 @@ def weighting(  # noqa: PLR0913
         expansion_factor_grid=expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
     )
-    # TODO: I think we may want to put these tables into a dataclass to avoid the explosion AND
-    # consider moving them into the pipeline state instead of passing them around as parameters
-    weighted_tables = pipeline.run(
-        households=households,
-        persons=persons,
-        days=days,
-        unlinked_trips=unlinked_trips,
-        linked_trips=linked_trips,
-        joint_trips=joint_trips,
-        tours=tours,
+    balance_cfg = BalancingConfig(
+        max_expansion_factor=max_expansion_factor,
+        min_expansion_factor=min_expansion_factor,
+        min_weight=min_weight,
+        max_weight=max_weight,
+        max_iterations=max_iterations,
+        n_workers=n_workers,
     )
-    return weighted_tables
+    importance_cfg = ImportanceConfig(
+        moe_based=moe_based_importance,
+        default=default_importance,
+    )
+    pipeline = WeightingPipeline(
+        controls=ControlRegistryConfig.from_yaml(controls),
+        config=wt_config,
+        data=data,
+        balancing=balance_cfg,
+        importance=importance_cfg,
+    )
+
+    # 1. Setup — register controls, build crosswalk, fetch PUMS
+    pipeline.setup()
+    pipeline.fetch_pums()
+
+    # 2. Incidence prep
+    # Recode survey and PUMS into identical control columns
+    # then pivot to incidence tables with the same column layout for both datasets.
+    # Enables identical downstream processing (zone assignment, merges, balancing, etc.)
+    pipeline.recode_survey()
+    pipeline.recode_pums()
+
+    # 2a. Zone assignment and merges are intertwined — merges may depend on zone groups, and
+
+    pipeline.assign_zones()
+    # 2b. Merge controls, must be applied after zone assignment and before total aggregation
+    pipeline.apply_merges()
+
+    # 3. Control aggregation
+    pipeline.aggregate_totals()
+    pipeline.resolve_importance()
+
+    # 4. Balance + propagate weights
+    pipeline.balance()
+    pipeline.propagate()
+
+    # 5. Diagnostics
+    pipeline.generate_diagnostics()
+
+    return non_null_tables(
+        collect_tables(
+            households=pipeline.data.households,
+            persons=pipeline.data.persons,
+            days=pipeline.data.days,
+            unlinked_trips=pipeline.data.unlinked_trips,
+            linked_trips=pipeline.data.linked_trips,
+            joint_trips=pipeline.data.joint_trips,
+            tours=pipeline.data.tours,
+        )
+    )

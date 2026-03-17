@@ -7,6 +7,7 @@ Kept as a leaf module with minimal imports to avoid circular dependencies.
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -155,6 +156,27 @@ class ImportanceConfig:
     explicit: dict[str, float] = field(default_factory=dict)
     moe_based: bool = False
     default: float = 100.0
+
+
+@dataclass
+class WeightingConfig:
+    """Top-level configuration for the weighting pipeline.
+
+    Groups the parameters that are *not* already covered by
+    :class:`ControlRegistryConfig`, :class:`BalancingConfig`, or
+    :class:`ImportanceConfig` — primarily Census/geography settings
+    and pipeline plumbing.
+    """
+
+    geography: dict
+    state_fips: str
+    pums_year: int
+    pums_households: str | None = None
+    pums_persons: str | None = None
+    sample_plan: str | None = None
+    cache_dir: Path | None = None
+    expansion_factor_grid: list[float] | None = None
+    strict_survey_nulls: bool = False
 
 
 @dataclass
