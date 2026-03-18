@@ -124,7 +124,7 @@ def _compare_and_log(
     region_base = float(comp["base_total"].sum())
     region_pct = (region_survey - region_target) / region_target * 100 if region_target else 0.0
 
-    # Log: region distribution
+    # Log: weight distribution headline
     logger.info(
         "  %s weights — min=%.1f  max=%.1f  mean=%.1f  median=%.1f",
         label,
@@ -134,33 +134,35 @@ def _compare_and_log(
         float(w.median()) if len(w) else 0.0,  # pyright: ignore[reportArgumentType]
     )
 
-    # Log: per-zone table
-    hdr = (
-        f"  {'zone':<8} {'base':>12} {'balanced':>12} {'target':>12}"
-        f" {'diff%':>8} {'min':>8} {'max':>8} {'mean':>8} {'median':>8}"
+    # Build a display table and let Polars handle column alignment
+    display = comp.sort(geo_col).select(
+        pl.col(geo_col).cast(pl.Utf8).alias("zone"),
+        pl.col("base_total").round(0).cast(pl.Int64).alias("base"),
+        pl.col("survey_total").round(0).cast(pl.Int64).alias("balanced"),
+        (pl.col("target_total").fill_null(0).round(0).cast(pl.Int64)).alias("target"),
+        (pl.col("pct_diff").fill_null(0.0).round(2)).alias("diff%"),
+        pl.col("wt_min").round(1).alias("min"),
+        pl.col("wt_max").round(1).alias("max"),
+        pl.col("wt_mean").round(1).alias("mean"),
+        pl.col("wt_median").round(1).alias("median"),
     )
-    logger.info(hdr)
-    for row in comp.sort(geo_col).iter_rows(named=True):
-        logger.info(
-            "  %-8s %12.0f %12.0f %12.0f %+7.2f%% %8.1f %8.1f %8.1f %8.1f",
-            str(row[geo_col]),
-            row["base_total"],
-            row["survey_total"],
-            row["target_total"] or 0.0,
-            row["pct_diff"] or 0.0,
-            row["wt_min"],
-            row["wt_max"],
-            row["wt_mean"],
-            row["wt_median"],
-        )
-    logger.info(
-        "  %-8s %12.0f %12.0f %12.0f %+7.2f%%",
-        "REGION",
-        region_base,
-        region_survey,
-        region_target,
-        region_pct,
-    )
+    region_row = pl.DataFrame(
+        {
+            "zone": ["REGION"],
+            "base": [round(region_base)],
+            "balanced": [round(region_survey)],
+            "target": [round(region_target)],
+            "diff%": [round(region_pct, 2)],
+            "min": [None],
+            "max": [None],
+            "mean": [None],
+            "median": [None],
+        }
+    ).cast(display.schema)
+    display = pl.concat([display, region_row])
+
+    for line in str(display).splitlines():
+        logger.info("  %s", line)
 
 
 # Hierarchy pairs: (parent, child, join_key, parent_weight, child_weight)

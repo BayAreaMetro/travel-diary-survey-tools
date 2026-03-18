@@ -1,30 +1,39 @@
 """Census TIGER geography loading.
 
-Uses `pygris <https://github.com/walkerke/pygris>`_ to download and cache
-PUMA and block shapefiles from the Census Bureau's TIGER/Line server.
-
-Block population comes from the **decennial census** TABBLOCK product
-(``POP20`` from 2020 decennial, ``POP10`` from 2010 decennial).  Only
-decennial TIGER vintages include these population columns — regular
-annual files do not.  Column names are normalised to ``block_pop`` /
-``puma_id`` so downstream code is vintage-agnostic.
+PUMA and block geometries share the same decennial vintage (2010 for
+pre-2022 PUMS, 2020 for 2022+) so that block GEOIDs match the sample
+plan.  Block population is fetched from the Census decennial API
+(PL 94-171 for 2020, SF1 for 2010) and joined by GEOID — the TIGER
+shapefiles themselves do not always carry population columns.
 
 Processed GeoDataFrames are cached as GeoParquet under
-``<pipeline-cache-dir>/census_geo/`` for fast repeat loads.
+``<pipeline-cache-dir>/weighting/census_geo/`` for fast repeat loads.
 """
 
 import logging
-from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import geopandas as gpd
 import pygris
+import requests
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+# Explicit column mappings per decennial vintage.
+_PUMA_ID = {2020: "PUMACE20", 2010: "PUMACE10"}
+_BLOCK_ID = {2020: "GEOID20", 2010: "GEOID10"}
+
+# Decennial census API endpoints and total-population variable names.
+_BLOCK_POP_API: dict[int, tuple[str, str]] = {
+    2020: ("https://api.census.gov/data/2020/dec/pl", "P1_001N"),
+    2010: ("https://api.census.gov/data/2010/dec/sf1", "P001001"),
+}
+
 
 # ---------------------------------------------------------------------------
-# Vintage helpers
+# Vintage helper
 # ---------------------------------------------------------------------------
 
 
@@ -41,19 +50,98 @@ def puma_vintage_for_pums_year(pums_year: int) -> int:
     raise ValueError(msg)
 
 
-def _find_column(gdf: gpd.GeoDataFrame, *prefixes: str) -> str:
-    """Find the first column matching ``{prefix}20`` or ``{prefix}10``.
+# ---------------------------------------------------------------------------
+# Census API helpers
+# ---------------------------------------------------------------------------
 
-    Raises ``ValueError`` if none of the candidates exist.
+
+def _parse_block_response(data: list[list[str]], pop_var: str) -> dict[str, int]:
+    """Parse a Census API JSON response into ``{geoid: population}``."""
+    header, *rows = data
+    pop_i = header.index(pop_var)
+    st_i, co_i, tr_i, bl_i = (header.index(c) for c in ("state", "county", "tract", "block"))
+    return {r[st_i] + r[co_i] + r[tr_i] + r[bl_i]: int(r[pop_i]) for r in rows}
+
+
+def _fetch_county_blocks(
+    url: str,
+    pop_var: str,
+    state_fips: str,
+    county: str,
+) -> dict[str, int]:
+    """Fetch block population for a single county."""
+    r = requests.get(
+        url,
+        params={
+            "get": pop_var,
+            "for": "block:*",
+            "in": f"state:{state_fips} county:{county}",
+        },
+        timeout=120,
+    )
+    r.raise_for_status()
+    return _parse_block_response(r.json(), pop_var)
+
+
+def _fetch_block_population(state_fips: str, vintage: int) -> dict[str, int]:
+    """Fetch total population per Census block from the decennial census API.
+
+    The 2020 PL endpoint supports ``county:* tract:*`` in a single
+    request.  The 2010 SF1 endpoint does not, so we first list counties
+    and then fetch blocks county-by-county (parallelised with threads).
+
+    Returns ``{geoid: population}`` for every block in *state_fips*.
     """
-    cols = set(gdf.columns)
-    for suffix in ("20", "10"):
-        for prefix in prefixes:
-            candidate = f"{prefix}{suffix}"
-            if candidate in cols:
-                return candidate
-    msg = f"Cannot find column {'/'.join(prefixes)}[20|10] in shapefile. Available: {sorted(cols)}"
-    raise ValueError(msg)
+    url, pop_var = _BLOCK_POP_API[vintage]
+    logger.info(
+        "Fetching %d decennial block population for state %s from Census API",
+        vintage,
+        state_fips,
+    )
+
+    # 2020 PL supports a single statewide request.
+    if vintage >= 2020:  # noqa: PLR2004
+        resp = requests.get(
+            url,
+            params={
+                "get": pop_var,
+                "for": "block:*",
+                "in": f"state:{state_fips} county:* tract:*",
+            },
+            timeout=300,
+        )
+        resp.raise_for_status()
+        result = _parse_block_response(resp.json(), pop_var)
+        logger.info("Fetched population for %d blocks", len(result))
+        return result
+
+    # 2010 SF1 requires county-by-county iteration.
+    resp = requests.get(
+        url,
+        params={"get": "NAME", "for": "county:*", "in": f"state:{state_fips}"},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    co_i = resp.json()[0].index("county")
+    counties = [r[co_i] for r in resp.json()[1:]]
+    logger.info("Fetching blocks for %d counties in state %s", len(counties), state_fips)
+
+    result: dict[str, int] = {}
+    block_count = 0
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_fetch_county_blocks, url, pop_var, state_fips, c): c for c in counties
+        }
+        with tqdm(total=len(counties), unit="county") as pbar:
+            for future in as_completed(futures):
+                county_pop = future.result()
+                result.update(county_pop)
+                block_count += len(county_pop)
+                pbar.set_postfix(blocks=f"{block_count:,}")
+                pbar.update(1)
+
+    logger.info("Fetched population for %d blocks", len(result))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -61,23 +149,11 @@ def _find_column(gdf: gpd.GeoDataFrame, *prefixes: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _cached_geoparquet(
-    key: str,
-    builder: Callable[[], gpd.GeoDataFrame],
-    cache_dir: Path | None = None,
-) -> gpd.GeoDataFrame:
-    """Return a GeoDataFrame, building and caching as GeoParquet if needed."""
+def _geo_cache_path(key: str, cache_dir: Path | None) -> Path | None:
+    """Return the cache path for a census GeoParquet file, or None."""
     if cache_dir is None:
-        return builder()
-    path = cache_dir / "census_geo" / f"{key}.parquet"
-    if path.exists():
-        logger.debug("Cache hit: %s", path)
-        return gpd.read_parquet(path)
-    gdf = builder()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    gdf.to_parquet(path)
-    logger.debug("Cached → %s", path)
-    return gdf
+        return None
+    return cache_dir / "census_geo" / f"{key}.parquet"
 
 
 # ---------------------------------------------------------------------------
@@ -93,26 +169,30 @@ def get_puma_gdf(
 ) -> gpd.GeoDataFrame:
     """Download PUMA polygons for *state_fips* via pygris.
 
-    Requests the TIGER file for *pums_year* directly — each vintage
-    carries the matching PUMA IDs (``PUMACE10`` or ``PUMACE20``).
-
     Returns a GeoDataFrame with ``puma_id`` (str) and ``geometry``.
     """
     vintage = puma_vintage_for_pums_year(pums_year)
+    path = _geo_cache_path(f"puma_{state_fips}_{vintage}", cache_dir)
+    if path and path.exists():
+        logger.debug("Cache hit: %s", path)
+        return gpd.read_parquet(path)
 
-    def _build() -> gpd.GeoDataFrame:
-        logger.info(
-            "Downloading %d-vintage PUMAs (TIGER %d) for state %s", vintage, pums_year, state_fips
-        )
-        gdf = pygris.pumas(state=state_fips, year=pums_year, cache=True)
-        id_col = _find_column(gdf, "PUMACE")
-        return (
-            gdf[[id_col, "geometry"]]
-            .rename(columns={id_col: "puma_id"})
-            .assign(puma_id=lambda df: df["puma_id"].astype(str))
-        )
+    logger.info(
+        "Downloading %d-vintage PUMAs (TIGER %d) for state %s", vintage, pums_year, state_fips
+    )
+    id_col = _PUMA_ID[vintage]
+    gdf = pygris.pumas(state=state_fips, year=pums_year, cache=True)
+    gdf = (
+        gdf[[id_col, "geometry"]]
+        .rename(columns={id_col: "puma_id"})
+        .assign(puma_id=lambda df: df["puma_id"].astype(str))
+    )
 
-    return _cached_geoparquet(f"puma_{state_fips}_{vintage}", _build, cache_dir)
+    if path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        gdf.to_parquet(path)
+        logger.debug("Cached → %s", path)
+    return gdf
 
 
 def get_block_gdf(
@@ -121,29 +201,51 @@ def get_block_gdf(
     *,
     cache_dir: Path | None = None,
 ) -> gpd.GeoDataFrame:
-    """Download Census block polygons with population for *state_fips*.
+    """Download block geometries and join decennial population.
 
-    Uses the decennial TABBLOCK product matching the PUMA vintage
-    (year=2010 for pre-2022 PUMS, year=2020 for 2022+) — the only
-    vintages that include population columns.
+    Uses the same vintage as PUMAs so block GEOIDs match the sample
+    plan.  Population is fetched from the Census decennial API and
+    joined by GEOID.
+
+    The population is used for dasymetric block-level weighting of cross
+    PUMA-to-custom zone allocations.
 
     Returns a GeoDataFrame with ``block_id`` (str), ``block_pop`` (int),
     and ``geometry``.
     """
     vintage = puma_vintage_for_pums_year(pums_year)
+    path = _geo_cache_path(f"block_{state_fips}_{vintage}", cache_dir)
+    if path and path.exists():
+        logger.debug("Cache hit: %s", path)
+        return gpd.read_parquet(path)
 
-    def _build() -> gpd.GeoDataFrame:
-        logger.info("Downloading decennial %d blocks for state %s", vintage, state_fips)
-        gdf = pygris.blocks(state=state_fips, year=vintage, cache=True)
-        geoid_col = _find_column(gdf, "GEOID")
-        pop_col = _find_column(gdf, "POP")
-        return (
-            gdf[[geoid_col, pop_col, "geometry"]]
-            .rename(columns={geoid_col: "block_id", pop_col: "block_pop"})
-            .assign(
-                block_id=lambda df: df["block_id"].astype(str),
-                block_pop=lambda df: df["block_pop"].astype(int),
-            )
+    geoid_col = _BLOCK_ID[vintage]
+    logger.info("Downloading %d TIGER blocks for state %s", vintage, state_fips)
+    gdf = pygris.blocks(state=state_fips, year=vintage, cache=True)
+
+    pop = _fetch_block_population(state_fips, vintage)
+    if not pop:
+        msg = (
+            f"Fetched empty block population for state {state_fips} "
+            f"vintage {vintage}. Check the Census API endpoint."
         )
+        raise ValueError(msg)
 
-    return _cached_geoparquet(f"block_{state_fips}_{vintage}", _build, cache_dir)
+    gdf = gdf[[geoid_col, "geometry"]].rename(columns={geoid_col: "block_id"})
+    gdf["block_id"] = gdf["block_id"].astype(str)
+    gdf["block_pop"] = gdf["block_id"].map(pop).fillna(0).astype(int)
+
+    # Report population count sanity check.
+    total_pop = gdf["block_pop"].sum()
+    logger.info(
+        "Total block population for state %s vintage %d: %d",
+        state_fips,
+        vintage,
+        total_pop,
+    )
+
+    if path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        gdf.to_parquet(path)
+        logger.debug("Cached → %s", path)
+    return gdf

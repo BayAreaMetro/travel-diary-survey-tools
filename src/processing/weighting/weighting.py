@@ -601,8 +601,8 @@ def weighting(  # noqa: PLR0913
     pipeline.recode_pums()
 
     # 2a. Zone assignment and merges are intertwined — merges may depend on zone groups, and
-
     pipeline.assign_zones()
+
     # 2b. Merge controls, must be applied after zone assignment and before total aggregation
     pipeline.apply_merges()
 
