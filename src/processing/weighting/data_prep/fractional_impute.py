@@ -16,7 +16,11 @@ Public API
     Top-level orchestrator called from the weighting pipeline.
 """
 
+import hashlib
+import json
 import logging
+import pickle
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -27,28 +31,125 @@ from sklearn.model_selection import cross_val_predict
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
 from processing.weighting.data_prep.incidence import IncidenceBundle
+from processing.weighting.specs import ImputationSummary
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Null detection
+# RF model caching
 # ---------------------------------------------------------------------------
 
 
-def detect_null_rows(
-    pivot_df: pl.DataFrame,
-    member_columns: list[str],
-) -> pl.Series:
-    """Return a boolean mask where *all* member columns are zero.
+def _rf_cache_key(
+    train_pivot: pl.DataFrame,
+    feature_cols: list[str],
+    member_cols: list[str],
+    n_estimators: int,
+    random_state: int,
+) -> str:
+    """Deterministic hash of PUMS training data + hyperparameters."""
+    data_hash = str(train_pivot.select(feature_cols + member_cols).hash_rows().sum())
+    parts = [
+        json.dumps(feature_cols),
+        json.dumps(member_cols),
+        str(n_estimators),
+        str(random_state),
+        data_hash,
+        str(len(train_pivot)),
+    ]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
-    A row with ``sum(member_columns) == 0`` means the original encoded
-    value was null — the pivot produced zeros for every category.
 
-    Works on both person-level pivots (0/1 per person) and household-
-    level incidence tables (counts or 0/1).
+def _load_cached_rf(cache_dir: Path, control: str, key: str) -> dict | None:
+    """Load a cached RF model + CV metrics.  Returns None on miss."""
+    path = cache_dir / "rf_models" / f"{control}_{key}.pkl"
+    if not path.exists():
+        return None
+    with path.open("rb") as f:
+        return pickle.load(f)  # noqa: S301
+
+
+def _save_cached_rf(
+    cache_dir: Path,
+    control: str,
+    key: str,
+    clf: RandomForestClassifier,
+    cv_ll: float | None,
+    cv_f1: float | None,
+) -> None:
+    """Persist a fitted RF + CV metrics to disk."""
+    rf_dir = cache_dir / "rf_models"
+    rf_dir.mkdir(parents=True, exist_ok=True)
+    with (rf_dir / f"{control}_{key}.pkl").open("wb") as f:
+        pickle.dump({"model": clf, "cv_ll": cv_ll, "cv_f1": cv_f1}, f)
+
+
+# ---------------------------------------------------------------------------
+# RF training helpers
+# ---------------------------------------------------------------------------
+
+
+def _cv_diagnostics(
+    clf: RandomForestClassifier,
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    n_features: int,
+) -> tuple[float | None, float | None]:
+    """Stratified CV on training data → (log_loss, f1_macro).
+
+    Automatically reduces fold count when a class has fewer than 5
+    samples, and skips CV entirely when any class has < 2  samples.
     """
-    return pivot_df.select(pl.sum_horizontal(member_columns).eq(0)).to_series()
+    class_counts = np.bincount(y_train)
+    min_per_class = int(class_counts[class_counts > 0].min())
+    cv_folds = min(5, min_per_class)
+
+    if cv_folds < 2:  # noqa: PLR2004
+        logger.info("  Skipping CV: smallest class has only %d sample(s)", min_per_class)
+        return None, None
+
+    cv_proba = cross_val_predict(clf, x_train, y_train, cv=cv_folds, method="predict_proba")
+    cv_pred = cv_proba.argmax(axis=1)
+    cv_ll = float(log_loss(y_train, cv_proba))
+    cv_f1 = float(f1_score(y_train, cv_pred, average="macro"))
+    logger.info(
+        "  CV diagnostics: log_loss=%.4f, f1_macro=%.4f (%d rows, %d features, %d folds)",
+        cv_ll,
+        cv_f1,
+        len(y_train),
+        n_features,
+        cv_folds,
+    )
+    return cv_ll, cv_f1
+
+
+def _predict_null_rows(
+    clf: RandomForestClassifier,
+    predict_pivot: pl.DataFrame,
+    null_mask: pl.Series,
+    feature_cols: list[str],
+    member_cols: list[str],
+    id_col: str,
+) -> pl.DataFrame:
+    """Run predict_proba on null rows → DataFrame aligned to *member_cols*."""
+    null_rows = predict_pivot.filter(null_mask)
+    if null_rows.is_empty():
+        return pl.DataFrame()
+
+    probas = clf.predict_proba(
+        null_rows.select(feature_cols).to_numpy().astype(np.float32),
+    )
+    # Map RF class indices back to member columns
+    proba_df = pl.DataFrame(
+        {member_cols[cls]: probas[:, i] for i, cls in enumerate(clf.classes_)},
+    )
+    # Fill any member columns missing from clf.classes_ with 0
+    for col in member_cols:
+        if col not in proba_df.columns:
+            proba_df = proba_df.with_columns(pl.lit(0.0).alias(col))
+
+    return proba_df.with_columns(null_rows[id_col].alias(id_col))
 
 
 # ---------------------------------------------------------------------------
@@ -65,104 +166,76 @@ def _train_and_predict(
     *,
     n_estimators: int = 100,
     random_state: int = 42,
-) -> pl.DataFrame:
-    """Train an RF classifier on complete rows and predict probabilities for null rows.
+    cache_dir: Path | None = None,
+) -> tuple[pl.DataFrame, float | None, float | None]:
+    """Train an RF on complete rows and predict probabilities for null rows.
 
-    Parameters
-    ----------
-    train_pivot : pl.DataFrame
-        Complete data (PUMS pivot) — no nulls in *member_cols*.
-    predict_pivot : pl.DataFrame
-        Data with null rows (survey pivot).
-    null_mask : pl.Series
-        Boolean mask (True = needs prediction) aligned with *predict_pivot*.
-    member_cols : list[str]
-        The ``{ctrl}__{member}`` columns for the target control.
-    id_col : str
-        Row identifier column (``"person_id"`` or ``"hh_id"``).
-    n_estimators : int
-        Number of trees (default 100).
-    random_state : int
-        Seed for reproducibility.
-
-    Returns:
-    -------
-    pl.DataFrame
-        ``[id_col, member_col_1, member_col_2, ...]`` with predicted
-        probabilities for each null row.  Probabilities sum to 1.0 per row.
+    Returns ``(proba_df, log_loss, f1_macro)``.  When *cache_dir* is
+    provided the fitted model and CV metrics are persisted so subsequent
+    runs with the same PUMS data skip training entirely.
     """
-    # Features = all other __ columns in the pivot (exclude target + id columns)
-    all_dunder_cols = sorted(c for c in train_pivot.columns if "__" in c)
-    feature_cols = [c for c in all_dunder_cols if c not in member_cols]
-
+    feature_cols = sorted(c for c in train_pivot.columns if "__" in c and c not in member_cols)
     if not feature_cols:
-        logger.warning(
-            "No feature columns available for predicting %s — skipping",
-            member_cols,
-        )
-        return pl.DataFrame()
+        logger.warning("No feature columns for %s — skipping", member_cols)
+        return pl.DataFrame(), None, None
 
-    # Build training arrays
     x_train = train_pivot.select(feature_cols).to_numpy().astype(np.float32)
-    # Label = which member column is 1 (argmax across member cols)
     y_train = train_pivot.select(member_cols).to_numpy().argmax(axis=1)
 
-    # Skip if only one class present
-    n_classes = len(np.unique(y_train))
-    if n_classes < 2:  # noqa: PLR2004
-        logger.warning(
-            "Only %d class(es) in training data for %s — skipping",
-            n_classes,
-            member_cols,
-        )
-        return pl.DataFrame()
+    if len(np.unique(y_train)) < 2:  # noqa: PLR2004
+        logger.warning("Only 1 class for %s — skipping", member_cols)
+        return pl.DataFrame(), None, None
 
+    # --- cache probe -----------------------------------------------------
+    cache_key: str | None = None
+    control_prefix = member_cols[0].split("__")[0]
+    if cache_dir is not None:
+        cache_key = _rf_cache_key(
+            train_pivot,
+            feature_cols,
+            member_cols,
+            n_estimators,
+            random_state,
+        )
+        cached = _load_cached_rf(cache_dir, control_prefix, cache_key)
+        if cached is not None:
+            logger.info("  Loaded cached RF %s (key=%s)", control_prefix, cache_key)
+            proba_df = _predict_null_rows(
+                cached["model"],
+                predict_pivot,
+                null_mask,
+                feature_cols,
+                member_cols,
+                id_col,
+            )
+            return proba_df, cached["cv_ll"], cached["cv_f1"]
+
+    # --- train ---------------------------------------------------------
     clf = RandomForestClassifier(
         n_estimators=n_estimators,
         random_state=random_state,
         n_jobs=-1,
     )
     clf.fit(x_train, y_train)
+    cv_ll, cv_f1 = _cv_diagnostics(clf, x_train, y_train, len(feature_cols))
 
-    # Cross-validated diagnostics on training data
-    try:
-        cv_proba = cross_val_predict(clf, x_train, y_train, cv=5, method="predict_proba")
-        cv_pred = cv_proba.argmax(axis=1)
-        ll = log_loss(y_train, cv_proba)
-        f1 = f1_score(y_train, cv_pred, average="macro")
-        logger.info(
-            "  CV diagnostics: log_loss=%.4f, f1_macro=%.4f (%d training rows, %d features)",
-            ll,
-            f1,
-            len(y_train),
-            len(feature_cols),
-        )
-    except (ValueError, IndexError):
-        logger.debug("Cross-validation diagnostics skipped", exc_info=True)
+    if cache_dir is not None and cache_key is not None:
+        _save_cached_rf(cache_dir, control_prefix, cache_key, clf, cv_ll, cv_f1)
 
-    # Predict on null survey rows
-    null_rows = predict_pivot.filter(null_mask)
-    if null_rows.is_empty():
-        return pl.DataFrame()
-
-    x_predict = null_rows.select(feature_cols).to_numpy().astype(np.float32)
-    probas = clf.predict_proba(x_predict)
-
-    # Map RF class indices back to member columns
-    # clf.classes_ contains the class labels (argmax indices 0..N-1)
-    # Ensure probabilities align with member_cols order
-    proba_df = pl.DataFrame({member_cols[cls]: probas[:, i] for i, cls in enumerate(clf.classes_)})
-    # Fill any member columns not in clf.classes_ with 0
-    for col in member_cols:
-        if col not in proba_df.columns:
-            proba_df = proba_df.with_columns(pl.lit(0.0).alias(col))
-
-    proba_df = proba_df.with_columns(null_rows[id_col].alias(id_col))
-    return proba_df
+    # --- predict ---------------------------------------------------------
+    proba_df = _predict_null_rows(
+        clf,
+        predict_pivot,
+        null_mask,
+        feature_cols,
+        member_cols,
+        id_col,
+    )
+    return proba_df, cv_ll, cv_f1
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator
+# Overlay + unified impute loop
 # ---------------------------------------------------------------------------
 
 
@@ -174,58 +247,76 @@ def _overlay_columns(
     *,
     additive: bool,
 ) -> pl.DataFrame:
-    """Overlay fractional predictions onto the incidence table.
+    """Single-join overlay of fractional predictions onto the incidence table."""
+    aliases = {c: f"_frac_{c}" for c in member_cols}
 
-    *additive* — if True, add fractions to existing counts (person-level);
-    if False, replace zeros with fractions (HH-level).
-    """
-    for col in member_cols:
-        frac_alias = f"_frac_{col}"
-        result = result.join(
-            fractions.select(hh_id_col, pl.col(col).alias(frac_alias)),
-            on=hh_id_col,
-            how="left",
-        )
-        if additive:
-            result = result.with_columns(
-                (pl.col(col).cast(pl.Float64) + pl.col(frac_alias).fill_null(0.0)).alias(col)
-            )
-        else:
-            result = result.with_columns(
-                pl.when(pl.col(frac_alias).is_not_null())
-                .then(pl.col(frac_alias))
-                .otherwise(pl.col(col))
-                .alias(col)
-            )
-        result = result.drop(frac_alias)
-    return result
+    joined = result.join(
+        fractions.select(
+            hh_id_col,
+            *[pl.col(c).alias(aliases[c]) for c in member_cols],
+        ),
+        on=hh_id_col,
+        how="left",
+    )
+
+    if additive:
+        exprs = [
+            (pl.col(c).cast(pl.Float64) + pl.col(aliases[c]).fill_null(0.0)).alias(c)
+            for c in member_cols
+        ]
+    else:
+        exprs = [
+            pl.when(pl.col(aliases[c]).is_not_null())
+            .then(pl.col(aliases[c]))
+            .otherwise(pl.col(c))
+            .alias(c)
+            for c in member_cols
+        ]
+
+    return joined.with_columns(exprs).drop(list(aliases.values()))
 
 
-def _fill_person_controls(
+def _impute_controls(
     result: pl.DataFrame,
-    survey_bundle: IncidenceBundle,
-    pums_bundle: IncidenceBundle,
+    level: ControlLevel,
+    train_pivot: pl.DataFrame,
+    predict_pivot: pl.DataFrame,
     targets: list[str],
+    id_col: str,
     hh_id_col: str,
+    summaries: list[ImputationSummary],
+    *,
+    additive: bool,
+    person_to_hh: pl.DataFrame | None = None,
+    cache_dir: Path | None = None,
 ) -> pl.DataFrame:
-    """Impute person-level controls via per-person RF → aggregate to HH."""
-    p_ctrls = [c for c in resolve_targets(targets, ControlLevel.PERSON) if not c.structural]
-    person_id_col = "person_id" if "person_id" in survey_bundle.person_pivot.columns else "SPORDER"
+    """Impute all non-structural controls for one level (person or HH).
 
-    for ctrl in p_ctrls:
+    For person-level controls, *person_to_hh* provides the (person_id →
+    hh_id) lookup used to aggregate per-person probabilities to the
+    household incidence row before overlay.
+    """
+    level_label = "person" if level == ControlLevel.PERSON else "household"
+    controls = [c for c in resolve_targets(targets, level) if not c.structural]
+
+    for ctrl in controls:
         member_cols = [f"{ctrl.name}__{m.lower()}" for _, m in ctrl.valid_members]
-        if any(c not in survey_bundle.person_pivot.columns for c in member_cols):
+        if any(c not in predict_pivot.columns for c in member_cols):
             continue
 
-        null_mask = detect_null_rows(survey_bundle.person_pivot, member_cols)
-        n_null = null_mask.sum()
+        null_mask = predict_pivot.select(
+            pl.sum_horizontal(member_cols).eq(0),
+        ).to_series()
+        n_null, n_total = int(null_mask.sum()), len(predict_pivot)
+
         if n_null == 0:
+            summaries.append(ImputationSummary(ctrl.name, level_label, n_total, 0))
             continue
 
-        n_total = len(survey_bundle.person_pivot)
         null_pct = 100.0 * n_null / n_total
         logger.info(
-            "Person control '%s': %d/%d persons null (%.1f%%)",
+            "%s control '%s': %d/%d null (%.1f%%)",
+            level_label.title(),
             ctrl.name,
             n_null,
             n_total,
@@ -233,87 +324,58 @@ def _fill_person_controls(
         )
         if null_pct > 25:  # noqa: PLR2004
             logger.warning(
-                "Person control '%s' has %.0f%% null — exceeds 25%%. "
-                "Imputation will proceed, but this is inadvisable for "
-                "weighting. Consider removing '%s' as a target.",
+                "%s control '%s' has %.0f%% null — exceeds 25%%. "
+                "Consider removing '%s' as a target.",
+                level_label.title(),
                 ctrl.name,
                 null_pct,
                 ctrl.name,
             )
 
-        proba_df = _train_and_predict(
-            pums_bundle.person_pivot,
-            survey_bundle.person_pivot,
+        proba_df, cv_ll, cv_f1 = _train_and_predict(
+            train_pivot,
+            predict_pivot,
             null_mask,
             member_cols,
-            id_col=person_id_col,
+            id_col=id_col,
+            cache_dir=cache_dir,
+        )
+        summaries.append(
+            ImputationSummary(ctrl.name, level_label, n_total, n_null, cv_ll, cv_f1),
         )
         if proba_df.is_empty():
             continue
 
-        # Join hh_id onto proba_df for aggregation (proba_df only has person_id)
-        person_to_hh = survey_bundle.person_pivot.select(person_id_col, hh_id_col).unique()
-        proba_df = proba_df.join(person_to_hh, on=person_id_col, how="left")
-
-        hh_fractions = proba_df.group_by(hh_id_col).agg([pl.col(c).sum() for c in member_cols])
-        result = _overlay_columns(result, hh_fractions, member_cols, hh_id_col, additive=True)
-
-    return result
-
-
-def _fill_hh_controls(
-    result: pl.DataFrame,
-    pums_bundle: IncidenceBundle,
-    targets: list[str],
-    hh_id_col: str,
-) -> pl.DataFrame:
-    """Impute household-level controls via HH-level RF."""
-    hh_ctrls = [c for c in resolve_targets(targets, ControlLevel.HOUSEHOLD) if not c.structural]
-    for ctrl in hh_ctrls:
-        member_cols = [f"{ctrl.name}__{m.lower()}" for _, m in ctrl.valid_members]
-        if any(c not in result.columns for c in member_cols):
-            continue
-
-        null_mask = detect_null_rows(result, member_cols)
-        n_null = null_mask.sum()
-        if n_null == 0:
-            continue
-
-        n_total = len(result)
-        null_pct = 100.0 * n_null / n_total
-        logger.info(
-            "HH control '%s': %d/%d households null (%.1f%%)",
-            ctrl.name,
-            n_null,
-            n_total,
-            null_pct,
-        )
-        if null_pct > 25:  # noqa: PLR2004
-            logger.warning(
-                "HH control '%s' has %.0f%% null — exceeds 25%%. "
-                "Imputation will proceed, but this is inadvisable for "
-                "weighting. Consider removing '%s' as a target.",
-                ctrl.name,
-                null_pct,
-                ctrl.name,
+        # Person-level: aggregate per-person fractions to household totals
+        if person_to_hh is not None:
+            proba_df = proba_df.join(person_to_hh, on=id_col, how="left")
+            proba_df = proba_df.group_by(hh_id_col).agg(
+                [pl.col(c).sum() for c in member_cols],
             )
 
-        proba_df = _train_and_predict(
-            pums_bundle.incidence, result, null_mask, member_cols, id_col=hh_id_col
+        result = _overlay_columns(
+            result,
+            proba_df,
+            member_cols,
+            hh_id_col,
+            additive=additive,
         )
-        if proba_df.is_empty():
-            continue
-
-        result = _overlay_columns(result, proba_df, member_cols, hh_id_col, additive=False)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def fill_null_incidence(
     survey_bundle: IncidenceBundle,
     pums_bundle: IncidenceBundle,
     targets: list[str],
-) -> pl.DataFrame:
+    *,
+    cache_dir: Path | None = None,
+) -> tuple[pl.DataFrame, list[ImputationSummary]]:
     """Replace null-induced zeros in survey incidence with RF-predicted fractions.
 
     Parameters
@@ -324,17 +386,47 @@ def fill_null_incidence(
         PUMS incidence bundle (complete, no nulls — used as training data).
     targets : list[str]
         Control registry names.
+    cache_dir : Path | None
+        When set, fitted RF models and CV metrics are cached here so that
+        repeated runs with the same PUMS data skip training entirely.
 
     Returns:
     -------
-    pl.DataFrame
+    tuple[pl.DataFrame, list[ImputationSummary]]
         Modified survey incidence table with fractional values replacing
-        zeros for null-deficient rows.
+        zeros for null-deficient rows, plus per-control imputation metadata.
     """
     result = survey_bundle.incidence
     hh_id_col = "hh_id" if "hh_id" in result.columns else "SERIALNO"
+    person_id_col = "person_id" if "person_id" in survey_bundle.person_pivot.columns else "SPORDER"
+    summaries: list[ImputationSummary] = []
 
-    result = _fill_person_controls(result, survey_bundle, pums_bundle, targets, hh_id_col)
-    result = _fill_hh_controls(result, pums_bundle, targets, hh_id_col)
+    person_to_hh = survey_bundle.person_pivot.select(person_id_col, hh_id_col).unique()
 
-    return result
+    result = _impute_controls(
+        result,
+        ControlLevel.PERSON,
+        train_pivot=pums_bundle.person_pivot,
+        predict_pivot=survey_bundle.person_pivot,
+        targets=targets,
+        id_col=person_id_col,
+        hh_id_col=hh_id_col,
+        summaries=summaries,
+        additive=True,
+        person_to_hh=person_to_hh,
+        cache_dir=cache_dir,
+    )
+    result = _impute_controls(
+        result,
+        ControlLevel.HOUSEHOLD,
+        train_pivot=pums_bundle.incidence,
+        predict_pivot=result,
+        targets=targets,
+        id_col=hh_id_col,
+        hh_id_col=hh_id_col,
+        summaries=summaries,
+        additive=False,
+        cache_dir=cache_dir,
+    )
+
+    return result, summaries

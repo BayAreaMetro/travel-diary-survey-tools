@@ -4,19 +4,9 @@
 <meta charset="utf-8"/>
 <title>{{ title }}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-<script>
-/*
- * Neutralise Plotly's resize handler *immediately* after the synchronous CDN
- * script finishes — no DOMContentLoaded wait.  Waiting for DOMContentLoaded
- * left a window where Plotly could attach ResizeObservers on chart divs as
- * they were parsed, triggering relayout and the visible flicker.
- */
-if (window.Plotly && window.Plotly.Plots) {
-  window.Plotly.Plots.resize = function() { return Promise.resolve(); };
-}
-</script>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; transition: opacity .15s ease-in; }
+  body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
+  .plotly-graph-div { visibility: hidden; }
   h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
   h2 { margin-top: 2rem; color: #444; }
   table { border-collapse: collapse; margin: 1rem 0; }
@@ -27,16 +17,40 @@ if (window.Plotly && window.Plotly.Plots) {
   .failed { color: #c33; font-weight: bold; }
   details { margin: .5rem 0; }
   summary { cursor: pointer; font-weight: 600; }
-  .chart { margin: 1rem 0; contain: layout style; overflow: hidden; }
-  .chart-map { margin: 1rem 0; max-width: 960px; contain: layout style; }
+  .chart { margin: 1rem 0; overflow: hidden; }
+  .chart-map { margin: 1rem 0; max-width: 960px; overflow: hidden; }
   .note { color: #666; font-size: 0.9em; margin-bottom: 1rem; }
   table.sparsity { table-layout: fixed; width: 100%; }
   table.sparsity th, table.sparsity td { word-wrap: break-word; overflow-wrap: break-word; }
 </style>
 </head>
-<body style="opacity:0">
+<body>
 
 <h1>{{ title }}</h1>
+
+{% if imputation_table %}
+<h2>0 &mdash; Data Quality &amp; Imputation</h2>
+<p class="note">
+  Controls with null survey values are imputed using Random Forest predicted class-membership
+  probabilities trained on complete PUMS microdata.  The table below shows the null rate and
+  RF cross-validated diagnostics for each control.  Controls exceeding 25% null are flagged &mdash;
+  consider removing them as targets if imputation quality (log_loss, F1) is poor.<br><br>
+  &bull; <b>log_loss</b>: Cross-entropy between predicted probabilities and true labels (lower is better; &lt;&thinsp;0.5 is good).<br>
+  &bull; <b>F1</b>: Macro-averaged F1 score across all categories (higher is better; &gt;&thinsp;0.7 is good).<br>
+</p>
+{{ imputation_table }}
+{% if imputation_chart %}
+<p class="note">
+  Category shares for imputed controls.  Each survey bar is split into the
+  <b>observed</b> (pre-imputation) portion and the <b>imputed</b> (RF-predicted)
+  contribution.  The PUMS bar provides the reference distribution.
+  All counts are unweighted.  Large discrepancies suggest the RF predictions
+  may not generalise well to the survey population.
+</p>
+<div class="chart">{{ imputation_chart }}</div>
+{% endif %}
+{% endif %}
+
 <p class="note">
   This map depicts the spatial crosswalk from PUMAs to the target geographies. This allows us to use any custom target geography, regardless of PUMA geography. If zones overlap, the PUMAs are allocated using a block-group-level population-weighted share of the PUMA that contributes to that target geography. If PUMAs nest within the target geographies, then the allocations are all 100% or 0%.
 </p>
@@ -120,14 +134,10 @@ if (window.Plotly && window.Plotly.Plots) {
 {{ sparsity_html }}
 
 <script>
-/*
- * Reveal the page after all Plotly charts have been parsed and rendered.
- * The body starts with opacity:0 so intermediate reflows and chart
- * initialisations are invisible, preventing flicker.  A single rAF
- * ensures the browser has flushed the current (invisible) frame before
- * we flip to visible, so the user sees only the fully-rendered state.
- */
-requestAnimationFrame(function() { document.body.style.opacity = '1'; });
+document.addEventListener('DOMContentLoaded', function() {
+  var divs = document.querySelectorAll('.plotly-graph-div');
+  for (var i = 0; i < divs.length; i++) divs[i].style.visibility = 'visible';
+});
 </script>
 
 </body>

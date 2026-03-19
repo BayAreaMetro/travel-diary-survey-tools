@@ -130,7 +130,7 @@ steps:
           # "Napa": ["097"]
 
       # -- Balancer settings -------------------------------------------
-      max_expansion_factor: 5.0    # upper bound = initial_weight × factor
+      max_expansion_factor: 4.0    # upper bound = initial_weight × factor
       min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
       min_weight: 1                # absolute floor (no weight < 1)
       # max_weight:                # absolute ceiling (null = no ceiling)
@@ -143,7 +143,7 @@ steps:
       # -- EF grid search (optional) -----------------------------------
       # Re-run balancing across a grid of max_expansion_factor values and
       # add a diagnostic chart showing fit vs weight quality tradeoffs.
-      expansion_factor_grid: [2, 3, 5, 7, 10, 15, 20]
+      expansion_factor_grid: [2, 2.5, 3, 4, 5, 7, 10]
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -173,9 +173,9 @@ steps:
         - name: h_size
           merge:
             size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
-          zone_merges:
-            "San Mateo/Santa Clara": # SM/SC has very few large households
-              size_4_plus: [size_4, size_5_plus]
+          # zone_merges:
+          #   "San Mateo/Santa Clara": # SM/SC has very few large households
+          #     size_4_plus: [size_4, size_5_plus]
 
         # Household income controls
         - name: h_income
@@ -228,6 +228,9 @@ steps:
         - name: p_age
           merge:
             age_75_plus: [age_75_to_84, age_85_and_up]
+          zone_merges:
+            "San Mateo/Santa Clara": # SM/SC has very few elderly people
+              age_65_plus: [age_65_to_74, age_75_plus]
 
         # Just wait until we have imputation which handles this processing and more
         # - name: p_race

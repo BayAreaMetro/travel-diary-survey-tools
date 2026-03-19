@@ -26,7 +26,7 @@ import polars as pl
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
-from processing.weighting.specs import ControlTotals, ZoneStatus
+from processing.weighting.specs import ControlTotals, ImputationSummary, ZoneStatus
 
 from .data import category_label_map
 
@@ -104,6 +104,55 @@ def _html_table(
         for cells in rows
     )
     return f"<table{cls}>\n{head}\n{body}\n</table>"
+
+
+# ---------------------------------------------------------------------------
+# Section 0 — Data Quality & Imputation
+# ---------------------------------------------------------------------------
+
+_HIGH_NULL_PCT = 25
+
+
+def imputation_summary_table(summaries: list[ImputationSummary]) -> str:
+    """Generate the imputation summary table (Section 0 of diagnostics report).
+
+    One row per control showing null count, null share, RF cross-validated
+    log-loss and F1, and an overall status indicator.
+    """
+    headers = [
+        "Control",
+        "Level",
+        "Records",
+        "Null",
+        "Null&nbsp;%",
+        "RF log_loss",
+        "RF&nbsp;F1",
+        "Status",
+    ]
+    rows: list[list[str]] = []
+    for s in summaries:
+        null_pct = 100.0 * s.n_null / s.n_total if s.n_total > 0 else 0.0
+        ll = f"{s.log_loss:.3f}" if s.log_loss is not None else "\u2014"
+        f1 = f"{s.f1_macro:.3f}" if s.f1_macro is not None else "\u2014"
+        if s.n_null == 0:
+            status = "\u2714"
+        elif null_pct > _HIGH_NULL_PCT:
+            status = f'<span style="color:#c33;font-weight:bold">\u26a0 >{_HIGH_NULL_PCT}%</span>'
+        else:
+            status = "\u2714 imputed"
+        rows.append(
+            [
+                s.control,
+                s.level.title(),
+                f"{s.n_total:,}",
+                f"{s.n_null:,}",
+                f"{null_pct:.1f}%",
+                ll,
+                f1,
+                status,
+            ]
+        )
+    return _html_table(headers, rows)
 
 
 # ---------------------------------------------------------------------------
@@ -289,24 +338,63 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
 _LOW_COUNT_THRESHOLD = 30
 
 
-def _count_cell(count: int, pums_pct: float | None = None) -> str:
-    """Format a count, highlighting values < 30 in red.
+def _count_cell(
+    count: int,
+    pums_pct: float | None = None,
+    *,
+    dimmed: bool = False,
+    na: bool = False,
+) -> str:
+    """Format a count cell.
 
-    When *pums_pct* is provided the PUMS-weighted share is appended
-    in italic parentheses, e.g. ``23 (41.2%)``.
+    *dimmed* — constituent category absorbed by a zone merge (grey italic).
+    *na* — merged category not active for this zone (em-dash).
     """
+    if na:
+        return '<td style="color:#aaa;text-align:center">&mdash;</td>'
     pct_html = ""
     if pums_pct is not None:
         pct_html = f' <em style="color:#888;font-weight:normal">({pums_pct:.1f}%)</em>'
+    if dimmed:
+        return f'<td style="color:#aaa;font-style:italic">{count}{pct_html}</td>'
     if count < _LOW_COUNT_THRESHOLD:
         return f'<td style="color:#c33;font-weight:bold">{count}{pct_html}</td>'
     return f"<td>{count}{pct_html}</td>"
+
+
+def _build_zone_merge_lookups(
+    merge_specs: list | None,
+) -> tuple[dict[tuple[str, str], set[str]], dict[tuple[str, str], set[str]]]:
+    """Parse zone-specific merges into per-cell annotation lookups.
+
+    Returns:
+    -------
+    merged_zones : dict[(control, merged_label), set[zone_id]]
+        Zones where this merged category is active.
+    absorbed_zones : dict[(control, constituent), set[zone_id]]
+        Zones where this constituent is absorbed into a merge.
+    """
+    merged_zones: dict[tuple[str, str], set[str]] = {}
+    absorbed_zones: dict[tuple[str, str], set[str]] = {}
+    for spec in merge_specs or []:
+        if spec.zones is None:
+            continue
+        zone_set = set(spec.zones)
+        for merged_label, base_members in spec.groups.items():
+            if isinstance(base_members, dict):
+                continue
+            merged_zones[(spec.control, merged_label.lower())] = zone_set
+            for m in base_members:
+                key = (spec.control, m.lower())
+                absorbed_zones.setdefault(key, set()).update(zone_set)
+    return merged_zones, absorbed_zones
 
 
 def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     seed: pl.DataFrame,
     target_names: list[str],
     control_totals: ControlTotals | None = None,
+    merge_specs: list | None = None,
 ) -> str:
     """Single matrix table: categories (rows) x zones (columns).
 
@@ -321,6 +409,7 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     non-structural pivoted).
     """
     labels = category_label_map(target_names)
+    merged_zones, absorbed_zones = _build_zone_merge_lookups(merge_specs)
     zones = sorted(seed["ctrl_geoid"].unique().to_list())
     n_zone_cols = len(zones)
 
@@ -416,14 +505,23 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
                 cells = ""
                 if i == 0:
                     cells += f'<th rowspan="{len(members)}">{ctrl.name}</th>'
+
+                # Zone merge annotations
+                active_in = merged_zones.get((ctrl.name, member_key))
+                absorbed_in = absorbed_zones.get((ctrl.name, member_key))
                 lbl = labels.get((ctrl.name, member_key), member_key.replace("_", " ").title())
                 cells += f'<td style="text-align:left">{lbl}</td>'
+
                 row_total = 0
                 for z in zones:
                     count = counts_by_zone.get(z, {}).get(col, 0)
-                    row_total += count
                     pct = pums_pct.get((z, ctrl.name, member_key))
-                    cells += _count_cell(count, pct)
+                    is_na = (active_in is not None and z not in active_in) or (
+                        absorbed_in is not None and z in absorbed_in
+                    )
+                    if not is_na:
+                        row_total += count
+                    cells += _count_cell(count, pct, na=is_na)
                 total_pct = pums_pct_total.get((ctrl.name, member_key))
                 cells += _count_cell(row_total, total_pct)
                 data_rows.append(f"<tr>{cells}</tr>")

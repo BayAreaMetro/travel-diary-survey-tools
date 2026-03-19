@@ -13,9 +13,15 @@ import jinja2
 import polars as pl
 from geopandas import GeoDataFrame
 
-from processing.weighting.specs import ControlTotals, GridPoint, ZoneStatus
+from processing.weighting.specs import ControlTotals, GridPoint, ImputationSummary, ZoneStatus
 
-from .charts import crosswalk_figure, ef_tradeoff_figure, fit_diverging_figure, violins_figure
+from .charts import (
+    crosswalk_figure,
+    ef_tradeoff_figure,
+    fit_diverging_figure,
+    imputation_distribution_figure,
+    violins_figure,
+)
 from .data import (
     apply_fit_merges,
     compute_weighted_totals,
@@ -26,6 +32,7 @@ from .data import (
 from .tables import (
     balancer_performance_table,
     crosswalk_summary_table,
+    imputation_summary_table,
     unweighted_cell_counts,
     weight_quality_table,
 )
@@ -44,6 +51,18 @@ _ENV = jinja2.Environment(
 )
 _TEMPLATE = _ENV.get_template("diagnostics_template.html")
 
+# Plotly HTML config: hover tooltips only, no resize/zoom/toolbar.
+_PLOTLY_CONFIG: dict = {
+    "responsive": False,
+    "displayModeBar": False,
+    "scrollZoom": False,
+}
+_PLOTLY_KWARGS: dict = {
+    "full_html": False,
+    "include_plotlyjs": False,
+    "config": _PLOTLY_CONFIG,
+}
+
 
 def generate_report(  # noqa: PLR0913
     seed: pl.DataFrame,
@@ -61,6 +80,9 @@ def generate_report(  # noqa: PLR0913
     grid_results: list[GridPoint] | None = None,
     selected_ef: float | None = None,
     control_moe: pl.DataFrame | None = None,
+    imputation_summary: list[ImputationSummary] | None = None,
+    pums_incidence: pl.DataFrame | None = None,
+    pre_imputation_incidence: pl.DataFrame | None = None,
 ) -> Path:
     """Write the self-contained HTML diagnostics report to *output_path*."""
     weighted = seed.join(weights.select("hh_id", "hh_weight"), on="hh_id", how="left")
@@ -75,6 +97,25 @@ def generate_report(  # noqa: PLR0913
 
     zf = zone_fit_summary(fit, target_names)
 
+    # Section 0 — Data quality & imputation
+    if imputation_summary:
+        imp_table_html = imputation_summary_table(imputation_summary)
+        imputed_controls = [s.control for s in imputation_summary if s.n_null > 0]
+        if imputed_controls and pums_incidence is not None:
+            imp_fig = imputation_distribution_figure(
+                seed,
+                pums_incidence,
+                target_names,
+                imputed_controls,
+                pre_imputation=pre_imputation_incidence,
+            )
+            imp_chart_html = imp_fig.to_html(**_PLOTLY_KWARGS)
+        else:
+            imp_chart_html = ""
+    else:
+        imp_table_html = ""
+        imp_chart_html = ""
+
     # Section 1 — crosswalk map
     if puma_gdf is not None and target_gdf is not None and crosswalk_df is not None:
         fig = crosswalk_figure(
@@ -84,11 +125,7 @@ def generate_report(  # noqa: PLR0913
             households=seed,
             zone_groups=zone_groups,
         )
-        xw_div = fig.to_html(
-            full_html=False,
-            include_plotlyjs=False,
-            config={"responsive": False},
-        )
+        xw_div = fig.to_html(**_PLOTLY_KWARGS)
         crosswalk_section = (
             f'<h2>1 &mdash; Crosswalk Map</h2>\n<div class="chart-map">{xw_div}</div>'
         )
@@ -104,11 +141,7 @@ def generate_report(  # noqa: PLR0913
     # Section — EF tradeoff chart (optional)
     if grid_results and selected_ef is not None:
         ef_fig = ef_tradeoff_figure(grid_results, selected_ef)
-        ef_div = ef_fig.to_html(
-            full_html=False,
-            include_plotlyjs=False,
-            config={"responsive": False},
-        )
+        ef_div = ef_fig.to_html(**_PLOTLY_KWARGS)
         ef_tradeoff_section = (
             "<h2>4 &mdash; Expansion Factor Calibration</h2>\n"
             '<p class="note">\n'
@@ -125,21 +158,15 @@ def generate_report(  # noqa: PLR0913
 
     ctx = {
         "title": "Weighting Diagnostics Report",
+        "imputation_table": imp_table_html,
+        "imputation_chart": imp_chart_html,
         "crosswalk_section": crosswalk_section,
         "crosswalk_table": crosswalk_table,
         "balancer_performance_table": balancer_performance_table(statuses, weighted, zf),
         "weight_quality_table": weight_quality_table(weighted),
-        "fit_bars_html": fit_diverging_figure(fit).to_html(
-            full_html=False,
-            include_plotlyjs=False,
-            config={"responsive": False},
-        ),
-        "violins_html": violins_figure(weighted).to_html(
-            full_html=False,
-            include_plotlyjs=False,
-            config={"responsive": False},
-        ),
-        "sparsity_html": unweighted_cell_counts(seed, target_names, control_totals),
+        "fit_bars_html": fit_diverging_figure(fit).to_html(**_PLOTLY_KWARGS),
+        "violins_html": violins_figure(weighted).to_html(**_PLOTLY_KWARGS),
+        "sparsity_html": unweighted_cell_counts(seed, target_names, control_totals, merge_specs),
         "ef_tradeoff_section": ef_tradeoff_section,
     }
 

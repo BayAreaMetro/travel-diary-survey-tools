@@ -6,12 +6,15 @@ data preparation, balancing, validation, and diagnostics.
 Kept as a leaf module with minimal imports to avoid circular dependencies.
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # Data Preparation
@@ -108,6 +111,28 @@ class IncidenceBundle:
             person_pivot=self.person_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
             household_pivot=self.household_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
         )
+
+
+# ---------------------------------------------------------------------------
+# Imputation Metadata
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ImputationSummary:
+    """Per-control imputation metadata for diagnostics.
+
+    One entry per control target, regardless of whether imputation was
+    needed.  Controls with no nulls have ``n_null == 0`` and ``None``
+    for the RF metrics.
+    """
+
+    control: str
+    level: str  # "person" | "household"
+    n_total: int
+    n_null: int
+    log_loss: float | None = None
+    f1_macro: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -270,9 +295,21 @@ class ControlRegistryConfig:
         for c in controls:
             # Cross-tab merges are applied at registration time, not here.
             # Only parse 1-D merges and zone-specific merges.
+            global_labels: set[str] = set()
             if c.get("merge"):
                 merges_1d.append(MergeSpec(control=c["name"], groups=c["merge"]))
+                global_labels = set(c["merge"].keys())
             for zone_id, groups in c.get("zone_merges", {}).items():
+                overlap = set(groups.keys()) & global_labels
+                if overlap:
+                    logger.warning(
+                        "Control '%s' zone_merges for '%s' redefines global "
+                        "merge label(s) %s — the zone merge is redundant "
+                        "because the global merge already applies everywhere.",
+                        c["name"],
+                        zone_id,
+                        sorted(overlap),
+                    )
                 merges_1d.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
 
         return cls(

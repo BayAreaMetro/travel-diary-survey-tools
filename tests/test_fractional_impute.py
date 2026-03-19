@@ -14,7 +14,6 @@ from processing.weighting.data_prep.control_data import (
 )
 from processing.weighting.data_prep.fractional_impute import (
     _train_and_predict,
-    detect_null_rows,
     fill_null_incidence,
 )
 from processing.weighting.data_prep.incidence import (
@@ -33,6 +32,9 @@ TARGETS = ["h_total", "h_size", "h_income", "p_total", "p_gender", "p_age"]
 # ---------------------------------------------------------------------------
 # Synthetic data helpers
 # ---------------------------------------------------------------------------
+def _null_mask(df: pl.DataFrame, cols: list[str]) -> pl.Series:
+    """Boolean mask: True where all *cols* are zero (null-encoded row)."""
+    return df.select(pl.sum_horizontal(cols).eq(0)).to_series()
 
 
 def _make_pums_hh(n: int = 50) -> pl.DataFrame:
@@ -209,21 +211,21 @@ class TestDetectNullRows:
         """With no nulls, mask should be all False."""
         pums_bundle, _ = _recode_pums()
         gender_cols = [c for c in pums_bundle.incidence.columns if c.startswith("p_gender__")]
-        mask = detect_null_rows(pums_bundle.incidence, gender_cols)
+        mask = _null_mask(pums_bundle.incidence, gender_cols)
         assert mask.sum() == 0
 
     def test_null_gender_detected(self):
         """Persons with null gender should be flagged."""
         survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
         gender_cols = [c for c in survey_bundle.person_pivot.columns if c.startswith("p_gender__")]
-        mask = detect_null_rows(survey_bundle.person_pivot, gender_cols)
+        mask = _null_mask(survey_bundle.person_pivot, gender_cols)
         assert mask.sum() > 0
 
     def test_null_hh_income_detected(self):
         """HHs with null income should be flagged in the incidence table."""
         survey_bundle, _ = _recode_survey(null_income_rate=0.5)
         income_cols = [c for c in survey_bundle.incidence.columns if c.startswith("h_income__")]
-        mask = detect_null_rows(survey_bundle.incidence, income_cols)
+        mask = _null_mask(survey_bundle.incidence, income_cols)
         assert mask.sum() > 0
 
 
@@ -236,9 +238,9 @@ class TestTrainAndPredict:
         survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
 
         gender_cols = [c for c in survey_bundle.person_pivot.columns if c.startswith("p_gender__")]
-        null_mask = detect_null_rows(survey_bundle.person_pivot, gender_cols)
+        null_mask = _null_mask(survey_bundle.person_pivot, gender_cols)
 
-        proba_df = _train_and_predict(
+        proba_df, _cv_ll, _cv_f1 = _train_and_predict(
             pums_bundle.person_pivot,
             survey_bundle.person_pivot,
             null_mask,
@@ -261,20 +263,22 @@ class TestFillNullIncidence:
         pums_bundle, _ = _recode_pums()
         survey_bundle, _ = _recode_survey(null_gender_rate=0.0, null_income_rate=0.0)
 
-        result = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
+        result, summaries = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
 
         # Should be identical (integer columns unchanged)
         for col in survey_bundle.incidence.columns:
             assert result[col].to_list() == survey_bundle.incidence[col].to_list(), (
                 f"Column {col} changed"
             )
+        # All summaries should show 0 nulls
+        assert all(s.n_null == 0 for s in summaries)
 
     def test_person_marginal_preserved(self):
         """After filling, sum(p_gender__*) should equal p_total for each HH."""
         pums_bundle, _ = _recode_pums()
         survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
 
-        result = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
+        result, _summaries = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
 
         gender_cols = [c for c in result.columns if c.startswith("p_gender__")]
         row_sums = result.select(pl.sum_horizontal(gender_cols)).to_series()
@@ -288,7 +292,7 @@ class TestFillNullIncidence:
         pums_bundle, _ = _recode_pums()
         survey_bundle, _ = _recode_survey(null_income_rate=0.5)
 
-        result = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
+        result, _summaries = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
 
         income_cols = [c for c in result.columns if c.startswith("h_income__")]
         row_sums = result.select(pl.sum_horizontal(income_cols)).to_series()
@@ -300,7 +304,7 @@ class TestFillNullIncidence:
         pums_bundle, _ = _recode_pums()
         survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
 
-        result = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
+        result, _summaries = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
 
         gender_cols = [c for c in result.columns if c.startswith("p_gender__")]
         # At least some values should be fractional (not integers)
@@ -315,10 +319,30 @@ class TestFillNullIncidence:
         pums_bundle, _ = _recode_pums()
         survey_bundle, _ = _recode_survey(null_gender_rate=1.0)
 
-        result = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
+        result, _summaries = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
 
         gender_cols = [c for c in result.columns if c.startswith("p_gender__")]
         row_sums = result.select(pl.sum_horizontal(gender_cols)).to_series()
         p_total = result["p_total"].cast(pl.Float64)
         diff = (row_sums - p_total).abs()
         assert diff.max() < 0.01, f"Max marginal deviation with all-null: {diff.max()}"
+
+    def test_summaries_report_nulls(self):
+        """Summaries should report non-zero nulls for imputed controls."""
+        pums_bundle, _ = _recode_pums()
+        survey_bundle, _ = _recode_survey(null_gender_rate=0.5, null_income_rate=0.3)
+
+        _result, summaries = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
+
+        by_ctrl = {s.control: s for s in summaries}
+        # Gender was 50% null
+        assert by_ctrl["p_gender"].n_null > 0
+        assert by_ctrl["p_gender"].level == "person"
+        assert by_ctrl["p_gender"].log_loss is not None
+        assert by_ctrl["p_gender"].f1_macro is not None
+        # Income was 30% null
+        assert by_ctrl["h_income"].n_null > 0
+        assert by_ctrl["h_income"].level == "household"
+        # h_size should have 0 nulls (never null in synthetic data)
+        assert by_ctrl["h_size"].n_null == 0
+        assert by_ctrl["h_size"].log_loss is None

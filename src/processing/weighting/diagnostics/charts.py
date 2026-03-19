@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-from processing.weighting.controls.registry import CONTROLS
+from processing.weighting.controls.registry import CONTROLS, resolve_targets
 
 _WARN_PCT = 15  # fallback red threshold when MOE is unavailable or zero
 _MIN_MOE = 5  # floor for MOE-based red trigger (avoids over-sensitivity on precise targets)
@@ -223,7 +223,10 @@ def fit_diverging_figure(
         width=960,
         height=max(350, 18 * len(cat_labels) * n_rows + 40 * n_rows),
         margin={"l": 160, "r": 20, "t": 30, "b": 20},
+        dragmode=False,
     )
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
     return fig
 
 
@@ -267,7 +270,138 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
                 ],
             }
         ],
+        dragmode=False,
+        xaxis_fixedrange=True,
+        yaxis_fixedrange=True,
     )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Imputation distribution chart
+# ---------------------------------------------------------------------------
+
+
+def imputation_distribution_figure(
+    seed_incidence: pl.DataFrame,
+    pums_incidence: pl.DataFrame,
+    target_names: list[str],
+    imputed_controls: list[str],
+    *,
+    pre_imputation: pl.DataFrame | None = None,
+) -> go.Figure:
+    """Stacked bar chart: observed + imputed contribution vs PUMS shares.
+
+    For each imputed control the survey bar is split into two stacked
+    segments — *Observed* (pre-imputation, unweighted) and *Imputed*
+    (the RF-predicted fractional contribution).  A separate PUMS bar
+    provides the reference distribution.
+
+    When *pre_imputation* is ``None`` the chart falls back to a single
+    post-imputation bar (no stacking).
+    """
+    all_ctrls = resolve_targets(target_names)
+    ctrl_map = {c.name: c for c in all_ctrls}
+
+    categories: list[str] = []
+    observed_pcts: list[float] = []
+    imputed_pcts: list[float] = []
+    pums_pcts: list[float] = []
+
+    for ctrl_name in imputed_controls:
+        ctrl = ctrl_map.get(ctrl_name)
+        if ctrl is None or ctrl.structural:
+            continue
+        member_cols = [f"{ctrl.name}__{m.lower()}" for _, m in ctrl.valid_members]
+        member_labels = [m.replace("_", " ").title() for _, m in ctrl.valid_members]
+
+        present_cols = [c for c in member_cols if c in seed_incidence.columns]
+        if not present_cols:
+            continue
+
+        # Post-imputation sums (unweighted)
+        post_sums = seed_incidence.select(present_cols).sum().row(0)
+        post_total = sum(post_sums) or 1
+
+        # Pre-imputation sums (unweighted, zeros where null)
+        if pre_imputation is not None:
+            pre_cols = [c for c in present_cols if c in pre_imputation.columns]
+            pre_sums = pre_imputation.select(pre_cols).sum().row(0) if pre_cols else post_sums
+        else:
+            pre_sums = post_sums
+
+        # PUMS shares (WGTP-weighted if available)
+        has_wgtp = "WGTP" in pums_incidence.columns
+        if has_wgtp:
+            pums_sums = pums_incidence.select(
+                [(pl.col(c) * pl.col("WGTP")).sum().alias(c) for c in present_cols],
+            ).row(0)
+        else:
+            pums_sums = pums_incidence.select(present_cols).sum().row(0)
+        pums_total = sum(pums_sums) or 1
+
+        for i, col in enumerate(present_cols):
+            idx = member_cols.index(col)
+            categories.append(f"{ctrl.name}: {member_labels[idx]}")
+            obs = 100.0 * pre_sums[i] / post_total
+            imp = 100.0 * (post_sums[i] - pre_sums[i]) / post_total
+            observed_pcts.append(obs)
+            imputed_pcts.append(imp)
+            pums_pcts.append(100.0 * pums_sums[i] / pums_total)
+
+    if not categories:
+        return go.Figure()
+
+    fig = go.Figure()
+    has_imputed = any(v > 0.01 for v in imputed_pcts)  # noqa: PLR2004
+
+    # Observed + Imputed stack in offsetgroup "survey";
+    # PUMS sits in its own offsetgroup so the two groups are side-by-side.
+    fig.add_trace(
+        go.Bar(
+            y=categories,
+            x=observed_pcts,
+            name="Observed (unweighted)",
+            orientation="h",
+            marker_color="steelblue",
+            offsetgroup="survey",
+        )
+    )
+    if has_imputed:
+        fig.add_trace(
+            go.Bar(
+                y=categories,
+                x=imputed_pcts,
+                name="Imputed (RF)",
+                orientation="h",
+                marker_color="rgba(70,160,220,0.5)",
+                offsetgroup="survey",
+                base=observed_pcts,
+            )
+        )
+    fig.add_trace(
+        go.Bar(
+            y=categories,
+            x=pums_pcts,
+            name="PUMS",
+            orientation="h",
+            marker_color="rgba(200,100,50,0.7)",
+            offsetgroup="pums",
+        )
+    )
+    fig.update_layout(
+        barmode="group",
+        xaxis_title="Share (%)",
+        autosize=False,
+        width=960,
+        height=max(300, 28 * len(categories) + 80),
+        margin={"l": 200, "r": 30, "t": 30, "b": 40},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+        dragmode=False,
+        xaxis_fixedrange=True,
+        yaxis_fixedrange=True,
+    )
+    fig.update_yaxes(autorange="reversed")
     return fig
 
 
@@ -384,7 +518,10 @@ def ef_tradeoff_figure(
         hoversubplots="axis",
         title={"text": "Expansion Factor Tradeoff", "y": 0.98, "yanchor": "top"},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+        dragmode=False,
     )
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
     return fig
 
 
@@ -673,17 +810,24 @@ def crosswalk_figure(
 
     # Layout -- use PUMA bounds so full boundaries are visible
     bounds = puma_4326.total_bounds
+    pad_lat = (bounds[3] - bounds[1]) * 0.05
+    pad_lon = (bounds[2] - bounds[0]) * 0.05
     fig.update_layout(
         map={
             "style": "carto-positron",
-            "center": {"lat": (bounds[1] + bounds[3]) / 2, "lon": (bounds[0] + bounds[2]) / 2},
-            "zoom": 8,
+            "bounds": {
+                "west": bounds[0] - pad_lon,
+                "east": bounds[2] + pad_lon,
+                "south": bounds[1] - pad_lat,
+                "north": bounds[3] + pad_lat,
+            },
         },
         autosize=False,
         width=960,
         height=700,
         margin={"l": 0, "r": 0, "t": 30, "b": 0},
         title="Crosswalk: PUMA to Target Zones",
+        dragmode=False,
     )
 
     return fig

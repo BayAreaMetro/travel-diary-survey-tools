@@ -95,6 +95,7 @@ from processing.weighting.specs import (
     ControlTotals,
     GridPoint,
     ImportanceConfig,
+    ImputationSummary,
     WeightingConfig,
     ZoneStatus,
 )
@@ -154,6 +155,7 @@ class WeightingPipeline:
     weights: pl.DataFrame
     statuses: list[ZoneStatus]
     grid_results: list[GridPoint] | None
+    imputation_summary: list[ImputationSummary]
 
     def __init__(
         self,
@@ -316,10 +318,12 @@ class WeightingPipeline:
         # from the pivot.  Use the complete PUMS bundle as training data
         # to predict class-membership probabilities and fill those zeros
         # with fractional values (predict_proba).
-        self.seed_incidence = fill_null_incidence(
+        self.pre_imputation_incidence = self.survey_bundle.incidence
+        self.seed_incidence, self.imputation_summary = fill_null_incidence(
             self.survey_bundle,
             self.pums_bundle,
             names,
+            cache_dir=self.cache_dir,
         )
         # After imputation, every control must sum correctly (with tolerance
         # for floating-point fractions introduced by the RF predictions).
@@ -495,6 +499,9 @@ class WeightingPipeline:
             grid_results=self.grid_results,
             selected_ef=(self.balancing.max_expansion_factor if self.grid_results else None),
             control_moe=self.control_moe,
+            imputation_summary=self.imputation_summary,
+            pums_incidence=self.pums_incidence,
+            pre_imputation_incidence=self.pre_imputation_incidence,
         )
 
     def propagate(self) -> None:
