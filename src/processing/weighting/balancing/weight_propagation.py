@@ -25,6 +25,13 @@ Checksums (logged as warnings if violated):
 * ``sum(person_weight) ≈ sum(hh_weight x persons_per_hh)``
 * ``sum(day_weight) ≈ sum(person_weight x complete_travel_days)``
 * ``sum(unlinked_trip_weight) ≈ sum(day_weight x trips_per_day)``
+
+Completion flag:
+
+If a table has a ``complete`` boolean column, records with
+``complete == False`` receive a weight of **0** after the carry-forward
+join.  This ensures that incomplete records never contribute to
+downstream aggregations (the aggregation step already excludes zeros).
 """
 
 import logging
