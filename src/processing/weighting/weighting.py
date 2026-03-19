@@ -62,8 +62,6 @@ from processing.weighting.balancing.balancer import (
 from processing.weighting.balancing.base_weights import compute_base_weights
 from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
 from processing.weighting.balancing.weight_propagation import (
-    collect_tables,
-    non_null_tables,
     propagate_weights,
     safe_join_weight,
 )
@@ -476,15 +474,7 @@ class WeightingPipeline:
             on="hh_id",
             how="left",
         )
-        tables = collect_tables(
-            households=self.data.households,
-            persons=self.data.persons,
-            days=self.data.days,
-            unlinked_trips=self.data.unlinked_trips,
-            linked_trips=self.data.linked_trips,
-            joint_trips=self.data.joint_trips,
-            tours=self.data.tours,
-        )
+        tables = self.data.as_dict()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
         # Zero out hh_weight for incomplete households
@@ -637,20 +627,11 @@ def weighting(  # noqa: PLR0913
     wt_pipeline.generate_diagnostics()
 
     # Basic sanity check to ensure weights were propagated to all tables before returning
+    result_tables = wt_pipeline.data.as_dict_non_null()
     weight_sanity_checks(
-        non_null_tables(wt_pipeline.data),  # pyright: ignore[reportArgumentType]
+        result_tables,
         wt_pipeline.control_totals,
         wt_pipeline.controls.specs,
     )
 
-    return non_null_tables(
-        collect_tables(
-            households=wt_pipeline.data.households,
-            persons=wt_pipeline.data.persons,
-            days=wt_pipeline.data.days,
-            unlinked_trips=wt_pipeline.data.unlinked_trips,
-            linked_trips=wt_pipeline.data.linked_trips,
-            joint_trips=wt_pipeline.data.joint_trips,
-            tours=wt_pipeline.data.tours,
-        )
-    )
+    return result_tables
