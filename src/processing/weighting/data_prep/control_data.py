@@ -136,6 +136,7 @@ def recode_pums_households(
         hh = hh_df
 
     for ctrl in hh_ctrls:
+        logger.info("Recoding PUMS household control '%s'...", ctrl.name)
         hh = _apply_pums_recode(hh, ctrl)
 
     check_recode_nulls(
@@ -170,6 +171,7 @@ def recode_pums_persons(
 
     df = person_df
     for ctrl in p_ctrls:
+        logger.info("Recoding PUMS person control '%s'...", ctrl.name)
         df = _apply_pums_recode(df, ctrl)
 
     check_recode_nulls(

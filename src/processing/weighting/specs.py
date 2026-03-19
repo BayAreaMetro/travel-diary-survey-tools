@@ -67,6 +67,29 @@ class ControlTotals:
     geo_ids: list[str]
 
 
+# ---------------------------------------------------------------------------
+# PUMS Configuration
+# ---------------------------------------------------------------------------
+@dataclass
+class PUMSSource:
+    """Configuration for PUMS data source.
+
+    Parameters
+    ----------
+    state_fips : str
+        Two-digit FIPS code for the state (e.g. "06" for California).
+    pums_year : int
+        ACS 1-year PUMS vintage (e.g. 2022).
+    puma_ids : list[str] | None
+        Optional list of PUMA codes to fetch. If None, fetches all PUMAs in
+        the state (can be large).
+    """
+
+    state_fips: str
+    pums_year: int
+    puma_ids: list[str] | None = None
+
+
 # ==============================================================================
 # Balancing Configuration
 # ==============================================================================

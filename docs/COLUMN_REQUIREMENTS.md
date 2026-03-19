@@ -25,6 +25,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `num_vehicles` | int | ≥ 0 |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `income_bin` | IncomeBroad |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `income` | int or None | ≥ 0 |  |  |  |  |  | ✓ |  |  |  |  |
+|  | `complete` | bool |  |  |  |  |  |  | ✓ |  |  |  |  |
 | **persons** | `person_id` | int | ≥ 1, UNIQUE |  |  |  |  | ✓ |  |  |  |  |  |
 |  | `hh_id` | int | ≥ 1, FK → `households.hh_id`, REQ_CHILD |  |  |  |  |  |  |  |  |  |  |
 |  | `person_num` | int | ≥ 1 |  |  |  |  |  |  |  | ✓ | ✓ |  |
@@ -46,12 +47,14 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `commute_subsidy_use_4` | data_canon.codebook.generic.BooleanYesNo or None |  |  |  |  |  |  |  |  | ✓ |  |  |
 |  | `is_proxy` | bool or None |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `num_days_complete` | int | ≥ 0 |  |  |  |  |  |  |  |  |  |  |
+|  | `complete` | bool or None |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `person_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |
 | **days** | `person_id` | int | ≥ 1, FK → `persons.person_id`, REQ_CHILD |  |  |  |  |  |  |  |  |  |  |
 |  | `day_id` | int | ≥ 1, UNIQUE |  |  |  |  |  |  |  |  |  |  |
 |  | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  |  |  |  |  |  |
 |  | `travel_date` | datetime |  |  |  |  |  |  |  |  |  |  |  |
 |  | `travel_dow` | TravelDow |  |  |  |  |  |  |  |  |  | ✓ |  |
+|  | `complete` | bool or None |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `day_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |
 | **unlinked_trips** | `unlinked_trip_id` | int | ≥ 1, UNIQUE |  |  |  |  |  |  |  |  |  |  |
 |  | `day_id` | int | ≥ 1, FK → `days.day_id` |  |  | ✓ |  | ✓ |  |  |  |  |  |
@@ -77,6 +80,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `depart_time` | datetime.datetime or None |  |  |  | ✓ |  | ✓ |  |  |  |  |  |
 |  | `arrive_time` | datetime.datetime or None |  |  |  | ✓ |  | ✓ |  |  |  |  |  |
 |  | `num_travelers` | int | ≥ 1 |  |  |  |  |  |  |  |  |  |  |
+|  | `complete` | bool or None |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `unlinked_trip_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |
 | **linked_trips** | `day_id` | int | ≥ 1, FK → `days.day_id` |  |  |  |  | ✓ |  |  |  |  |  |
 |  | `person_id` | int | ≥ 1, FK → `persons.person_id` |  |  |  |  |  |  |  |  |  |  |
@@ -103,6 +107,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `depart_time` | datetime |  |  |  |  | ✓ |  |  |  |  |  |  |
 |  | `arrive_time` | datetime |  |  |  |  | ✓ |  |  |  |  |  |  |
 |  | `tour_direction` | TourDirection |  |  |  |  |  |  |  |  |  | ✓ |  |
+|  | `complete` | bool or None |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `linked_trip_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |
 | **tours** | `tour_id` | int | ≥ 1, UNIQUE |  |  |  |  |  |  |  |  |  |  |
 |  | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  |  |  |  |  |  |
@@ -131,6 +136,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `outbound_mode` | data_canon.codebook.trips.ModeType or None |  |  |  |  |  |  |  |  |  |  |  |
 |  | `inbound_mode` | data_canon.codebook.trips.ModeType or None |  |  |  |  |  |  |  |  |  |  |  |
 |  | `num_travelers` | int | ≥ 1 |  |  |  |  |  |  |  | ✓ |  |  |
+|  | `complete` | bool or None |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `tour_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |
 
 

@@ -209,10 +209,12 @@ steps:
         # Person level controls (get's aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment
-        - name: p_commute_mode
-          merge:
-            car: ["carpool", "drive_alone"]
-            walk_bike: ["walk", "bike"]
+
+        # BATS 2019 didn't have commute mode, so we can't confidently weight with this target
+        # - name: p_commute_mode
+        #   merge:
+        #     car: ["carpool", "drive_alone"]
+        #     walk_bike: ["walk", "bike"]
 
         - name: p_student
           # merge:

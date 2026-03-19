@@ -388,7 +388,7 @@ class TestRecodeSurveyPersons:
         assert vals == [int(StudentCategory.NOT_STUDENT)] * 3
 
     def test_student_tier6_active_student_missing_school_type(self):
-        """Tier 6: active student with missing school_type defaults to COLLEGE."""
+        """Tier 6: active student with missing school_type → null (no dangerous default)."""
         # Student: FULLTIME_INPERSON=0, PARTTIME_ONLINE=3
         persons = pl.DataFrame(
             {
@@ -401,7 +401,7 @@ class TestRecodeSurveyPersons:
         )
         result = recode_survey_persons(persons, ["p_student"])
         vals = result.sort("person_id")["p_student"].to_list()
-        assert vals == [int(StudentCategory.STUDENT_COLLEGE)] * 2
+        assert vals == [None, None]
 
     def test_age_recode(self, survey_persons):
         """Age category recode should map canonical AgeCategory values to control categories."""

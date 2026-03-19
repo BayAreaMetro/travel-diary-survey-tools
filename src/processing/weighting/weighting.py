@@ -215,6 +215,7 @@ class WeightingPipeline:
         logger.info("Controls: %s", self.controls.target_names)
 
         zone_groups: dict[str, list[str]] | None = self.geography.get("zone_groups")
+
         # Prepare the crosswalk with the full set of zones (including zone groups)
         # Store as an instance attribute for use in zone assignment and diagnostics
         self.crosswalk = PumaCrosswalk(
@@ -262,6 +263,16 @@ class WeightingPipeline:
         )
         per_recoded = recode_survey_persons(self.data.persons, names, strict_nulls=strict_nulls)  # pyright: ignore[reportArgumentType]
         self.seed_incidence = build_incidence_table(hh_recoded, per_recoded, names)
+
+        # Drop incomplete households from weighting
+        complete_hh_ids = (
+            self.data.households.filter(pl.col("complete"))  # pyright: ignore[reportOptionalMemberAccess]
+            .select("hh_id")
+            .to_series()
+            .to_list()
+        )
+        self.seed_incidence = self.seed_incidence.filter(pl.col("hh_id").is_in(complete_hh_ids))
+
         check_incidence_sums(self.seed_incidence, names, source_label="survey")
 
     def recode_pums(self) -> None:
@@ -475,12 +486,20 @@ class WeightingPipeline:
             tours=self.data.tours,
         )
         has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        # Zero out hh_weight for incomplete households
+        hh = tables["households"]
+        if hh is not None and "complete" in hh.columns:
+            tables["households"] = hh.with_columns(
+                pl.when(pl.col("complete"))
+                .then(pl.col("hh_weight"))
+                .otherwise(0.0)
+                .alias("hh_weight")
+            )
+
+        # Propagate the weights through the survey relational structure (HH → PER → DAY → TRIP/TOUR)
         propagate_weights(tables, has_weight)
-        weight_sanity_checks(
-            non_null_tables(tables),
-            self.control_totals,
-            self.controls.specs,
-        )
+
         # Write propagated tables back to self.data
         for name, df in tables.items():
             if df is not None:
@@ -581,7 +600,7 @@ def weighting(  # noqa: PLR0913
         default=default_importance,
     )
     # Initialize and run the pipeline with the provided configs and data
-    pipeline = WeightingPipeline(
+    wt_pipeline = WeightingPipeline(
         controls=ControlRegistryConfig.from_yaml(controls),
         config=wt_config,
         data=data,
@@ -590,41 +609,48 @@ def weighting(  # noqa: PLR0913
     )
 
     # 1. Setup — register controls, build crosswalk, fetch PUMS
-    pipeline.setup()
-    pipeline.fetch_pums()
+    wt_pipeline.setup()
+    wt_pipeline.fetch_pums()
 
     # 2. Incidence prep
     # Recode survey and PUMS into identical control columns
     # then pivot to incidence tables with the same column layout for both datasets.
     # Enables identical downstream processing (zone assignment, merges, balancing, etc.)
-    pipeline.recode_survey()
-    pipeline.recode_pums()
+    wt_pipeline.recode_survey()
+    wt_pipeline.recode_pums()
 
     # 2a. Zone assignment and merges are intertwined — merges may depend on zone groups, and
-    pipeline.assign_zones()
+    wt_pipeline.assign_zones()
 
     # 2b. Merge controls, must be applied after zone assignment and before total aggregation
-    pipeline.apply_merges()
+    wt_pipeline.apply_merges()
 
     # 3. Control aggregation
-    pipeline.aggregate_totals()
-    pipeline.resolve_importance()
+    wt_pipeline.aggregate_totals()
+    wt_pipeline.resolve_importance()
 
     # 4. Balance + propagate weights
-    pipeline.balance()
-    pipeline.propagate()
+    wt_pipeline.balance()
+    wt_pipeline.propagate()
 
     # 5. Diagnostics
-    pipeline.generate_diagnostics()
+    wt_pipeline.generate_diagnostics()
+
+    # Basic sanity check to ensure weights were propagated to all tables before returning
+    weight_sanity_checks(
+        non_null_tables(wt_pipeline.data),  # pyright: ignore[reportArgumentType]
+        wt_pipeline.control_totals,
+        wt_pipeline.controls.specs,
+    )
 
     return non_null_tables(
         collect_tables(
-            households=pipeline.data.households,
-            persons=pipeline.data.persons,
-            days=pipeline.data.days,
-            unlinked_trips=pipeline.data.unlinked_trips,
-            linked_trips=pipeline.data.linked_trips,
-            joint_trips=pipeline.data.joint_trips,
-            tours=pipeline.data.tours,
+            households=wt_pipeline.data.households,
+            persons=wt_pipeline.data.persons,
+            days=wt_pipeline.data.days,
+            unlinked_trips=wt_pipeline.data.unlinked_trips,
+            linked_trips=wt_pipeline.data.linked_trips,
+            joint_trips=wt_pipeline.data.joint_trips,
+            tours=wt_pipeline.data.tours,
         )
     )

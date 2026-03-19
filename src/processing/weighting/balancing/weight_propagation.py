@@ -113,7 +113,7 @@ def safe_join_weight(
     return df.join(weight_df, on=on, how="left")
 
 
-def propagate_weights(  # noqa: C901
+def propagate_weights(  # noqa: C901, PLR0912
     tables: dict[str, pl.DataFrame | None],
     has_weight: dict[str, str],
     *,
@@ -165,6 +165,16 @@ def propagate_weights(  # noqa: C901
 
         w = parent_df.select(join_key, parent_weight).rename({parent_weight: weight_col})
         tables[child] = safe_join_weight(child_df, w, join_key)
+
+        # Zero out weight for incomplete records
+        if "complete" in tables[child].columns:
+            tables[child] = tables[child].with_columns(
+                pl.when(pl.col("complete"))
+                .then(pl.col(weight_col))
+                .otherwise(0.0)
+                .alias(weight_col)
+            )
+
         has_weight[child] = weight_col
 
     # Aggregate: mean weight from source grouped by key

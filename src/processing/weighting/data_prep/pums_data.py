@@ -20,8 +20,8 @@ import difflib
 import hashlib
 import json
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
@@ -30,6 +30,7 @@ from tqdm import tqdm
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import pums_variables
+from processing.weighting.specs import PUMSSource
 
 logger = logging.getLogger(__name__)
 
@@ -205,29 +206,6 @@ def _drop_gq(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> tuple[pl.DataFrame
             n_per_before,
         )
     return hh_df, person_df
-
-
-# ---------------------------------------------------------------------------
-# Data classes
-# ---------------------------------------------------------------------------
-@dataclass
-class PUMSSource:
-    """Configuration for PUMS data source.
-
-    Parameters
-    ----------
-    state_fips : str
-        Two-digit FIPS code for the state (e.g. "06" for California).
-    pums_year : int
-        ACS 1-year PUMS vintage (e.g. 2022).
-    puma_ids : list[str] | None
-        Optional list of PUMA codes to fetch. If None, fetches all PUMAs in
-        the state (can be large).
-    """
-
-    state_fips: str
-    pums_year: int
-    puma_ids: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -506,11 +484,17 @@ def _fetch_table(
         logger.info("  %s: %d rows x %d cols", label, len(df), len(df.columns))
         return df
 
-    # Split into chunks, each including the join key
+    # Split into chunks, each including the join key.
+    # Use smaller chunks to spread work across _MAX_API_WORKERS threads,
+    # while still respecting the Census API column limit.
     non_key = [c for c in all_cols if c != join_key]
+    cols_per_chunk = min(
+        math.ceil(len(non_key) / _MAX_API_WORKERS),
+        _MAX_COLS_PER_REQUEST - 1,  # leave room for the join key
+    )
     chunks: list[list[str]] = []
-    for i in range(0, len(non_key), _MAX_COLS_PER_REQUEST - 1):
-        chunk = [join_key, *non_key[i : i + _MAX_COLS_PER_REQUEST - 1]]
+    for i in range(0, len(non_key), cols_per_chunk):
+        chunk = [join_key, *non_key[i : i + cols_per_chunk]]
         chunks.append(chunk)
 
     n_chunks = len(chunks)

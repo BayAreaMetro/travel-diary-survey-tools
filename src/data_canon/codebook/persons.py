@@ -268,14 +268,8 @@ class Student(LabeledEnum):
 
     canonical_field_name = "student"
 
-    FULLTIME_INPERSON = (
-        0,
-        "Full-time student, currently attending some or all classes in-person",
-    )
-    PARTTIME_INPERSON = (
-        1,
-        "Part-time student, currently attending some or all classes in-person",
-    )
+    FULLTIME_INPERSON = (0, "Full-time student, currently attending some or all classes in-person")
+    PARTTIME_INPERSON = (1, "Part-time student, currently attending some or all classes in-person")
     NONSTUDENT = (2, "Not a student")
     PARTTIME_ONLINE = (3, "Part-time student, ONLY online classes")
     FULLTIME_ONLINE = (4, "Full-time student, ONLY online classes")

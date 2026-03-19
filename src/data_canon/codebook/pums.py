@@ -155,6 +155,12 @@ class PumsJwtrns(LabeledEnum):
 
     canonical_field_name = "JWTRNS"
 
+    NA = (
+        0,
+        "N/A (not a worker-not in the labor force, including persons "
+        "under 16 years; unemployed; employed, with a job but not at "
+        "work; Armed Forces, with a job but not at work",
+    )
     CAR_TRUCK_VAN = (1, "Car, truck, or van")
     BUS = (2, "Bus")
     STREETCAR = (3, "Streetcar, trolley car, or cable car")

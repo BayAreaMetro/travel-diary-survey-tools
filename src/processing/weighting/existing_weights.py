@@ -340,6 +340,17 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         tables[table_name] = df.join(weight_df, on=cfg.table_id_col, how="left")
         has_weight[table_name] = cfg.canonical_weight_col
 
+    # Zero out weights for incomplete records on tables that already have weights
+    for table_name, weight_col in has_weight.items():
+        df = tables.get(table_name)
+        if df is not None and "complete" in df.columns:
+            tables[table_name] = df.with_columns(
+                pl.when(pl.col("complete"))
+                .then(pl.col(weight_col))
+                .otherwise(0.0)
+                .alias(weight_col)
+            )
+
     # Derive missing weights if requested
     if derive_missing_weights:
         propagate_weights(tables, has_weight, skip=provided_weights)

@@ -225,6 +225,7 @@ class CommuteModeControl(ControlTarget):
         PumsJwtrns.WALKED.value: CommuteModeCategory.WALK,
         PumsJwtrns.WORKED_AT_HOME.value: CommuteModeCategory.MOSTLY_REMOTE,
         PumsJwtrns.OTHER.value: CommuteModeCategory.OTHER,
+        PumsJwtrns.NA.value: CommuteModeCategory.NA,
     }
 
     def survey_expr(self) -> pl.Expr:
@@ -271,7 +272,6 @@ class CommuteModeControl(ControlTarget):
             .otherwise(
                 wm.replace_strict(
                     self._survey_map,
-                    default=CommuteModeCategory.OTHER,
                     return_dtype=pl.Int16,
                 ),
             )
@@ -289,7 +289,7 @@ class CommuteModeControl(ControlTarget):
         jwtrns = pl.col("JWTRNS")
         base = jwtrns.replace_strict(
             self._pums_map,
-            default=CommuteModeCategory.OTHER,
+            # default=CommuteModeCategory.OTHER, # defaults are dangerous...
             return_dtype=pl.Int16,
         )
         return (
@@ -402,8 +402,8 @@ class StudentControl(ControlTarget):
             .then(StudentCategory.STUDENT_K12)
             .when(is_missing_student & is_missing_school_type)
             .then(StudentCategory.NOT_STUDENT)
-            # 6. Active student with missing school_type → default to college
-            .otherwise(StudentCategory.STUDENT_COLLEGE)
+            # 6. No rule matched → null so downstream warnings surface
+            .otherwise(None)
             .cast(pl.Int16)
         )
 

@@ -7,11 +7,11 @@ See ``src/utils/CROSSWALK.md`` for the mathematical formulation.
 
 Approach::
 
-    Target Zones ───────────────────→ exactextract (fractional zonal stats)
-                                            ↑
-    Census Blocks → rasterize pop → pop grid ─┘
-                                            ↑
-    PUMAs         → rasterize IDs → label grid
+    Census Blocks → rasterize pop → pop grid  ──────┐
+                                                    ├──→ exactextract ──→ crosswalk
+    PUMAs         → rasterize IDs → label grid ─────┤    (zonal stats)
+                                                    │
+    Target Zones (polygons) ────────────────────────┘
 
 1. Load target zone polygons; auto-discover overlapping PUMAs.
 2. Download/cache TIGER PUMA and block shapefiles (via ``census_geo``).

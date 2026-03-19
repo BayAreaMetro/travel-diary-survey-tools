@@ -138,6 +138,7 @@ def recode_survey_persons(
     df = persons
 
     for ctrl in p_ctrls:
+        logger.info("Recoding survey person control '%s'...", ctrl.name)
         _require_fields(df, ctrl)
         df = _apply_recode(df, ctrl)
 

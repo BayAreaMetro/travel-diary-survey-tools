@@ -362,3 +362,129 @@ class TestPropagateAggregate:
                 has_weight,
                 skip={"persons", "days", "unlinked_trips"},
             )
+
+
+# ---------------------------------------------------------------------------
+# propagate_weights -- completion flag
+# ---------------------------------------------------------------------------
+
+
+def _make_tables_with_complete():
+    """Build tables where some records are marked incomplete."""
+    households = pl.DataFrame(
+        {
+            "hh_id": [1, 2],
+            "hh_weight": [10.0, 20.0],
+            "complete": [True, False],
+        }
+    )
+    persons = pl.DataFrame(
+        {
+            "person_id": [1, 2, 3],
+            "hh_id": [1, 1, 2],
+            "complete": [True, True, False],
+        }
+    )
+    days = pl.DataFrame(
+        {
+            "day_id": [10, 20, 30],
+            "person_id": [1, 2, 3],
+            "complete": [True, False, False],
+        }
+    )
+    unlinked_trips = pl.DataFrame(
+        {
+            "unlinked_trip_id": [100, 200, 300, 400],
+            "day_id": [10, 10, 20, 30],
+            "linked_trip_id": [1, 1, 2, 2],
+            "complete": [True, True, False, False],
+        }
+    )
+    linked_trips = pl.DataFrame(
+        {
+            "linked_trip_id": [1, 2],
+            "tour_id": [1, 1],
+        }
+    )
+    tours = pl.DataFrame({"tour_id": [1]})
+    return {
+        "households": households,
+        "persons": persons,
+        "days": days,
+        "unlinked_trips": unlinked_trips,
+        "linked_trips": linked_trips,
+        "joint_trips": None,
+        "tours": tours,
+    }
+
+
+class TestPropagateCompletionFlag:
+    """Tests for zeroing out weights on incomplete records."""
+
+    def test_incomplete_persons_get_zero_weight(self):
+        """Persons with complete=False get weight 0 even if parent HH has weight."""
+        tables = _make_tables_with_complete()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight)
+
+        persons = tables["persons"].sort("person_id")
+        assert persons["person_weight"].to_list() == [10.0, 10.0, 0.0]
+
+    def test_incomplete_days_get_zero_weight(self):
+        """Days with complete=False get weight 0."""
+        tables = _make_tables_with_complete()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight)
+
+        days = tables["days"].sort("day_id")
+        assert days["day_weight"].to_list() == [10.0, 0.0, 0.0]
+
+    def test_incomplete_unlinked_trips_get_zero_weight(self):
+        """Unlinked trips with complete=False get weight 0."""
+        tables = _make_tables_with_complete()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight)
+
+        ut = tables["unlinked_trips"].sort("unlinked_trip_id")
+        assert ut["unlinked_trip_weight"].to_list() == [10.0, 10.0, 0.0, 0.0]
+
+    def test_aggregate_excludes_zero_from_incomplete(self):
+        """Aggregated weights exclude zeros from incomplete records."""
+        tables = _make_tables_with_complete()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight)
+
+        lt = tables["linked_trips"].sort("linked_trip_id")
+        # linked_trip 1: unlinked 100 (wt=10, complete) + 200 (wt=10, complete) -> mean=10
+        # linked_trip 2: unlinked 300 (wt=0, incomplete) + 400 (wt=0, incomplete) -> 0 (all zero)
+        assert lt["linked_trip_weight"].to_list() == [10.0, 0.0]
+
+    def test_no_complete_column_propagates_normally(self):
+        """Without a complete column, weights propagate as before."""
+        tables = _make_tables()  # no complete column
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight)
+
+        persons = tables["persons"].sort("person_id")
+        assert persons["person_weight"].to_list() == [10.0, 10.0, 20.0]
+
+    def test_all_complete_propagates_normally(self):
+        """When all records are complete, weights propagate normally."""
+        tables = _make_tables_with_complete()
+        # Override all to complete
+        tables["persons"] = tables["persons"].with_columns(pl.lit(value=True).alias("complete"))
+        tables["days"] = tables["days"].with_columns(pl.lit(value=True).alias("complete"))
+        tables["unlinked_trips"] = tables["unlinked_trips"].with_columns(
+            pl.lit(value=True).alias("complete")
+        )
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight)
+
+        persons = tables["persons"].sort("person_id")
+        assert persons["person_weight"].to_list() == [10.0, 10.0, 20.0]
