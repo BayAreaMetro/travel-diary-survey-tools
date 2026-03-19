@@ -86,7 +86,7 @@ steps:
           shapefile: "{{ TM1_shapefile_dir }}/bayarea_rtaz1454_rev1_WGS84.shp"
           zone_id_field: "TAZ1454"
 
-  - name: weighting
+  - name: compute_weights
     validate_input: false
     cache: true
     params:
@@ -186,7 +186,11 @@ steps:
         - name: h_vehicles
           merge:
             veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
-          # zone_merges:
+          zone_merges:
+            "Marin/Napa/Solano/Sonoma":
+              veh_0_1: [veh_0, veh_1]
+            "Contra Costa":
+              veh_0_1: [veh_0, veh_1]
           #   "San Francisco":
           #     veh_1_plus: [veh_1, veh_2_plus]
 

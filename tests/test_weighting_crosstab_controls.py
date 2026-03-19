@@ -325,7 +325,7 @@ class TestCrosstabIncidence:
         hh_recoded = recode_survey_households(households, persons, targets)
         per = persons  # No person targets in this test
 
-        incidence = build_incidence_table(hh_recoded, per, targets)
+        incidence = build_incidence_table(hh_recoded, per, targets).incidence
         xtab_cols = [c for c in incidence.columns if c.startswith("h_size_x_income__")]
         assert len(xtab_cols) > 0
 
@@ -333,7 +333,7 @@ class TestCrosstabIncidence:
         """Each household belongs to exactly one cross-tab cell: 0/1 indicators."""
         targets = ["h_size", "h_income", "h_size_x_income"]
         hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets)
+        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
         xtab_cols = [c for c in incidence.columns if c.startswith("h_size_x_income__")]
 
         # Row sums should be 0 (null recode) or 1 (exactly one cell)
@@ -370,7 +370,7 @@ class TestCrosstabIncidence:
         )
         targets = ["h_size", "h_income", "h_size_income_pre"]
         hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets)
+        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
         xtab_cols = [c for c in incidence.columns if c.startswith("h_size_income_pre__")]
         # 3 size bins x 3 income bins = 9 incidence columns
         assert len(xtab_cols) == 9
@@ -389,7 +389,7 @@ class TestCrosstabMerges:
         """Merging income categories reduces the number of xtab columns."""
         targets = ["h_size", "h_income", "h_size_x_income"]
         hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets)
+        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
 
         before_cols = [c for c in incidence.columns if c.startswith("h_size_x_income__")]
 
@@ -416,7 +416,7 @@ class TestCrosstabMerges:
         """Merging doesn't change the total incidence per household."""
         targets = ["h_size", "h_income", "h_size_x_income"]
         hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets)
+        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
 
         before_cols = [c for c in incidence.columns if c.startswith("h_size_x_income__")]
         before_sums = incidence.select(pl.sum_horizontal(*before_cols).alias("s"))["s"]
@@ -444,7 +444,7 @@ class TestCrosstabMerges:
         """Merging both dimensions simultaneously produces expected cell count."""
         targets = ["h_size", "h_income", "h_size_x_income"]
         hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets)
+        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
 
         # Merge: 4 income -> 1 merged + 2 kept = 3 income bins
         # Merge: 8 size -> 1 merged + 2 kept = 3 size bins
@@ -485,7 +485,7 @@ class TestCrosstabMerges:
         """Global 1-D merges on h_size don't affect cross-tab columns."""
         targets = ["h_size", "h_income", "h_size_x_income"]
         hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets)
+        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
 
         xtab_before = sorted(c for c in incidence.columns if c.startswith("h_size_x_income__"))
 
@@ -523,7 +523,7 @@ class TestCrosstabAggregation:
         """Aggregated control totals include cross-tab categories."""
         targets = ["h_size", "h_income", "h_size_x_income"]
         hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets)
+        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
 
         # Add a weight column and geo column (simulate PUMS incidence)
         pums_inc = incidence.with_columns(

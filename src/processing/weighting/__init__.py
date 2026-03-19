@@ -37,7 +37,8 @@ Module structure::
 
     weighting/
     ├── existing_weights.py       # attach pre-computed weights
-    ├── weighting.py              # single @step() entry point
+    ├── compute_weights.py        # single @step() entry point for full weighting pipeline
+    ├── weighting_pipeline.py     # internal class orchestrating the weighting process
     ├── controls/                 # control variable definitions & registry
     ├── data_prep/                # PUMS I/O, control totals, survey seed, geography
     ├── balancing/                # balancer, base weights, propagation, importance
@@ -45,10 +46,10 @@ Module structure::
     └── validation/               # post-balancing sanity checks
 """
 
+from .compute_weights import compute_weights
 from .existing_weights import add_existing_weights
-from .weighting import weighting
 
 __all__ = [
     "add_existing_weights",
-    "weighting",
+    "compute_weights",
 ]

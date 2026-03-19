@@ -68,6 +68,49 @@ class ControlTotals:
 
 
 # ---------------------------------------------------------------------------
+# Incidence Handler
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class IncidenceBundle:
+    """All intermediate and final products of incidence-table construction.
+
+    Built by :func:`build_incidence_table` and available for downstream
+    consumers (balancer, fractional imputation, diagnostics).
+
+    Attributes:
+    ----------
+    incidence : pl.DataFrame
+        Combined household-level incidence table — one row per HH with
+        ``{ctrl}__{member}`` columns for *all* controls (HH + person
+        aggregated).  This is what the balancer operates on.
+    person_pivot : pl.DataFrame
+        Per-person 0/1 indicator table — one row per person with
+        ``{p_ctrl}__{member}`` columns.  Useful for person-level
+        classification (fractional imputation of null persons).
+    household_pivot : pl.DataFrame
+        HH-only 0/1 indicator table — one row per HH with
+        ``{h_ctrl}__{member}`` columns.  Useful for HH-level
+        classification without person-count noise.
+    """
+
+    incidence: pl.DataFrame
+    person_pivot: pl.DataFrame
+    household_pivot: pl.DataFrame
+
+    def filter_households(
+        self, hh_ids: list | pl.Series, hh_id_col: str = "hh_id"
+    ) -> "IncidenceBundle":
+        """Return a new bundle keeping only the given household IDs."""
+        return IncidenceBundle(
+            incidence=self.incidence.filter(pl.col(hh_id_col).is_in(hh_ids)),
+            person_pivot=self.person_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
+            household_pivot=self.household_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
+        )
+
+
+# ---------------------------------------------------------------------------
 # PUMS Configuration
 # ---------------------------------------------------------------------------
 @dataclass

@@ -13,12 +13,12 @@ from pipeline.pipeline import Pipeline
 from processing import (
     add_existing_weights,
     add_zone_ids,
+    compute_weights,
     detect_joint_trips,
     extract_tours,
     format_daysim,
     link_trips,
     load_data,
-    weighting,
     write_data,
 )
 
@@ -84,7 +84,7 @@ processing_steps = [
     format_daysim,
     write_data,
     add_existing_weights,
-    weighting,
+    compute_weights,
 ]
 
 

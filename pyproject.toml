@@ -20,6 +20,7 @@ dependencies = [
     "rasterio>=1.4.4",
     "requests>=2.28.0",
     "samplics>=0.4.1",
+    "scikit-learn>=1.8.0",
     "scipy>=1.16.3",
     "tqdm>=4.60.0",
 ]

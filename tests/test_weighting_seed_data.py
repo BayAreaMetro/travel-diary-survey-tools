@@ -579,7 +579,7 @@ class TestBuildIncidenceTable:
 
         seed = build_incidence_table(
             hh_recoded, per_recoded, ALL_TARGETS, extra_cols=["ctrl_geoid"]
-        )
+        ).incidence
 
         assert "hh_id" in seed.columns
         assert "ctrl_geoid" in seed.columns
@@ -594,7 +594,7 @@ class TestBuildIncidenceTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS).incidence
 
         # Non-structural HH controls are pivoted: h_size__one_person, h_income__*, etc.
         hh_indicator_cols = [c for c in seed.columns if c.startswith("h_size__")]
@@ -613,7 +613,7 @@ class TestBuildIncidenceTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS).incidence
 
         # Person incidence columns use p_ prefix, e.g. p_gender__male
         incidence_cols = [c for c in seed.columns if "__" in c]
@@ -632,7 +632,7 @@ class TestBuildIncidenceTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS).incidence
 
         # Gender incidence columns
         gender_inc_cols = [c for c in seed.columns if c.startswith("p_gender__")]
@@ -660,7 +660,7 @@ class TestBuildIncidenceTable:
         )
         per_recoded = recode_survey_persons(survey_persons, ALL_TARGETS)
 
-        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS)
+        seed = build_incidence_table(hh_recoded, per_recoded, ALL_TARGETS).incidence
 
         incidence_cols = [c for c in seed.columns if "__" in c]
         for col in incidence_cols:
