@@ -302,7 +302,7 @@ class ControlRegistryConfig:
             for zone_id, groups in c.get("zone_merges", {}).items():
                 overlap = set(groups.keys()) & global_labels
                 if overlap:
-                    logger.warning(
+                    msg = (
                         "Control '%s' zone_merges for '%s' redefines global "
                         "merge label(s) %s — the zone merge is redundant "
                         "because the global merge already applies everywhere.",
@@ -310,6 +310,7 @@ class ControlRegistryConfig:
                         zone_id,
                         sorted(overlap),
                     )
+                    raise ValueError(msg)
                 merges_1d.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
 
         return cls(

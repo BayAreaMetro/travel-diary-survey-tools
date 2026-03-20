@@ -56,7 +56,7 @@ def _add_panel_traces(
             f"Diff %: {pct:+.1f}%",
         ]
         if moe is not None:
-            hover_lines.append(f"PUMS MOE: \u00b1{moe:.1f}%")
+            hover_lines.append(f"PUMS SE: \u00b1{moe:.1f}%")
         hovers.append("<br>".join(hover_lines))
         moe_values.append(moe)
 
@@ -199,7 +199,17 @@ def fit_diverging_figure(
         )
         _add_panel_traces(fig, pdf, has_moe, row=r_idx + 1, col=c_idx + 1)
 
+    # Data-driven x-range: show errors at readable scale while
+    # keeping typical PUMS MOE whiskers partially visible.
+    _max_err = max(
+        fit["diff_pct"].drop_nulls().abs().max() or 0,
+        overall["diff_pct"].drop_nulls().abs().max() or 0,
+    )
+    _median_moe = (fit["moe_pct"].drop_nulls().median() or 0) if has_moe else 0
+    _x_limit = math.ceil(max(_median_moe, _max_err * 1.5, 5) / 5) * 5
+
     fig.update_xaxes(
+        range=[-_x_limit, _x_limit],
         zeroline=True,
         zerolinewidth=1,
         zerolinecolor="black",
@@ -808,26 +818,25 @@ def crosswalk_figure(
     # Add zone label traces
     _add_zone_label_traces(fig, zone_centroids, zone_labels, zone_colors)
 
-    # Layout -- use PUMA bounds so full boundaries are visible
-    bounds = puma_4326.total_bounds
-    pad_lat = (bounds[3] - bounds[1]) * 0.05
-    pad_lon = (bounds[2] - bounds[0]) * 0.05
+    # Layout -- centre on PUMA extent and estimate zoom from longitude span.
+    bounds = puma_4326.total_bounds  # (minx, miny, maxx, maxy)
+    center_lon = (bounds[0] + bounds[2]) / 2
+    center_lat = (bounds[1] + bounds[3]) / 2
+    lon_span = bounds[2] - bounds[0]
+    # Mercator zoom: 360 / 2^z ≈ visible longitude span at the equator.
+    # Adjust for map width (960 px / 256 px tile) and add padding.
+    zoom = math.log2(360 / max(lon_span, 0.01)) + math.log2(960 / 256) - 0.5
     fig.update_layout(
         map={
             "style": "carto-positron",
-            "bounds": {
-                "west": bounds[0] - pad_lon,
-                "east": bounds[2] + pad_lon,
-                "south": bounds[1] - pad_lat,
-                "north": bounds[3] + pad_lat,
-            },
+            "center": {"lon": center_lon, "lat": center_lat},
+            "zoom": max(zoom, 3),
         },
         autosize=False,
         width=960,
         height=700,
         margin={"l": 0, "r": 0, "t": 30, "b": 0},
         title="Crosswalk: PUMA to Target Zones",
-        dragmode=False,
     )
 
     return fig

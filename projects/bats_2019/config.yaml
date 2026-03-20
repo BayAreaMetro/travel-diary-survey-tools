@@ -25,7 +25,7 @@ steps:
   - name: clean_2019_bats
     validate_input: false
     validate_output: true
-    cache: true
+    cache: false
     params:
       weight_col_suffix: sphone_wkday  # This will look for weight columns with the suffix "_sphone_wkday" in each dataframe, e.g. "daywt_sphone_wkday"
       weights_dir: "{{ survey_dir }}/weights"
@@ -87,7 +87,7 @@ steps:
           zone_id_field: "TAZ1454"
 
   - name: compute_weights
-    validate_input: false
+    validate_input: true
     cache: true
     params:
       # -- PUMS 1-year microdata (California) ---------------------------
@@ -143,7 +143,7 @@ steps:
       # -- EF grid search (optional) -----------------------------------
       # Re-run balancing across a grid of max_expansion_factor values and
       # add a diagnostic chart showing fit vs weight quality tradeoffs.
-      expansion_factor_grid: [2, 2.5, 3, 4, 5, 7, 10]
+      expansion_factor_grid: [2, 3, 4, 5, 7, 10]
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.

@@ -51,7 +51,7 @@ class HouseholdModel(BaseModel):
     num_vehicles: int = step_field(ge=0, required_in_steps=["weighting"])
     income_bin: IncomeBroad = step_field(required_in_steps=["weighting"])
     income: int | None = step_field(ge=0, required_in_steps=["weighting"])
-    complete: bool = step_field(default=False, required_in_steps=["weighting"])
+    complete: bool = step_field(required_in_steps=["weighting"])
 
 
 class PersonModel(BaseModel):
@@ -93,7 +93,7 @@ class PersonModel(BaseModel):
     # This allows for multiple proxy reporters and is more explicit.
     is_proxy: bool | None = step_field(default=None, required_in_steps=["format_daysim"])
     num_days_complete: int = step_field(ge=0, default=0)
-    complete: bool | None = step_field(default=False, required_in_steps=["weighting"])
+    complete: bool | None = step_field(required_in_steps=["weighting"])
     person_weight: float | None = step_field(default=None, ge=0, required_in_steps=[])
 
 
@@ -151,7 +151,7 @@ class UnlinkedTripModel(BaseModel):
     depart_time: datetime | None = step_field(required_in_steps=["link_trips", "extract_tours"])
     arrive_time: datetime | None = step_field(required_in_steps=["link_trips", "extract_tours"])
     num_travelers: int = step_field(ge=1)
-    complete: bool | None = step_field(default=False, required_in_steps=["weighting"])
+    complete: bool | None = step_field(required_in_steps=["weighting"])
     unlinked_trip_weight: float | None = step_field(default=None, ge=0, required_in_steps=[])
 
     # You can add custom row-level validators here
@@ -215,7 +215,7 @@ class LinkedTripModel(BaseModel):
     depart_time: datetime = step_field(required_in_steps=["detect_joint_trips"])
     arrive_time: datetime = step_field(required_in_steps=["detect_joint_trips"])
     tour_direction: TourDirection = step_field(required_in_steps=["format_daysim"])
-    complete: bool | None = step_field(default=False, required_in_steps=["weighting"])
+    complete: bool | None = step_field(required_in_steps=["weighting"])
     linked_trip_weight: float | None = step_field(default=None, ge=0, required_in_steps=[])
 
 
@@ -267,7 +267,7 @@ class TourModel(BaseModel):
     outbound_mode: ModeType | None = step_field()
     inbound_mode: ModeType | None = step_field()
     num_travelers: int = step_field(ge=1, required_in_steps=["format_ctramp"], default=1)
-    complete: bool | None = step_field(default=False, required_in_steps=["weighting"])
+    complete: bool | None = step_field(required_in_steps=["weighting"])
     tour_weight: float | None = step_field(default=None, ge=0)
 
     @model_validator(mode="after")
@@ -328,5 +328,5 @@ class JointTripModel(BaseModel):
     )
     depart_time_mean: datetime = step_field(description="Mean departure time across member trips")
     depart_arrive_mean: datetime = step_field(description="Mean arrival time across member trips")
-    complete: bool | None = step_field(default=False, required_in_steps=["weighting"])
+    complete: bool | None = step_field(required_in_steps=["weighting"])
     joint_trip_weight: float | None = step_field(default=None, ge=0, required_in_steps=[])

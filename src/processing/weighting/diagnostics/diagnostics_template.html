@@ -6,7 +6,7 @@
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
   body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
-  .plotly-graph-div { visibility: hidden; }
+  #page-overlay { position: fixed; inset: 0; z-index: 99999; background: white; }
   h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
   h2 { margin-top: 2rem; color: #444; }
   table { border-collapse: collapse; margin: 1rem 0; }
@@ -25,6 +25,7 @@
 </style>
 </head>
 <body>
+<div id="page-overlay"></div>
 
 <h1>{{ title }}</h1>
 
@@ -110,7 +111,13 @@
   Bars show (weighted &minus; target) / target &times; 100. Hover for absolute values.<br>
   What to look for:<br>
   &bull; Bars close to zero indicate good fit; large bars indicate poor fit.<br>
-  &bull; <b>Error bars</b> (when present) show the PUMS margin of error (MOE) derived from Census replicate weights. Bars within the MOE whiskers are within expected sampling noise of the target &mdash; the deviation may reflect uncertainty in the target itself rather than a weighting problem. Grey bars indicate fit within MOE.<br>
+  &bull; <b>Error bars</b> (when present) show the PUMS sampling uncertainty derived from Census replicate weights. Bars within the whiskers are within expected sampling noise of the target &mdash; the deviation may reflect uncertainty in the target itself rather than a weighting problem. Grey bars indicate fit within sampling uncertainty.<br>
+</p>
+<p class="note" style="font-size:0.85em; color:#555; margin-top:0;">
+  <b>Legend:</b><br>
+  <span style="color:#999;">&marker;</span> Bar = % error (weighted &minus; target) / target.<br>
+  <span style="color:#c33;">&marker;</span> Red = error exceeds 1 SE of the PUMS target estimate.<br>
+  <span style="color:rgba(0,0,0,0.35);">&#9478;</span> Whiskers = &plusmn;1 standard error from PUMS successive-difference replication (80 replicate weights).<br>
 </p>
 <div class="chart">{{ fit_bars_html }}</div>
 
@@ -134,9 +141,11 @@
 {{ sparsity_html }}
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  var divs = document.querySelectorAll('.plotly-graph-div');
-  for (var i = 0; i < divs.length; i++) divs[i].style.visibility = 'visible';
+window.addEventListener('load', function() {
+  requestAnimationFrame(function() {
+    var o = document.getElementById('page-overlay');
+    if (o) o.remove();
+  });
 });
 </script>
 

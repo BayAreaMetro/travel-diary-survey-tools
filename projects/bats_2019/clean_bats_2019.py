@@ -697,7 +697,7 @@ def cascade_complete_flags(
     persons: pl.DataFrame,
     days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+) -> dict[str, pl.DataFrame]:
     """Cascade complete flags from days to persons to households, and from days to unlinked trips.
 
     Survey completion logic works like this:
@@ -769,7 +769,12 @@ def cascade_complete_flags(
         how="left",
     )
 
-    return households, persons, days, unlinked_trips
+    return {
+        "households": households,
+        "persons": persons,
+        "days": days,
+        "unlinked_trips": unlinked_trips,
+    }
 
 
 @step()
@@ -795,9 +800,7 @@ def clean_2019_bats(
     households = clean_households(households)
 
     # CASCADE COMPLETE FLAGS ==================================
-    households, persons, days, unlinked_trips = cascade_complete_flags(
-        households, persons, days, unlinked_trips
-    )
+    results = cascade_complete_flags(households, persons, days, unlinked_trips)
 
     # PREPARE WEIGHT COLUMNS ==================================
     # Weights are assumed not to be in the data and are appended/calculated after core processing
@@ -818,12 +821,6 @@ def clean_2019_bats(
         "persons": PersonModel,
         "days": PersonDayModel,
         "unlinked_trips": UnlinkedTripModel,
-    }
-    results = {
-        "households": households,
-        "persons": persons,
-        "days": days,
-        "unlinked_trips": unlinked_trips,
     }
     for df_name, (id_col, canon_weight_col) in weight_names.items():
         # Get the dataframe by name

@@ -64,7 +64,7 @@ steps:
     validate_input: false
     cache: true
 
-  - name: weighting
+  - name: compute_weights
     validate_input: false
     cache: true
     params:
@@ -121,7 +121,7 @@ steps:
       # -- EF grid search (optional) -----------------------------------
       # Re-run balancing across a grid of max_expansion_factor values and
       # add a diagnostic chart showing fit vs weight quality tradeoffs.
-      expansion_factor_grid: [2, 3, 5, 7, 10, 15, 20]
+      expansion_factor_grid: [2, 3, 4, 5, 7, 10, 15, 20]
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -151,9 +151,6 @@ steps:
         - name: h_size
           merge:
             size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
-          zone_merges:
-            "San Mateo/Santa Clara": # SM/SC has very few large households
-              size_4_plus: [size_4, size_5_plus]
 
         # Household income controls
         - name: h_income

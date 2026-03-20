@@ -173,7 +173,7 @@ def clean_2023_bats(
         households = households.with_columns(pl.lit(IncomeBroad.MISSING.value).alias("income_bin"))
 
     # Clamp any unrecognised codes to MISSING
-    valid_codes = {int(m) for m in IncomeBroad}
+    valid_codes = {m.value for m in IncomeBroad}
     households = households.with_columns(
         pl.when(pl.col("income_bin").is_in(valid_codes))
         .then(pl.col("income_bin"))
@@ -181,9 +181,28 @@ def clean_2023_bats(
         .alias("income_bin")
     )
 
-    return {
+    # ASSIGN COMPLETION STATUS =========================================
+    # BATS 2023 has a "completion" field in the tables that just need to be renamed to canonical
+    results = {
         "households": households,
         "persons": persons,
-        "unlinked_trips": unlinked_trips,
         "days": days,
+        "unlinked_trips": unlinked_trips,
     }
+
+    # Rename completion columns and cast to boolean
+    column_mapping = {
+        "households": "is_complete",
+        "persons": "is_complete",
+        "days": "is_complete",
+        "unlinked_trips": "trip_survey_complete",
+    }
+
+    for key, old_col in column_mapping.items():
+        results[key] = (
+            results[key]
+            .rename({old_col: "complete"})
+            .with_columns(pl.col("complete").cast(pl.Boolean))
+        )
+
+    return results

@@ -311,6 +311,19 @@ class WeightingPipeline:
         )
         self.survey_bundle = self.survey_bundle.filter_households(complete_hh_ids)
 
+        # Report survey content after recoding and filtering incomplete HHs (before imputation)
+        n_survey_hh = self.survey_bundle.household_pivot["h_total"].sum()
+        n_survey_per = self.survey_bundle.person_pivot["p_total"].sum()
+        n_incompletes = complete_hh_ids.len() - self.data.households.height  # pyright: ignore[reportOptionalMemberAccess]
+
+        logger.info(
+            "Survey after recoding and filtering incomplete HHs: "
+            "%d HHs, %d persons, %d incomplete HHs that were dropped",
+            n_survey_hh,
+            n_survey_per,
+            n_incompletes,
+        )
+
         # ==============================================================
         # Null imputation — RF-predicted fractional probabilities
         # ==============================================================
