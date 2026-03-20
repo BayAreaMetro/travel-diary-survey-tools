@@ -348,7 +348,14 @@ class Pipeline:
                 kwargs["pipeline_cache"] = self.cache
 
             # Execute step
-            step_obj(**kwargs)
+            try:
+                step_obj(**kwargs)
+            except BaseException:
+                logger.exception("Fatal error in step '%s' — pipeline aborted", step_name)
+                # Flush all handlers so the error is guaranteed on disk before propagating
+                for handler in logging.getLogger().handlers:
+                    handler.flush()
+                raise
 
         # Log cache statistics if caching was enabled
         if self.cache:
