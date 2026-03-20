@@ -29,6 +29,7 @@ class Pipeline:
         steps: list[Callable] | None = None,
         caching: bool | Path | str = False,
         data_models: dict[str, Any] | None = None,
+        log_file_mode: str = "a",
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
@@ -40,6 +41,8 @@ class Pipeline:
                 If str or Path, use specified directory for caching.
             data_models: Optional dictionary of extra data models for validation.
                 These will be added to the default data models in CanonicalData object.
+            log_file_mode: File open mode for the log file. Use "a" to append
+                (default) or "w" to overwrite at the start of each run.
         """
         self.config_path = config_path
         self.config = self._load_config()
@@ -57,7 +60,7 @@ class Pipeline:
 
         # filename for file+console, or None for console only
         if log_filename:
-            setup_logging(log_file=log_filename)
+            setup_logging(log_file=log_filename, log_file_mode=log_file_mode)
             logger.info("Log file: %s", log_filename)
         else:
             # Console-only logging
