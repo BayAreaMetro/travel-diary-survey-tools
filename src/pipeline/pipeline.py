@@ -3,6 +3,7 @@
 import inspect
 import json
 import logging
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -298,8 +299,30 @@ class Pipeline:
 
         return {**data_kwargs, **config_kwargs}
 
+    def _log_git_version(self) -> None:
+        """Log the git version of the codebase, including diffs if dirty."""
+        try:
+            version = subprocess.check_output(
+                ["git", "describe", "--always", "--dirty", "--tags"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+            logger.info("Code version: %s", version)
+
+            if version.endswith("-dirty"):
+                diff = subprocess.check_output(
+                    ["git", "diff"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                ).strip()
+                if diff:
+                    logger.debug("Uncommitted changes (git diff):\n%s", diff)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            logger.warning("Could not determine git version (not a git repo or git not found)")
+
     def run(self) -> CanonicalData:
         """Run a data processing pipeline based on a configuration file."""
+        self._log_git_version()
         n_steps = len(self.config["steps"])
         for i, step_cfg in enumerate(self.config["steps"], start=1):
             step_name = step_cfg["name"]
