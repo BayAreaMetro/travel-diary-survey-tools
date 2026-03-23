@@ -98,9 +98,7 @@ def _write_enum_codebook(
 
     for enum_name, enum_cls in sorted(enums.items()):
         ws = wb.create_sheet(title=enum_name[:31])  # Excel sheet names max 31 chars
-        ws.append(
-            [f"{enum_name} Value", f"{enum_name} Label", f"{enum_name} Value Label"]
-        )
+        ws.append([f"{enum_name} Value", f"{enum_name} Label", f"{enum_name} Value Label"])
         for member in enum_cls:
             ws.append([member.value, member.label, f"{member.value} {member.label}"])
 
