@@ -100,6 +100,37 @@ platform_adjustment:
 
 ---
 
+### 4. Replicate Weights for Computed Survey Weights [ ]
+
+**Status:** Not implemented. Current replicate handling is used for control-importance MOE logic, not for generating replicate versions of final survey weights.
+
+**Goal:** Support replicate-weight generation on the **computed survey weights** themselves (household/person/day/trip), so users can evaluate weighting methodology stability and produce design-based variance estimates from replicate runs.
+
+**Design considerations:**
+- This feature is explicitly about recomputing the weighting pipeline per replicate (base-weight adjustments, balancing/calibration, trimming), not PUMS-target uncertainty alone.
+- Add configurable replicate methods: `jk1`, `brr`, `fay_brr`, `bootstrap` (method availability depends on sample design metadata such as strata/PSU).
+- Replicate weights should be generated at the household seed stage, then propagated through existing weight propagation (household → person → day → trip).
+- Diagnostics should summarize methodology stability across replicates:
+  - convergence success rate by zone
+  - control fit dispersion (e.g., CV or percentile spread of residuals)
+  - weight quality dispersion (CV, ESS%, trimming-hit rate)
+  - optional DEFF-style summaries for key outputs
+- Performance/storage impact is substantial (`R` replicate runs and `R` extra weight columns). Feature should be gated by config and allow reduced `n_replicates` for exploratory QA.
+- Backward compatibility: default behavior remains single final weight columns (`hh_weight`, `person_weight`, etc.), with replicate columns emitted only when enabled.
+
+```yaml
+replicate_weights:
+  enabled: true
+  method: jk1              # jk1 | brr | fay_brr | bootstrap
+  n_replicates: 80
+  random_seed: 2026
+  output_replicate_columns: true
+```
+
+**Files affected:** `weighting.py` (replicate orchestration), `balancing/base_weights.py` (replicate seed/base adjustments), new module (e.g., `balancing/replicate_weights.py`), `balancing/weight_propagation.py` (replicate column propagation), diagnostics modules/tables/charts, config schema in `specs.py`.
+
+---
+
 ### Priority and Dependencies
 
 | # | Feature | Status | Complexity | Impact |
@@ -107,6 +138,7 @@ platform_adjustment:
 | 1 | Custom trip targets | [ ] | Medium | High — useful for matching to NTD/FHWA but adds architectural complexity |
 | 2 | DOW structuring | [ ] | High | High — provides day-of-week weight granularity |
 | 3 | Platform bias | [ ] | Low-High | Medium — important for mixed-mode surveys |
+| 4 | Replicate weights on computed weights | [ ] | Medium-High | High — enables methodology stability checks and replicate-based variance |
 
 `[ ]` Not started · `[x]` Complete
 
