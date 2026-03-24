@@ -3,15 +3,8 @@
 ``PumaCrosswalk`` fetches Census PUMA and block geographies and
 delegates the heavy lifting to :func:`utils.crosswalk.build_crosswalk`.
 
-See ``src/utils/CROSSWALK.md`` for the mathematical formulation.
-
-Approach::
-
-    Census Blocks → rasterize pop → pop grid  ──────┐
-                                                    ├──→ exactextract ──→ crosswalk
-    PUMAs         → rasterize IDs → label grid ─────┤    (zonal stats)
-                                                    │
-    Target Zones (polygons) ────────────────────────┘
+See ``docs/pipeline_steps/weighting/crosswalk.md`` for the detailed
+crosswalk explanation, diagrams, and worked example.
 
 1. Load target zone polygons; auto-discover overlapping PUMAs.
 2. Download/cache TIGER PUMA and block shapefiles (via ``census_geo``).

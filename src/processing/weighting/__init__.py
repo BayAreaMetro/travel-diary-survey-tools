@@ -6,10 +6,10 @@ survey tables:
 1. **``add_existing_weights``** -- load pre-computed weights from CSV files and
    join them to tables, optionally deriving missing weights by propagating
    values through the survey hierarchy.
-2. **``weighting``** -- compute weights from scratch using PUMS / ACS
+2. **``compute_weights``** -- compute weights from scratch using PUMS / ACS
    microdata as population controls via maximum-entropy balancing.
 
-The ``weighting`` step internally orchestrates five sub-components:
+The ``compute_weights`` step internally orchestrates five sub-components:
 
 1. **Geography crosswalk** -- translate between Census PUMAs and the project's
    custom weighting geography using block-group population as the intermediary.

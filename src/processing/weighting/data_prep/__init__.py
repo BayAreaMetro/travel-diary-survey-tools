@@ -1,18 +1,24 @@
-"""Data preparation sub-package (PUMS I/O, control totals, survey seed, geography).
+"""Data-preparation toolbox for the weighting workflow.
 
-Orchestrates the external data pipeline that feeds the balancer:
+This sub-package does not orchestrate the weighting pipeline itself.
+Instead, it provides the reusable building blocks that the weighting
+pipeline uses to prepare geography, PUMS inputs, control totals, and
+survey seed data.
+
+Modules:
 
 1. **Census geography** (``census_geo``) -- download and cache TIGER PUMA
-   and block shapefiles via pygris.  Block shapefiles include population
-   directly from the corresponding decennial census.
-2. **Geography crosswalk** (``crosswalk``) -- build a population-weighted
-   allocation table from PUMAs to custom project zones using rasterised
-   Census block population and ``exactextract`` fractional zonal statistics.
+   and block shapefiles via pygris, including block-level population inputs.
+2. **Geography crosswalk** (``crosswalk``) -- construct a population-weighted
+   PUMA-to-target-zone allocation table and assign/allocate records across
+   project geographies.
 3. **PUMS data** (``pums_data``) -- fetch ACS 1-year PUMS microdata from the
-   Census API (or load from local files).  Column chunking when >48 columns,
-   Parquet caching, streaming progress bars.
-4. **Control data** (``control_data``) -- recode PUMS variables, apply the
-   crosswalk to distribute totals into custom zones, aggregate marginals.
+   Census API or load local extracts, with chunking and caching helpers.
+4. **Control data** (``control_data``) -- recode PUMS variables into weighting
+   control categories and aggregate them into zone-level control totals.
 5. **Seed data** (``seed_data``) -- recode canonical survey variables into
-   the same bin/group categories as the PUMS controls.
+   the same control categories used by the PUMS-based controls.
+
+Together these modules provide the shared data-preparation utilities used
+by ``WeightingPipeline`` before balancing begins.
 """

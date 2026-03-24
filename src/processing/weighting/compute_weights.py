@@ -1,18 +1,31 @@
 """Entry point for the weighting pipeline step.
 
 Orchestrates the full weighting pipeline, which consists of the following stages:
+
 1. **Setup** -- register controls, build crosswalk, prepare sample plan, etc.
+
 2. **PUMS recoding** -- recode PUMS microdata into the same control categories as the survey seed.
+
 3. **Survey recoding** -- recode canonical survey data into control categories.
+
 4. **Null imputation** -- fill null-induced zeros in the survey incidence with RF-predicted fractional probabilities.
+
 5. **Zone assignment** -- assign survey records to weighting zones via crosswalk.
+
 6. **Merges** -- apply any user-specified merges to control categories.
+
 7. **Control aggregation** -- aggregate recoded PUMS microdata into control totals per zone.
+
 8. **Importance resolution** -- compute control importance values based on MOE or explicit config.
+
 9. **Balancing** -- fit weights using PopulationSim's numba core balancer per zone.
+
 10. **Weight propagation** -- propagate final household weights to all canonical tables (persons, days, trips, tours).
+
 11. **Diagnostics** -- generate an interactive HTML report with diagnostics and validation results.
+
 12. **Validation** -- run sanity checks on the final weights and control totals.
+
 Done! Easy as 1-2-3...12. :)
 """  # noqa: E501
 
