@@ -165,14 +165,15 @@ class LinkedTripModel(BaseModel):
         fk_to="joint_trips.joint_trip_id",
         default=None,
     )
+
     tour_id: int = schema_field(ge=1, fk_to="tours.tour_id")
     travel_dow: TravelDow = schema_field()
     o_purpose: Purpose = schema_field()
-    o_purpose_category: int = schema_field()
+    o_purpose_category: PurposeCategory = schema_field()
     o_lat: float = schema_field(ge=-90, le=90)
     o_lon: float = schema_field(ge=-180, le=180)
     d_purpose: Purpose = schema_field()
-    d_purpose_category: int = schema_field()
+    d_purpose_category: PurposeCategory = schema_field()
     d_lat: float = schema_field(ge=-90, le=90)
     d_lon: float = schema_field(ge=-180, le=180)
     mode_type: ModeType = schema_field()
@@ -180,7 +181,6 @@ class LinkedTripModel(BaseModel):
     num_travelers: int = schema_field(ge=1)
     access_mode: AccessEgressMode | None = schema_field(default=None)
     egress_mode: AccessEgressMode | None = schema_field(default=None)
-
     duration_minutes: float = schema_field(ge=0)
     distance_meters: float = schema_field(ge=0)
     depart_time: datetime = schema_field()
