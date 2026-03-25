@@ -240,7 +240,24 @@ def _derive_missing_weights(
         has_weight[target_table] = target_weight
 
 
-@step()
+@step(
+    requires={
+        "households": {"hh_id"},
+        "persons": {"person_id"},
+        "days": {"day_id"},
+        "unlinked_trips": {"unlinked_trip_id"},
+        "linked_trips": {"linked_trip_id"},
+        "tours": {"tour_id"},
+    },
+    produces={
+        "households": {"hh_weight"},
+        "persons": {"person_weight"},
+        "days": {"day_weight"},
+        "unlinked_trips": {"unlinked_trip_weight"},
+        "linked_trips": {"linked_trip_weight"},
+        "tours": {"tour_weight"},
+    },
+)
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, WeightConfig | dict],
     derive_missing_weights: bool = False,
