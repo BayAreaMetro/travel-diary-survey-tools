@@ -165,7 +165,6 @@ def clean_2023_bats(
     # Join to households
     households = households.join(hh_attributes, on="hh_id", how="left")
 
-<<<<<<< HEAD
     # RECODE INCOME =========================================
     # Vendor column "income_broad" already uses IncomeBroad-compatible codes
     # (1-6, 995, 999).  Rename to canonical "income_bin" and validate.
@@ -182,15 +181,6 @@ def clean_2023_bats(
         .then(pl.col("income_bin"))
         .otherwise(IncomeBroad.MISSING.value)
         .alias("income_bin")
-    )
-
-    # ASSIGN COMPLETION STATUS =========================================
-    # BATS 2023 has a "completion" field in the tables that just need to be renamed to canonical
-    results = {
-=======
-    # Copy income_broad to canonical income
-    households = households.with_columns(
-        pl.col("income_broad").alias("income_bin"),
     )
 
     # CLEANUP PERSON ATTRIBUTES =================================
@@ -262,8 +252,9 @@ def clean_2023_bats(
         .alias("ethnicity")
     )
 
-    return {
->>>>>>> origin/develop
+    # ASSIGN COMPLETION STATUS =========================================
+    # BATS 2023 has a "completion" field in the tables that just need to be renamed to canonical
+    results = {
         "households": households,
         "persons": persons,
         "days": days,
