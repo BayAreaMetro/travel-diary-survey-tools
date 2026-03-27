@@ -15,12 +15,14 @@ from pydantic import BaseModel, model_validator
 
 from data_canon.codebook.days import TravelDow
 from data_canon.codebook.generic import BooleanYesNo, LocationType
-from data_canon.codebook.households import ResidenceRentOwn, ResidenceType
+from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
+    Ethnicity,
     Gender,
     JobType,
+    Race,
     SchoolType,
     Student,
     WorkParking,
@@ -46,6 +48,8 @@ class HouseholdModel(BaseModel):
     home_lon: float = schema_field(ge=-180, le=180)
     residence_rent_own: ResidenceRentOwn = schema_field()
     residence_type: ResidenceType = schema_field()
+    income: int | None = schema_field(ge=0, default=None)
+    income_bin: IncomeBroad = schema_field()
     hh_weight: float | None = schema_field(ge=0)
 
 
@@ -72,6 +76,8 @@ class PersonModel(BaseModel):
     school_type: SchoolType | None = schema_field()
     work_park: WorkParking | None = schema_field()
     work_mode: Mode | None = schema_field()
+    race: Race = schema_field()
+    ethnicity: Ethnicity = schema_field()
     # NOTE: These commute subsidy fields are only used in CTRAMP format
     # But might be useful elsewhere, consider standardizing to be less vague
     # and/or moved into a data model extension.

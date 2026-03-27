@@ -26,6 +26,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `home_lon` | float | ≥ -180, ≤ 180 | ✓ | ✓ |  |  |
     | `residence_rent_own` | ResidenceRentOwn |  |  |  |  | ✓ |
     | `residence_type` | ResidenceType |  |  |  |  | ✓ |
+    | `income` | int or None | ≥ 0 |  |  |  |  |
+    | `income_bin` | IncomeBroad |  |  |  |  |  |
     | `hh_weight` | float or None | ≥ 0 |  |  |  |  |
 
 === "persons"
@@ -47,6 +49,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `school_type` | SchoolType or None |  | ✓ |  |  |  |  |
     | `work_park` | WorkParking or None |  |  |  |  |  | ✓ |
     | `work_mode` | Mode or None |  |  |  |  |  | ✓ |
+    | `race` | Race |  |  |  |  |  |  |
+    | `ethnicity` | Ethnicity |  |  |  |  |  |  |
     | `commute_subsidy_use_3` | BooleanYesNo or None |  |  |  |  | ✓ |  |
     | `commute_subsidy_use_4` | BooleanYesNo or None |  |  |  |  | ✓ |  |
     | `is_proxy` | bool or None |  |  |  |  |  | ✓ |
