@@ -47,7 +47,7 @@ steps:
         persons:
           - column: gender
             method: rf
-            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting
+            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting (ACS only includes male/female, so the weighting approachreflects this constraint)
             join_tables: [households]
             # numeric_features: [age] # Optional if you have them.
             numeric_features: [num_trips]
