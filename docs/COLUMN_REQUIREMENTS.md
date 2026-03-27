@@ -22,7 +22,7 @@ This matrix shows which columns are required in which pipeline steps.
 |  | `residence_rent_own` | ResidenceRentOwn |  |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `residence_type` | ResidenceType |  |  |  |  |  |  |  |  |  |  | ✓ |  |
 |  | `income` | int or None | ≥ 0 |  |  |  |  |  |  | ✓ |  |  |  |  |
-|  | `income_bin` | IncomeBroad |  |  |  |  |  |  |  | ✓ |  |  |  |  |
+|  | `income_bin` | IncomeBroad |  |  |  | ✓ |  |  |  | ✓ |  |  |  |  |
 |  | `hh_weight` | float or None | ≥ 0 |  |  |  |  |  |  |  |  |  |  |  |
 |  | `num_vehicles` | int | ≥ 0 |  |  |  |  |  |  | ✓ |  |  |  |  |
 |  | `complete` | bool |  |  |  |  |  |  |  | ✓ |  |  |  |  |
