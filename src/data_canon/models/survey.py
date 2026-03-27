@@ -20,8 +20,10 @@ from data_canon.codebook.persons import (
     AgeCategory,
     CommuteFreq,
     Employment,
+    Ethnicity,
     Gender,
     JobType,
+    Race,
     SchoolType,
     Student,
     WorkParking,
@@ -47,6 +49,8 @@ class HouseholdModel(BaseModel):
     home_lon: float = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     residence_rent_own: ResidenceRentOwn = step_field(required_in_steps=["format_daysim"])
     residence_type: ResidenceType = step_field(required_in_steps=["format_daysim"])
+    income: int | None = step_field(ge=0, required_in_steps=[], default=None)
+    income_bin: IncomeBroad = step_field(required_in_steps=["imputation"])
     hh_weight: float | None = step_field(ge=0, required_in_steps=[])
     num_vehicles: int = step_field(ge=0, required_in_steps=["compute_weights"])
     income_bin: IncomeBroad = step_field(required_in_steps=["compute_weights"])
@@ -64,7 +68,7 @@ class PersonModel(BaseModel):
         required_child=True,
     )
     person_num: int = step_field(ge=1, required_in_steps=["format_ctramp", "format_daysim"])
-    age: AgeCategory = step_field(required_in_steps=["extract_tours"])
+    age: AgeCategory = step_field(required_in_steps=["extract_tours", "imputation"])
     gender: Gender = step_field(required_in_steps=["format_ctramp"])
     # These fields can be None if person is not employed or in school
     work_lat: float | None = step_field(ge=-90, le=90, required_in_steps=["extract_tours"])
@@ -77,6 +81,8 @@ class PersonModel(BaseModel):
     school_type: SchoolType | None = step_field(required_in_steps=["extract_tours"])
     work_park: WorkParking | None = step_field(required_in_steps=["format_daysim"])
     work_mode: Mode | None = step_field(required_in_steps=["format_daysim"])
+    race: Race = step_field(required_in_steps=["imputation"])
+    ethnicity: Ethnicity = step_field(required_in_steps=["imputation"])
     telework_freq: CommuteFreq | None = step_field(
         default=None, required_in_steps=["compute_weights"]
     )
