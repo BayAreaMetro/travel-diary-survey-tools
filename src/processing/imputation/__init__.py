@@ -16,8 +16,9 @@ Supported methods:
 
 Additional capabilities:
 
-* **Diagnostic flags** -- optional boolean ``{column}_imputed`` columns that
-  track which values were filled in.
+* **Pre-imputation stash** -- optional ``{column}_preimputed`` columns that
+  preserve the original value (null, PNTA, MISSING, etc.) before imputation,
+  enabling downstream equity analysis and imputation auditing.
 * **Quality validation** -- optional k-fold cross-validation that masks known
   values, re-imputes them, and reports accuracy / RMSE metrics.
 * **Method comparison** -- head-to-head benchmark of KNN, RF, and MICE on
@@ -82,6 +83,6 @@ References:
   microarrays.* Bioinformatics, 17(6), 520-525.
 """
 
-from .generic_impute import imputation
+from .impute import imputation
 
 __all__ = ["imputation"]
