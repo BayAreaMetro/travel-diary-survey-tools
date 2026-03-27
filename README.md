@@ -53,8 +53,8 @@ The usage pattern for the pipeline is a bit different than the typical numbered 
 There are three main components:
 
 * **Setup**
-  * This contains the point of entry defined in `project/run.py` and
-  * Pipeline configuration defined in `project/config.yaml`
+  * This contains the point of entry defined in `projects/run.py` and
+  * Pipeline configuration defined in `projects/config.yaml`
 * **Pipeline Execution**
   * The central `Pipeline` class defined in `src/processing/pipeline.py`
   * A set of modular processing steps defined in `src/processing/steps/`
@@ -76,12 +76,12 @@ flowchart LR
 
 subgraph Setup[**Setup**]
   direction TB
-  RunPy([project/run.py])
+  RunPy([projects/run.py])
   ConfigYAML([project/config.yaml])
 end
 
-RunPy([project/run.py]) ----> Pipeline
-ConfigYAML([project/config.yaml]) ----> Pipeline
+RunPy([projects/run.py]) ----> Pipeline
+ConfigYAML([projects/config.yaml]) ----> Pipeline
 
 subgraph Pipeline[**Pipeline**]
   direction TB
@@ -323,7 +323,7 @@ You need a runner script to execute the pipeline, typically named `run.py`. This
 You can also inject custom pre-processing steps here. The goal is to **keep the core pipeline code generalized for maintainability, but allow for custom logic to be injected as needed**.
 
 ```python
-# project/run.py
+# projects/run.py
 from pathlib import Path
 import polars as pl
 
