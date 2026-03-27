@@ -77,7 +77,7 @@ flowchart LR
 subgraph Setup[**Setup**]
   direction TB
   RunPy([projects/run.py])
-  ConfigYAML([project/config.yaml])
+  ConfigYAML([projects/config.yaml])
 end
 
 RunPy([projects/run.py]) ----> Pipeline
@@ -388,10 +388,10 @@ if __name__ == "__main__":
 To run, press the green arrow in your IDE, or run from command line:
 
 ```bash
-uv run python project/run.py
+uv run python projects/run.py
 
 # Clear cache before running
-uv run python project/run.py --clear-cache
+uv run python projects/run.py --clear-cache
 ```
 
 **Logging**: The pipeline automatically creates a log file in the output directory (e.g., `output/pipeline.log`) that contains all console output plus additional debugging information.
