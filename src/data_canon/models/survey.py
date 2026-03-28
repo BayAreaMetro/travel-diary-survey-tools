@@ -82,10 +82,10 @@ class PersonModel(BaseModel):
     race: Race = step_field(required_in_steps=["imputation"])
     ethnicity: Ethnicity = step_field(required_in_steps=["imputation"])
     telework_freq: CommuteFreq | None = step_field(
-        default=None, required_in_steps=["compute_weights"]
+        default=None, required_in_steps=[]
     )
     commute_freq: CommuteFreq | None = step_field(
-        default=None, required_in_steps=["compute_weights"]
+        default=None, required_in_steps=[]
     )
     # NOTE: These commute subsidy fields are only used in CTRAMP format
     # But might be useful elsewhere, consider standardizing to be less vague
