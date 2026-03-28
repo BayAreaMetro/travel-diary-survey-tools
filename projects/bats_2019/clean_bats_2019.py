@@ -8,7 +8,7 @@ from typing import get_args
 import polars as pl
 
 from data_canon.codebook.households import IncomeBroad
-from data_canon.codebook.persons import Employment, Gender, Student
+from data_canon.codebook.persons import Employment, Ethnicity, Gender, Race, Student
 from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
 from pipeline.decoration import step
@@ -324,6 +324,53 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
         n_imputed_work_mode,
         n_missing_work_mode,
         n_imputed_work_mode / n_missing_work_mode * 100 if n_missing_work_mode > 0 else 0,
+    )
+
+    # Derive race from binary ethnicity_* columns
+    # 2019 used a single combined race/ethnicity question; race flags are under ethnicity_*
+    race_flag_cols = [
+        "ethnicity_af_am",
+        "ethnicity_aiak",
+        "ethnicity_asian",
+        "ethnicity_hapi",
+        "ethnicity_white",
+        "ethnicity_mideast",
+        "ethnicity_other",
+    ]
+    persons = persons.with_columns(
+        pl.when(pl.col("ethnicity_multi") == 1)
+        .then(pl.lit(Race.MULTI.value))
+        .when(pl.sum_horizontal([pl.col(c) for c in race_flag_cols]) > 1)
+        .then(pl.lit(Race.MULTI.value))
+        .when(pl.col("ethnicity_af_am") == 1)
+        .then(pl.lit(Race.AFAM.value))
+        .when(pl.col("ethnicity_aiak") == 1)
+        .then(pl.lit(Race.NATIVE.value))
+        .when(pl.col("ethnicity_asian") == 1)
+        .then(pl.lit(Race.ASIAN.value))
+        .when(pl.col("ethnicity_hapi") == 1)
+        .then(pl.lit(Race.PACIFIC.value))
+        .when(pl.col("ethnicity_white") == 1)
+        .then(pl.lit(Race.WHITE.value))
+        .when(pl.col("ethnicity_mideast") == 1)
+        .then(pl.lit(Race.OTHER.value))
+        .when(pl.col("ethnicity_other") == 1)
+        .then(pl.lit(Race.OTHER.value))
+        .when(pl.col("ethnicity_no_answer") == 1)
+        .then(pl.lit(None))
+        .otherwise(None)
+        .alias("race")
+    )
+
+    # Derive ethnicity from ethnicity_hisp flag
+    # 2019 does not distinguish Hispanic subtypes, so map to OTHER (Hispanic or Latino)
+    persons = persons.with_columns(
+        pl.when(pl.col("ethnicity_no_answer") == 1)
+        .then(pl.lit(None))
+        .when(pl.col("ethnicity_hisp") == 1)
+        .then(pl.lit(Ethnicity.OTHER.value))
+        .otherwise(pl.lit(Ethnicity.NOT_HISPANIC.value))
+        .alias("ethnicity")
     )
 
     return persons
