@@ -49,7 +49,7 @@ class HouseholdModel(BaseModel):
     home_lon: float = step_field(ge=-180, le=180, required_in_steps=["extract_tours"])
     residence_rent_own: ResidenceRentOwn = step_field(required_in_steps=["format_daysim"])
     residence_type: ResidenceType = step_field(required_in_steps=["format_daysim"])
-    income: int | None = step_field(ge=0, required_in_steps=["compute_weights"], default=None)
+    income: int | None = step_field(ge=0, required_in_steps=[], default=None)
     income_bin: IncomeBroad = step_field(required_in_steps=["imputation", "compute_weights"])
     hh_weight: float | None = step_field(ge=0, required_in_steps=[])
     num_vehicles: int = step_field(ge=0, required_in_steps=["compute_weights"])
