@@ -380,6 +380,10 @@ def aggregate_linked_trips(
     if "unlinked_trip_weight" in unlinked_trips.columns:
         agg_exprs.append(pl.col("unlinked_trip_weight").mean().alias("linked_trip_weight"))
 
+    # Propagate complete: a linked trip is complete only if all segments are complete
+    if "complete" in unlinked_trips.columns:
+        agg_exprs.append(pl.all("complete").alias("complete"))
+
     # Add remaining aggregations
     agg_exprs.extend(
         [
