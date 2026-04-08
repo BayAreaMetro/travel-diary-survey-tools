@@ -80,6 +80,7 @@ def compute_weights(  # noqa: PLR0913
     n_workers: int = 1,
     # -- Diagnostics ----------------------------------------------------
     expansion_factor_grid: list[float] | None = None,
+    diagnostics: dict | None = None,
     # -- Validation ------------------------------------------------------
     strict_survey_nulls: bool = False,
     # -- Canonical tables (auto-injected by pipeline) -------------------
@@ -172,7 +173,9 @@ def compute_weights(  # noqa: PLR0913
     wt_pipeline.propagate()
 
     # 7. Diagnostics
-    wt_pipeline.generate_diagnostics()
+    wt_pipeline.generate_diagnostics(
+        output_path=diagnostics.get("output_path") if diagnostics else None
+    )
 
     # Basic sanity check to ensure weights were propagated to all tables before returning
     result_tables = wt_pipeline.data.as_dict_non_null()

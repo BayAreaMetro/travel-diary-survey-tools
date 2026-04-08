@@ -493,9 +493,52 @@ class WeightingPipeline:
                 importance=imp_cfg,
             )
 
-    def generate_diagnostics(self) -> None:
-        """Write the self-contained HTML diagnostics report."""
-        report_dir = self.cache_dir or Path.cwd() / "weighting"
+    def generate_diagnostics(self, output_path: Path | str | None = None) -> None:
+        """Write a self-contained interactive HTML diagnostics report for the weighting run.
+
+        The report covers the full weighting pipeline from geographic crosswalk
+        through IPF convergence to final weight quality.  It is intended to be
+        opened in any browser with no external dependencies (Plotly is either
+        bundled or loaded from CDN).
+
+        Report sections
+        ---------------
+        1. **Crosswalk Map** — choropleth showing how PUMAs overlap the target
+           zones, with allocation weights visualised per PUMA–zone pair.
+        2. **Convergence & Weight Summary** — per-zone table of convergence
+           status, final weight sum, effective sample size (ESS%), and
+           coefficient of variation (CV) of the weights.
+        3. **Target Fit** — per-zone summary metrics for household- and
+           person-level controls: MAPE, 90th-percentile absolute error, and
+           maximum absolute error.
+        4. **Weight Distribution** — violin / jitter plots of
+           ``final_weight / base_weight`` (the expansion factor applied to each
+           household) per zone, with printed summary statistics.
+        5. **Target Fit (% Error)** — diverging bar charts showing the signed
+           percentage error for every control category per zone.  Bars are
+           coloured by user-configurable error thresholds.
+        6. **Unweighted Cell Counts (Data Sparsity)** — heatmap of raw survey
+           seed counts per control category per zone, flagging cells below the
+           minimum-count warning threshold.
+        7. **Expansion Factor Calibration** *(optional)* — MAPE vs CV scatter
+           across the ``expansion_factor_grid`` values, helping identify the
+           best trade-off between fit quality and weight spread.  Only included
+           when ``expansion_factor_grid`` was set in the weighting config.
+
+        Parameters
+        ----------
+        output_path:
+            Destination for the HTML file.  Accepts a ``Path``, a string
+            (including Jinja-rendered template paths from the YAML config), or
+            ``None``.  When ``None`` the file is written to
+            ``<cache_dir>/diagnostics.html`` (or ``./weighting/diagnostics.html``
+            if no cache directory is configured).
+        """
+        if output_path is not None:
+            resolved_path = Path(output_path)
+        else:
+            report_dir = self.cache_dir or Path.cwd() / "weighting"
+            resolved_path = report_dir / "diagnostics.html"
         zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
         generate_report(
             seed=self.seed_incidence,
@@ -503,7 +546,7 @@ class WeightingPipeline:
             control_totals=self.control_totals,
             target_names=self.controls.target_names,
             statuses=self.statuses,
-            output_path=report_dir / "diagnostics.html",
+            output_path=resolved_path,
             puma_gdf=self.crosswalk.puma_gdf,
             target_gdf=self.crosswalk.target_gdf,
             crosswalk_df=self.crosswalk.crosswalk_df,

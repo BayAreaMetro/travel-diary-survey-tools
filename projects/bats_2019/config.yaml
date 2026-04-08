@@ -258,6 +258,10 @@ steps:
         #     h_size:
         #         size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
 
+      # -- Diagnostics report ------------------------------------------
+      diagnostics:
+        output_path: "{{ output_dir }}/weighting_diagnostics_2019.html"
+
 
   # - name: add_existing_weights
   #   validate_input: false
