@@ -25,20 +25,15 @@ logger = logging.getLogger(__name__)
 class ControlSpec:
     """Specification for a single weighting control.
 
-    Parameters
-    ----------
-    name : str
-        Registry name (must exist in ``CONTROLS``).
-    importance : float | None
-        Explicit importance weight for the balancer.  ``None`` means use
-        the default (100 for normal controls, 1000 for structural) or
-        the MOE-derived value when ``moe_based_importance`` is enabled.
-    dimensions : list[str] | None
-        For cross-tab controls only: list of dimension control names
-        (e.g. ``["h_size", "h_income"]``).  ``None`` for standard controls.
-    merges : dict | None
-        For cross-tab controls only: per-dimension merge specs applied
-        at registration time.  ``None`` for standard controls.
+    Attributes:
+        name: Registry name (must exist in ``CONTROLS``).
+        importance: Explicit importance weight for the balancer.  ``None`` means use
+            the default (100 for normal controls, 1000 for structural) or
+            the MOE-derived value when ``moe_based_importance`` is enabled.
+        dimensions: For cross-tab controls only: list of dimension control names
+            (e.g. ``["h_size", "h_income"]``).  ``None`` for standard controls.
+        merges: For cross-tab controls only: per-dimension merge specs applied
+            at registration time.  ``None`` for standard controls.
     """
 
     name: str
@@ -52,16 +47,10 @@ class ControlTotals:
     """Result of PUMS control-total aggregation.
 
     Attributes:
-    ----------
-    totals : pl.DataFrame
-        Tidy frame with columns:
-        [geo_id, control_name, category, target_total]
-    pums_hh_count : int
-        Total PUMS housing unit records (before weighting).
-    pums_person_count : int
-        Total PUMS person records.
-    geo_ids : list[str]
-        Unique geography IDs in the totals.
+        totals: Tidy frame with columns: [geo_id, control_name, category, target_total]
+        pums_hh_count: Total PUMS housing unit records (before weighting).
+        pums_person_count: Total PUMS person records.
+        geo_ids: Unique geography IDs in the totals.
     """
 
     totals: pl.DataFrame
@@ -79,23 +68,19 @@ class ControlTotals:
 class IncidenceBundle:
     """All intermediate and final products of incidence-table construction.
 
-    Built by :func:`build_incidence_table` and available for downstream
+    Built by [`build_incidence_table`][processing.weighting.data_prep.incidence.build_incidence_table] and available for downstream
     consumers (balancer, fractional imputation, diagnostics).
 
     Attributes:
-    ----------
-    incidence : pl.DataFrame
-        Combined household-level incidence table — one row per HH with
-        ``{ctrl}__{member}`` columns for *all* controls (HH + person
-        aggregated).  This is what the balancer operates on.
-    person_pivot : pl.DataFrame
-        Per-person 0/1 indicator table — one row per person with
-        ``{p_ctrl}__{member}`` columns.  Useful for person-level
-        classification (fractional imputation of null persons).
-    household_pivot : pl.DataFrame
-        HH-only 0/1 indicator table — one row per HH with
-        ``{h_ctrl}__{member}`` columns.  Useful for HH-level
-        classification without person-count noise.
+        incidence: Combined household-level incidence table — one row per HH with
+            ``{ctrl}__{member}`` columns for *all* controls (HH + person
+            aggregated).  This is what the balancer operates on.
+        person_pivot: Per-person 0/1 indicator table — one row per person with
+            ``{p_ctrl}__{member}`` columns.  Useful for person-level
+            classification (fractional imputation of null persons).
+        household_pivot: HH-only 0/1 indicator table — one row per HH with
+            ``{h_ctrl}__{member}`` columns.  Useful for HH-level
+            classification without person-count noise.
     """
 
     incidence: pl.DataFrame
@@ -142,15 +127,11 @@ class ImputationSummary:
 class PUMSSource:
     """Configuration for PUMS data source.
 
-    Parameters
-    ----------
-    state_fips : str
-        Two-digit FIPS code for the state (e.g. "06" for California).
-    pums_year : int
-        ACS 1-year PUMS vintage (e.g. 2022).
-    puma_ids : list[str] | None
-        Optional list of PUMA codes to fetch. If None, fetches all PUMAs in
-        the state (can be large).
+    Attributes:
+        state_fips: Two-digit FIPS code for the state (e.g. "06" for California).
+        pums_year: ACS 1-year PUMS vintage (e.g. 2022).
+        puma_ids: Optional list of PUMA codes to fetch. If None, fetches all PUMAs in
+            the state (can be large).
     """
 
     state_fips: str
@@ -170,28 +151,23 @@ class MergeSpec:
     Supports both 1D (standard) and N-D (cross-tab) merges.
 
     Attributes:
-    ----------
-    control : str
-        Registry name (e.g. ``"p_employment"`` or ``"h_income_x_size"``).
-    groups : dict[str, list[str] | dict[str, list[str]]]
-        Merge specifications. Each key is a merged label, each value is either:
+        control: Registry name (e.g. ``"p_employment"`` or ``"h_income_x_size"``).
+        groups: Merge specifications. Each key is a merged label, each value is either:
 
-        - **1D merge** (list): Base member names to combine.
-          E.g. ``{"employed": ["employed_full", "employed_part"]}``
+            - **1D merge** (list): Base member names to combine.
+              E.g. ``{"employed": ["employed_full", "employed_part"]}``
 
-        - **N-D merge** (dict): Dimension name -> member names for cross-tabs.
-          E.g. ``{"low_income_large": {"h_income": ["inc_under_25k", "inc_25k_to_50k"],
-          "h_size": ["size_4", "size_5"]}}``
+            - **N-D merge** (dict): Dimension name -> member names for cross-tabs.
+              E.g. ``{"low_income_large": {"h_income": ["inc_under_25k", "inc_25k_to_50k"],
+              "h_size": ["size_4", "size_5"]}}``
 
-          The N-D merge creates a single merged cell from the cartesian product
-          of all specified dimension members.
-    zones : list[str] | None
-        If set, apply this merge only to these geo IDs.
-        ``None`` means apply globally (all zones).
+              The N-D merge creates a single merged cell from the cartesian product
+              of all specified dimension members.
+        zones: If set, apply this merge only to these geo IDs.
+            ``None`` means apply globally (all zones).
 
-    Examples:
-    --------
-    1D merge:
+    Example:
+        1D merge:
 
     >>> MergeSpec(
     ...     control="p_employment",
@@ -221,8 +197,8 @@ class BalancingConfig:
     """Maximum-entropy balancer configuration.
 
     Controls Newton-Raphson iteration bounds, weight expansion limits,
-    and parallel execution.  Consumed by :func:`balance_weights`,
-    :func:`grid_search_expansion_factor`, and the pipeline orchestrator.
+    and parallel execution.  Consumed by [`balance_weights`][processing.weighting.balancing.balancer.balance_weights],
+    [`grid_search_expansion_factor`][processing.weighting.balancing.balancer.grid_search_expansion_factor], and the pipeline orchestrator.
     """
 
     max_expansion_factor: float = 10.0
@@ -254,8 +230,9 @@ class WeightingConfig:
     """Top-level configuration for the weighting pipeline.
 
     Groups the parameters that are *not* already covered by
-    :class:`ControlRegistryConfig`, :class:`BalancingConfig`, or
-    :class:`ImportanceConfig` — primarily Census/geography settings
+    [`ControlRegistryConfig`][processing.weighting.specs.ControlRegistryConfig],
+    [`BalancingConfig`][processing.weighting.specs.BalancingConfig], or
+    [`ImportanceConfig`][processing.weighting.specs.ImportanceConfig] — primarily Census/geography settings
     and pipeline plumbing.
     """
 
@@ -274,7 +251,7 @@ class WeightingConfig:
 class ControlRegistryConfig:
     """Parsed control definitions, merge specs, and derived target names.
 
-    Built via :meth:`from_yaml` from the YAML ``controls`` block.
+    Built via [`from_yaml`][processing.weighting.specs.ControlRegistryConfig.from_yaml] from the YAML ``controls`` block.
     """
 
     specs: list[ControlSpec]
@@ -355,16 +332,14 @@ class SamplePlan:
     ``base_weight = segment_bg_pop / segment_n_responses``.
 
     Block-group population totals are sourced from the crosswalk
-    (:attr:`PumaCrosswalk.block_group_populations`), not from this table.
+    ([`PumaCrosswalk.block_group_populations`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.block_group_populations]), not from this table.
 
     Attributes:
-    ----------
-    strata : pl.DataFrame
-        Required columns:
+        strata: Required columns:
 
-        * ``bg_geo_id``  (str) — 12-character Census block-group FIPS code.
-        * ``sample_segment`` (str) — sampling-stratum label.  All block
-          groups sharing a segment get the same base weight.
+            * ``bg_geo_id``  (str) — 12-character Census block-group FIPS code.
+            * ``sample_segment`` (str) — sampling-stratum label.  All block
+              groups sharing a segment get the same base weight.
     """
 
     strata: pl.DataFrame

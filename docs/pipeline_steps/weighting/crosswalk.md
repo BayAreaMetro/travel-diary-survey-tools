@@ -109,8 +109,18 @@ This is the key idea: each source geography is split across target zones in prop
 
 ## API
 
-The API reference for the crosswalk classes lives on the [Data Preparation](data_preparation.md) page:
+The PUMA-specific wrapper classes live on the [Data Preparation](data_preparation.md) page:
 
 - `PumaCrosswalk`
 - `TargetZoneConfig`
 - `GeographyConfig`
+
+### Generic crosswalk function
+
+`build_crosswalk` is the underlying generic implementation — it works with any source/target/weight polygon combination and is not specific to PUMAs or weighting.
+
+::: utils.crosswalk
+    options:
+      show_root_heading: true
+      members:
+        - build_crosswalk

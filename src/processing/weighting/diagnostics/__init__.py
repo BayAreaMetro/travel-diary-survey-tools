@@ -18,15 +18,14 @@ external dependencies) with the following sections:
    ``max_expansion_factor`` values.  Enabled by setting
    ``expansion_factor_grid`` in the weighting config.
 
-Configuration (YAML)::
+# Configuration (YAML)
 
-    diagnostics:
-      enabled: true
-      output_path: "weighting_diagnostics.html"
-      fit_error_thresholds: [2, 5]
-      min_seed_count_warning: 10
-      expansion_factor_grid: [2, 4, 6, 8, 10, 15, 20, 30, 50]
-      plotly_cdn: true
+```yaml
+diagnostics:
+  output_path: "{{ output_dir }}/weighting_diagnostics.html"
+```
+
+When `output_path` is omitted the report is, written to ``<cache_dir>/diagnostics.html``.
 """
 
 from .charts import crosswalk_figure

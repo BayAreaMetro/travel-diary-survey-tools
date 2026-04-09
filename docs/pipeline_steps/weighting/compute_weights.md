@@ -96,6 +96,16 @@ The important split is not that PUMS and survey run as fully parallel pipelines.
       members:
         - compute_weights
 
+## WeightingPipeline
+
+`WeightingPipeline` is the orchestration class that `compute_weights` constructs and drives. It holds all intermediate state (crosswalk, incidence, control totals, weights, diagnostics) and exposes each stage as an explicit method.
+
+::: processing.weighting.weighting_pipeline
+    options:
+      show_root_heading: true
+      members:
+        - WeightingPipeline
+
 ## Related Topics
 
 - [Data Preparation](data_preparation.md)

@@ -1,6 +1,6 @@
 """Survey weighting module.
 
-This module provides two pipeline steps for attaching expansion weights to
+This module provides two pipeline options for attaching expansion weights to
 survey tables:
 
 1. **``add_existing_weights``** -- load pre-computed weights from CSV files and
@@ -23,7 +23,7 @@ The ``compute_weights`` step internally orchestrates five sub-components:
 5. **Weight propagation** -- propagate final ``hh_weight`` to all canonical
    tables (persons, days, trips, tours).
 
-Weight hierarchy::
+# Weight hierarchy
 
     hh_weight
       └─ person_weight        (carry forward via hh_id)
@@ -33,7 +33,7 @@ Weight hierarchy::
                   ├─ joint_trip_weight    (mean agg via joint_trip_id)
                   └─ tour_weight          (mean agg via tour_id)
 
-Module structure::
+# Module structure
 
     weighting/
     ├── existing_weights.py       # attach pre-computed weights

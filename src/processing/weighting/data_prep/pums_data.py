@@ -4,7 +4,7 @@ Downloads ACS PUMS 1-year microdata directly from the Census Bureau API or
 loads from local CSV / Parquet files.  Handles type-casting of Census API
 string responses to proper numeric dtypes.
 
-API behaviour:
+# API behaviour
 
 * All PUMAs batched in a single API request.
 * Column chunking when >48 columns (API limit ~50), parallel via
@@ -220,25 +220,23 @@ def fetch_pums_data(
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Download PUMS household and person microdata from the Census API.
 
-    Parameters
-    ----------
-    source : PUMSSource
-        State, year, and optional PUMA filter.
-    extra_hh_vars, extra_person_vars : set[str] | None
-        Additional PUMS variable names to fetch beyond the defaults.
-    load_replicate_weights : bool
-        If ``True``, also fetch the 80 replicate weight columns per table
-        (``WGTP1``-``WGTP80`` and ``PWGTP1``-``PWGTP80``).  Required for
-        MOE-based importance calculation.
-    cache_dir : Path | None
-        If set, raw PUMS data is cached as parquet files under
-        ``cache_dir/pums/``.  Subsequent calls with the same state/year
-        load from cache instead of hitting the API.
+    Args:
+        source: State, year, and optional PUMA filter.
+        extra_hh_vars: Additional household PUMS variable names to fetch
+            beyond the defaults.
+        extra_person_vars: Additional person PUMS variable names to fetch
+            beyond the defaults.
+        load_replicate_weights: If ``True``, also fetch the 80 replicate
+            weight columns per table (``WGTP1``–``WGTP80`` and
+            ``PWGTP1``–``PWGTP80``).  Required for MOE-based importance
+            calculation.
+        cache_dir: If set, raw PUMS data is cached as Parquet files under
+            ``cache_dir/pums/``.  Subsequent calls with the same state/year
+            load from cache instead of hitting the API.
 
     Returns:
-    -------
-    (households, persons) : tuple[pl.DataFrame, pl.DataFrame]
-        Polars DataFrames with PUMS data, typed to appropriate dtypes.
+        Tuple of ``(households, persons)`` Polars DataFrames with PUMS
+        data typed to appropriate dtypes.
     """
     hh_extra = extra_hh_vars or set()
     person_extra = extra_person_vars or set()
@@ -348,22 +346,16 @@ def load_pums_from_files(
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Load PUMS data from local CSV/Parquet files.
 
-    Parameters
-    ----------
-    hh_path : str
-        Path to household PUMS file.
-    person_path : str
-        Path to person PUMS file.
-    state_fips : str | None
-        Optional filter to a specific state.
-    puma_ids : list[str] | None
-        Optional filter to specific PUMAs.
-    load_replicate_weights : bool
-        If True, retain WGTP1-80 and PWGTP1-80 replicate weight columns.
+    Args:
+        hh_path: Path to household PUMS file (CSV or Parquet).
+        person_path: Path to person PUMS file (CSV or Parquet).
+        state_fips: Optional filter to a specific state FIPS code.
+        puma_ids: Optional filter to specific PUMAs.
+        load_replicate_weights: If ``True``, retain ``WGTP1``–``WGTP80``
+            and ``PWGTP1``–``PWGTP80`` replicate weight columns.
 
     Returns:
-    -------
-    (households, persons) : tuple[pl.DataFrame, pl.DataFrame]
+        Tuple of ``(households, persons)`` Polars DataFrames.
     """
     hh_ext = hh_path.rsplit(".", 1)[-1].lower()
     person_ext = person_path.rsplit(".", 1)[-1].lower()

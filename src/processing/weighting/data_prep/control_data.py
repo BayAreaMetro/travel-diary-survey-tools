@@ -98,14 +98,10 @@ def recode_pums_households(
     Derives person-level aggregates (workers, children) then loops over
     household-level controls calling ``ctrl.from_pums_row``.
 
-    Parameters
-    ----------
-    hh_df : pl.DataFrame
-        PUMS household microdata.
-    person_df : pl.DataFrame
-        PUMS person microdata (used to derive hh-level aggregates).
-    targets : list[str] | None
-        Registry keys to recode.  ``None`` → all household controls.
+    Args:
+        hh_df: PUMS household microdata.
+        person_df: PUMS person microdata (used to derive hh-level aggregates).
+        targets: Registry keys to recode.  ``None`` → all household controls.
     """
     hh_ctrls = (
         resolve_targets(targets, ControlLevel.HOUSEHOLD)
@@ -156,12 +152,9 @@ def recode_pums_persons(
 ) -> pl.DataFrame:
     """Recode PUMS person records into control categories.
 
-    Parameters
-    ----------
-    person_df : pl.DataFrame
-        PUMS person microdata.
-    targets : list[str] | None
-        Registry keys to recode.  ``None`` → all person controls.
+    Args:
+        person_df: PUMS person microdata.
+        targets: Registry keys to recode.  ``None`` → all person controls.
     """
     p_ctrls = (
         resolve_targets(targets, ControlLevel.PERSON)
@@ -202,20 +195,13 @@ def build_control_totals(
 ) -> ControlTotals:
     """Build weighted control totals from recoded PUMS data.
 
-    Parameters
-    ----------
-    hh_df : pl.DataFrame
-        Recoded PUMS household data (from ``recode_pums_households``).
-    person_df : pl.DataFrame
-        Recoded PUMS person data (from ``recode_pums_persons``).
-    controls : list[ControlSpec]
-        Control specifications (which variables to include).
-    geo_col : str
-        Column name for the geography identifier.  Defaults to ``"PUMA"``.
+    Args:
+        hh_df: Recoded PUMS household data (from ``recode_pums_households``).
+        person_df: Recoded PUMS person data (from ``recode_pums_persons``).
+        controls: Control specifications (which variables to include).
+        geo_col: Column name for the geography identifier.  Defaults to ``"PUMA"``.
 
     Returns:
-    -------
-    ControlTotals
         Tidy totals frame and metadata.
     """
     # Validate total category count across all controls

@@ -95,11 +95,10 @@ def compute_weights(  # noqa: PLR0913
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
     Flat-parameter entry point required by the ``@step()`` decorator
-    (YAML → keyword args).  Constructs a :class:`WeightingPipeline` and
-    delegates to :meth:`WeightingPipeline.run`.
-
-    See :class:`WeightingPipeline` for full documentation of the algorithm,
-    configuration, and diagnostics.
+    (YAML → keyword args).  Constructs a
+    [`WeightingPipeline`][processing.weighting.weighting_pipeline.WeightingPipeline];
+    Full documentation of the algorithm, configuration, and diagnostics in included
+    in that class.
     """
     if households is None or persons is None:
         msg = "Weighting requires at least households and persons tables."

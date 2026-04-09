@@ -5,7 +5,7 @@ Each class maps raw survey / PUMS values into coarser category ints for
 person-level weighting targets.
 
 All ``survey_expr`` / ``pums_expr`` overrides implement the interface
-documented in :class:`ControlTarget` — individual method docstrings
+documented in [`ControlTarget`][processing.weighting.controls.base.ControlTarget] — individual method docstrings
 are omitted for brevity (ruff noqa: D102) because the base class
 fully documents the expected behavior and error handling.
 """

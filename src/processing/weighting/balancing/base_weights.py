@@ -13,15 +13,17 @@ This module provides two paths:
    per zone.  Works whenever PUMS-derived control totals are available
    (always, in our pipeline).
 
-2. **Sample plan** — a ``SamplePlan`` object mapping Census block groups
+2. **Sample plan** — a [`SamplePlan`][processing.weighting.balancing.base_weights.SamplePlan]
+   object mapping Census block groups
    to sampling strata (segments).  Block-group populations are sourced
    from the crosswalk (Census block population summed to BG level).
    Each household is assigned a block group (via spatial join), mapped
    to a segment via the plan, and receives a segment-level initial
    weight: ``segment_pop / segment_responses``.
 
-The public entry point is ``compute_base_weights``, which adds a
-``base_weight`` column to the seed table.
+The public entry point is
+[`compute_base_weights`][processing.weighting.balancing.base_weights.compute_base_weights],
+which adds a ``base_weight`` column to the seed table.
 """
 
 import logging
@@ -40,25 +42,20 @@ logger = logging.getLogger(__name__)
 # I/O
 # ---------------------------------------------------------------------------
 def load_sample_plan(path: str | Path) -> SamplePlan:
-    """Read a sample-plan CSV into a :class:`SamplePlan`.
+    """Read a sample-plan CSV into a [`SamplePlan`][processing.weighting.specs.SamplePlan].
 
-    Parameters
-    ----------
-    path : str | Path
-        Path to a CSV file.  Must contain at minimum: ``bg_geo_id`` and
-        ``sample_segment``.  Block-group population totals are sourced
-        from the crosswalk, not from the CSV.
+    Args:
+        path: Path to a CSV file.  Must contain at minimum ``bg_geo_id``
+            and ``sample_segment``.  Block-group population totals are
+            sourced from the crosswalk, not from the CSV.
 
     Returns:
-    -------
-    SamplePlan
+        [`SamplePlan`][processing.weighting.specs.SamplePlan].
 
     Raises:
-    ------
-    FileNotFoundError
-        If *path* does not exist.
-    ValueError
-        If required columns are missing (raised by ``SamplePlan``).
+        FileNotFoundError: If *path* does not exist.
+        ValueError: If required columns are missing (raised by
+            ``SamplePlan``).
     """
     p = Path(path)
     if not p.exists():
@@ -86,41 +83,31 @@ def compute_base_weights(
 ) -> pl.DataFrame:
     """Add ``base_weight`` column to the seed table.
 
-    Parameters
-    ----------
-    seed : pl.DataFrame
-        Household seed table from ``build_seed_table``.  Must contain
-        ``hh_id`` and *geo_col*.  When using a sample plan, must also
-        contain ``bg_geo_id`` (assigned via
-        :meth:`PumaCrosswalk.assign_block_groups`).
-    control_totals : ControlTotals
-        PUMS-derived targets from ``build_control_totals``.
-    targets : list[str]
-        Control registry names (used to identify the master HH control).
-    geo_col : str
-        Geography column on *seed*.
-    sample_plan : str | Path | SamplePlan | None
-        Optional sample plan.  Accepts a file path (loaded via
-        :func:`load_sample_plan`) or an already-loaded
-        :class:`SamplePlan`.  When ``None``, default response
-        inversion is used.
-    bg_populations : pl.DataFrame | None
-        Census block-group population totals with columns
-        ``[bg_geo_id, bg_population]``.  Required when *sample_plan*
-        is provided; sourced from
-        :attr:`PumaCrosswalk.block_group_populations`.
+    Args:
+        seed: Household seed table from ``build_seed_table``.  Must
+            contain ``hh_id`` and *geo_col*.  When using a sample plan,
+            must also contain ``bg_geo_id`` (assigned via
+            [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
+        control_totals: PUMS-derived targets from
+            ``build_control_totals``.
+        targets: Control registry names (used to identify the master HH
+            control).
+        geo_col: Geography column on *seed*.
+        sample_plan: Optional sample plan.  Accepts a file path (loaded
+            via [`load_sample_plan`][processing.weighting.balancing.base_weights.load_sample_plan]) or an already-loaded
+            [`SamplePlan`][processing.weighting.specs.SamplePlan].  When ``None``, default response
+            inversion is used.
+        bg_populations: Census block-group population totals with columns
+            ``[bg_geo_id, bg_population]``.  Required when *sample_plan*
+            is provided; sourced from
+            [`PumaCrosswalk.block_group_populations`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.block_group_populations].
 
     Returns:
-    -------
-    pl.DataFrame
         *seed* with an additional ``base_weight`` column (Float64).
 
     Raises:
-    ------
-    ValueError
-        If no household-level control is found in *targets*, or if a zone
-        has zero survey responses (should never happen if the seed is
-        correctly filtered).
+        ValueError: If no household-level control is found in *targets*,
+            or if a zone has zero survey responses.
     """
     if sample_plan is not None:
         plan = sample_plan if isinstance(sample_plan, SamplePlan) else load_sample_plan(sample_plan)
@@ -256,7 +243,7 @@ def _hh_weights_from_plan(
     The sample plan maps Census block groups to sampling segments.
     Block-group populations come from the crosswalk (Census blocks
     summed to BG).  Each survey household must already have a
-    ``bg_geo_id`` column (from :meth:`PumaCrosswalk.assign_block_groups`).
+    ``bg_geo_id`` column (from [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
 
     Steps:
 

@@ -5,19 +5,19 @@ weight CSV files and joins them to the corresponding canonical tables.
 Optionally, it can derive missing weights by propagating values through the
 survey hierarchy.
 
-Core algorithm:
+# Core algorithm
 
-**Phase 1 -- Load and Join Weights**
+## Phase 1 -- Load and Join Weights
 
 1. For each provided weight config:
 
-   a. Validate the config key against allowed table types.
-   b. Load the weight CSV from ``weight_path``.
-   c. Validate required ID and weight columns exist.
-   d. Handle ID column name mismatches (rename if needed).
-   e. Left-join weights to the table on the ID column.
+    1. Validate the config key against allowed table types.
+    2. Load the weight CSV from ``weight_path``.
+    3. Validate required ID and weight columns exist.
+    4. Handle ID column name mismatches (rename if needed).
+    5. Left-join weights to the table on the ID column.
 
-**Phase 2 -- Derive Missing Weights** (when ``derive_missing_weights=True``)
+## Phase 2 -- Derive Missing Weights (when ``derive_missing_weights=True``)
 
 1. *Hierarchical carry-forward* for household → person → day → unlinked_trip:
    validate parent has weights, then join parent weight to child via FK.
@@ -195,7 +195,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     For example, if household and trip weights are provided, but not person or day weights,
     an error will be raised as this likely indicates a misconfiguration.
 
-    Weight hierarchy logic::
+    # Weight hierarchy logic
 
         hh_weight
           └─ person_weight        (carry forward via hh_id)
@@ -245,22 +245,23 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     Returns:
         Dict of tables with attached weights.
 
-    Example config:
-        .. code-block:: yaml
+    # Example config
 
-            - name: add_existing_weights
-              params:
-                derive_missing_weights: true
-                weights:
-                  household_weights:
-                    weight_path: "weights/hh_weights.csv"
-                    # defaults: id_col='hh_id', weight_col='hh_weight'
-                  person_weights:
-                    weight_path: "weights/person_weights.csv"
-                  unlinked_trip_weights:
-                    weight_path: "weights/trip_weights.csv"
-                    weight_id_col: "trip_id"
-                    weight_col: "trip_weight"
+    ```yaml
+        - name: add_existing_weights
+          params:
+            derive_missing_weights: true
+            weights:
+              household_weights:
+                weight_path: "weights/hh_weights.csv"
+                # defaults: id_col='hh_id', weight_col='hh_weight'
+              person_weights:
+                weight_path: "weights/person_weights.csv"
+              unlinked_trip_weights:
+                weight_path: "weights/trip_weights.csv"
+                weight_id_col: "trip_id"
+                weight_col: "trip_weight"
+    ```
     """
     # Collect all provided tables
     tables = collect_tables(

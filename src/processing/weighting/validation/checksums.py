@@ -91,23 +91,20 @@ def check_recode_nulls(
 ) -> None:
     """Check for records whose control recode evaluated to null.
 
-    Parameters
-    ----------
-    df : pl.DataFrame
-        Recoded table (households or persons).
-    targets : list[str]
-        Control registry names to check.
-    level : ControlLevel
-        Which level of controls to check (``HOUSEHOLD`` or ``PERSON``).
-    id_col : str
-        Record identifier column (e.g. ``"hh_id"``, ``"person_id"``).
-    source_label : str
-        Human label for log messages (e.g. ``"PUMS"`` or ``"survey"``).
-    strict : bool
-        If ``True``, raise ``ValueError`` on null recodes instead of
-        just logging a warning.  PUMS recodes should always be strict
-        (every person must land in exactly one category); survey recodes
-        may tolerate nulls until imputation is implemented.
+    Args:
+        df: Recoded table (households or persons).
+        targets: Control registry names to check.
+        level: Which level of controls to check (``HOUSEHOLD`` or
+            ``PERSON``).
+        id_col: Record identifier column (e.g. ``"hh_id"``,
+            ``"person_id"``).
+        source_label: Human label for log messages (e.g. ``"PUMS"`` or
+            ``"survey"``).
+        strict: If ``True``, raise ``ValueError`` on null recodes instead
+            of just logging a warning.  PUMS recodes should always be
+            strict (every person must land in exactly one category);
+            survey recodes may tolerate nulls until imputation is
+            implemented.
     """
     rows: list[tuple[str | int, str]] = []
     null_ids: set[str | int] = set()
@@ -156,24 +153,17 @@ def check_incidence_sums(
     *tolerance* to a small float (e.g. ``0.01``) to allow for
     floating-point drift.
 
-    Parameters
-    ----------
-    seed : pl.DataFrame
-        Household-level incidence table with structural columns
-        (``p_total``, ``h_total``) and ``{ctrl}__{member}`` columns.
-    targets : list[str]
-        Control registry names.
-    source_label : str
-        Label for log messages.
-    tolerance : float
-        Maximum acceptable absolute deviation from the expected sum.
-        Use ``0.0`` for exact integer match (PUMS), ``0.01`` for
-        post-imputation survey data.
+    Args:
+        seed: Household-level incidence table with structural columns
+            (``p_total``, ``h_total``) and ``{ctrl}__{member}`` columns.
+        targets: Control registry names.
+        source_label: Label for log messages.
+        tolerance: Maximum acceptable absolute deviation from the
+            expected sum.  Use ``0.0`` for exact integer match (PUMS),
+            ``0.01`` for post-imputation survey data.
 
     Raises:
-    ------
-    ValueError
-        If any household has an incidence-sum mismatch.
+        ValueError: If any household has an incidence-sum mismatch.
     """
     hh_id_col = "hh_id" if "hh_id" in seed.columns else "SERIALNO"
     rows: list[tuple[int | str, str, float, float]] = []

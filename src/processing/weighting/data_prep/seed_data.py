@@ -4,18 +4,21 @@ Uses ``ControlTarget.survey_expr()`` to recode canonical survey data into
 control-category ints via native Polars expressions (vectorised, no
 ``map_elements``).  Every control is handled uniformly.
 
-Driven entirely by the control YAML — the same bin/group definitions are
-applied to survey fields.  A ``field_mapping`` config maps PUMS variable
-names to canonical survey field names::
+Survey field mapping is hardcoded in each
+[`ControlTarget`][processing.weighting.controls.base.ControlTarget]
+subclass — the ``survey_fields`` class attribute declares which canonical
+survey columns the control reads, and ``survey_expr()`` returns the Polars
+expression that maps those values to control-category ints.  For example:
 
-    field_mapping:
-      households:
-        NP: num_people
-        HINCP: income
-      persons:
-        AGEP: age
-        SEX: sex
-        JWTRNS: commute_mode_code
+* ``HHIncomeControl.survey_fields = ("income_bin",)`` — reads the
+  already-binned ``income_bin`` column via ``identity_expr``.
+* ``GenderControl.survey_fields = ("gender",)`` — maps ``Gender`` enum
+  values to ``GenderCategory`` ints via ``replace_strict``.
+* ``HHSizeControl.survey_fields = ("_n_persons",)`` — clips the
+  person-count aggregate column to [1, 10].
+
+No YAML config is involved; the mapping lives entirely in the control
+class definitions in [`processing.weighting.controls`][processing.weighting.controls].
 """
 
 import logging
@@ -43,17 +46,14 @@ def recode_survey_households(
 ) -> pl.DataFrame:
     """Recode canonical survey households into control categories.
 
-    Parameters
-    ----------
-    households, persons : pl.DataFrame
-        Canonical tables (both must have ``hh_id``).
-    targets : list[str]
-        Registry keys to recode.  Person-level keys are ignored.
+    Args:
+        households: Canonical households table (must have ``hh_id``).
+        persons: Canonical persons table (must have ``hh_id``).
+        targets: Registry keys to recode.  Person-level keys are ignored.
 
     Raises:
-    ------
-    ValueError  -- unknown target.
-    KeyError    -- missing required column.
+        ValueError: Unknown target.
+        KeyError: Missing required column.
     """
     hh_ctrls = resolve_targets(targets, ControlLevel.HOUSEHOLD)
     if not hh_ctrls:
@@ -122,17 +122,13 @@ def recode_survey_persons(
 ) -> pl.DataFrame:
     """Recode canonical survey persons into control categories.
 
-    Parameters
-    ----------
-    persons : pl.DataFrame
-        Canonical persons table.
-    targets : list[str]
-        Registry keys to recode.  Household-level keys are ignored.
+    Args:
+        persons: Canonical persons table.
+        targets: Registry keys to recode.  Household-level keys are ignored.
 
     Raises:
-    ------
-    ValueError  -- unknown target.
-    KeyError    -- missing required column.
+        ValueError: Unknown target.
+        KeyError: Missing required column.
     """
     p_ctrls = resolve_targets(targets, ControlLevel.PERSON)
     df = persons

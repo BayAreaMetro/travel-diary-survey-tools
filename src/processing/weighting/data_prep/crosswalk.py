@@ -1,7 +1,7 @@
 """PUMA-specific crosswalk wrapper.
 
 ``PumaCrosswalk`` fetches Census PUMA and block geographies and
-delegates the heavy lifting to :func:`utils.crosswalk.build_crosswalk`.
+delegates the heavy lifting to [`build_crosswalk`][utils.crosswalk.build_crosswalk].
 
 See ``docs/pipeline_steps/weighting/crosswalk.md`` for the detailed
 crosswalk explanation, diagrams, and worked example.
@@ -24,11 +24,13 @@ Outputs:
   ``allocation_weight``.
 * ``puma_ids``: list of PUMAs overlapping the study area.
 
-Usage::
+Example:
+    ```python
 
     xw = PumaCrosswalk(geo_cfg, state_fips="06", pums_year=2023)
     households = xw.assign_households(households)
     pums_hh, pums_per = xw.allocate_pums_weights(pums_hh, pums_per)
+    ```
 """
 
 import hashlib
@@ -73,11 +75,8 @@ class GeographyConfig(BaseModel):
     """Geography block of the weighting YAML config.
 
     Attributes:
-    ----------
-    target_zones : TargetZoneConfig
-        Polygon file and optional zone-ID column.
-    resolution : int
-        Raster cell size in metres (default 250).
+        target_zones: Polygon file and optional zone-ID column.
+        resolution: Raster cell size in metres (default 250).
     """
 
     target_zones: TargetZoneConfig
@@ -397,19 +396,13 @@ class PumaCrosswalk:
         Each PUMS household is duplicated per overlapping target zone, and
         its weight is scaled by the zone's ``allocation_weight``.
 
-        Parameters
-        ----------
-        pums_incidence : pl.DataFrame
-            Pivoted PUMS incidence table.  Must contain *puma_col* and
-            *weight_col*.
-        puma_col : str
-            Column identifying the PUMA (default ``"PUMA"``).
-        weight_col : str
-            Original PUMS weight column to scale (default ``"WGTP"``).
+        Args:
+            pums_incidence: Pivoted PUMS incidence table.  Must contain *puma_col* and
+                *weight_col*.
+            puma_col: Column identifying the PUMA (default ``"PUMA"``).
+            weight_col: Original PUMS weight column to scale (default ``"WGTP"``).
 
         Returns:
-        -------
-        pl.DataFrame
             Incidence table with ``study_geoid`` and ``ctrl_geoid`` added,
             *weight_col* scaled by ``allocation_weight``, and rows
             multiplied per zone overlap.

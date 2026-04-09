@@ -39,31 +39,25 @@ def compute_moe_importance(
 ) -> dict[str, float]:
     """Compute per-control importance weights from PUMS replicate-weight MOE.
 
-    Parameters
-    ----------
-    hh_df : pl.DataFrame
-        Crosswalk-allocated PUMS households with ``_xw_WGTP`` and
-        ``_xw_WGTP1`` … ``_xw_WGTP80`` columns (plus recoded controls).
-    person_df : pl.DataFrame
-        Crosswalk-allocated PUMS persons with ``_xw_PWGTP`` and
-        ``_xw_PWGTP1`` … ``_xw_PWGTP80`` columns (plus recoded controls).
-    target_names : list[str]
-        Control registry names to compute importance for.
-    geo_col : str
-        Geography column (default ``"ctrl_geoid"``).
+    Args:
+        hh_df: Crosswalk-allocated PUMS households with ``_xw_WGTP`` and
+            ``_xw_WGTP1`` … ``_xw_WGTP80`` columns (plus recoded
+            controls).
+        person_df: Crosswalk-allocated PUMS persons with ``_xw_PWGTP``
+            and ``_xw_PWGTP1`` … ``_xw_PWGTP80`` columns (plus recoded
+            controls).
+        target_names: Control registry names to compute importance for.
+        geo_col: Geography column (default ``"ctrl_geoid"``).
 
     Returns:
-    -------
-    dict[str, float]
         ``{control_name: importance}`` for controls where MOE could be
         computed.  Controls with no PUMS records (data sparsity) are
-        omitted -- the balancer will apply its default importance.
+        omitted — the balancer will apply its default importance.
 
     Raises:
-    ------
-    ValueError
-        If a target name is not in the control registry, or if required
-        replicate weight / control columns are missing from the data.
+        ValueError: If a target name is not in the control registry, or
+            if required replicate weight / control columns are missing
+            from the data.
     """
     control_cvs: dict[str, float] = {}
 

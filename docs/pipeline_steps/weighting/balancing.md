@@ -6,14 +6,6 @@
       show_docstring_description: true
       members: false
 
-::: processing.weighting.balancing.balancer
-    options:
-      show_root_heading: true
-      members:
-        - balance_weights
-        - MergeSpec
-        - ZoneStatus
-
 ::: processing.weighting.balancing.base_weights
     options:
       show_root_heading: true
@@ -27,6 +19,14 @@
       show_root_heading: true
       members:
         - compute_moe_importance
+
+::: processing.weighting.balancing.balancer
+    options:
+      show_root_heading: true
+      members:
+        - balance_weights
+        - MergeSpec
+        - ZoneStatus
 
 ::: processing.weighting.balancing.weight_propagation
     options:

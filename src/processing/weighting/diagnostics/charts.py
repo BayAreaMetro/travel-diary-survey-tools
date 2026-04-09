@@ -124,7 +124,7 @@ def fit_diverging_figure(
     """Grid of horizontal diverging bar charts (% error, one panel per zone + overall).
 
     Expects *fit* to contain a ``label`` column (added by
-    :func:`~.data.apply_fit_merges`).  Null placeholder rows are rendered
+    [`apply_fit_merges`][processing.weighting.diagnostics.data.apply_fit_merges]).  Null placeholder rows are rendered
     as invisible bars so the y-axis remains consistent across panels.
 
     When ``moe_pct`` is present (from PUMS replicate weights), horizontal
@@ -429,13 +429,10 @@ def ef_tradeoff_figure(
     Hovering at an EF value on any subplot shows aligned tooltips on
     all four panels via ``hovermode="x unified"`` and spike lines.
 
-    Parameters
-    ----------
-    grid_results : list[GridPoint]
-        One entry per expansion-factor value with aggregate metrics.
-    selected_ef : float
-        The user's chosen ``max_expansion_factor`` — shown as a vertical
-        dashed marker line on every panel.
+    Args:
+        grid_results: One entry per expansion-factor value with aggregate metrics.
+        selected_ef: The user's chosen ``max_expansion_factor`` — shown as a vertical
+            dashed marker line on every panel.
     """
     efs = [g.max_expansion_factor for g in grid_results]
 
@@ -707,25 +704,18 @@ def crosswalk_figure(
     - Target zones (solid border, transparent fill) with tooltip
       showing PUMA allocation weights from the crosswalk.
 
-    Parameters
-    ----------
-    puma_gdf : gpd.GeoDataFrame
-        PUMA boundary polygons (must have ``puma_id`` column).
-    target_gdf : gpd.GeoDataFrame
-        Target zone polygons (must have ``study_geoid`` column).
-    crosswalk_df : pl.DataFrame
-        Crosswalk table with ``puma_id``, ``study_geoid``,
-        ``population``, ``allocation_weight``.
-    households : pl.DataFrame | None
-        Assigned households (must contain ``study_geoid``).  When
-        provided, per-zone sample counts appear in the tooltip.
-    zone_groups : dict[str, list[str]] | None
-        Optional zone group mapping.  When provided, grouped zones
-        share a fill colour and labels include the group name.
+    Args:
+        puma_gdf: PUMA boundary polygons (must have ``puma_id`` column).
+        target_gdf: Target zone polygons (must have ``study_geoid`` column).
+        crosswalk_df: Crosswalk table with ``puma_id``, ``study_geoid``,
+            ``population``, ``allocation_weight``.
+        households: Assigned households (must contain ``study_geoid``).  When
+            provided, per-zone sample counts appear in the tooltip.
+        zone_groups: Optional zone group mapping.  When provided, grouped zones
+            share a fill colour and labels include the group name.
 
     Returns:
-    -------
-    go.Figure
+        go.Figure
     """
     puma_4326 = puma_gdf.to_crs("EPSG:4326")
     target_4326 = target_gdf.to_crs("EPSG:4326")

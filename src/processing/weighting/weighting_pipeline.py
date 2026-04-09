@@ -1,6 +1,7 @@
 """Top-level weighting pipeline step.
 
-Orchestrates the full weighting pipeline via :class:`WeightingPipeline`:
+Orchestrates the full weighting pipeline via
+[`WeightingPipeline`][processing.weighting.weighting_pipeline.WeightingPipeline]:
 
 1.  **Setup** — parse YAML config → specs, target names, merges, importance.
     Cross-tab controls are registered with pre-merged dimensions so the
@@ -21,7 +22,7 @@ Orchestrates the full weighting pipeline via :class:`WeightingPipeline`:
 7.  **Control totals** — aggregate PUMS incidence into target totals per zone.
 8.  **Balancer** — base weights → max-entropy balancing → weight propagation.
 
-Design decisions:
+# Design decisions
 
 * **PopulationSim dependency** — uses PopulationSim's core numba balancer
   (``np_balancer_numba``) directly — a pure ``@njit`` function (~120 lines)
@@ -36,7 +37,7 @@ Design decisions:
   layouts.  Geography, merges, and crosstabs are applied *after* incidence
   construction, keeping the recode/pivot logic independent of geography.
 
-Algorithm:
+!!! Algorithm
 
     Find weight vector **w** closest to seed weights **w₀** (KL-divergence)
     subject to marginal constraints:
@@ -118,27 +119,30 @@ class WeightingPipeline:
 
     Separates *configuration* (frozen at ``__init__``) from *intermediate
     state* (built up phase-by-phase).  Phase methods are designed to be
-    called in sequence from the ``@step() weighting()`` entry-point; each
-    stores results as instance attributes.
+    called in sequence from the
+    [`@step() compute_weights`][processing.weighting.compute_weights.compute_weights]
+    entry-point; each stores results as instance attributes.
 
-    Usage::
+    # Usage
 
-        pipeline = WeightingPipeline(controls=..., config=..., data=...)
+    ```python
+    pipeline = WeightingPipeline(controls=..., config=..., data=...)
 
-        pipeline.setup()
-        pipeline.fetch_pums()
+    pipeline.setup()
+    pipeline.fetch_pums()
 
-        pipeline.recode_and_pivot()
-        pipeline.assign_zones()
-        pipeline.apply_merges()
+    pipeline.recode_and_pivot()
+    pipeline.assign_zones()
+    pipeline.apply_merges()
 
-        pipeline.aggregate_totals()
-        pipeline.resolve_importance()
+    pipeline.aggregate_totals()
+    pipeline.resolve_importance()
 
-        pipeline.balance()
-        pipeline.propagate()
+    pipeline.balance()
+    pipeline.propagate()
 
-        pipeline.generate_diagnostics()
+    pipeline.generate_diagnostics()
+    ```
     """
 
     # -- Intermediate state (populated by phase methods) ----------------

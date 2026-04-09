@@ -1,6 +1,6 @@
 """Generic population-weighted geography crosswalk utilities.
 
-Provides :func:`build_crosswalk`, a generic function that maps *source*
+Provides [`build_crosswalk`][utils.crosswalk.build_crosswalk], a generic function that maps *source*
 polygons to *target* polygons via a *weight* polygon layer (e.g. Census
 blocks with population counts).  The three layers are rasterized onto a
 common grid and ``exactextract`` performs the zonal cross-tabulation with
@@ -8,8 +8,8 @@ sub-pixel coverage fractions.
 
 See ``src/utils/CROSSWALK.md`` for the mathematical formulation.
 
-Usage::
-
+Example:
+    ```python
     from utils.crosswalk import build_crosswalk
 
     xw = build_crosswalk(
@@ -17,6 +17,7 @@ Usage::
         source_id_col="PUMACE20", target_id_col="COUNTYFP",
         weight_col="block_pop", resolution=250,
     )
+    ```
 """
 
 import contextlib
@@ -56,38 +57,31 @@ def build_crosswalk(
 ) -> pl.DataFrame:
     """Build a population-weighted crosswalk between two polygon layers.
 
-    Parameters
-    ----------
-    source_gdf:
-        Source zone polygons (e.g. PUMAs).  Must contain *source_id_col*.
-    target_gdf:
-        Target zone polygons (e.g. counties, TAZs).  Must contain
-        *target_id_col*.
-    weight_gdf:
-        Weight polygons carrying a numeric attribute (e.g. Census blocks
-        with ``block_pop``).  Must contain *weight_col* and geometry.
-    source_id_col:
-        Column in *source_gdf* identifying source zones.
-    target_id_col:
-        Column in *target_gdf* identifying target zones.
-    weight_col:
-        Numeric column in *weight_gdf* used as the allocation weight
-        (typically population).
-    resolution:
-        Raster cell size in metres (EPSG:5070).
-    min_allocation:
-        Drop source-target pairs whose allocation weight is below this
-        fraction (e.g. 0.02 = 2%).  Remaining weights are **not**
-        re-normalised; the dropped slivers simply become part of the
-        out-of-region remainder.  Default 0.0 (keep all).
+    Args:
+        source_gdf: Source zone polygons (e.g. PUMAs).  Must contain
+            *source_id_col*.
+        target_gdf: Target zone polygons (e.g. counties, TAZs).  Must
+            contain *target_id_col*.
+        weight_gdf: Weight polygons carrying a numeric attribute (e.g.
+            Census blocks with ``block_pop``).  Must contain *weight_col*
+            and geometry.
+        source_id_col: Column in *source_gdf* identifying source zones.
+        target_id_col: Column in *target_gdf* identifying target zones.
+        weight_col: Numeric column in *weight_gdf* used as the allocation
+            weight (typically population).
+        resolution: Raster cell size in metres (EPSG:5070).
+        min_allocation: Drop source-target pairs whose allocation weight
+            is below this fraction (e.g. 0.02 = 2%).  Remaining weights
+            are **not** re-normalised; the dropped slivers simply become
+            part of the out-of-region remainder.  Default 0.0 (keep all).
 
     Returns:
-    -------
-    pl.DataFrame
-        Columns ``[source_id, target_id, population, allocation_weight]``.
-        ``allocation_weight`` is the fraction of each source zone's **total**
-        population that falls in the target zone.  Weights sum to <= 1.0 per
-        ``source_id``; the remainder is population outside all target zones.
+        DataFrame with columns
+        ``[source_id, target_id, population, allocation_weight]``.
+        ``allocation_weight`` is the fraction of each source zone's
+        **total** population that falls in the target zone.  Weights sum
+        to <= 1.0 per ``source_id``; the remainder is population outside
+        all target zones.
     """
     # Validate required columns
     for gdf, col, label in [

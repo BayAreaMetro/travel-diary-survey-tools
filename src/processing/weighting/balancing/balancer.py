@@ -3,30 +3,34 @@ r"""Maximum-entropy list balancer.
 Thin Polars→numpy bridge around PopulationSim's ``np_balancer_numba``.
 Runs independently per geography zone.
 
-Algorithm:
-    Find weight vector **w** closest to seed weights **w₀** (KL-divergence)
-    subject to marginal constraints:
+# Algorithm
 
-    .. math::
+Find weight vector **w** closest to seed weights **w₀** (KL-divergence)
+subject to marginal constraints:
 
-        \\min \\sum_i w_i \\ln(w_i / w_{0i})
-        \\quad \\text{s.t.} \\quad Aw = t,\\; w_i \\ge 0
+$$
+\min \sum_i w_i \ln(w_i / w_{0i})
+\quad \text{s.t.} \quad Aw = t,\; w_i \ge 0
+$$
 
-    where **A** is the incidence matrix and **t** is the target totals
-    vector.
+where **A** is the incidence matrix and **t** is the target totals
+vector.
 
-Implementation:
-    Calls ``populationsim.balancing.balancers_numba.np_balancer_numba``
-    directly — a pure ``@njit`` function (~120 lines) taking numpy arrays.
-    No PopulationSim pipeline infrastructure involved.  Zones are
-    independent and parallelisable via ``ThreadPoolExecutor``.
+# Implementation
 
-Configuration (YAML)::
+Calls ``populationsim.balancing.balancers_numba.np_balancer_numba``
+directly — a pure ``@njit`` function (~120 lines) taking numpy arrays.
+No PopulationSim pipeline infrastructure involved.  Zones are
+independent and parallelisable via ``ThreadPoolExecutor``.
 
-    max_iterations: 1000
-    convergence_threshold: 0.001
-    max_expansion_factor: 10    # upper bound = initial_weight x factor
-    min_expansion_factor: 0.1   # lower bound = initial_weight x factor
+# Configuration (YAML)
+
+```yaml
+max_iterations: 1000
+convergence_threshold: 0.001
+max_expansion_factor: 10    # upper bound = initial_weight x factor
+min_expansion_factor: 0.1   # lower bound = initial_weight x factor
+```
 """
 
 import logging
@@ -65,29 +69,23 @@ def balance_weights(
 ) -> tuple[pl.DataFrame, list[ZoneStatus]]:
     """Balance household weights to match control totals per zone.
 
-    Parameters
-    ----------
-    seed : pl.DataFrame
-        Incidence table with ``hh_id``, ``ctrl_geoid``, ``base_weight``,
-        and pivoted control columns (``{ctrl}__{member}`` or structural).
-        All merges (global and zone-specific) must already be applied.
-    control_totals : ControlTotals
-        Per-zone targets (with merges already applied).
-    targets : list[str]
-        Control registry names.
-    balancing : BalancingConfig | None
-        Solver bounds, iteration limits, and parallelism (defaults apply).
-    importance : ImportanceConfig | None
-        Per-control importance weights (defaults apply).
-    verbose : bool
-        Log per-zone convergence (default ``True``).
+    Args:
+        seed: Incidence table with ``hh_id``, ``ctrl_geoid``,
+            ``base_weight``, and pivoted control columns
+            (``{ctrl}__{member}`` or structural).  All merges (global
+            and zone-specific) must already be applied.
+        control_totals: Per-zone targets (with merges already applied).
+        targets: Control registry names.
+        balancing: Solver bounds, iteration limits, and parallelism
+            (defaults apply).
+        importance: Per-control importance weights (defaults apply).
+        verbose: Log per-zone convergence (default ``True``).
 
     Returns:
-    -------
-    weights : pl.DataFrame
-        Columns: ``hh_id``, ``hh_weight``, ``geo_id``.
-    statuses : list[ZoneStatus]
-        One entry per zone with convergence info.
+        Tuple of ``(weights, statuses)`` where *weights* is a DataFrame
+        with columns ``hh_id``, ``hh_weight``, ``geo_id``, and
+        *statuses* is one [`ZoneStatus`][processing.weighting.specs.ZoneStatus]
+        entry per zone with convergence info.
     """
     bal = balancing or BalancingConfig()
     imp = importance or ImportanceConfig()
@@ -153,7 +151,7 @@ def grid_search_expansion_factor(
 ) -> list[GridPoint]:
     """Re-run the balancer across a grid of ``max_expansion_factor`` values.
 
-    Returns one :class:`GridPoint` per EF value with aggregate fit and
+    Returns one [`GridPoint`][processing.weighting.specs.GridPoint] per EF value with aggregate fit and
     weight-quality metrics.  The *selected_ef* is automatically included
     in the grid if not already present.
 

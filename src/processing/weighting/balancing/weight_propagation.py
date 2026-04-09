@@ -3,30 +3,24 @@
 Used by both ``weighting`` and ``existing_weights`` (pre-computed)
 steps to propagate household weights down through the canonical table hierarchy.
 
-Weight derivation:
+# Weight derivation
 
-=========== ======================== =========================================
-Table       Weight Column            Derivation
-=========== ======================== =========================================
-households  ``hh_weight``            Direct from balancer
-persons     ``person_weight``        Carry forward ``hh_weight`` via ``hh_id``
-days        ``day_weight``           Carry forward ``person_weight`` via
-                                     ``person_id``
-unlinked    ``unlinked_trip_weight``  Carry forward ``day_weight`` via
-                                     ``day_id``
-linked      ``linked_trip_weight``   Mean of constituent
-                                     ``unlinked_trip_weight``
-tours       ``tour_weight``          Mean of constituent
-                                     ``linked_trip_weight``
-=========== ======================== =========================================
+|Table      |Weight Column           |Derivation
+|-----------|------------------------|-----------------------------------------
+|households |``hh_weight``           |Direct from balancer
+|persons    |``person_weight``       |Carry forward ``hh_weight`` via ``hh_id``
+|days       |``day_weight``          |Carry forward ``person_weight`` via ``person_id``
+|unlinked   |``unlinked_trip_weight``| Carry forward ``day_weight`` via ``day_id``
+|linked     |``linked_trip_weight``  |Mean of constituent ``unlinked_trip_weight``
+|tours      |``tour_weight``         |Mean of constituent ``linked_trip_weight``
 
-Checksums (logged as warnings if violated):
+# Checksums (logged as warnings if violated)
 
 * ``sum(person_weight) ≈ sum(hh_weight x persons_per_hh)``
 * ``sum(day_weight) ≈ sum(person_weight x complete_travel_days)``
 * ``sum(unlinked_trip_weight) ≈ sum(day_weight x trips_per_day)``
 
-Completion flag:
+# Completion flag
 
 If a table has a ``complete`` boolean column, records with
 ``complete == False`` receive a weight of **0** after the carry-forward
@@ -130,16 +124,13 @@ def propagate_weights(  # noqa: C901, PLR0912
 
     Modifies *tables* and *has_weight* **in place**.
 
-    Parameters
-    ----------
-    tables
-        Mutable dict of table_name -> DataFrame (or None).
-    has_weight
-        Mutable dict tracking which tables already have a weight column
-        and the column name.  E.g. ``{"households": "hh_weight"}``.
-    skip
-        Table names to skip (e.g. tables that already have externally
-        provided weights).
+    Args:
+        tables: Mutable dict of table_name → DataFrame (or None).
+        has_weight: Mutable dict tracking which tables already have a
+            weight column and the column name.
+            E.g. ``{"households": "hh_weight"}``.
+        skip: Table names to skip (e.g. tables that already have
+            externally provided weights).
     """
     skip = skip or set()
 

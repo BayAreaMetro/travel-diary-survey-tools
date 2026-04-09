@@ -80,14 +80,13 @@ class ControlTarget:
     Subclasses set class attributes and override ``survey_expr`` /
     ``pums_expr`` to return native Polars expressions.
 
-    Attributes (set by subclass)
-    ----------------------------
-    name : str              -- registry key, e.g. ``"h_size"``
-    level : ControlLevel    -- HOUSEHOLD or PERSON
-    description : str       -- human-readable label
-    categories : type       -- IntEnum or LabeledEnum for output bins
-    survey_fields : tuple   -- canonical survey column names (metadata)
-    pums_fields : tuple     -- PUMS column names (metadata)
+    Attributes:
+        name: Registry key, e.g. ``"h_size"``.
+        level: ``HOUSEHOLD`` or ``PERSON``.
+        description: Human-readable label.
+        categories: ``IntEnum`` or ``LabeledEnum`` for output bins.
+        survey_fields: Canonical survey column names (metadata).
+        pums_fields: PUMS column names (metadata).
     """
 
     name: str
