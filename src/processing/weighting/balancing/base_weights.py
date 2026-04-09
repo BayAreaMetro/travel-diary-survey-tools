@@ -94,9 +94,10 @@ def compute_base_weights(
             control).
         geo_col: Geography column on *seed*.
         sample_plan: Optional sample plan.  Accepts a file path (loaded
-            via [`load_sample_plan`][processing.weighting.balancing.base_weights.load_sample_plan]) or an already-loaded
-            [`SamplePlan`][processing.weighting.specs.SamplePlan].  When ``None``, default response
-            inversion is used.
+            via [`load_sample_plan`][processing.weighting.balancing.base_weights.load_sample_plan])
+            or an already-loaded
+            [`SamplePlan`][processing.weighting.specs.SamplePlan].
+            When ``None``, default response inversion is used.
         bg_populations: Census block-group population totals with columns
             ``[bg_geo_id, bg_population]``.  Required when *sample_plan*
             is provided; sourced from
@@ -243,7 +244,8 @@ def _hh_weights_from_plan(
     The sample plan maps Census block groups to sampling segments.
     Block-group populations come from the crosswalk (Census blocks
     summed to BG).  Each survey household must already have a
-    ``bg_geo_id`` column (from [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
+    ``bg_geo_id`` column (from
+    [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
 
     Steps:
 

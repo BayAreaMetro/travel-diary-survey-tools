@@ -151,9 +151,9 @@ def grid_search_expansion_factor(
 ) -> list[GridPoint]:
     """Re-run the balancer across a grid of ``max_expansion_factor`` values.
 
-    Returns one [`GridPoint`][processing.weighting.specs.GridPoint] per EF value with aggregate fit and
-    weight-quality metrics.  The *selected_ef* is automatically included
-    in the grid if not already present.
+    Returns one [`GridPoint`][processing.weighting.specs.GridPoint]
+    per EF value with aggregate fit and weight-quality metrics.
+    The *selected_ef* is automatically included in the grid if not already present.
 
     This is a **diagnostics-only** function — it does not modify the
     production weights.

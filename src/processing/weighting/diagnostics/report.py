@@ -1,7 +1,7 @@
 """Report orchestration: assemble sections and render the Jinja2 template.
 
-Entry point is [`generate_report`][processing.weighting.diagnostics.report.generate_report], which collects data from the
-balancer run, builds Plotly figures and HTML tables via the sibling
+Entry point is [`generate_report`][processing.weighting.diagnostics.report.generate_report],
+which collects data from the balancer run, builds Plotly figures and HTML tables via the sibling
 modules (``charts``, ``data``, ``tables``), then renders everything
 into a single ``.html`` file using a bundled Jinja2 template.
 """

@@ -50,6 +50,7 @@ def recode_survey_households(
         households: Canonical households table (must have ``hh_id``).
         persons: Canonical persons table (must have ``hh_id``).
         targets: Registry keys to recode.  Person-level keys are ignored.
+        strict_nulls: If ``True``, raise on any null recode output.
 
     Raises:
         ValueError: Unknown target.
@@ -125,6 +126,7 @@ def recode_survey_persons(
     Args:
         persons: Canonical persons table.
         targets: Registry keys to recode.  Household-level keys are ignored.
+        strict_nulls: If ``True``, raise on any null recode output.
 
     Raises:
         ValueError: Unknown target.

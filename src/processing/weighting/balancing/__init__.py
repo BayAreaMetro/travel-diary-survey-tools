@@ -12,4 +12,4 @@ Orchestrates the core balancing loop:
    Runs independently per geography zone.
 4. **Weight propagation** ([`weight_propagation`][processing.weighting.balancing.weight_propagation]) --
    carry final household weights down through the canonical table hierarchy.
-"""
+"""  # noqa: E501

@@ -5,8 +5,8 @@ Each class maps raw survey / PUMS values into coarser category ints for
 household-level weighting targets.
 
 All ``survey_expr`` / ``pums_expr`` overrides implement the interface
-documented in [`ControlTarget`][processing.weighting.controls.base.ControlTarget] — individual method docstrings
-are omitted for brevity (ruff noqa: D102).
+documented in [`ControlTarget`][processing.weighting.controls.base.ControlTarget]
+— individual method docstrings are omitted for brevity (ruff noqa: D102).
 """
 
 import polars as pl

@@ -227,8 +227,8 @@ def fetch_pums_data(
         extra_person_vars: Additional person PUMS variable names to fetch
             beyond the defaults.
         load_replicate_weights: If ``True``, also fetch the 80 replicate
-            weight columns per table (``WGTP1``–``WGTP80`` and
-            ``PWGTP1``–``PWGTP80``).  Required for MOE-based importance
+            weight columns per table (``WGTP1`` to ``WGTP80`` and
+            ``PWGTP1`` to ``PWGTP80``).  Required for MOE-based importance
             calculation.
         cache_dir: If set, raw PUMS data is cached as Parquet files under
             ``cache_dir/pums/``.  Subsequent calls with the same state/year
@@ -351,8 +351,8 @@ def load_pums_from_files(
         person_path: Path to person PUMS file (CSV or Parquet).
         state_fips: Optional filter to a specific state FIPS code.
         puma_ids: Optional filter to specific PUMAs.
-        load_replicate_weights: If ``True``, retain ``WGTP1``–``WGTP80``
-            and ``PWGTP1``–``PWGTP80`` replicate weight columns.
+        load_replicate_weights: If ``True``, retain ``WGTP1`` to ``WGTP80``
+            and ``PWGTP1`` to ``PWGTP80`` replicate weight columns.
 
     Returns:
         Tuple of ``(households, persons)`` Polars DataFrames.

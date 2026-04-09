@@ -68,8 +68,9 @@ class ControlTotals:
 class IncidenceBundle:
     """All intermediate and final products of incidence-table construction.
 
-    Built by [`build_incidence_table`][processing.weighting.data_prep.incidence.build_incidence_table] and available for downstream
-    consumers (balancer, fractional imputation, diagnostics).
+    Built by
+    [`build_incidence_table`][processing.weighting.data_prep.incidence.build_incidence_table]
+    and available for downstream consumers (balancer, fractional imputation, diagnostics).
 
     Attributes:
         incidence: Combined household-level incidence table — one row per HH with
@@ -197,8 +198,10 @@ class BalancingConfig:
     """Maximum-entropy balancer configuration.
 
     Controls Newton-Raphson iteration bounds, weight expansion limits,
-    and parallel execution.  Consumed by [`balance_weights`][processing.weighting.balancing.balancer.balance_weights],
-    [`grid_search_expansion_factor`][processing.weighting.balancing.balancer.grid_search_expansion_factor], and the pipeline orchestrator.
+    and parallel execution.  Consumed by
+    [`balance_weights`][processing.weighting.balancing.balancer.balance_weights],
+    [`grid_search_expansion_factor`][processing.weighting.balancing.balancer.grid_search_expansion_factor],
+    and the pipeline orchestrator.
     """
 
     max_expansion_factor: float = 10.0
@@ -232,8 +235,8 @@ class WeightingConfig:
     Groups the parameters that are *not* already covered by
     [`ControlRegistryConfig`][processing.weighting.specs.ControlRegistryConfig],
     [`BalancingConfig`][processing.weighting.specs.BalancingConfig], or
-    [`ImportanceConfig`][processing.weighting.specs.ImportanceConfig] — primarily Census/geography settings
-    and pipeline plumbing.
+    [`ImportanceConfig`][processing.weighting.specs.ImportanceConfig]
+    — primarily Census/geography settings and pipeline plumbing.
     """
 
     geography: dict
@@ -251,7 +254,8 @@ class WeightingConfig:
 class ControlRegistryConfig:
     """Parsed control definitions, merge specs, and derived target names.
 
-    Built via [`from_yaml`][processing.weighting.specs.ControlRegistryConfig.from_yaml] from the YAML ``controls`` block.
+    Built via [`from_yaml`][processing.weighting.specs.ControlRegistryConfig.from_yaml]
+    from the YAML ``controls`` block.
     """
 
     specs: list[ControlSpec]
@@ -340,7 +344,7 @@ class SamplePlan:
             * ``bg_geo_id``  (str) — 12-character Census block-group FIPS code.
             * ``sample_segment`` (str) — sampling-stratum label.  All block
               groups sharing a segment get the same base weight.
-    """
+    """  # noqa: E501
 
     strata: pl.DataFrame
 

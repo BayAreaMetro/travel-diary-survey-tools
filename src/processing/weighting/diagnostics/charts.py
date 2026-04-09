@@ -124,8 +124,9 @@ def fit_diverging_figure(
     """Grid of horizontal diverging bar charts (% error, one panel per zone + overall).
 
     Expects *fit* to contain a ``label`` column (added by
-    [`apply_fit_merges`][processing.weighting.diagnostics.data.apply_fit_merges]).  Null placeholder rows are rendered
-    as invisible bars so the y-axis remains consistent across panels.
+    [`apply_fit_merges`][processing.weighting.diagnostics.data.apply_fit_merges]).
+    Null placeholder rows are rendered as invisible bars
+    so the y-axis remains consistent across panels.
 
     When ``moe_pct`` is present (from PUMS replicate weights), horizontal
     error bars show the sampling margin of error on each target.

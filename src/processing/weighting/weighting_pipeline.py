@@ -508,7 +508,7 @@ class WeightingPipeline:
         Report sections
         ---------------
         1. **Crosswalk Map** — choropleth showing how PUMAs overlap the target
-           zones, with allocation weights visualised per PUMA–zone pair.
+           zones, with allocation weights visualised per PUMA-zone pair.
         2. **Convergence & Weight Summary** — per-zone table of convergence
            status, final weight sum, effective sample size (ESS%), and
            coefficient of variation (CV) of the weights.
