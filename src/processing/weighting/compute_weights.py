@@ -34,7 +34,8 @@ Orchestrates the full weighting pipeline in the following stages:
 9. **Balancing** -- build per-household incidence vectors and fit weights
    using PopulationSim's numba-accelerated max-entropy balancer,
    independently per zone.
-10. **Weight propagation** -- propagate final ``hh_weight`` to all canonical tables (persons, days, trips, tours).
+10. **[Weight propagation](balancing.md)** -- propagate final ``hh_weight`` to all
+    canonical tables (persons, days, trips, tours).
 
 **E. [Diagnostics](diagnostics.md) & [Validation](validation.md)**
 
