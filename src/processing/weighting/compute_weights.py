@@ -1,33 +1,50 @@
 """Entry point for the weighting pipeline step.
 
-Orchestrates the full weighting pipeline, which consists of the following stages:
+Orchestrates the full weighting pipeline in the following stages:
 
-1. **Setup** -- register controls, build crosswalk, prepare sample plan, etc.
+**A. [Geography Crosswalk](crosswalk.md)**
 
-2. **PUMS recoding** -- recode PUMS microdata into the same control categories as the survey seed.
+1. **Setup** -- register controls from YAML config, build the geographic
+   crosswalk (translating between Census PUMAs and the project's custom
+   weighting geography using block-group population as the intermediary),
+   and prepare the sample plan.
 
-3. **Survey recoding** -- recode canonical survey data into control categories.
+**B. [Control Data Preparation](data_preparation.md)**
 
-4. **Null imputation** -- fill null-induced zeros in the survey incidence with RF-predicted fractional probabilities.
+2. **PUMS recoding** -- load PUMS 1-year microdata and recode into the
+   YAML-configured variable bins used by the controls.
+3. **Merges** -- apply any user-specified category merges (global or
+   zone-specific) to both controls and the survey incidence table.
+4. **Control aggregation** -- apply the crosswalk to PUMS and aggregate
+   into marginal control totals per zone.
 
-5. **Zone assignment** -- assign survey records to weighting zones via crosswalk.
+**C. [Survey Seed Preparation](data_preparation.md)**
 
-6. **Merges** -- apply any user-specified merges to control categories.
+5. **Survey recoding** -- recode canonical survey variables into the same
+   bin / group categories as the PUMS controls.
+6. **Null imputation** -- fill null-induced zeros in the survey incidence
+   table with RF-predicted fractional class probabilities.
+7. **Zone assignment** -- assign survey households to weighting zones via
+   the geographic crosswalk.
 
-7. **Control aggregation** -- aggregate recoded PUMS microdata into control totals per zone.
+**D. [Maximum-Entropy Balancing](balancing.md)**
 
-8. **Importance resolution** -- compute control importance values based on MOE or explicit config.
+8. **Importance resolution** -- compute per-control importance weights
+   from replicate-weight MOE or explicit YAML overrides.
+9. **Balancing** -- build per-household incidence vectors and fit weights
+   using PopulationSim's numba-accelerated max-entropy balancer,
+   independently per zone.
+10. **Weight propagation** -- propagate final ``hh_weight`` to all canonical tables (persons, days, trips, tours).
 
-9. **Balancing** -- fit weights using PopulationSim's numba core balancer per zone.
+**E. [Diagnostics](diagnostics.md) & [Validation](validation.md)**
 
-10. **Weight propagation** -- propagate final household weights to all canonical tables (persons, days, trips, tours).
+11. **Diagnostics** -- generate a self-contained interactive HTML report
+    with convergence, fit, and weight-quality diagnostics.
+12. **Validation** -- run sanity checks on the final weights and control
+    totals.  Results are logged as warnings but are not currently included
+    in the HTML report — check the pipeline log to review them.
 
-11. **Diagnostics** -- generate an interactive HTML report with diagnostics and validation results.
-
-12. **Validation** -- run sanity checks on the final weights and control totals.
-
-Done! Easy as 1-2-3...12. :)
-"""  # noqa: E501
+"""
 
 import logging
 

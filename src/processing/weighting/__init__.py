@@ -9,19 +9,8 @@ survey tables:
 2. **``compute_weights``** -- compute weights from scratch using PUMS / ACS
    microdata as population controls via maximum-entropy balancing.
 
-The ``compute_weights`` step internally orchestrates five sub-components:
-
-1. **Geography crosswalk** -- translate between Census PUMAs and the project's
-   custom weighting geography using block-group population as the intermediary.
-2. **Control data preparation** -- load PUMS 1-year microdata, apply the
-   crosswalk, and aggregate into marginal control totals using YAML-configured
-   variable bins.
-3. **Survey seed preparation** -- recode canonical survey variables into the
-   same bin / group categories as the controls.
-4. **Maximum-entropy balancing** -- expand households into seed records, then
-   fit weights using PopulationSim's numba core balancer per zone.
-5. **Weight propagation** -- propagate final ``hh_weight`` to all canonical
-   tables (persons, days, trips, tours).
+The ``compute_weights`` step orchestrates the full pipeline — see
+``compute_weights.py`` for the detailed step-by-step description.
 
 # Weight hierarchy
 

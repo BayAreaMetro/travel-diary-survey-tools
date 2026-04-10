@@ -77,8 +77,8 @@ nav:
               - Data Preparation: pipeline_steps/weighting/data_preparation.md
               - Balancing: pipeline_steps/weighting/balancing.md
               - Controls: pipeline_steps/weighting/controls.md
-              - Validation: pipeline_steps/weighting/validation.md
               - Diagnostics: pipeline_steps/weighting/diagnostics.md
+              - Validation: pipeline_steps/weighting/validation.md
           - Existing Weights: pipeline_steps/weighting/existing_weights.md
       - Format Output:
           - DaySim Format: pipeline_steps/format_output/daysim.md
