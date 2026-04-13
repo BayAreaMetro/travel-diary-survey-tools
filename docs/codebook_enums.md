@@ -200,7 +200,7 @@ Quick lookup of categorical values and labels for codebook enum fields.
 
 ## IncomeBroad
 
-**Field name:** `income_broad`
+**Field name:** `income_bin`
 
 | Value | Label |
 | --- | --- |

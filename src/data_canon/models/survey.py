@@ -18,6 +18,7 @@ from data_canon.codebook.generic import BooleanYesNo, LocationType
 from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
+    CommuteFreq,
     Employment,
     Ethnicity,
     Gender,
@@ -51,6 +52,8 @@ class HouseholdModel(BaseModel):
     income: int | None = schema_field(ge=0, default=None)
     income_bin: IncomeBroad = schema_field()
     hh_weight: float | None = schema_field(ge=0)
+    num_vehicles: int = schema_field(ge=0)
+    complete: bool = schema_field()
 
 
 class PersonModel(BaseModel):
@@ -78,6 +81,8 @@ class PersonModel(BaseModel):
     work_mode: Mode | None = schema_field()
     race: Race = schema_field()
     ethnicity: Ethnicity = schema_field()
+    telework_freq: CommuteFreq | None = schema_field(default=None)
+    commute_freq: CommuteFreq | None = schema_field(default=None)
     # NOTE: These commute subsidy fields are only used in CTRAMP format
     # But might be useful elsewhere, consider standardizing to be less vague
     # and/or moved into a data model extension.
@@ -88,6 +93,7 @@ class PersonModel(BaseModel):
     # This allows for multiple proxy reporters and is more explicit.
     is_proxy: bool | None = schema_field(default=None)
     num_days_complete: int = schema_field(ge=0, default=0)
+    complete: bool | None = schema_field(default=None)
     person_weight: float | None = schema_field(default=None, ge=0)
 
 
@@ -103,6 +109,7 @@ class PersonDayModel(BaseModel):
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
+    complete: bool | None = schema_field(default=False)
     day_weight: float | None = schema_field(default=None, ge=0)
 
 
@@ -130,10 +137,10 @@ class UnlinkedTripModel(BaseModel):
     mode_4: Mode | None
     duration_minutes: float = schema_field(ge=0)
     distance_meters: float = schema_field(ge=0)
-
     depart_time: datetime | None = schema_field()
     arrive_time: datetime | None = schema_field()
     num_travelers: int = schema_field(ge=1)
+    complete: bool | None = schema_field(default=None)
     unlinked_trip_weight: float | None = schema_field(default=None, ge=0)
 
     # You can add custom row-level validators here
@@ -192,6 +199,7 @@ class LinkedTripModel(BaseModel):
     depart_time: datetime = schema_field()
     arrive_time: datetime = schema_field()
     tour_direction: TourDirection = schema_field()
+    complete: bool | None = schema_field(default=None)
     linked_trip_weight: float | None = schema_field(default=None, ge=0)
 
 
@@ -241,6 +249,7 @@ class TourModel(BaseModel):
     outbound_mode: ModeType | None = schema_field()
     inbound_mode: ModeType | None = schema_field()
     num_travelers: int = schema_field(ge=1, default=1)
+    complete: bool | None = schema_field(default=None)
     tour_weight: float | None = schema_field(default=None, ge=0)
 
     @model_validator(mode="after")
@@ -301,4 +310,5 @@ class JointTripModel(BaseModel):
     )
     depart_time_mean: datetime = schema_field(description="Mean departure time across member trips")
     depart_arrive_mean: datetime = schema_field(description="Mean arrival time across member trips")
+    complete: bool | None = schema_field(default=None)
     joint_trip_weight: float | None = schema_field(default=None, ge=0)
