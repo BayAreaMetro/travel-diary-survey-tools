@@ -1,0 +1,114 @@
+# E2E Test Pipeline Configuration - DaySim + CT-RAMP output
+# Uses synthetic canonical-format data - no real PII
+# Cleaning and imputation are skipped; data is already in canonical format.
+
+survey_dir: "{{ DATA_DIR }}/survey"
+output_dir: "{{ OUTPUT_DIR }}"
+pums_dir: "{{ DATA_DIR }}/pums"
+zones_dir: "{{ DATA_DIR }}/zones"
+
+steps:
+  - name: load_data
+    validate_input: false
+    cache: false
+    params:
+      input_paths:
+        households: "{{ survey_dir }}/households.parquet"
+        persons: "{{ survey_dir }}/persons.parquet"
+        days: "{{ survey_dir }}/days.parquet"
+        unlinked_trips: "{{ survey_dir }}/unlinked_trips.parquet"
+
+  - name: link_trips
+    validate_input: false
+    cache: false
+    params:
+      change_mode_enum: CHANGE_MODE
+      transit_mode_enums: [FERRY, TRANSIT, LONG_DISTANCE]
+      max_dwell_time: 180
+      dwell_buffer_distance: 100
+
+  - name: detect_joint_trips
+    validate_input: false
+    cache: false
+    params:
+      config:
+        method: "mahalanobis"
+        covariance: [10000, 10000, 100, 100]
+        confidence_level: 0.75
+
+  - name: extract_tours
+    validate_input: false
+    cache: false
+
+  - name: add_zone_ids
+    validate_input: false
+    cache: false
+    params:
+      zone_geographies:
+        - zone_name: "taz"
+          shapefile: "{{ zones_dir }}/test_zones.geojson"
+          zone_id_field: "TAZ_NODE"
+        - zone_name: "maz"
+          shapefile: "{{ zones_dir }}/test_zones.geojson"
+          zone_id_field: "MAZ_NODE"
+
+  - name: format_ctramp
+    validate_input: false
+    cache: false
+
+  - name: format_daysim
+    validate_input: false
+    cache: false
+
+  - name: compute_weights
+    validate_input: false
+    cache: false
+    params:
+      pums_households: "{{ pums_dir }}/psam_h06.csv"
+      pums_persons: "{{ pums_dir }}/psam_p06.csv"
+
+      state_fips: "06"
+      pums_year: 2023
+
+      geography:
+        target_zones:
+          file: "{{ zones_dir }}/test_zones.geojson"
+          id_field: null
+        resolution: 50
+        min_allocation: 0.01
+
+      max_expansion_factor: 10.0
+      min_expansion_factor: 0.01
+      min_weight: 1
+      max_iterations: 5000
+      n_workers: 1
+      default_importance: 100
+      moe_based_importance: false
+
+      controls:
+        - name: h_total
+          importance: 200
+        - name: p_total
+          importance: 200
+        - name: p_gender
+        - name: p_employment
+        - name: p_age
+          merge:
+            age_under_18: [age_0_to_4, age_5_to_15, age_16_to_17]
+            age_18_to_64: [age_18_to_24, age_25_to_34, age_35_to_44, age_45_to_54, age_55_to_64]
+            age_65_plus: [age_65_to_74, age_75_to_84, age_85_and_up]
+        - name: h_income
+          merge:
+            income_under_100: [income_under25, income_25to50, income_50to75, income_75to100]
+
+  - name: write_data
+    validate_input: false
+    params:
+      output_paths:
+        households: "{{ output_dir }}/survey/households_2023.csv"
+        persons: "{{ output_dir }}/survey/persons_2023.csv"
+        days: "{{ output_dir }}/survey/days_2023.csv"
+        unlinked_trips: "{{ output_dir }}/survey/unlinked_trips_2023.csv"
+        linked_trips: "{{ output_dir }}/survey/linked_trips_2023.csv"
+        tours: "{{ output_dir }}/survey/tours_2023.csv"
+        joint_trips: "{{ output_dir }}/survey/joint_trips_2023.csv"
