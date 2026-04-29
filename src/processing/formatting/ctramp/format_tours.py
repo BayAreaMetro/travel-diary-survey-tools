@@ -389,9 +389,12 @@ def format_joint_tour(
         how="left",
     )
 
-    # Join with households for income
+    # Join with households for income and weight
+    hh_cols = ["hh_id", "income"]
+    if "hh_weight" in households_ctramp.columns:
+        hh_cols.append("hh_weight")
     joint_tours_formatted = joint_tours_formatted.join(
-        households_ctramp.select(["hh_id", "income"]),
+        households_ctramp.select(hh_cols),
         on="hh_id",
         how="left",
     )
@@ -504,23 +507,24 @@ def format_joint_tour(
                 raise ValueError(msg)
 
     # Select final columns with snake_case names
-    joint_tours_ctramp = joint_tours_formatted.select(
-        [
-            pl.col("hh_id"),
-            pl.col("joint_tour_id").alias("tour_id"),
-            pl.col("tour_category"),
-            pl.col("tour_purpose_ctramp").alias("tour_purpose"),
-            pl.col("Composition").alias("tour_composition"),
-            pl.col("Participants").alias("tour_participants"),
-            pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
-            pl.col(f"d_{config.taz_field}").cast(pl.Int64).alias("dest_taz"),
-            pl.col("start_hour").cast(pl.Int64),
-            pl.col("end_hour").cast(pl.Int64),
-            pl.col("tour_mode_ctramp").alias("tour_mode"),
-            pl.col("num_ob_stops").cast(pl.Int64),
-            pl.col("num_ib_stops").cast(pl.Int64),
-        ]
-    )
+    select_cols = [
+        pl.col("hh_id"),
+        pl.col("joint_tour_id").alias("tour_id"),
+        pl.col("tour_category"),
+        pl.col("tour_purpose_ctramp").alias("tour_purpose"),
+        pl.col("Composition").alias("tour_composition"),
+        pl.col("Participants").alias("tour_participants"),
+        pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
+        pl.col(f"d_{config.taz_field}").cast(pl.Int64).alias("dest_taz"),
+        pl.col("start_hour").cast(pl.Int64),
+        pl.col("end_hour").cast(pl.Int64),
+        pl.col("tour_mode_ctramp").alias("tour_mode"),
+        pl.col("num_ob_stops").cast(pl.Int64),
+        pl.col("num_ib_stops").cast(pl.Int64),
+    ]
+    if "hh_weight" in joint_tours_formatted.columns:
+        select_cols.append(pl.col("hh_weight").alias("tour_weight"))
+    joint_tours_ctramp = joint_tours_formatted.select(select_cols)
 
     logger.info("Formatted %d joint tour records", len(joint_tours_ctramp))
     return joint_tours_ctramp

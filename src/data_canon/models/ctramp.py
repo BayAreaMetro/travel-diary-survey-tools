@@ -467,6 +467,10 @@ class JointTourCTRAMPModel(BaseModel):
     )
     num_ob_stops: int = Field(ge=0, description="Number of out-bound (from home) stops on the tour")
     num_ib_stops: int = Field(ge=0, description="Number of in-bound (to home) stops on the tour")
+    tour_weight: float | None = Field(
+        default=None,
+        description="Expansion weight for the joint tour (derived from household weight)",
+    )
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
         default=None,
@@ -523,6 +527,10 @@ class JointTripCTRAMPModel(BaseModel):
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
     tour_category: str = Field(description='Tour category ("JOINT_NON_MANDATORY")')
+    trip_weight: float | None = Field(
+        default=None,
+        description="Expansion weight for the joint trip (derived from household weight)",
+    )
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
         default=None,
