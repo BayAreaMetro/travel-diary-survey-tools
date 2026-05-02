@@ -78,7 +78,7 @@ def calc_fixed_location_distances(
             "home_lon",
             f"{fixed_type}_lat",
             f"{fixed_type}_lon",
-            f"{fixed_type}_taz",
+            f"{fixed_type}_{config.taz_field}",
         ),
         on="person_id",
         how="right",
@@ -130,10 +130,10 @@ def calc_fixed_location_distances(
                 <= config.fixed_location_buffer_meters
             ).alias(f"dest_is_{fixed_type}"),
             # Calculate matching TAZs for origin/destination, used as fallback
-            (pl.col(f"o_{config.taz_field}") == pl.col(f"{fixed_type}_taz")).alias(
+            (pl.col(f"o_{config.taz_field}") == pl.col(f"{fixed_type}_{config.taz_field}")).alias(
                 f"origin_is_{fixed_type}_taz"
             ),
-            (pl.col(f"d_{config.taz_field}") == pl.col(f"{fixed_type}_taz")).alias(
+            (pl.col(f"d_{config.taz_field}") == pl.col(f"{fixed_type}_{config.taz_field}")).alias(
                 f"dest_is_{fixed_type}_taz"
             ),
         ]
