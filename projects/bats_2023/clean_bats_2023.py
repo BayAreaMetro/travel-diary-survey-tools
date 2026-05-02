@@ -146,6 +146,9 @@ def clean_2023_bats(
     # Move residence type and residence rent/own from persons to households
     # Extract household-level attributes from persons table
     # Only one person reports residence_rent_own and residence_type
+    # For each column: filter out missing/PNTA values, then take the mode.
+    # On ties, pick the smallest code (sort ascending before first()) so the
+    # result is deterministic regardless of Polars internal hash ordering.
     hh_attributes = persons.group_by("hh_id").agg(
         pl.col("residence_rent_own")
         .filter(
@@ -154,11 +157,13 @@ def clean_2023_bats(
             )
         )
         .mode()
+        .sort()
         .first()
         .fill_null(995),
         pl.col("residence_type")
         .filter(pl.col("residence_type") != ResidenceType.MISSING.value)
         .mode()
+        .sort()
         .first()
         .fill_null(995),
     )
