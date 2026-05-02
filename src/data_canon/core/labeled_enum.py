@@ -194,3 +194,27 @@ class LabeledEnum(Enum, metaclass=LabeledEnumMeta):
             A dictionary where keys are enum values and values are labels
         """
         return {member.value: member.label for member in cls}
+
+    @property
+    def id(self) -> int | str:
+        """Alias for value, for compatibility with code using .id."""
+        return self.value
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: type, handler):  # noqa: ANN001
+        """Pydantic v2 schema: accept an existing member, a value, or a label."""
+        from pydantic_core import core_schema
+
+        def validate(v):  # noqa: ANN001
+            if isinstance(v, cls):
+                return v
+            member = cls.from_value(v, strict=False)
+            if member is not None:
+                return member
+            member = cls.from_label(str(v), strict=False)
+            if member is not None:
+                return member
+            msg = f"Cannot convert {v!r} to {cls.__name__}"
+            raise ValueError(msg)
+
+        return core_schema.no_info_plain_validator_function(validate)

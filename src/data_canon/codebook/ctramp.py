@@ -55,6 +55,20 @@ class WalkToTransitSubZone(LabeledEnum):
     LONG_WALK = 2, "long-walk"
 
 
+class CTRAMPCounty(LabeledEnum):
+    """Enumeration for Bay Area counties used in CT-RAMP."""
+
+    SAN_FRANCISCO = 1, "San Francisco"
+    SAN_MATEO = 2, "San Mateo"
+    SANTA_CLARA = 3, "Santa Clara"
+    ALAMEDA = 4, "Alameda"
+    CONTRA_COSTA = 5, "Contra Costa"
+    SOLANO = 6, "Solano"
+    NAPA = 7, "Napa"
+    SONOMA = 8, "Sonoma"
+    MARIN = 9, "Marin"
+
+
 class CTRAMPPersonType(LabeledEnum):
     """Enumeration for person type categories."""
 
@@ -66,6 +80,26 @@ class CTRAMPPersonType(LabeledEnum):
     CHILD_NON_DRIVING_AGE = 6, "Child of non-driving age"
     CHILD_DRIVING_AGE = 7, "Child of driving age"
     CHILD_UNDER_5 = 8, "Child too young for school"
+
+
+class CTRAMPTransitMode(StrEnum):
+    """Enumeration for transit sub-mode groupings used in CT-RAMP skims."""
+
+    LOCAL = "Local"
+    EXPRESS = "Express"
+    HEAVY_RAIL = "HeavyRail"
+    COMM_RAIL = "CommRail"
+    WLK_LRT = "Light Rail - Walk"
+    DRV_LRT = "Light Rail - Drive"
+    WLK_FERRY = "Ferry - Walk"
+    DRV_FERRY = "Ferry - Drive"
+
+
+class IndivJoint(StrEnum):
+    """Enumeration for individual vs. joint tour/trip designation."""
+
+    INDIV = "indiv"
+    JOINT = "joint"
 
 
 class CTRAMPModeType(LabeledEnum):
@@ -111,6 +145,17 @@ class CTRAMPActivityPattern(LabeledEnum):
     HOME = "H", "Home"
 
 
+class CTRAMPSimplePurpose(StrEnum):
+    """Simplified tour purpose groupings."""
+
+    WORK = "work"
+    UNIVERSITY = "university"
+    SCHOOL = "school"
+    ATWORK = "atwork"
+    IND_DISC = "ind_disc"
+    IND_MAINT = "ind_maint"
+
+
 class CTRAMPPurpose(LabeledEnum):
     """Enumeration for tour purpose."""
 
@@ -132,6 +177,30 @@ class CTRAMPPurpose(LabeledEnum):
     SOCIAL = "social", "Social/recreational"
     OTHMAINT = "othmaint", "Other maintenance"
     OTHDISCR = "othdiscr", "Other discretionary"
+
+    @property
+    def simple_purpose(self) -> "CTRAMPSimplePurpose | None":
+        """Map detailed purpose to simplified category."""
+        mapping = {
+            self.ATWORK_BUSINESS: CTRAMPSimplePurpose.ATWORK,
+            self.ATWORK_EAT: CTRAMPSimplePurpose.ATWORK,
+            self.ATWORK_MAINT: CTRAMPSimplePurpose.ATWORK,
+            self.EATOUT: CTRAMPSimplePurpose.IND_DISC,
+            self.ESCORT_KIDS: CTRAMPSimplePurpose.IND_MAINT,
+            self.ESCORT_NO_KIDS: CTRAMPSimplePurpose.IND_MAINT,
+            self.OTHDISCR: CTRAMPSimplePurpose.IND_DISC,
+            self.OTHMAINT: CTRAMPSimplePurpose.IND_MAINT,
+            self.SCHOOL_GRADE: CTRAMPSimplePurpose.SCHOOL,
+            self.SCHOOL_HIGH: CTRAMPSimplePurpose.SCHOOL,
+            self.SHOPPING: CTRAMPSimplePurpose.IND_MAINT,
+            self.SOCIAL: CTRAMPSimplePurpose.IND_DISC,
+            self.UNIVERSITY: CTRAMPSimplePurpose.UNIVERSITY,
+            self.WORK_HIGH: CTRAMPSimplePurpose.WORK,
+            self.WORK_LOW: CTRAMPSimplePurpose.WORK,
+            self.WORK_MED: CTRAMPSimplePurpose.WORK,
+            self.WORK_VERY_HIGH: CTRAMPSimplePurpose.WORK,
+        }
+        return mapping.get(self)
 
 
 class JTFChoice(LabeledEnum):
