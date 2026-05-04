@@ -1,3 +1,7 @@
+# This script is not currently runnable from the repo's default environment yet, because
+# travel-diary-survey-tools pins numpy<1.26, while svy requires numpy>=2.0.
+# For now it is being run in a separate environment and read pipeline CSV outputs by path.
+
 from pathlib import Path
 
 import polars as pl
