@@ -13,7 +13,8 @@ import svy
 # ============================================================================
 
 CONF_LEVEL = 0.90
-Z_VALUE = 1.645  # 90% confidence interval z-value
+ALPHA = 1 - CONF_LEVEL
+
 CV_THRESHOLD = 0.30
 MIN_UNWEIGHTED_N = 30
 CI_WIDTH_THRESHOLD = 0.40
@@ -315,10 +316,9 @@ sample = svy.Sample(data=trips_enriched, design=design)
 
 overall_results = []
 for mode_group in MODE_GROUPS:
-    result = sample.estimation.mean(y=f"is_{mode_group}")
+    result = sample.estimation.mean(y=f"is_{mode_group}", alpha=ALPHA)
     result_pl = result.to_polars().with_columns([
         pl.lit(mode_group).alias("mode_group"),
-        (pl.col("se") * Z_VALUE).alias("moe"),
     ])
     overall_results.append(result_pl)
 
@@ -333,7 +333,6 @@ mode_group_share_design = (
         "mode_group",
         "weighted_share",
         "se",
-        "moe",
         "ci_lower",
         "ci_upper",
     ])
@@ -380,10 +379,10 @@ def estimate_mode_group_shares_for_county_income() -> None:
         result = sample_county_income.estimation.mean(
             y=f"is_{mode_group}",
             by=["county", "income"],
+            alpha=ALPHA,
         )
         result_pl = result.to_polars().with_columns([
             pl.lit(mode_group).alias("mode_group"),
-            (pl.col("se") * Z_VALUE).alias("moe"),
         ])
         domain_results.append(result_pl)
 
@@ -400,7 +399,6 @@ def estimate_mode_group_shares_for_county_income() -> None:
             "mode_group",
             "weighted_share",
             "se",
-            "moe",
             "ci_lower",
             "ci_upper",
         ])
@@ -452,10 +450,10 @@ def estimate_mode_group_shares_for_county_race() -> None:
         result = sample_county_race.estimation.mean(
             y=f"is_{mode_group}",
             by=["county", "race_eth"],
+            alpha=ALPHA,   
         )
         result_pl = result.to_polars().with_columns([
             pl.lit(mode_group).alias("mode_group"),
-            (pl.col("se") * Z_VALUE).alias("moe"),
         ])
         domain_results.append(result_pl)
 
@@ -472,7 +470,6 @@ def estimate_mode_group_shares_for_county_race() -> None:
             "mode_group",
             "weighted_share",
             "se",
-            "moe",
             "ci_lower",
             "ci_upper",
         ])
@@ -524,10 +521,10 @@ def estimate_mode_group_shares_for_county_age() -> None:
         result = sample_county_age.estimation.mean(
             y=f"is_{mode_group}",
             by=["county", "age_group"],
+            alpha=ALPHA,
         )
         result_pl = result.to_polars().with_columns([
             pl.lit(mode_group).alias("mode_group"),
-            (pl.col("se") * Z_VALUE).alias("moe"),
         ])
         domain_results.append(result_pl)
 
@@ -544,7 +541,6 @@ def estimate_mode_group_shares_for_county_age() -> None:
             "mode_group",
             "weighted_share",
             "se",
-            "moe",
             "ci_lower",
             "ci_upper",
         ])
