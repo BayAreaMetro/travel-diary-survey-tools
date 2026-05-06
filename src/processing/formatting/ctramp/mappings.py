@@ -92,6 +92,7 @@ def ctramp_purpose_category_expression(
     purpose_category: pl.Expr,
     income: pl.Expr,
     school_type: pl.Expr,
+    person_type: pl.Expr,
     income_low_threshold: int,
     income_med_threshold: int,
     income_high_threshold: int,
@@ -107,6 +108,8 @@ def ctramp_purpose_category_expression(
         income: Polars expression for household income (absolute dollars)
         school_type: Polars expression for school type
             (from persons.SchoolType enum)
+        person_type: Polars expression for person category 
+            (from persons.CTRAMPPersonType enum)
         income_low_threshold: Income threshold for low bracket
         income_med_threshold: Income threshold for med bracket
         income_high_threshold: Income threshold for high bracket
@@ -155,7 +158,7 @@ def ctramp_purpose_category_expression(
         .otherwise(pl.lit(CTRAMPPurpose.WORK_VERY_HIGH.value))
     )
     work_expr = home_expr.when(
-        purpose_category.is_in([PurposeCategory.WORK.value, PurposeCategory.WORK_RELATED.value])
+        purpose_category.is_in([PurposeCategory.WORK.value])
     ).then(work_income_segmentation)
 
     # School purposes - segmented by student type
@@ -167,13 +170,20 @@ def ctramp_purpose_category_expression(
         .otherwise(pl.lit(CTRAMPPurpose.SCHOOL_GRADE.value))
     )
     school_expr = work_expr.when(
-        purpose_category.is_in([PurposeCategory.SCHOOL.value, PurposeCategory.SCHOOL_RELATED.value])
+        purpose_category.is_in([PurposeCategory.SCHOOL.value])
     ).then(school_segmentation_expr)
 
-    # At-work sub-tour (work-related)
-    atwork_expr = school_expr.when(purpose_category == PurposeCategory.WORK_RELATED.value).then(
-        pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value)
-    )
+    # At-work sub-tour (work-related) - only for workers
+    # Non-workers with work_related purpose will be mapped to discretionary
+    atwork_expr = school_expr.when(
+        (purpose_category == PurposeCategory.WORK_RELATED.value)
+        & person_type.is_in(
+            [
+                CTRAMPPersonType.FULL_TIME_WORKER.value,
+                CTRAMPPersonType.PART_TIME_WORKER.value,
+            ]
+        )
+    ).then(pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value))
 
     # Eating out
     eatout_expr = atwork_expr.when(purpose_category == PurposeCategory.MEAL.value).then(
@@ -212,7 +222,7 @@ def ctramp_purpose_category_expression(
         pl.lit(CTRAMPPurpose.OTHMAINT.value)
     )
 
-    # Discretionary - all others
+    # Discretionary - all others - this includes school-related trips and work-related trips for nonworkers
     return maintenance_expr.otherwise(pl.lit(CTRAMPPurpose.OTHDISCR.value))
 
 

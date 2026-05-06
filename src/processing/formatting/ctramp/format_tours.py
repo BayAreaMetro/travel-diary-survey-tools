@@ -10,7 +10,12 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPTourCategory, TourComposition
+from data_canon.codebook.ctramp import (
+    CTRAMPEmploymentCategory,
+    CTRAMPPersonType,
+    CTRAMPTourCategory,
+    TourComposition,
+)
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
@@ -138,6 +143,7 @@ def format_individual_tour(
             pl.col("tour_purpose"),
             pl.col("income"),
             pl.col("school_type"),
+            pl.col("person_type"),
             config.income_low_threshold,
             config.income_med_threshold,
             config.income_high_threshold,
@@ -456,6 +462,7 @@ def format_joint_tour(
                 pl.col("tour_purpose"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),  # Joint tours not for school
+                pl.lit(CTRAMPPersonType.NON_WORKER.value), # Joint tours not for work
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,

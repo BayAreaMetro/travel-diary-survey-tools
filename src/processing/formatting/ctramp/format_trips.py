@@ -10,11 +10,18 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPPersonType
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 
 from .ctramp_config import CTRAMPConfig
-from .mappings import ctramp_mode_expression, ctramp_purpose_category_expression
+from .format_persons import enrich_persons_with_person_type
+from .mappings import (
+    EMPLOYMENT_TO_CTRAMP,
+    ctramp_mode_expression,
+    ctramp_purpose_category_expression,
+    ctramp_student_category_expression,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +61,26 @@ def format_individual_trip(
     """
     logger.info("Formatting individual trip data for CT-RAMP")
 
+    # Derive/validate person_type before purpose mapping.
+    if "person_type" not in persons_canonical.columns or "type" not in persons_canonical.columns:
+        logger.info("Deriving person_type for trip formatting")
+        if "student_category" not in persons_canonical.columns:
+            persons_canonical = persons_canonical.with_columns(
+                ctramp_student_category_expression(school_taz_col="school_taz").alias(
+                    "student_category"
+                )
+            )
+        if "employment_category" not in persons_canonical.columns:
+            persons_canonical = persons_canonical.with_columns(
+                pl.col("employment")
+                .replace_strict(
+                    EMPLOYMENT_TO_CTRAMP,
+                    default=CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
+                )
+                .alias("employment_category")
+            )
+        persons_canonical = enrich_persons_with_person_type(persons_canonical)
+
     # Handle empty input DataFrames
     if len(tours_ctramp) == 0 or len(linked_trips_canonical) == 0:
         logger.info("No tours or trips provided")
@@ -86,7 +113,7 @@ def format_individual_trip(
 
     # Join with persons and households
     individual_trips = individual_trips.join(
-        persons_canonical.select(["person_id", "person_num", "school_type"]),
+        persons_canonical.select(["person_id", "person_num", "school_type", "person_type"]),
         on="person_id",
         how="left",
     ).join(
@@ -132,6 +159,7 @@ def format_individual_trip(
                 pl.col("o_purpose_category"),
                 pl.col("income"),
                 pl.col("school_type"),
+                pl.col("person_type"),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -140,6 +168,7 @@ def format_individual_trip(
                 pl.col("d_purpose_category"),
                 pl.col("income"),
                 pl.col("school_type"),
+                pl.col("person_type"),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -297,6 +326,7 @@ def format_joint_trip(
                 pl.col("o_purpose_category"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
+                pl.lit(CTRAMPPersonType.NON_WORKER.value),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -305,6 +335,7 @@ def format_joint_trip(
                 pl.col("d_purpose_category"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
+                pl.lit(CTRAMPPersonType.NON_WORKER.value),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -313,6 +344,7 @@ def format_joint_trip(
                 pl.col("tour_purpose"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
+                pl.lit(CTRAMPPersonType.NON_WORKER.value),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
