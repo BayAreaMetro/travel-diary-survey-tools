@@ -318,6 +318,3 @@ class TestWorkRelatedMapping:
             # Purpose should be work_med (income 100-150k is in med bracket)
             assert result["tour_purpose"][0] == "atwork_business" 
 
-# %% 
-test_at_work_tour_worker
-# %%
