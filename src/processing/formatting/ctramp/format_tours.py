@@ -121,6 +121,11 @@ def format_individual_tour(
         how="left",
     )
 
+    # Promote workers with work-related tours only to work tours
+    individual_tours = _promote_work_related_to_work_for_workers(
+        individual_tours
+    )
+
     # Calculate subtour count (at-work tours)
     # atWork_freq represents the number of at-work subtours
     # Per CTRAMP documentation: "Number of at work sub-tours (non-zero only for work tours)"
@@ -537,3 +542,45 @@ def format_joint_tour(
 
     logger.info("Formatted %d joint tour records", len(joint_tours_ctramp))
     return joint_tours_ctramp
+
+def _promote_work_related_to_work_for_workers(
+    individual_tours: pl.DataFrame,
+) -> pl.DataFrame:
+    """Promote work-related tours to work for worker person types without work tours.
+
+    Catch-all rule: if a person is a worker person type (full-time or part-time
+    worker), has at least one WORK_RELATED tour, and has no WORK tours, recode
+    their WORK_RELATED tours to WORK.
+    """
+    worker_person_types = [
+        CTRAMPPersonType.FULL_TIME_WORKER.value,
+        CTRAMPPersonType.PART_TIME_WORKER.value,
+    ]
+
+    person_flags = individual_tours.group_by("person_id").agg(
+        [
+            pl.col("person_type").first().is_in(worker_person_types).alias("_is_worker_type"),
+            (pl.col("tour_purpose") == PurposeCategory.WORK.value).any().alias("_has_work_tour"),
+            (pl.col("tour_purpose") == PurposeCategory.WORK_RELATED.value)
+            .any()
+            .alias("_has_work_related_tour"),
+        ]
+    )
+
+    return (
+        individual_tours.join(person_flags, on="person_id", how="left")
+        .with_columns(
+            pl.when(
+                pl.col("_is_worker_type")
+                & ~pl.col("_has_work_tour")
+                & pl.col("_has_work_related_tour")
+                & (pl.col("tour_purpose") == PurposeCategory.WORK_RELATED.value)
+            )
+            .then(pl.lit(PurposeCategory.WORK.value))
+            .otherwise(pl.col("tour_purpose"))
+            .alias("tour_purpose")
+        )
+        .drop(["_is_worker_type", "_has_work_tour", "_has_work_related_tour"])
+    )
+
+
