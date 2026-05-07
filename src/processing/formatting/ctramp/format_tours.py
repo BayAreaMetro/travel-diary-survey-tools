@@ -135,7 +135,13 @@ def format_individual_tour(
         left_on="tour_id",
         right_on="parent_tour_id",
         how="left",
-    ).with_columns(pl.col("atWork_freq").fill_null(0))
+    ).with_columns(
+        # Only work tours can have at-work subtours; all other tours get 0
+        pl.when(pl.col("tour_purpose") == PurposeCategory.WORK.value)
+        .then(pl.col("atWork_freq").fill_null(0))
+        .otherwise(pl.lit(0))
+        .alias("atWork_freq")
+    )
 
     # Map tour purpose to CTRAMP format
     individual_tours = individual_tours.with_columns(
