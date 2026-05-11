@@ -19,77 +19,9 @@ CV_THRESHOLD = 0.30
 MIN_UNWEIGHTED_N = 30
 CI_WIDTH_THRESHOLD = 0.40
 
-input_dir = Path(r"E:\BATS2023_TIP_03052026\survey")
-output_dir = Path(r"E:\BATS2023_TIP_03052026\tip_svy")
+input_dir = Path(r"E:\BATS2023_TIP_11052026\survey")
+output_dir = Path(r"E:\BATS2023_TIP_11052026\tip_svy")
 output_dir.mkdir(parents=True, exist_ok=True)
-
-# ============================================================================
-# RECODE MAPS
-# ============================================================================
-
-mode_map = {
-    1: "Walk",
-    2: "Bike",
-    3: "Bikeshare",
-    4: "Scootershare",
-    5: "Taxi",
-    6: "TNC",
-    7: "Other",
-    8: "Car",
-    9: "Carshare",
-    10: "School bus",
-    11: "Shuttle/vanpool",
-    12: "Ferry",
-    13: "Transit",
-    14: "Long distance passenger",
-    995: "Missing Response",
-}
-
-mode_group_map = {
-    1: "active",
-    2: "active",
-    3: "active",
-    4: "active",
-    5: "roadway",
-    6: "roadway",
-    7: "other",
-    8: "roadway",
-    9: "roadway",
-    10: "transit",
-    11: "transit",
-    12: "transit",
-    13: "transit",
-    14: "transit",
-    995: "missing",
-}
-
-income_map = {
-    1: "Under $15,000",
-    2: "$15,000-$24,999",
-    3: "$25,000-$34,999",
-    4: "$35,000-$49,999",
-    5: "$50,000-$74,999",
-    6: "$75,000-$99,999",
-    7: "$100,000-$149,999",
-    8: "$150,000-$199,999",
-    9: "$200,000-$249,999",
-    10: "$250,000 or more",
-    999: "Prefer not to answer",
-}
-
-county_map = {
-    "6001": "Alameda",
-    "6013": "Contra Costa",
-    "6041": "Marin",
-    "6055": "Napa",
-    "6075": "San Francisco",
-    "6081": "San Mateo",
-    "6085": "Santa Clara",
-    "6095": "Solano",
-    "6097": "Sonoma",
-}
-
-MODE_GROUPS = ["active", "roadway", "transit", "other", "missing"]
 
 # ============================================================================
 # LOAD DATA
@@ -99,31 +31,124 @@ households = pl.read_csv(input_dir / "households_2023.csv")
 persons = pl.read_csv(input_dir / "persons_2023.csv")
 linked_trips = pl.read_csv(input_dir / "linked_trips_2023.csv")
 
+# Column names for race and ethnicity variables
+# They need to be the ones imputed from the weighting process
+RACE_COL = "race_imputed_rmove_only"
+ETHNICITY_COL = "ethnicity_imputed_rmove_only"
+
+
+
+# ============================================================================
+# RECODE MAPS
+# ============================================================================
+
+# mode grouping: collapse mode_type categories from linked_trips table
+# see: ModeType enum in src/data_canon/codebook/trips.py
+# canonical_field_name = "mode_type"
+mode_group_map = {
+    1: "3. active",    # Walk
+    2: "3. active",    # Bike
+    3: "3. active",    # Bikeshare
+    4: "3. active",    # Scootershare
+    5: "1. roadway",   # Taxi
+    6: "1. roadway",   # TNC
+    # 7: "other",     # Other
+    8: "1. roadway",   # Car
+    9: "1. roadway",   # Carshare
+    10: "2. transit",  # School bus
+    11: "2. transit",  # Shuttle/vanpool
+    12: "2. transit",  # Ferry
+    13: "2. transit",  # Transit
+    14: "2. transit",  # Long distance passenger
+    # 995: "missing", # Missing Response
+}
+
+# income grouping: collapse income_bin categories from households table
+# see: IncomeBroad enum in src/data_canon/codebook/households.py
+# canonical_field_name = "income_bin"
+income_map = {
+    1: "1. Under $50,000",      # Under $25,000
+    2: "1. Under $50,000",      # $25,000-$49,999
+    3: "2. $50,000-$99,999",    # $50,000-$74,999
+    4: "2. $50,000-$99,999",    # $75,000-$99,999
+    5: "3. $100,000-$199,999",  # $100,000-$199,999
+    6: "4. $200,000 or more",   # $200,000 or more
+    # 995: "Missing",
+    # 999: "Prefer not to answer",
+}
+
+# age grouping: collapse age categories from persons table
+# see: AgeCategory enum in src/data_canon/codebook/persons.py 
+# canonical_field_name = "age"
+age_group_map = {
+    1: "Under 65",    # Under 5
+    2: "Under 65",    # 5 to 15
+    3: "Under 65",    # 16 to 17
+    4: "Under 65",    # 18 to 24
+    5: "Under 65",    # 25 to 34
+    6: "Under 65",    # 35 to 44
+    7: "Under 65",    # 45 to 54
+    8: "Under 65",    # 55 to 64
+    9: "65 and Over", # 65 to 74
+    10: "65 and Over", # 75 to 84
+    11: "65 and Over", # 85 and up
+}
+
+# ethnicity grouping: Hispanic identity takes priority
+# see: ethnicity_user_reported column in persons table
+# will be combined with race_map via coalesce to create race_eth variable
+ethnicity_map = {
+    "hispanic": "1. Hispanic (All Races)",
+    "not_hispanic": None,  # will use race instead
+    # "missing": None,       
+}
+
+# race grouping: label cleanup for race_user_input
+# see: race_user_input column in persons table
+# used when ethnicity is not Hispanic (via coalesce)
+race_map = {
+    "white": "4. White (Non-Hispanic)",
+    "afam": "2. Black (Non-Hispanic)",
+    "asian_pacific": "3. Asian/Pacific Islander (Non-Hispanic)",
+    "other": "5. Other (Non-Hispanic)",
+    # "missing": "Missing (Non-Hispanic)",
+}
+
+# county grouping: map FIPS codes to county names (combine smaller counties)
+county_map = {
+    "6001": "Alameda",
+    "6013": "Contra Costa",
+    "6041": "Marin and Sonoma",  # Marin
+    "6097": "Marin and Sonoma",  # Sonoma
+    "6055": "Napa and Solano",   # Napa
+    "6095": "Napa and Solano",   # Solano
+    "6075": "San Francisco",
+    "6081": "San Mateo",
+    "6085": "Santa Clara",
+}
+
 # ============================================================================
 # PREPARE DEMOGRAPHIC ATTRIBUTES
 # ============================================================================
 
 hh_attrs = (
     households
-    .select(["hh_id", "home_county", "income_detailed", "sample_segment"])
+    .select(["hh_id", "home_county", "income_bin", "sample_segment"])
     .with_columns([
         pl.col("home_county").cast(pl.Utf8).replace(county_map).alias("county"),
-        pl.col("income_detailed").replace_strict(income_map, default="Missing").alias("income"),
+        pl.col("income_bin").replace_strict(income_map, default=None).alias("income"),
     ])
 )
 
 person_attrs = (
     persons
-    .select(["person_id", "hh_id", "age", "race_imputed", "ethnicity_imputed"])
+    .select(["person_id", "hh_id", "age", RACE_COL, ETHNICITY_COL])
     .with_columns([
-        pl.when(pl.col("age") >= 9)
-        .then(pl.lit("65 and Over"))
-        .otherwise(pl.lit("Under 65"))
-        .alias("age_group"),
-        pl.when(pl.col("ethnicity_imputed") == "hispanic")
-        .then(pl.lit("hispanic"))
-        .otherwise(pl.col("race_imputed"))
-        .alias("race_eth"),
+        pl.col("age").replace_strict(age_group_map, default=None).alias("age_group"),
+        pl.coalesce([
+            pl.col(ETHNICITY_COL).replace(ethnicity_map),
+            pl.col(RACE_COL).replace(race_map)
+        ]).alias("race_eth"),
     ])
 )
 
@@ -135,10 +160,10 @@ trips_enriched = (
     linked_trips
     .filter(pl.col("linked_trip_weight") > 0)
     .with_columns([
-        pl.col("mode_type").replace_strict(mode_group_map, default="other").alias("mode_group"),
-        pl.col("mode_type").replace_strict(mode_map, default="Unknown").alias("mode"),
+        pl.col("mode_type").replace_strict(mode_group_map, default=None).alias("mode_group"),
         (pl.col("distance_meters") / 1609.34).alias("distance_miles"),
     ])
+    .filter(pl.col("mode_group").is_not_null())
     .join(hh_attrs, on="hh_id", how="left")
     .join(
         person_attrs.select(["person_id", "hh_id", "age_group", "race_eth"]),
@@ -146,6 +171,10 @@ trips_enriched = (
         how="left",
     )
 )
+
+# Create indicator columns for each mode group (needed for design-based estimation)
+# this is equivalent to specifying MODE_GROUPS = ["1. roadway", "2. transit", "3. active", "other"]
+MODE_GROUPS = sorted(trips_enriched["mode_group"].unique().to_list())
 
 for mode_group in MODE_GROUPS:
     trips_enriched = trips_enriched.with_columns(
@@ -156,69 +185,8 @@ for mode_group in MODE_GROUPS:
 trips_enriched.write_csv(output_dir / "linked_trips_enriched_for_svy.csv")
 
 # ============================================================================
-# CURRENT POINT-ESTIMATE OUTPUTS
-# These are valid weighted estimates, but NOT design-based SE/MoE/CIs.
+# Helper to attach counts and reliability fields
 # ============================================================================
-
-def summarize_point_estimates(df: pl.DataFrame, group_cols: list[str]) -> pl.DataFrame:
-    return (
-        df.group_by(group_cols)
-        .agg([
-            pl.len().alias("trip_count"),
-            pl.sum("linked_trip_weight").alias("weighted_trips"),
-            (pl.col("linked_trip_weight") * pl.col("distance_miles")).sum().alias("passenger_miles"),
-        ])
-        .with_columns([
-            (pl.col("weighted_trips") / pl.col("weighted_trips").sum() * 100).alias("weighted_trip_share_pct"),
-            (pl.col("passenger_miles") / pl.col("passenger_miles").sum() * 100).alias("passenger_mile_share_pct"),
-        ])
-        .sort(group_cols)
-    )
-
-mode_share = (
-    trips_enriched
-    .group_by("mode")
-    .agg([
-        pl.len().alias("trip_count"),
-        pl.sum("linked_trip_weight").alias("weighted_trips"),
-        (pl.col("linked_trip_weight") * pl.col("distance_miles")).sum().alias("passenger_miles"),
-    ])
-    .with_columns([
-        (pl.col("weighted_trips") / pl.col("weighted_trips").sum() * 100).alias("weighted_trip_share_pct"),
-        (pl.col("passenger_miles") / pl.col("passenger_miles").sum() * 100).alias("passenger_mile_share_pct"),
-    ])
-    .sort("mode")
-)
-mode_share.write_csv(output_dir / "mode_share_tip.csv")
-
-mode_group_share = (
-    trips_enriched
-    .group_by("mode_group")
-    .agg([
-        pl.len().alias("trip_count"),
-        pl.sum("linked_trip_weight").alias("weighted_trips"),
-        (pl.col("linked_trip_weight") * pl.col("distance_miles")).sum().alias("passenger_miles"),
-    ])
-    .with_columns([
-        (pl.col("weighted_trips") / pl.col("weighted_trips").sum() * 100).alias("weighted_trip_share_pct"),
-        (pl.col("passenger_miles") / pl.col("passenger_miles").sum() * 100).alias("passenger_mile_share_pct"),
-    ])
-    .sort("mode_group")
-)
-mode_group_share.write_csv(output_dir / "mode_group_share_tip.csv")
-
-summarize_point_estimates(trips_enriched, ["county", "income", "mode_group"]).write_csv(
-    output_dir / "trips_county_income_mode.csv"
-)
-summarize_point_estimates(trips_enriched, ["county", "race_eth", "mode_group"]).write_csv(
-    output_dir / "trips_county_race_mode.csv"
-)
-summarize_point_estimates(trips_enriched, ["county", "age_group", "mode_group"]).write_csv(
-    output_dir / "trips_county_age_mode.csv"
-)
-
-
-# helper to attach counts and reliability fields
 def add_counts_and_flags(
     share_df: pl.DataFrame,
     source_df: pl.DataFrame,
@@ -302,7 +270,69 @@ def add_counts_and_flags(
 
 
 # ============================================================================
-# SVY: OVERALL MODE GROUP SHARES WITH SE / CI / MOE
+# Helper: estimate mode shares by demographic domain with design-based SE
+# ============================================================================
+def estimate_domain_shares(
+    filtered_trips: pl.DataFrame,
+    domain_cols: list[str],
+    output_filename: str,
+) -> None:
+    """Estimate mode shares by domain with design-based standard errors."""
+    
+    # Create design and sample
+    design = svy.Design(
+        stratum="sample_segment",
+        psu="hh_id",
+        ssu="person_id",
+        wgt="linked_trip_weight",
+    )
+    sample = svy.Sample(data=filtered_trips, design=design)
+    
+    # Calculate shares for each mode group
+    domain_results = []
+    for mode_group in MODE_GROUPS:
+        result = sample.estimation.mean(
+            y=f"is_{mode_group}",
+            by=domain_cols,
+            alpha=ALPHA,
+        )
+        result_pl = result.to_polars().with_columns([
+            pl.lit(mode_group).alias("mode_group"),
+        ])
+        domain_results.append(result_pl)
+    
+    # Combine results and add metadata
+    share_design = (
+        pl.concat(domain_results)
+        .rename({
+            "est": "weighted_share",
+            "lci": "ci_lower",
+            "uci": "ci_upper",
+        })
+        .select([
+            *domain_cols,
+            "mode_group",
+            "weighted_share",
+            "se",
+            "ci_lower",
+            "ci_upper",
+        ])
+        .sort([*domain_cols, "mode_group"])
+    )
+    
+    share_design = add_counts_and_flags(
+        share_design,
+        filtered_trips,
+        [*domain_cols, "mode_group"],
+    )
+    
+    share_design.write_csv(output_dir / output_filename)
+
+
+
+
+# ============================================================================
+# OVERALL MODE GROUP SHARES WITH SE and CI 
 # ============================================================================
 
 design = svy.Design(
@@ -349,222 +379,51 @@ mode_group_share_design.write_csv(output_dir / "mode_group_share_with_design_se.
 
 
 
-# the county × income preparation step
-trips_county_income = (
-    trips_enriched
-    .filter(
-        pl.col("county").is_not_null() &
-        pl.col("income").is_not_null() &
-        pl.col("sample_segment").is_not_null() &
-        pl.col("hh_id").is_not_null() &
-        pl.col("linked_trip_weight").is_not_null()
-    )
+# ============================================================================
+# DOMAIN-SPECIFIC MODE SHARES WITH SE and CI
+# ============================================================================
+
+# County × Income
+trips_county_income = trips_enriched.filter(
+    pl.col("county").is_not_null() &
+    pl.col("income").is_not_null() &
+    pl.col("sample_segment").is_not_null() &
+    pl.col("hh_id").is_not_null() &
+    pl.col("person_id").is_not_null() &  
+    pl.col("linked_trip_weight").is_not_null()
+)
+estimate_domain_shares(
+    trips_county_income,
+    ["county", "income"],
+    "trips_county_income_mode_share_with_se.csv"
 )
 
-# Build a new survey design and sample for that domain table
-design_county_income = svy.Design(
-    stratum="sample_segment",
-    psu="hh_id",
-    ssu="person_id",
-    wgt="linked_trip_weight",
+# County × Race/Ethnicity
+trips_county_race = trips_enriched.filter(
+    pl.col("county").is_not_null() &
+    pl.col("race_eth").is_not_null() &
+    pl.col("sample_segment").is_not_null() &
+    pl.col("hh_id").is_not_null() &
+    pl.col("person_id").is_not_null() &  
+    pl.col("linked_trip_weight").is_not_null()
+)
+estimate_domain_shares(
+    trips_county_race,
+    ["county", "race_eth"],
+    "trips_county_race_mode_share_with_se.csv"
 )
 
-sample_county_income = svy.Sample(data=trips_county_income, design=design_county_income)
-
-# a second helper that uses that domain sample
-def estimate_mode_group_shares_for_county_income() -> None:
-    domain_results = []
-
-    for mode_group in MODE_GROUPS:
-        result = sample_county_income.estimation.mean(
-            y=f"is_{mode_group}",
-            by=["county", "income"],
-            alpha=ALPHA,
-        )
-        result_pl = result.to_polars().with_columns([
-            pl.lit(mode_group).alias("mode_group"),
-        ])
-        domain_results.append(result_pl)
-
-    county_income_share_design = (
-        pl.concat(domain_results)
-        .rename({
-            "est": "weighted_share",
-            "lci": "ci_lower",
-            "uci": "ci_upper",
-        })
-        .select([
-            "county",
-            "income",
-            "mode_group",
-            "weighted_share",
-            "se",
-            "ci_lower",
-            "ci_upper",
-        ])
-        .sort(["county", "income", "mode_group"])
-    )
-
-    county_income_share_design = add_counts_and_flags(
-        county_income_share_design,
-        trips_county_income,
-        ["county", "income", "mode_group"],
-    )
-
-    county_income_share_design.write_csv(
-        output_dir / "trips_county_income_mode_share_with_design_se.csv"
-    )
-
-# call the function
-estimate_mode_group_shares_for_county_income()
-
-
-
-# the county × race preparation step
-trips_county_race = (
-    trips_enriched
-    .filter(
-        pl.col("county").is_not_null() &
-        pl.col("race_eth").is_not_null() &
-        pl.col("sample_segment").is_not_null() &
-        pl.col("hh_id").is_not_null() &
-        pl.col("linked_trip_weight").is_not_null()
-    )
+# County × Age
+trips_county_age = trips_enriched.filter(
+    pl.col("county").is_not_null() &
+    pl.col("age_group").is_not_null() &
+    pl.col("sample_segment").is_not_null() &
+    pl.col("hh_id").is_not_null() &
+    pl.col("person_id").is_not_null() &  
+    pl.col("linked_trip_weight").is_not_null()
 )
-
-# Build a new survey design and sample for that domain table
-design_county_race = svy.Design(
-    stratum="sample_segment",
-    psu="hh_id",
-    ssu="person_id",
-    wgt="linked_trip_weight",
-)
-
-sample_county_race = svy.Sample(data=trips_county_race, design=design_county_race)
-
-# the county x race function
-def estimate_mode_group_shares_for_county_race() -> None:
-    domain_results = []
-
-    for mode_group in MODE_GROUPS:
-        result = sample_county_race.estimation.mean(
-            y=f"is_{mode_group}",
-            by=["county", "race_eth"],
-            alpha=ALPHA,   
-        )
-        result_pl = result.to_polars().with_columns([
-            pl.lit(mode_group).alias("mode_group"),
-        ])
-        domain_results.append(result_pl)
-
-    county_race_share_design = (
-        pl.concat(domain_results)
-        .rename({
-            "est": "weighted_share",
-            "lci": "ci_lower",
-            "uci": "ci_upper",
-        })
-        .select([
-            "county",
-            "race_eth",
-            "mode_group",
-            "weighted_share",
-            "se",
-            "ci_lower",
-            "ci_upper",
-        ])
-        .sort(["county", "race_eth", "mode_group"])
-    )
-
-    county_race_share_design = add_counts_and_flags(
-        county_race_share_design,
-        trips_county_race,
-        ["county", "race_eth", "mode_group"],
-    )
-
-    county_race_share_design.write_csv(
-        output_dir / "trips_county_race_mode_share_with_design_se.csv"
-    )
-
-# call the county x race function
-estimate_mode_group_shares_for_county_race()
-
-
-# the county × age preparation step
-trips_county_age = (
-    trips_enriched
-    .filter(
-        pl.col("county").is_not_null() &
-        pl.col("age_group").is_not_null() &
-        pl.col("sample_segment").is_not_null() &
-        pl.col("hh_id").is_not_null() &
-        pl.col("linked_trip_weight").is_not_null()
-    )
-)
-
-# Build a new survey design and sample for that domain table
-design_county_age = svy.Design(
-    stratum="sample_segment",
-    psu="hh_id",
-    ssu="person_id",
-    wgt="linked_trip_weight",
-)
-
-sample_county_age = svy.Sample(data=trips_county_age, design=design_county_age)
-
-
-# the county x age function
-def estimate_mode_group_shares_for_county_age() -> None:
-    domain_results = []
-
-    for mode_group in MODE_GROUPS:
-        result = sample_county_age.estimation.mean(
-            y=f"is_{mode_group}",
-            by=["county", "age_group"],
-            alpha=ALPHA,
-        )
-        result_pl = result.to_polars().with_columns([
-            pl.lit(mode_group).alias("mode_group"),
-        ])
-        domain_results.append(result_pl)
-
-    county_age_share_design = (
-        pl.concat(domain_results)
-        .rename({
-            "est": "weighted_share",
-            "lci": "ci_lower",
-            "uci": "ci_upper",
-        })
-        .select([
-            "county",
-            "age_group",
-            "mode_group",
-            "weighted_share",
-            "se",
-            "ci_lower",
-            "ci_upper",
-        ])
-        .sort(["county", "age_group", "mode_group"])
-    )
-
-    county_age_share_design = add_counts_and_flags(
-        county_age_share_design,
-        trips_county_age,
-        ["county", "age_group", "mode_group"],
-    )
-
-    county_age_share_design.write_csv(
-        output_dir / "trips_county_age_mode_share_with_design_se.csv"
-    )
-
-# call the county x age function
-estimate_mode_group_shares_for_county_age()
-
-print(f"Done. Outputs written to {output_dir}")
-print(
-    "Design-based outputs written to "
-    "mode_group_share_with_design_se.csv, "
-    "trips_county_income_mode_share_with_design_se.csv, "
-    "trips_county_race_mode_share_with_design_se.csv, "
-    "trips_county_age_mode_share_with_design_se.csv"
+estimate_domain_shares(
+    trips_county_age,
+    ["county", "age_group"],
+    "trips_county_age_mode_share_with_se.csv"
 )
