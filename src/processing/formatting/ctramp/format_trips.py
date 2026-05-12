@@ -313,8 +313,11 @@ def format_joint_trip(
     joint_trips_formatted = joint_trips_formatted.filter(pl.col("joint_tour_id").is_not_null())
 
     # Join with households
+    hh_cols = ["hh_id", "income"]
+    if "hh_weight" in households_ctramp.columns:
+        hh_cols.append("hh_weight")
     joint_trips_formatted = joint_trips_formatted.join(
-        households_ctramp.select(["hh_id", "income"]),
+        households_ctramp.select(hh_cols),
         on="hh_id",
         how="left",
     )
@@ -391,27 +394,28 @@ def format_joint_trip(
     )
 
     # Select final columns with snake_case names
-    joint_trips_ctramp = joint_trips_formatted.select(
-        [
-            pl.col("hh_id"),
-            pl.col("joint_tour_id").alias("tour_id"),
-            pl.col("stop_id"),
-            pl.col("inbound"),
-            pl.col("tour_purpose_ctramp").alias("tour_purpose"),
-            pl.col("orig_purpose"),
-            pl.col("dest_purpose"),
-            pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
-            pl.col(f"d_{config.taz_field}").cast(pl.Int64).alias("dest_taz"),
-            pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
-            pl.col("trip_mode"),
-            pl.col("tour_mode_ctramp").alias("tour_mode"),
-            # All joint tours are just "JOINT_NON_MANDATORY" category
-            pl.lit("JOINT_NON_MANDATORY").alias("tour_category"),
-            pl.col("num_joint_travelers").cast(pl.Int64).alias("num_participants"),
-            pl.col("depart_hour").cast(pl.Int64),
-            pl.col("trip_time"),
-        ]
-    )
+    select_cols = [
+        pl.col("hh_id"),
+        pl.col("joint_tour_id").alias("tour_id"),
+        pl.col("stop_id"),
+        pl.col("inbound"),
+        pl.col("tour_purpose_ctramp").alias("tour_purpose"),
+        pl.col("orig_purpose"),
+        pl.col("dest_purpose"),
+        pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
+        pl.col(f"d_{config.taz_field}").cast(pl.Int64).alias("dest_taz"),
+        pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
+        pl.col("trip_mode"),
+        pl.col("tour_mode_ctramp").alias("tour_mode"),
+        # All joint tours are just "JOINT_NON_MANDATORY" category
+        pl.lit("JOINT_NON_MANDATORY").alias("tour_category"),
+        pl.col("num_joint_travelers").cast(pl.Int64).alias("num_participants"),
+        pl.col("depart_hour").cast(pl.Int64),
+        pl.col("trip_time"),
+    ]
+    if "hh_weight" in joint_trips_formatted.columns:
+        select_cols.append(pl.col("hh_weight").alias("trip_weight"))
+    joint_trips_ctramp = joint_trips_formatted.select(select_cols)
 
     logger.info("Formatted %d joint trip records", len(joint_trips_ctramp))
     return joint_trips_ctramp

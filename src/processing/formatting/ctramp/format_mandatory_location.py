@@ -131,10 +131,10 @@ def calc_fixed_location_distances(
             ).alias(f"dest_is_{fixed_type}"),
             # Calculate matching TAZs for origin/destination, used as fallback
             (pl.col(f"o_{config.taz_field}") == pl.col(f"{fixed_type}_{config.taz_field}")).alias(
-                f"origin_is_{fixed_type}_taz"
+                f"origin_is_{fixed_type}_{config.taz_field}"
             ),
             (pl.col(f"d_{config.taz_field}") == pl.col(f"{fixed_type}_{config.taz_field}")).alias(
-                f"dest_is_{fixed_type}_taz"
+                f"dest_is_{fixed_type}_{config.taz_field}"
             ),
         ]
     )
@@ -148,8 +148,8 @@ def calc_fixed_location_distances(
             | (pl.col(f"origin_is_{fixed_type}") & pl.col("dest_is_home"))
         )
         # Fallback to use matching TAZs
-        | (pl.col(f"origin_is_{fixed_type}_taz") & pl.col("dest_is_home"))
-        | (pl.col(f"dest_is_{fixed_type}_taz") & pl.col("origin_is_home"))
+        | (pl.col(f"origin_is_{fixed_type}_{config.taz_field}") & pl.col("dest_is_home"))
+        | (pl.col(f"dest_is_{fixed_type}_{config.taz_field}") & pl.col("origin_is_home"))
     )
 
     # Extract and average the distance field for these trips

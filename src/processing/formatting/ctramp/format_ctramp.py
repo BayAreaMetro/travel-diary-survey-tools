@@ -195,6 +195,8 @@ import polars as pl
 
 from data_canon.codebook.ctramp import CTRAMPEmploymentCategory
 from data_canon.models.ctramp import (
+    AOResultsCTRAMPModel,
+    CDAPResultsCTRAMPModel,
     HouseholdCTRAMPModel,
     IndividualTourCTRAMPModel,
     IndividualTripCTRAMPModel,
@@ -206,6 +208,8 @@ from data_canon.models.ctramp import (
 from pipeline.decoration import step
 
 from .ctramp_config import CTRAMPConfig
+from .format_ao import format_ao_results
+from .format_cdap import format_cdap_results
 from .format_households import format_households
 from .format_mandatory_location import format_mandatory_location
 from .format_persons import enrich_persons_with_person_type, format_persons
@@ -220,6 +224,8 @@ MODEL_MAP = {
     "households_ctramp": HouseholdCTRAMPModel,
     "persons_ctramp": PersonCTRAMPModel,
     "mandatory_locations_ctramp": MandatoryLocationCTRAMPModel,
+    "cdap_results_ctramp": CDAPResultsCTRAMPModel,
+    "ao_results_ctramp": AOResultsCTRAMPModel,
     "individual_trips_ctramp": IndividualTripCTRAMPModel,
     "individual_tours_ctramp": IndividualTourCTRAMPModel,
     "joint_trips_ctramp": JointTripCTRAMPModel,
@@ -604,8 +610,7 @@ def format_ctramp(
         households_ctramp=households_ctramp,
         config=config,
     )
-
-    logger.info("CT-RAMP formatting complete")
+    
 
     # Prepare result dictionary and clean up temporary columns
     tables = {
@@ -617,6 +622,15 @@ def format_ctramp(
         "joint_tours_ctramp": joint_tours_ctramp,
         "mandatory_locations_ctramp": mandatory_location_ctramp,
     }
+
+    # Derive cdapResults-style table from persons
+    tables["cdap_results_ctramp"] = format_cdap_results(tables["persons_ctramp"])
+
+    # Derive aoResults-style table from households
+    tables["ao_results_ctramp"] = format_ao_results(tables["households_ctramp"])
+    
+
+    logger.info("CT-RAMP formatting complete")
 
     # Cleanup tables
     for table_name, df in tables.items():

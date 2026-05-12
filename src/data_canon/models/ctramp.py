@@ -467,6 +467,10 @@ class JointTourCTRAMPModel(BaseModel):
     )
     num_ob_stops: int = Field(ge=0, description="Number of out-bound (from home) stops on the tour")
     num_ib_stops: int = Field(ge=0, description="Number of in-bound (to home) stops on the tour")
+    tour_weight: float | None = Field(
+        default=None,
+        description="Expansion weight for the joint tour (derived from household weight)",
+    )
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
         default=None,
@@ -523,6 +527,10 @@ class JointTripCTRAMPModel(BaseModel):
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
     tour_category: str = Field(description='Tour category ("JOINT_NON_MANDATORY")')
+    trip_weight: float | None = Field(
+        default=None,
+        description="Expansion weight for the joint trip (derived from household weight)",
+    )
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
         default=None,
@@ -532,3 +540,31 @@ class JointTripCTRAMPModel(BaseModel):
         default=None,
         description="Walk to transit destination sub-zone (0=cannot walk to transit; 1=short-walk; 2=long-walk)",
     )
+
+
+class CDAPResultsCTRAMPModel(BaseModel):
+    """CDAP (Coordinated Daily Activity Pattern) results in CT-RAMP format.
+
+    Matches the schema of ``cdapResults.csv`` written by the CT-RAMP Java model.
+    """
+
+    HHID: int = Field(description="Unique household ID number")
+    PersonID: int = Field(description="Unique person ID number")
+    PersonNum: int = Field(ge=1, description="Person number unique to the household")
+    PersonType: int = Field(ge=1, le=8, description="Person type code (1-8)")
+    ActivityString: CTRAMPActivityPattern = Field(
+        description="Daily activity pattern (M=mandatory, N=non-mandatory, H=home)"
+    )
+    person_weight: float | None = Field(
+        default=None, ge=0, description="Survey weight for the person (not part of CT-RAMP spec)"
+    )
+
+
+class AOResultsCTRAMPModel(BaseModel):
+    """Auto Ownership results in CT-RAMP format.
+
+    Matches the schema of ``aoResults.csv`` written by the CT-RAMP Java model.
+    """
+
+    HHID: int = Field(description="Unique household ID number")
+    AO: int = Field(ge=0, description="Number of vehicles owned by the household")
