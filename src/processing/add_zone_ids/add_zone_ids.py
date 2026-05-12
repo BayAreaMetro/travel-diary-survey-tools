@@ -100,7 +100,9 @@ def add_zone_to_dataframe(
             points_projected = gdf[null_mask].to_crs(projected_crs)
             # Exclude points with null/NaN coordinates (e.g. persons with no work location);
             # those have no real location and should remain null regardless.
-            valid_geom_mask = points_projected.geometry.is_valid & ~points_projected.geometry.is_empty
+            valid_geom_mask = (
+                points_projected.geometry.is_valid & ~points_projected.geometry.is_empty
+            )
             points_for_nearest = points_projected[valid_geom_mask]
             if not points_for_nearest.empty:
                 nearest = gpd.sjoin_nearest(
@@ -127,7 +129,9 @@ def add_zone_to_dataframe(
                         zone_col_name,
                         max_snap_distance,
                     )
-                gdf_joined.loc[points_for_nearest.index, zone_col_name] = nearest[zone_col_name].values
+                gdf_joined.loc[points_for_nearest.index, zone_col_name] = nearest[
+                    zone_col_name
+                ].values
         else:
             logger.warning(
                 "%d point(s) did not fall within any %s zone; leaving as null.",

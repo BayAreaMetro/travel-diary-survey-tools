@@ -5,7 +5,7 @@ Produces an ``ao_results_ctramp`` table matching the schema of the
 
     HHID, AO
 
-``AO`` is the number of vehicles owned by the household (0–4+).
+``AO`` is the number of vehicles owned by the household (0-4+).
 """
 
 import polars as pl
