@@ -12,6 +12,17 @@ import svy
 # CONFIGURATION
 # ============================================================================
 
+# File paths
+input_dir = Path(r"E:\BATS2023_TIP_11052026\survey")
+output_dir = Path(r"E:\BATS2023_TIP_11052026\tip_svy")
+output_dir.mkdir(parents=True, exist_ok=True)
+
+# Column names for race and ethnicity variables
+# They need to be the ones imputed from the weighting process
+RACE_COL = "race_imputed_rmove_only"
+ETHNICITY_COL = "ethnicity_imputed_rmove_only"
+
+# Statistical parameters for reliability assessment
 CONF_LEVEL = 0.90
 ALPHA = 1 - CONF_LEVEL
 
@@ -19,9 +30,6 @@ CV_THRESHOLD = 0.30
 MIN_UNWEIGHTED_N = 30
 CI_WIDTH_THRESHOLD = 0.40
 
-input_dir = Path(r"E:\BATS2023_TIP_11052026\survey")
-output_dir = Path(r"E:\BATS2023_TIP_11052026\tip_svy")
-output_dir.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
 # LOAD DATA
@@ -30,12 +38,6 @@ output_dir.mkdir(parents=True, exist_ok=True)
 households = pl.read_csv(input_dir / "households_2023.csv")
 persons = pl.read_csv(input_dir / "persons_2023.csv")
 linked_trips = pl.read_csv(input_dir / "linked_trips_2023.csv")
-
-# Column names for race and ethnicity variables
-# They need to be the ones imputed from the weighting process
-RACE_COL = "race_imputed_rmove_only"
-ETHNICITY_COL = "ethnicity_imputed_rmove_only"
-
 
 
 # ============================================================================
@@ -170,6 +172,9 @@ trips_enriched = (
         on=["person_id", "hh_id"],
         how="left",
     )
+    .with_columns([
+        (pl.col("linked_trip_weight") * pl.col("distance_miles")).alias("pmt_weight"),
+    ])
 )
 
 # Create indicator columns for each mode group (needed for design-based estimation)
@@ -191,43 +196,88 @@ def add_counts_and_flags(
     share_df: pl.DataFrame,
     source_df: pl.DataFrame,
     group_cols: list[str],
+    metric_type: str = "trip",
 ) -> pl.DataFrame:
+    """Add counts and reliability flags.
+    
+    Args:
+        share_df: DataFrame with estimated shares
+        source_df: Source data with trip records
+        group_cols: Grouping columns including mode_group
+        metric_type: "trip" for trip counts or "pmt" for passenger-miles
+    """
     domain_cols = [col for col in group_cols if col != "mode_group"]
 
-    weighted_counts = (
-        source_df
-        .group_by(group_cols)
-        .agg([
-            pl.sum("linked_trip_weight").alias("weighted_count"),
-            pl.len().alias("unweighted_count"),
-        ])
-    )
-
-    if domain_cols:
-        totals = (
+    if metric_type == "trip":
+        weighted_counts = (
             source_df
-            .group_by(domain_cols)
+            .group_by(group_cols)
             .agg([
-                pl.sum("linked_trip_weight").alias("total_weighted"),
-                pl.len().alias("total_unweighted"),
+                pl.sum("linked_trip_weight").alias("weighted_count"),
+                pl.len().alias("unweighted_count"),
             ])
         )
-        result = (
-            share_df
-            .join(weighted_counts, on=group_cols, how="left")
-            .join(totals, on=domain_cols, how="left")
-        )
-    else:
-        total_weighted = source_df["linked_trip_weight"].sum()
-        total_unweighted = source_df.height
-        result = (
-            share_df
-            .join(weighted_counts, on=group_cols, how="left")
-            .with_columns([
-                pl.lit(total_weighted).alias("total_weighted"),
-                pl.lit(total_unweighted).alias("total_unweighted"),
+
+        if domain_cols:
+            totals = (
+                source_df
+                .group_by(domain_cols)
+                .agg([
+                    pl.sum("linked_trip_weight").alias("total_weighted"),
+                    pl.len().alias("total_unweighted"),
+                ])
+            )
+            result = (
+                share_df
+                .join(weighted_counts, on=group_cols, how="left")
+                .join(totals, on=domain_cols, how="left")
+            )
+        else:
+            total_weighted = source_df["linked_trip_weight"].sum()
+            total_unweighted = source_df.height
+            result = (
+                share_df
+                .join(weighted_counts, on=group_cols, how="left")
+                .with_columns([
+                    pl.lit(total_weighted).alias("total_weighted"),
+                    pl.lit(total_unweighted).alias("total_unweighted"),
+                ])
+            )
+    else:  # metric_type == "pmt"
+        weighted_counts = (
+            source_df
+            .group_by(group_cols)
+            .agg([
+                (pl.col("linked_trip_weight") * pl.col("distance_miles")).sum().alias("weighted_count"),
+                pl.len().alias("unweighted_count"),
             ])
         )
+
+        if domain_cols:
+            totals = (
+                source_df
+                .group_by(domain_cols)
+                .agg([
+                    (pl.col("linked_trip_weight") * pl.col("distance_miles")).sum().alias("total_weighted"),
+                    pl.len().alias("total_unweighted"),
+                ])
+            )
+            result = (
+                share_df
+                .join(weighted_counts, on=group_cols, how="left")
+                .join(totals, on=domain_cols, how="left")
+            )
+        else:
+            total_weighted = (source_df["linked_trip_weight"] * source_df["distance_miles"]).sum()
+            total_unweighted = source_df.height
+            result = (
+                share_df
+                .join(weighted_counts, on=group_cols, how="left")
+                .with_columns([
+                    pl.lit(total_weighted).alias("total_weighted"),
+                    pl.lit(total_unweighted).alias("total_unweighted"),
+                ])
+            )
 
     result = result.with_columns([
         pl.col("weighted_count").fill_null(0.0),
@@ -276,15 +326,24 @@ def estimate_domain_shares(
     filtered_trips: pl.DataFrame,
     domain_cols: list[str],
     output_filename: str,
+    metric_type: str = "trip",
 ) -> None:
-    """Estimate mode shares by domain with design-based standard errors."""
+    """Estimate mode shares by domain with design-based standard errors.
     
-    # Create design and sample
+    Args:
+        filtered_trips: Filtered trip data
+        domain_cols: Demographic grouping columns
+        output_filename: Output CSV filename
+        metric_type: "trip" for trip counts or "pmt" for passenger-miles
+    """
+    
+    # Create design and sample based on metric type
+    weight_col = "linked_trip_weight" if metric_type == "trip" else "pmt_weight"
     design = svy.Design(
         stratum="sample_segment",
         psu="hh_id",
         ssu="person_id",
-        wgt="linked_trip_weight",
+        wgt=weight_col,
     )
     sample = svy.Sample(data=filtered_trips, design=design)
     
@@ -324,6 +383,7 @@ def estimate_domain_shares(
         share_design,
         filtered_trips,
         [*domain_cols, "mode_group"],
+        metric_type=metric_type,
     )
     
     share_design.write_csv(output_dir / output_filename)
@@ -373,9 +433,58 @@ mode_group_share_design = add_counts_and_flags(
     mode_group_share_design,
     trips_enriched,
     ["mode_group"],
+    metric_type="trip",
 )
 
-mode_group_share_design.write_csv(output_dir / "mode_group_share_with_design_se.csv")
+mode_group_share_design.write_csv(output_dir / "mode_group_share_with_se.csv")
+
+
+# ============================================================================
+# OVERALL MODE GROUP SHARES (PMT) WITH SE and CI 
+# ============================================================================
+
+design_pmt = svy.Design(
+    stratum="sample_segment",
+    psu="hh_id",
+    ssu="person_id",
+    wgt="pmt_weight",
+)
+
+sample_pmt = svy.Sample(data=trips_enriched, design=design_pmt)
+
+overall_pmt_results = []
+for mode_group in MODE_GROUPS:
+    result = sample_pmt.estimation.mean(y=f"is_{mode_group}", alpha=ALPHA)
+    result_pl = result.to_polars().with_columns([
+        pl.lit(mode_group).alias("mode_group"),
+    ])
+    overall_pmt_results.append(result_pl)
+
+mode_group_share_pmt_design = (
+    pl.concat(overall_pmt_results)
+    .rename({
+        "est": "weighted_share",
+        "lci": "ci_lower",
+        "uci": "ci_upper",
+    })
+    .select([
+        "mode_group",
+        "weighted_share",
+        "se",
+        "ci_lower",
+        "ci_upper",
+    ])
+    .sort("mode_group")
+)
+
+mode_group_share_pmt_design = add_counts_and_flags(
+    mode_group_share_pmt_design,
+    trips_enriched,
+    ["mode_group"],
+    metric_type="pmt",
+)
+
+mode_group_share_pmt_design.write_csv(output_dir / "mode_group_share_pmt_with_se.csv")
 
 
 
@@ -395,7 +504,8 @@ trips_county_income = trips_enriched.filter(
 estimate_domain_shares(
     trips_county_income,
     ["county", "income"],
-    "trips_county_income_mode_share_with_se.csv"
+    "trips_county_income_mode_share_with_se.csv",
+    metric_type="trip",
 )
 
 # County × Race/Ethnicity
@@ -410,7 +520,8 @@ trips_county_race = trips_enriched.filter(
 estimate_domain_shares(
     trips_county_race,
     ["county", "race_eth"],
-    "trips_county_race_mode_share_with_se.csv"
+    "trips_county_race_mode_share_with_se.csv",
+    metric_type="trip",
 )
 
 # County × Age
@@ -425,5 +536,35 @@ trips_county_age = trips_enriched.filter(
 estimate_domain_shares(
     trips_county_age,
     ["county", "age_group"],
-    "trips_county_age_mode_share_with_se.csv"
+    "trips_county_age_mode_share_with_se.csv",
+    metric_type="trip",
+)
+
+
+# ============================================================================
+# DOMAIN-SPECIFIC MODE SHARES (PMT) WITH SE and CI
+# ============================================================================
+
+# County × Income (PMT)
+estimate_domain_shares(
+    trips_county_income,
+    ["county", "income"],
+    "trips_county_income_mode_pmt_share_with_se.csv",
+    metric_type="pmt",
+)
+
+# County × Race/Ethnicity (PMT)
+estimate_domain_shares(
+    trips_county_race,
+    ["county", "race_eth"],
+    "trips_county_race_mode_pmt_share_with_se.csv",
+    metric_type="pmt",
+)
+
+# County × Age (PMT)
+estimate_domain_shares(
+    trips_county_age,
+    ["county", "age_group"],
+    "trips_county_age_mode_pmt_share_with_se.csv",
+    metric_type="pmt",
 )
