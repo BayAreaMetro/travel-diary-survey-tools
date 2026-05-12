@@ -1,5 +1,7 @@
 """Codebook enumerations for person table."""
 
+from enum import nonmember
+
 from data_canon.core.labeled_enum import LabeledEnum
 
 
@@ -19,6 +21,8 @@ class AgeCategory(LabeledEnum):
     AGE_65_TO_74 = (9, "65 to 74")
     AGE_75_TO_84 = (10, "75 to 84")
     AGE_85_AND_UP = (11, "85 and up")
+
+    BREAKPOINTS = nonmember([5, 16, 18, 25, 35, 45, 55, 65, 75, 85])
 
 
 class Education(LabeledEnum):
@@ -84,6 +88,7 @@ class Gender(LabeledEnum):
 
     FEMALE = (1, "Female")
     MALE = (2, "Male")
+    TRANS = (3, "Transgender")
     NON_BINARY = (4, "Non-binary")
     MISSING = (995, "Missing Response")
     OTHER = (997, "Other/prefer to self-describe")
@@ -263,14 +268,8 @@ class Student(LabeledEnum):
 
     canonical_field_name = "student"
 
-    FULLTIME_INPERSON = (
-        0,
-        "Full-time student, currently attending some or all classes in-person",
-    )
-    PARTTIME_INPERSON = (
-        1,
-        "Part-time student, currently attending some or all classes in-person",
-    )
+    FULLTIME_INPERSON = (0, "Full-time student, currently attending some or all classes in-person")
+    PARTTIME_INPERSON = (1, "Part-time student, currently attending some or all classes in-person")
     NONSTUDENT = (2, "Not a student")
     PARTTIME_ONLINE = (3, "Part-time student, ONLY online classes")
     FULLTIME_ONLINE = (4, "Full-time student, ONLY online classes")
@@ -309,22 +308,6 @@ class Vehicle(LabeledEnum):
     MISSING = (995, "Missing Response")
     NONE = (996, "None (I do not drive a vehicle)")
     OTHER_VEHICLE = (997, "Other vehicle")
-
-
-class PersonType(LabeledEnum):
-    """Derived person type from employment status, student status, and age."""
-
-    canonical_field_name = "person_type"
-    field_description = "Person type derived from employment, student status, and age"
-
-    FULL_TIME_WORKER = (1, "Full-time worker")
-    PART_TIME_WORKER = (2, "Part-time worker")
-    RETIRED = (3, "Non-working adult 65+")
-    NON_WORKER = (4, "Non-working adult < 65")
-    UNIVERSITY_STUDENT = (5, "University student")
-    CHILD_DRIVING_AGE = (6, "High school student 16+")
-    CHILD_NON_DRIVING_AGE = (7, "Child 5-15")
-    CHILD_UNDER_5 = (8, "Child 0-4")
 
 
 class WorkParking(LabeledEnum):

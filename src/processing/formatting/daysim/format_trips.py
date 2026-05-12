@@ -512,6 +512,11 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
             # Map purposes
             pl.col("opurp").replace(PURPOSE_MAP).alias("opurp"),
             pl.col("dpurp").replace(PURPOSE_MAP).alias("dpurp"),
+            # Fill the usual nulls when zones are not matched (out of area, missing data, etc.)
+            pl.col("otaz").fill_null(-1),
+            pl.col("opcl").fill_null(-1),
+            pl.col("dtaz").fill_null(-1),
+            pl.col("dpcl").fill_null(-1),
         ]
     )
 
@@ -533,6 +538,18 @@ def format_linked_trips(
     the linking step. By moving it here, we preserve maximum granularity
     in the core linked_trips table per the pipeline design philosophy,
     deferring format-specific aggregations to output formatters.
+
+    Key Transformations:
+
+    - **Mode Codes**: Map canonical mode_type to DaySim mode codes (walk, bike, SOV, HOV2,
+      HOV3, transit, etc.), distinguish auto modes by occupancy (drive alone vs shared
+      ride)
+    - **Path Type**: Derive transit path type from mode hierarchy (ferry > BART > premium >
+      LRT > bus), special handling for transit access/egress modes
+    - **Driver/Passenger**: Code driver vs passenger for auto trips, TNC occupancy (alone,
+      2, 3+), link to household vehicle information
+    - **Trip Sequence**: Number trips within tours and half-tours (outbound/inbound)
+    - **Purpose Codes**: Map origin and destination purpose categories to DaySim codes
 
     Args:
         persons: DataFrame with canonical person fields
@@ -573,16 +590,12 @@ def format_linked_trips(
     )
 
     # Step 5: Add trip weight from linked trips, assign 1.0 if missing
-    if "trip_weight" in linked_trips.columns:
-        trips_daysim = trips_daysim.join(
-            linked_trips.select(["linked_trip_id", "trip_weight"]).rename(
-                {"trip_weight": "trexpfac"}
-            ),
-            on="linked_trip_id",
-            how="left",
-        )
-    else:
+    if "linked_trip_weight" not in linked_trips.columns:
         trips_daysim = trips_daysim.with_columns(pl.lit(1.0).alias("trexpfac"))
+
+    trips_daysim = trips_daysim.with_columns(
+        pl.col("linked_trip_weight").fill_null(value=0).alias("trexpfac"),
+    )
 
     # Step 6: Select final DaySim fields and sort
     trip_cols = [

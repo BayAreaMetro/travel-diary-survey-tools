@@ -19,7 +19,7 @@ def get_income_midpoint(income_enum: LabeledEnum) -> int:
     For "or more" categories, uses 1.25x multiplier to estimate upper bound.
 
     Args:
-        income_enum: Income category enum (IncomeDetailed or IncomeFollowup)
+        income_enum: Income category enum (IncomeBroad)
 
     Returns:
         Midpoint dollar value for the income bracket
@@ -28,8 +28,8 @@ def get_income_midpoint(income_enum: LabeledEnum) -> int:
         ValueError: If the label format cannot be parsed or is PNTA/Missing
 
     Example:
-        >>> from data_canon.codebook.households import IncomeDetailed
-        >>> midpoint = get_income_midpoint(IncomeDetailed.INCOME_50TO75)
+        >>> from data_canon.codebook.households import IncomeBroad
+        >>> midpoint = get_income_midpoint(IncomeBroad.INCOME_50TO75)
         >>> midpoint
         62500
     """
@@ -159,6 +159,10 @@ def expr_haversine(
     a = (dlat / 2).sin().pow(2) + lat1_safe.radians().cos() * lat2_safe.radians().cos() * (
         dlon / 2
     ).sin().pow(2)
+
+    # Clamp a to [0, 1] to guard against floating-point values slightly outside
+    # the valid domain of arcsin, which would cause a hard Rust/native crash.
+    a = a.clip(0.0, 1.0)
 
     distance = 2 * r * a.sqrt().arcsin()
 

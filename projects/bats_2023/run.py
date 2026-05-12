@@ -6,22 +6,29 @@ import os
 from pathlib import Path
 
 import polars as pl
+from clean_bats_2023 import clean_2023_bats
 
+from data_canon.models import (
+    ctramp as ctramp_models,
+)
 from data_canon.models import (
     daysim as daysim_models,
 )
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
 from processing import (
+    add_existing_weights,
     add_zone_ids,
+    compute_weights,
     detect_joint_trips,
     extract_tours,
+    format_ctramp,
     format_daysim,
+    imputation,
     link_trips,
     load_data,
     write_data,
 )
-from processing.cleaning.clean_bats_2023 import clean_2023_bats
 
 # ---------------------------------------------------------------------
 # Configuration
@@ -81,9 +88,13 @@ processing_steps = [
     add_zone_ids,
     link_trips,
     detect_joint_trips,
+    imputation,
     extract_tours,
+    format_ctramp,
     format_daysim,
     write_data,
+    add_existing_weights,
+    compute_weights,
 ]
 
 
@@ -95,6 +106,13 @@ new_models = {
     "linked_trips_daysim": daysim_models.LinkedTripDaysimModel,
     "tours_daysim": daysim_models.TourDaysimModel,
     # CT-RAMP models
+    "households_ctramp": ctramp_models.HouseholdCTRAMPModel,
+    "persons_ctramp": ctramp_models.PersonCTRAMPModel,
+    "mandatory_locations_ctramp": ctramp_models.MandatoryLocationCTRAMPModel,
+    "individual_tours_ctramp": ctramp_models.IndividualTourCTRAMPModel,
+    "individual_trips_ctramp": ctramp_models.IndividualTripCTRAMPModel,
+    "joint_tours_ctramp": ctramp_models.JointTourCTRAMPModel,
+    "joint_trips_ctramp": ctramp_models.JointTripCTRAMPModel,
 }
 
 # ---------------------------------------------------------------------
@@ -110,12 +128,13 @@ if __name__ == "__main__":
 
     logger.info("Starting BATS 2023 DaySim Processing Pipeline")
 
-    cache_dir = Path(".cache")
+    cache_dir = Path(".cache/2023")
     pipeline = Pipeline(
         config_path=CONFIG_PATH,
         steps=processing_steps,
-        caching=True,
+        caching=cache_dir,
         data_models=new_models,
+        log_file_mode="w" if args.clear_cache else "a",
     )
 
     # Clear cache if requested

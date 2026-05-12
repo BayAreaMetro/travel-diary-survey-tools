@@ -56,7 +56,15 @@ def add_zone_to_dataframe(
     return df_joined
 
 
-@step()
+@step(
+    requires={
+        "households": {"hh_id", "home_lon", "home_lat"},
+        "persons": {"person_id", "work_lon", "work_lat", "school_lon", "school_lat"},
+        "unlinked_trips": {"unlinked_trip_id", "o_lon", "o_lat", "d_lon", "d_lat"},
+        "linked_trips": {"linked_trip_id", "o_lon", "o_lat", "d_lon", "d_lat"},
+        "tours": {"tour_id", "o_lon", "o_lat", "d_lon", "d_lat"},
+    },
+)
 def add_zone_ids(
     zone_geographies: list[dict],
     households: pl.DataFrame | None = None,
@@ -69,6 +77,7 @@ def add_zone_ids(
     """Add zone IDs for multiple geographic levels based on locations.
 
     Automatically applies each zone geography to standard locations:
+
     - households: home_lon/lat → home_{zone_name}
     - persons: work_lon/lat → work_{zone_name},
                 school_lon/lat → school_{zone_name}
@@ -98,22 +107,30 @@ def add_zone_ids(
         "tours": tours,
         "joint_trips": joint_trips,
     }
+
+    # Pre-load the shapefiles to avoid re-loading for each table
+    shapefiles_cache = {}
+
     # Process each zone geography
     for zone_config in zone_geographies:
         shapefile_path = zone_config["shapefile"]
         zone_id_field = zone_config["zone_id_field"]
         zone_name = zone_config["zone_name"]
 
+        # Cache the shapefile if not already loaded, avoid re-loading
+        if shapefile_path not in shapefiles_cache:
+            shapefiles_cache[shapefile_path] = gpd.read_file(shapefile_path)
+
         # Load the shapefile
-        shapefile = gpd.read_file(shapefile_path)
+        shapefile = shapefiles_cache[shapefile_path]
 
         # Standard location mappings: (table, table_index, lon_col, lat_col, location_prefix)
         standard_locations = [
             ("households", "hh_id", "home_lon", "home_lat", "home"),
             ("persons", "person_id", "work_lon", "work_lat", "work"),
             ("persons", "person_id", "school_lon", "school_lat", "school"),
-            ("unlinked_trips", "trip_id", "o_lon", "o_lat", "o"),
-            ("unlinked_trips", "trip_id", "d_lon", "d_lat", "d"),
+            ("unlinked_trips", "unlinked_trip_id", "o_lon", "o_lat", "o"),
+            ("unlinked_trips", "unlinked_trip_id", "d_lon", "d_lat", "d"),
             ("linked_trips", "linked_trip_id", "o_lon", "o_lat", "o"),
             ("linked_trips", "linked_trip_id", "d_lon", "d_lat", "d"),
             ("tours", "tour_id", "o_lon", "o_lat", "o"),

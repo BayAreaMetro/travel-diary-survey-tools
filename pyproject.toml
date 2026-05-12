@@ -11,13 +11,24 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
 ]
 dependencies = [
+    "exactextract>=0.3.0",
     "geopandas>=1.1.1",
+    "hypothesis>=6.151.5",
     "networkx>=3.6.1",
-    "numpy>=2.3.4",
+    "numba>=0.64.0",
+    "numpy<1.26",
+    "openpyxl>=3.1.0",
     "polars>=1.35.1",
     "pyarrow>=22.0.0",
     "pydantic>=2.12.4",
+    "pygris>=0.2.1",
+    "python-levenshtein>=0.27.3",
+    "rasterio>=1.4.4",
+    "requests>=2.28.0",
+    "samplics>=0.4.1",
+    "scikit-learn>=1.8.0",
     "scipy>=1.16.3",
+    "tqdm>=4.60.0",
 ]
 
 [dependency-groups]
@@ -30,12 +41,17 @@ dev = [
     "tabulate>=0.9.0",
     "kaleido>=1.2.0",
     "jupyter>=1.1.1",
-    "pandas>=2.3.3",
     "plotly>=6.4.0",
     "pre-commit>=0.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.3",
     "black>=25.12.0",
+    "mkdocs>=1.6.0,<2.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.26.0",
+    "griffe-pydantic>=1.0.0",
+    "mkdocs-include-markdown-plugin>=6.0.0",
+    "pandas>=2.1.0",
 ]
 
 [build-system]
@@ -48,7 +64,7 @@ packages = ["src/pipeline", "src/data_canon", "src/processing", "src/utils", "ex
 [tool.ruff]
 line-length = 100
 lint.select = ["ALL"]
-lint.pylint.max-args = 8  # Increase from default of 5 to accomodate 6 canon tables
+lint.pylint.max-args = 12  # Increase to 12=5+7 to accomodate 7 canon tables + 5 default args limit
 lint.ignore = [
     "COM812",  # Trailing comma - conflicts with formatter
     "D203",    # Use D211 (no blank line before class)
@@ -60,7 +76,6 @@ lint.ignore = [
 ]
 lint.pydocstyle.convention = "google"
 exclude = ["archive", "*.html", "uv.lock"]
-
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
@@ -74,6 +89,11 @@ exclude = ["archive", "*.html", "uv.lock"]
 "scripts/**/*.py" = [
     "INP001",      # script not part of package
     "T201",        # allow print statements in scripts
+]
+"src/processing/weighting/core/controls.py" = [
+    "D101",   # subclass .description is the docstring
+    "D102",   # overrides inherit base-class method docs
+    "RUF012", # class-attr dicts are effectively constants
 ]
 "projects/**/*.py" = [
     "INP001",      # script not part of package

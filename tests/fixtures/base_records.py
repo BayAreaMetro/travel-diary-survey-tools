@@ -1,19 +1,16 @@
 """Base record builders for households, persons, and days.
 
 This module provides simplified builders for core survey entities.
-Person types are derived automatically using the pipeline's
-derive_person_type() function.
+Person types (person_category) are now derived during tour processing,
+not stored in canonical survey data.
 """
 
 from datetime import UTC, date, datetime
 
-import polars as pl
-
 from data_canon.codebook.days import TravelDow
 from data_canon.codebook.generic import BooleanYesNo
 from data_canon.codebook.households import (
-    IncomeDetailed,
-    IncomeFollowup,
+    IncomeBroad,
     ResidenceRentOwn,
     ResidenceType,
 )
@@ -27,7 +24,6 @@ from data_canon.codebook.persons import (
     WorkParking,
 )
 from data_canon.codebook.trips import Mode
-from processing.tours.person_type import derive_person_type
 
 
 def create_household(
@@ -40,8 +36,8 @@ def create_household(
     num_people: int = 1,
     num_vehicles: int = 1,
     num_workers: int = 1,
-    income_detailed: IncomeDetailed | None = IncomeDetailed.INCOME_75TO100,
-    income_followup: IncomeFollowup | None = None,
+    income: int | None = None,
+    income_bin: IncomeBroad | None = IncomeBroad.INCOME_75TO100,
     residence_type: ResidenceType | None = ResidenceType.SFH,
     residence_rent_own: ResidenceRentOwn | None = ResidenceRentOwn.OWN,
     hh_weight: float = 1.0,
@@ -63,8 +59,8 @@ def create_household(
         num_people: Household size
         num_vehicles: Number of vehicles
         num_workers: Number of workers
-        income_detailed: Detailed income category enum
-        income_followup: Followup income category enum (if detailed is null)
+        income: Pre-computed household income in dollars (None = derive from income_bin)
+        income_bin: Broad income category enum (used when income is None)
         residence_type: Residence type enum (default SFH, for Daysim)
         residence_rent_own: Residence rent/own status enum (default OWN, for
             Daysim)
@@ -80,8 +76,8 @@ def create_household(
         "num_people": num_people,
         "num_vehicles": num_vehicles,
         "num_workers": num_workers,
-        "income_detailed": income_detailed.value if income_detailed else None,
-        "income_followup": income_followup.value if income_followup else None,
+        "income": income,
+        "income_bin": income_bin.value if income_bin else None,
         "hh_weight": hh_weight,
     }
 
@@ -109,6 +105,7 @@ def create_person(
     commute_subsidy_use_3: BooleanYesNo = BooleanYesNo.NO,
     commute_subsidy_use_4: BooleanYesNo = BooleanYesNo.NO,
     value_of_time: float = 15.0,
+    person_weight: float = 1.0,
     # Optional location fields
     home_lat: float | None = None,
     home_lon: float | None = None,
@@ -131,8 +128,8 @@ def create_person(
 ) -> dict:
     """Create a complete canonical person record.
 
-    Person type is automatically derived from age/employment/student using the
-    pipeline's derive_person_type() function.
+    Person category is derived during tour processing based on age/employment/student
+    attributes, not stored in canonical survey data.
 
     Args:
         person_id: Person ID
@@ -147,6 +144,7 @@ def create_person(
         commute_subsidy_use_3: Free parking used (BooleanYesNo)
         commute_subsidy_use_4: Discounted parking used (BooleanYesNo)
         value_of_time: Value of time in $/hour
+        person_weight: Person expansion factor
         home_lat: Home latitude (optional)
         home_lon: Home longitude (optional)
         work_lat: Work latitude (optional)
@@ -166,7 +164,7 @@ def create_person(
         **overrides: Override any default values
 
     Returns:
-        Complete person record dict with person_type auto-derived
+        Complete person record dict
     """
     record = {
         "person_id": person_id,
@@ -180,6 +178,7 @@ def create_person(
         "commute_subsidy_use_3": commute_subsidy_use_3.value,
         "commute_subsidy_use_4": commute_subsidy_use_4.value,
         "value_of_time": value_of_time,
+        "person_weight": person_weight,
     }
 
     # Set job_type - default to FIXED (1) for employed, MISSING (995) for non-workers
@@ -209,7 +208,7 @@ def create_person(
 
     # Compute num_days_complete from days if provided
     if days is not None:
-        num_complete_days = sum(1 for day in days if day.get("is_complete", False))
+        num_complete_days = sum(1 for day in days if day.get("complete", False))
 
     # Always include DaySim-specific fields with sensible defaults
 
@@ -240,13 +239,8 @@ def create_person(
     # Complete days
     record["num_days_complete"] = num_complete_days
 
-    # Apply overrides before deriving person_type
+    # Apply overrides
     record = {**record, **overrides}
-
-    # Derive person_type using pipeline function (single source of truth)
-    person_df = pl.DataFrame([record])
-    person_df = derive_person_type(person_df)
-    record["person_type"] = person_df["person_type"][0]
 
     return record
 
@@ -259,7 +253,7 @@ def create_day(
     day_num: int = 1,
     travel_date: date | None = None,
     travel_dow: TravelDow = TravelDow.MONDAY,
-    is_complete: bool = True,
+    complete: bool = True,
     num_trips: int = 0,
     day_weight: float = 1.0,
     **overrides,
@@ -278,7 +272,7 @@ def create_day(
         day_num: Day number in survey period (for DaySim)
         travel_date: Travel date (defaults to today)
         travel_dow: Day of week enum
-        is_complete: Day complete (person at home at start/end)
+        complete: Day complete (person at home at start/end)
         num_trips: Number of trips on this day
         day_weight: Day expansion factor (for DaySim)
         **overrides: Override any default values
@@ -297,7 +291,7 @@ def create_day(
         "day_num": day_num,
         "travel_date": travel_date,
         "travel_dow": travel_dow.value,
-        "is_complete": is_complete,
+        "complete": complete,
         "num_trips": num_trips,
         "day_weight": day_weight,
     }

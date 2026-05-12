@@ -8,7 +8,6 @@ from data_canon.codebook.days import TravelDow
 from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
-    PersonType,
     SchoolType,
     Student,
 )
@@ -63,11 +62,14 @@ def create_test_data(
 
     unlinked_trips, linked_trips = link_trips(
         unlinked_trips,
-        change_mode_code=11,  # Purpose code for 'change_mode'
-        transit_mode_codes=[12, 13, 14],
+        change_mode_enum=11,  # Purpose code for 'change_mode'
+        transit_mode_enums=[12, 13, 14],
         max_dwell_time=180,  # in minutes
         dwell_buffer_distance=100,  # in meters
     ).values()
+
+    # Add joint_trip_id column for extract_tours validation
+    linked_trips = linked_trips.with_columns(pl.lit(None).cast(pl.Int64).alias("joint_trip_id"))
 
     return persons, households, unlinked_trips, linked_trips
 
@@ -79,11 +81,10 @@ def test_duration_tiebreaker_equal_priority():
         person_data={
             "person_id": 100,
             "hh_id": 10,
-            "person_type": PersonType.FULL_TIME_WORKER.value,
         },
         unlinked_trips_data=[
             {
-                "trip_id": 1,
+                "unlinked_trip_id": 1,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -103,10 +104,10 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 2,
+                "unlinked_trip_id": 2,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -127,10 +128,10 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 3,
+                "unlinked_trip_id": 3,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -151,7 +152,7 @@ def test_duration_tiebreaker_equal_priority():
                 "mode_type": ModeType.CAR.value,
                 "driver": Driver.DRIVER.value,
                 "num_travelers": 1,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )
@@ -177,11 +178,10 @@ def test_duration_tiebreaker_different_priority():
         person_data={
             "person_id": 100,
             "hh_id": 10,
-            "person_type": PersonType.FULL_TIME_WORKER.value,
         },
         unlinked_trips_data=[
             {
-                "trip_id": 1,
+                "unlinked_trip_id": 1,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -199,10 +199,10 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 2,
+                "unlinked_trip_id": 2,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -223,10 +223,10 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 3,
+                "unlinked_trip_id": 3,
                 "person_id": 100,
                 "day_id": 1,
                 "hh_id": 10,
@@ -246,7 +246,7 @@ def test_duration_tiebreaker_different_priority():
                 "duration_minutes": 30,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )
@@ -264,7 +264,6 @@ def test_activity_duration_last_trip():
         person_data={
             "person_id": 101,
             "hh_id": 10,
-            "person_type": PersonType.FULL_TIME_WORKER.value,
             "age": AgeCategory.AGE_25_TO_34.value,
             "employment": Employment.EMPLOYED_FULLTIME.value,
             "school_type": SchoolType.MISSING.value,
@@ -272,7 +271,7 @@ def test_activity_duration_last_trip():
         },
         unlinked_trips_data=[
             {
-                "trip_id": 1010101,
+                "unlinked_trip_id": 1010101,
                 "day_id": 10101,
                 "person_id": 101,
                 "hh_id": 10,
@@ -290,10 +289,10 @@ def test_activity_duration_last_trip():
                 "duration_minutes": 60,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
             {
-                "trip_id": 1010102,
+                "unlinked_trip_id": 1010102,
                 "day_id": 10101,
                 "person_id": 101,
                 "hh_id": 10,
@@ -313,7 +312,7 @@ def test_activity_duration_last_trip():
                 "duration_minutes": 60,
                 "num_travelers": 1,
                 "driver": Driver.DRIVER.value,
-                "trip_weight": 1.0,
+                "unlinked_trip_weight": 1.0,
             },
         ],
     )

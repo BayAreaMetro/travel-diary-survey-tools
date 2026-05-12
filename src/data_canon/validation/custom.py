@@ -58,7 +58,7 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
         )
         .filter(pl.col("distance_meters") > max_distance)
         .select(
-            pl.col("trip_id"),
+            pl.col("unlinked_trip_id"),
             pl.col("person_id"),
             pl.col("day_id"),
             pl.col("distance_meters"),
@@ -66,7 +66,7 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
     )
 
     if len(teleports) > 0:
-        trip_ids = teleports["trip_id"].to_list()[:5]
+        trip_ids = teleports["unlinked_trip_id"].to_list()[:5]
         errors.append(
             f"Found {len(teleports)} trips where destination "
             f"is more than {max_distance}m away from next trip origin. "

@@ -9,17 +9,17 @@ Tools for processing and validating travel diary survey data into standardized f
 - [Architecture](#architecture)
   - [Conceptual Diagram](#conceptual-diagram)
   - [Pipeline Steps](#pipeline-steps)
-- [Usage](#usage)
-  - [Quick Start](#quick-start)
-    - [1. Installing UV & Virtual Environment Setup](#1-installing-uv--virtual-environment-setup)
-    - [2. Configuration](#2-configuration)
-    - [3. Pipeline Runner](#3-pipeline-runner)
-  - [Data Models and Validation](#data-models-and-validation)
-    - [`step` Decorator and Validation](#step-decorator-and-validation)
-  - [Documentation](#documentation)
+- [Quick Start](#quick-start)
+  - [1. Installing UV & Virtual Environment Setup](#1-installing-uv--virtual-environment-setup)
+  - [2. Configuration](#2-configuration)
+  - [3. Pipeline Runner](#3-pipeline-runner)
+- [Data Models and Validation](#data-models-and-validation)
+  - [`step` Decorator and Validation](#step-decorator-and-validation)
+- [Additional Documentation](#additional-documentation)
 - [Work Plan](#work-plan)
 - [Development](#development)
   - [Project Structure](#project-structure)
+  - [Generating API Documentation](#generating-api-documentation)
   - [Running Tests](#running-tests)
   - [Code Quality](#code-quality)
   - [Pre-commit Hooks](#pre-commit-hooks)
@@ -51,9 +51,10 @@ Tools for processing and validating travel diary survey data into standardized f
 The usage pattern for the pipeline is a bit different than the typical numbered scripts you might see elsewhere. *There is no monolithic integrated script*. Instead there is a standardized data processing pipeline that is configurable via YAML files and executed via a runner script.
 
 There are three main components:
+
 * **Setup**
-  * This contains the point of entry defined in `project/run.py` and
-  * Pipeline configuration defined in `project/config.yaml`
+  * This contains the point of entry defined in `projects/run.py` and
+  * Pipeline configuration defined in `projects/config.yaml`
 * **Pipeline Execution**
   * The central `Pipeline` class defined in `src/processing/pipeline.py`
   * A set of modular processing steps defined in `src/processing/steps/`
@@ -75,12 +76,12 @@ flowchart LR
 
 subgraph Setup[**Setup**]
   direction TB
-  RunPy([project/run.py])
-  ConfigYAML([project/config.yaml])
+  RunPy([projects/run.py])
+  ConfigYAML([projects/config.yaml])
 end
 
-RunPy([project/run.py]) ----> Pipeline
-ConfigYAML([project/config.yaml]) ----> Pipeline
+RunPy([projects/run.py]) ----> Pipeline
+ConfigYAML([projects/config.yaml]) ----> Pipeline
 
 subgraph Pipeline[**Pipeline**]
   direction TB
@@ -89,25 +90,42 @@ subgraph Pipeline[**Pipeline**]
   Imputation --> JointTrips([Joint Trips])
   JointTrips --> LinkTrips([Link Trips])
   LinkTrips --> ExtractTours([Extract Tours])
-  ExtractTours --> Weighting([Weighting])
-  Weighting --> Format{Format Output}
+  ExtractTours --> Format{Format Output}
 
+  Format --> PUMS
   Format --> ActivitySim --> CnV1 --> ActivitySim
   Format --> DaySim --> CnV2 --> DaySim
-  Format --> Analysis --> CnV3 --> Analysis
-  Format --> Etc["... Other Formats ..."]
+  Format --> CTRAMP --> CnV3 --> CTRAMP
+  Format --> Standard --> CnV4
 
   subgraph Output[" "]
-    direction LR
-    ActivitySim{{ActivitySim<br>Format}}
-    DaySim{{DaySim<br>Format}}
-    Analysis{{Standard<br>Format}}
-    Etc{{Other<br>Formats}}
+    direction TB
+    WeightingPipeline --> Modeling
+  end
 
+  subgraph WeightingPipeline[**Weighting**]
+    direction TB
+    PUMS --> Weighting([Weighting]) --> Weights
+    Weighting([Weighting])
+    Weights[/"Expansion<br>Weights"\]
+  end
+
+  subgraph Modeling["Modeling"]
+    direction TB
+
+    ActivitySim{{ActivitySim<br>Format}}
     CnV1("Calibration &<br>Validation")
+
+    DaySim{{DaySim<br>Format}}
     CnV2("Calibration &<br>Validation")
-    CnV3("Analysis &<br>Validation")
-    Etc("etc...")
+
+    CTRAMP{{CT-RAMP<br>Format}}
+    CnV3("Calibration &<br>Validation")
+
+    Standard{{Standard<br>Format}}
+    CnV4("Analysis &<br>Validation")
+
+    style space1 fill:none,stroke:none
   end
 end
 
@@ -123,13 +141,14 @@ subgraph DataModels[**Data Models**]
   Tours[["tours"]]
 end
 
-
 style Setup fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000
 style RunPy fill:#e1f5e1,color:#000
 style ConfigYAML fill:#fff4e1,color:#000
 style Pipeline fill:#e3f2fd,stroke:#333,stroke-width:1px,color:#000
 style DataModels fill:#f3e5f5,stroke:#333,stroke-width:1px,color:#000
 style Format fill:#fff4e1,color:#000
+
+style Output fill:none,stroke:#333,stroke-width:0px,color:#000
 
 style LoadData color:#000
 style CustomPre fill:#f0f0f0,color:#000
@@ -149,8 +168,11 @@ style Tours fill:#d1c4e9,color:#000,stroke:#000
 
 style ActivitySim fill:#ffe0b2,color:#000
 style DaySim fill:#ffe0b2,color:#000
-style Analysis fill:#ffe0b2,color:#000
+style CTRAMP fill:#ffe0b2,color:#000
+style Standard fill:#ffe0b2,color:#000
+style PUMS fill:#ffe0b2,color:#000
 ```
+
 
 ### Pipeline Steps
 
@@ -158,20 +180,20 @@ The data processing pipeline consists of modular steps that transform raw survey
 
 #### Core Processing Steps
 
-1. **[Load Data](src/processing/read_write/README.md)** - Loads canonical survey tables from CSV, Parquet, or geospatial files into memory
-2. **[Cleaning](src/processing/cleaning/README.md)** - Project-specific data cleaning operations (e.g., fixing time/distance errors, adding missing records)
-3. **Imputation** *(placeholder)* - Imputes missing values for key variables (e.g., mode, purpose, locations)
-4. **[Link Trips](src/processing/link_trips/README.md)** - Aggregates individual trip segments into complete journey records by detecting mode changes and transfers
-5. **[Detect Joint Trips](src/processing/joint_trips/README.md)** - Identifies shared household trips using spatial-temporal similarity matching
-6. **[Extract Tours](src/processing/tours/README.md)** - Builds hierarchical tour structures (home-based tours and work-based subtours) from linked trips
-7. **Weighting** *(placeholder)* - Calculates expansion weights to match survey sample to population targets
-8. **[Format Output](src/processing/formatting/daysim/README.md)** - Transforms canonical data to model-specific formats (DaySim, ActivitySim, etc.)
-    - **[DaySim Format](src/processing/formatting/daysim/README.md)** - Formats data for DaySim model input
-    - **[CT-RAMP Format](src/processing/formatting/ctramp/README.md)** - Formats data for CT-RAMP model input
-9. **[Final Check](src/processing/final_check/README.md)** - Validates complete dataset against canonical schemas before export
-10. **[Write Data](src/processing/read_write/README.md)** - Writes processed tables to output files with optional validation
+1. **[Load Data](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/read_write/)** - Loads canonical survey tables from CSV, Parquet, or geospatial files into memory
+2. **[Cleaning](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/cleaning/)** - Project-specific data cleaning operations (e.g., fixing time/distance errors, adding missing records)
+3. **[Imputation](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/imputation/)** - Imputes missing values for key variables (e.g., mode, purpose, locations)
+4. **[Detect Joint Trips](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/detect_joint_trips/)** - Identifies shared household trips using spatial-temporal similarity matching
+5. **[Link Trips](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/link_trips/)** - Aggregates individual trip segments into complete journey records by detecting mode changes and transfers
+6. **[Extract Tours](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/extract_tours/)** - Builds hierarchical tour structures (home-based tours and work-based subtours) from linked trips
+7. **[Weighting](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/weighting/)** *(placeholder)* - Calculates expansion weights to match survey sample to population targets
+8. **Format Output** - Transforms canonical data to model-specific formats (DaySim, ActivitySim, etc.)
+    - **[DaySim Format](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/format_output/daysim/)** - Formats data for DaySim model input
+    - **[CT-RAMP Format](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/format_output/ctramp/)** - Formats data for CT-RAMP model input
+9. **[Final Check](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/final_check/)** - Validates complete dataset against canonical schemas before export
+10. **[Write Data](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/read_write/)** - Writes processed tables to output files with optional validation
 
-Each step README provides detailed documentation on:
+Each step links to documentation generated by the step's docstring, and provides detailed documentation on:
 - Input/output data requirements
 - Core algorithm and processing logic
 - Configuration parameters
@@ -240,8 +262,8 @@ steps:
   - name: link_trips
     validate: true
     params:
-      change_mode_code: 11  # Purpose code for 'change_mode'
-      transit_mode_codes: [12, 13, 14]
+      change_mode_enum: 11  # Purpose code for 'change_mode'
+      transit_mode_enums: [12, 13, 14]
       max_dwell_time: 180  # in minutes
       dwell_buffer_distance: 100  # in meters
 
@@ -301,7 +323,7 @@ You need a runner script to execute the pipeline, typically named `run.py`. This
 You can also inject custom pre-processing steps here. The goal is to **keep the core pipeline code generalized for maintainability, but allow for custom logic to be injected as needed**.
 
 ```python
-# project/run.py
+# projects/run.py
 from pathlib import Path
 import polars as pl
 
@@ -366,10 +388,10 @@ if __name__ == "__main__":
 To run, press the green arrow in your IDE, or run from command line:
 
 ```bash
-uv run python project/run.py
+uv run python projects/run.py
 
 # Clear cache before running
-uv run python project/run.py --clear-cache
+uv run python projects/run.py --clear-cache
 ```
 
 **Logging**: The pipeline automatically creates a log file in the output directory (e.g., `output/pipeline.log`) that contains all console output plus additional debugging information.
@@ -422,6 +444,7 @@ def new_processing_step(
 
 ## Additional Documentation
 For more details, see:
+* [API Documentation](https://bayareametro.github.io/travel-diary-survey-tools/) - Auto-generated API documentation for data models, pipeline, and processing functions (deployed to GitHub Pages).
 * [Validation Framework Documentation](docs/VALIDATION_README.md) - Which goes into more detail on the validation framework architecture and usage.
 * [Column Requirements Documentation](docs/COLUMN_REQUIREMENTS.md) - Contains auto-generated tables and enums for easy reference on which fields are required for each processing step. Essentially summarizes the data models in a table.
 
@@ -445,7 +468,7 @@ For more details, see:
   - [x] Implement joint trips detection algorithm processing step
   - [x] Implement tour extraction processing step
     - [x] enhanced tour extraction to handle joint tours/trips
-  - [ ] Implement imputation processing step
+  - [x] Implement imputation processing step (KNN and MICE methods)
   - [ ] Implement weighting processing step
   - [ ] Implement bespoke output formats
     - [x] Implement Daysim output format
@@ -489,6 +512,36 @@ travel-diary-survey-tools/
 └── docs/                           # Documentation
 ```
 
+### Generating API Documentation
+
+The project uses [MkDocs](https://www.mkdocs.org/) with [Material theme](https://squidfunk.github.io/mkdocs-material/) to generate API documentation from docstrings.
+
+**Building locally:**
+```bash
+# Build documentation
+uv run mkdocs build --strict
+
+# Preview with live reload
+uv run mkdocs serve --livereload --watch src
+# View at http://127.0.0.1:8000
+```
+
+**How it works:**
+- `mkdocstrings[python]` auto-generates docs from Python docstrings and type hints
+- `griffe-pydantic` extension handles Pydantic model documentation
+- `mkdocs-include-markdown-plugin` embeds algorithm documentation from processing module READMEs
+- Documentation structure defined in `mkdocs.yml`
+- Source files in `docs/` directory (markdown files reference Python modules)
+
+**Adding new pages:**
+1. Create markdown file in `docs/`
+2. Add to navigation in `mkdocs.yml`
+3. Reference Python modules using `::: module.path.ClassName` syntax
+
+**Deployment:**
+- Automatic via GitHub Actions on push to `main` branch
+- Published to: https://bayareametro.github.io/travel-diary-survey-tools/
+- Workflow defined in [`.github/workflows/docs.yml`](.github/workflows/docs.yml)
 
 ### Running Tests
 Tests can be run using `pytest` via VSCode extension or command line:
@@ -524,7 +577,7 @@ ruff format src/some_module/
 Install pre-commit hooks to ensure code quality before committing. It basically runs the linters and formatters automatically when you try to commit code. You can also run it manually with:
 
 ```bash
-pre-commit run
+pre-commit run --all-files
 ```
 
 ## Contributing

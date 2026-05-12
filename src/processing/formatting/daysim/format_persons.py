@@ -10,11 +10,7 @@ from data_canon.codebook.daysim import (
     DaysimWorkerType,
 )
 from data_canon.codebook.generic import BooleanYesNo
-from data_canon.codebook.persons import (
-    Employment,
-    SchoolType,
-    Student,
-)
+from data_canon.codebook.persons import Employment
 from data_canon.codebook.trips import ModeType
 
 from .mappings import (
@@ -23,8 +19,8 @@ from .mappings import (
     MODE_TYPE_MAP,
     STUDENT_MAP,
     WORK_PARK_MAP,
-    AgeThreshold,
 )
+from .person_type_utils import get_person_type_expr
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +49,8 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
 
     # Pivot days by person and day of week
     pivoted = (
-        days.select(["person_id", "is_complete", "travel_dow"])
-        .pivot(index="person_id", on="travel_dow", values="is_complete")
+        days.select(["person_id", "complete", "travel_dow"])
+        .pivot(index="person_id", on="travel_dow", values="complete")
         .fill_null(0)
     )
 
@@ -114,10 +110,21 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
 def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
     """Format person data to DaySim specification.
 
-    Applies mapping dictionaries and derives person type (pptyp) and worker
-    type (pwtyp) based on age, employment, and student status.
+    Applies mapping dictionaries and derives person type (`pptyp`) and worker
+    type (`pwtyp`) based on age, employment, and student status.
+
+    Key Transformations:
+
+    - **Person Type Classification**: Full-time worker, part-time worker, university
+      student, non-working adult, retired, child by age based on age, employment
+      status, student status (cascading logic below)
+    - **Day Completeness**: Mark complete travel days vs partial reporting (from days table)
+    - **Activity Patterns**: Work at home frequency, school location type derived from
+      usual work/school locations
+    - **Usual Days**: Calculate usual work/school days per week
 
     Person type (pptyp) cascading logic:
+
     - Age < 5: Child 0-4 (type 8)
     - Age < 16: Child 5-15 (type 7)
     - Full-time employed: Full-time worker (type 1)
@@ -170,87 +177,8 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         ppaidprk=pl.col("work_park").replace_strict(WORK_PARK_MAP),
     )
 
-    # Derive person type (pptyp) using cascading logic
-    persons_daysim = persons_daysim.with_columns(
-        pptyp=pl.when(pl.col("pagey") < AgeThreshold.CHILD_PRESCHOOL)
-        .then(pl.lit(DaysimPersonType.CHILD_UNDER_5.value))
-        .when(pl.col("pagey") < AgeThreshold.CHILD_SCHOOL)
-        .then(pl.lit(DaysimPersonType.CHILD_NON_DRIVING_AGE.value))
-        # Age >= 16:
-        .when(
-            pl.col("employment").is_in(
-                [
-                    Employment.EMPLOYED_FULLTIME.value,
-                    Employment.EMPLOYED_SELF.value,
-                    Employment.EMPLOYED_FURLOUGHED.value,
-                    Employment.EMPLOYED_UNPAID.value,
-                ]
-            )
-        )
-        .then(pl.lit(DaysimPersonType.FULL_TIME_WORKER.value))
-        # Age >= 16 and not full-time employed:
-        .when(
-            (pl.col("pagey") < AgeThreshold.YOUNG_ADULT)  # 16-17
-            & (
-                pl.col("student").is_in(
-                    [
-                        Student.FULLTIME_INPERSON.value,
-                        Student.PARTTIME_INPERSON.value,
-                        Student.PARTTIME_ONLINE.value,
-                        Student.FULLTIME_ONLINE.value,
-                    ]
-                )
-            )
-        )
-        .then(pl.lit(DaysimPersonType.CHILD_DRIVING_AGE.value))
-        .when(
-            (pl.col("pagey") < AgeThreshold.ADULT)  # 18-24
-            & (
-                pl.col("school_type").is_in(
-                    [
-                        SchoolType.HOME_SCHOOL.value,
-                        SchoolType.HIGH_SCHOOL.value,
-                    ]
-                )
-            )
-            & (
-                pl.col("student").is_in(
-                    [
-                        Student.FULLTIME_INPERSON.value,
-                        Student.PARTTIME_INPERSON.value,
-                        Student.PARTTIME_ONLINE.value,
-                        Student.FULLTIME_ONLINE.value,
-                    ]
-                )
-            )
-        )
-        .then(pl.lit(DaysimPersonType.CHILD_DRIVING_AGE.value))
-        # Age >= 18:
-        .when(
-            pl.col("student").is_in(
-                [
-                    Student.FULLTIME_INPERSON.value,
-                    Student.PARTTIME_INPERSON.value,
-                    Student.PARTTIME_ONLINE.value,
-                    Student.FULLTIME_ONLINE.value,
-                ]
-            )
-        )
-        .then(pl.lit(DaysimPersonType.UNIVERSITY_STUDENT.value))
-        .when(
-            pl.col("employment").is_in(
-                [
-                    Employment.EMPLOYED_PARTTIME.value,
-                    Employment.EMPLOYED_SELF.value,
-                    Employment.EMPLOYED_UNPAID.value,
-                ]
-            )
-        )
-        .then(pl.lit(DaysimPersonType.PART_TIME_WORKER.value))
-        .when(pl.col("pagey") < AgeThreshold.SENIOR)
-        .then(pl.lit(DaysimPersonType.NON_WORKER.value))
-        .otherwise(pl.lit(DaysimPersonType.RETIRED.value))
-    )
+    # Derive person type (pptyp) using reusable expression
+    persons_daysim = persons_daysim.with_columns(pptyp=get_person_type_expr())
 
     # Derive worker type (pwtyp) from person type and employment
     persons_daysim = persons_daysim.with_columns(
@@ -282,7 +210,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         .otherwise(pl.lit(0))  # non-worker
     )
 
-    # Set work/school locations to -1 if person is not worker/student
+    # Set work/school locations to None (coords) or -1 (taz) if person is not worker/student
     persons_daysim = persons_daysim.with_columns(
         pwtaz=pl.when(pl.col("pwtyp") != DaysimWorkerType.NON_WORKER.value)
         .then(pl.col("pwtaz"))
@@ -310,9 +238,12 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
         .otherwise(pl.lit(-1)),
     )
 
-    # Add default expansion factor
+    # If person weight is in data, use that, else default to 1.0
+    if "person_weight" not in persons_daysim.columns:
+        persons_daysim = persons_daysim.with_columns(pl.lit(1.0).alias("person_weight"))
+
     persons_daysim = persons_daysim.with_columns(
-        psexpfac=pl.lit(1.0),
+        pl.col("person_weight").fill_null(0).alias("psexpfac"),
         pwautime=pl.lit(-1),  # auto time to work (not available)
         pwaudist=pl.lit(-1),  # auto distance to work (not available)
         psautime=pl.lit(-1),  # auto time to school (not available)

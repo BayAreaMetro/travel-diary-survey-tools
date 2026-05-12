@@ -154,7 +154,7 @@ class TestDataBuilder:
 
     @staticmethod
     def create_minimal_trip(
-        trip_id: int,
+        unlinked_trip_id: int,
         person_id: int = 1,
         hh_id: int = 1,
         day_id: int = 2,
@@ -178,7 +178,7 @@ class TestDataBuilder:
         since tour extraction primarily uses purpose_category.
 
         Args:
-            trip_id: Trip ID
+            unlinked_trip_id: Trip ID
             person_id: Person ID
             hh_id: Household ID
             day_id: Day ID
@@ -200,8 +200,8 @@ class TestDataBuilder:
         """
         duration_minutes = (arrive_time - depart_time).total_seconds() / 60
         return {
-            "trip_id": trip_id,
-            "linked_trip_id": trip_id,
+            "unlinked_trip_id": unlinked_trip_id,
+            "linked_trip_id": unlinked_trip_id,
             "person_id": person_id,
             "hh_id": hh_id,
             "day_id": day_id,
@@ -230,7 +230,7 @@ class TestDataBuilder:
             "duration_minutes": duration_minutes,
             "num_travelers": num_travelers,
             "driver": driver,
-            "trip_weight": 1.0,
+            "unlinked_trip_weight": 1.0,
             **overrides,
         }
 
@@ -269,7 +269,7 @@ class ScenarioBuilder:
         trips = pl.DataFrame(
             [
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
                     o_purpose_category=PurposeCategory.HOME,
@@ -281,7 +281,7 @@ class ScenarioBuilder:
                     d_lon=work[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=2,
+                    unlinked_trip_id=2,
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),
@@ -332,7 +332,7 @@ class ScenarioBuilder:
         trips = pl.DataFrame(
             [
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
                     o_purpose_category=PurposeCategory.HOME,
@@ -344,7 +344,7 @@ class ScenarioBuilder:
                     d_lon=work[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=2,
+                    unlinked_trip_id=2,
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 12, 0),
                     arrive_time=datetime(2024, 1, 1, 12, 15),
@@ -357,7 +357,7 @@ class ScenarioBuilder:
                     d_lon=lunch[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=3,
+                    unlinked_trip_id=3,
                     linked_trip_id=3,
                     depart_time=datetime(2024, 1, 1, 13, 0),
                     arrive_time=datetime(2024, 1, 1, 13, 15),
@@ -370,7 +370,7 @@ class ScenarioBuilder:
                     d_lon=work[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=4,
+                    unlinked_trip_id=4,
                     linked_trip_id=4,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),
@@ -419,7 +419,7 @@ class ScenarioBuilder:
         trips = pl.DataFrame(
             [
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
                     o_purpose_category=PurposeCategory.HOME,
@@ -431,7 +431,7 @@ class ScenarioBuilder:
                     d_lon=work[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=2,
+                    unlinked_trip_id=2,
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),
@@ -444,7 +444,7 @@ class ScenarioBuilder:
                     d_lon=home[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=3,
+                    unlinked_trip_id=3,
                     linked_trip_id=3,
                     depart_time=datetime(2024, 1, 1, 18, 0),
                     arrive_time=datetime(2024, 1, 1, 18, 15),
@@ -457,7 +457,7 @@ class ScenarioBuilder:
                     d_lon=shop[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=4,
+                    unlinked_trip_id=4,
                     linked_trip_id=4,
                     depart_time=datetime(2024, 1, 1, 19, 0),
                     arrive_time=datetime(2024, 1, 1, 19, 15),
@@ -505,7 +505,7 @@ class ScenarioBuilder:
         trips = pl.DataFrame(
             [
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=1,
+                    unlinked_trip_id=1,
                     depart_time=datetime(2024, 1, 1, 8, 0),
                     arrive_time=datetime(2024, 1, 1, 9, 0),
                     o_purpose_category=PurposeCategory.HOME,
@@ -517,7 +517,7 @@ class ScenarioBuilder:
                     d_lon=work_dest[1],
                 ),
                 TestDataBuilder.create_minimal_trip(
-                    trip_id=2,
+                    unlinked_trip_id=2,
                     linked_trip_id=2,
                     depart_time=datetime(2024, 1, 1, 17, 0),
                     arrive_time=datetime(2024, 1, 1, 17, 30),

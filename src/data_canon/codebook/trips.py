@@ -15,19 +15,14 @@ class Purpose(LabeledEnum):
     ESCORT = (5, "Dropped off, picked up, or accompanied another person")
     SOCIAL_LEISURE = (7, "Social, leisure, religious, entertainment activity")
     PRIMARY_WORKPLACE = (10, "Went to primary workplace")
-    WORK_ACTIVITY = (
-        11,
-        "Went to work-related activity (e.g., meeting, delivery, worksite)",
-    )
+    WORK_ACTIVITY = (11, "Went to work-related activity (e.g., meeting, delivery, worksite)")
+    WORK_TRAVEL = (12, "Traveling for work (e.g., business trip)")
     VOLUNTEERING = (13, "Volunteering")
     OTHER_WORK = (14, "Other work-related")
     K12_SCHOOL = (21, "Attend K-12 school")
     COLLEGE = (22, "Attend college/university")
     OTHER_CLASS = (23, "Attend other type of class (e.g., cooking class)")
-    OTHER_EDUCATION = (
-        24,
-        "Attend other education-related activity (e.g., field trip)",
-    )
+    OTHER_EDUCATION = (24, "Attend other education-related activity (e.g., field trip)")
     VOCATIONAL = (25, "Attend vocational education class")
     DAYCARE = (26, "Attend daycare or preschool")
     GROCERY = (30, "Grocery shopping")
@@ -37,10 +32,11 @@ class Purpose(LabeledEnum):
     MEDICAL = (34, "Medical visit (e.g., doctor, dentist)")
     MAJOR_SHOPPING = (36, "Shopping for major item (e.g., furniture, car)")
     ERRAND_WITH_APPT = (37, "Errand with appointment (e.g., haircut)")
-    OTHER_ACTIVITY = (
-        44,
-        "Other activity only (e.g., attend meeting, pick-up or drop-off item)",
-    )
+    ESCORT_CHILDCARE = (40, "To/from childcare or preschool")
+    ESCORT_SCHOOL = (41, "To/from K-12 school or college")
+    ESCORT_WORK = (42, "To/from other person's work or volunteer activity")
+    ESCORT_APT = (43, "To/from other person's scheduled activity (e.g., lesson, appointment)")
+    OTHER_ACTIVITY = (44, "Other activity only (e.g., attend meeting, pick-up or drop-off item)")
     PICK_UP = (45, "Pick someone up")
     DROP_OFF = (46, "Drop someone off")
     ACCOMPANY = (47, "Accompany someone only (e.g., go along for the ride)")
@@ -48,34 +44,38 @@ class Purpose(LabeledEnum):
     DINING = (50, "Dined out, got coffee, or take-out")
     EXERCISE = (51, "Exercise or recreation (e.g., gym, jog, bike, walk dog)")
     SOCIAL = (52, "Social activity (e.g., visit friends/relatives)")
-    ENTERTAINMENT = (
-        53,
-        "Leisure/entertainment/cultural (e.g., cinema, museum, park)",
-    )
+    ENTERTAINMENT = (53, "Leisure/entertainment/cultural (e.g., cinema, museum, park)")
     RELIGIOUS_CIVIC = (54, "Religious/civic/volunteer activity")
+    VACATION = (55, "Vacation or leisure trip")
     FAMILY_ACTIVITY = (56, "Family activity (e.g., watch child's game)")
-    MODE_CHANGE = (
-        60,
-        "Changed or transferred mode (e.g., waited for bus or exited bus)",
-    )
+    MODE_CHANGE = (60, "Changed or transferred mode (e.g., waited for bus or exited bus)")
     OTHER_ERRAND = (61, "Other errand")
     OTHER_SOCIAL = (62, "Other social")
     OTHER = (99, "Other reason")
-    OTHER_RESIDENCE = (
-        150,
-        "Went to another residence (e.g., someone else's home, second home)",
-    )
-    TEMP_LODGING = (
-        152,
-        "Went to temporary lodging (e.g., hotel, vacation rental)",
-    )
+    SPLIT_LOOP = (101, "Split/loop trip")
+    OTHER_RESIDENCE = (150, "Went to another residence (e.g., someone else's home, second home)")
+    TEMP_LODGING = (152, "Went to temporary lodging (e.g., hotel, vacation rental)")
     MISSING = (995, "Missing Response")
     PNTA = (999, "Prefer not to answer")
     NOT_IMPUTABLE = (996, "Not imputable")
 
 
 class PurposeCategory(LabeledEnum):
-    """d_purpose_category value labels."""
+    """Broad trip purpose groupings, used to categorize origin and destination purposes.
+
+    A coarser classification than [`Purpose`][data_canon.codebook.trips.Purpose], grouping
+    detailed purpose codes into common categories for trip analysis and tour extraction.
+    See [`PurposeToCategoryMap`][data_canon.codebook.trips.PurposeToCategoryMap] for the
+    mapping from detailed purposes to these categories.
+
+    Used in:
+
+    - [`UnlinkedTripModel.o_purpose_category`][data_canon.models.survey.UnlinkedTripModel]
+      and [`UnlinkedTripModel.d_purpose_category`][data_canon.models.survey.UnlinkedTripModel]
+    - [`LinkedTripModel.o_purpose_category`][data_canon.models.survey.LinkedTripModel]
+      and [`LinkedTripModel.d_purpose_category`][data_canon.models.survey.LinkedTripModel]
+    - [`TourModel.tour_purpose`][data_canon.models.survey.TourModel]
+    """
 
     HOME = (1, "Home")
     WORK = (2, "Work")
@@ -289,15 +289,18 @@ class Mode(LabeledEnum):
     PARATRANSIT = (27, "Paratransit/Dial-A-Ride")
     BART = (30, "BART")
     AIR = (31, "Airplane/helicopter")
+    WATER = (32, "Boat/ferry/water taxi")
     CAR_WORK = (33, "Work car")
     CAR_FRIEND = (34, "Friend/relative/colleague car")
     TAXI = (36, "Regular taxi")
     BUS_UNIVERSITY = (38, "University/college shuttle")
+    LIGHT_RAIL = (39, "Light rail")
     RAIL_INTERCITY = (41, "Intercity/commuter rail (ACE, Amtrak, Caltrain)")
     RAIL_OTHER = (42, "Other rail")
     SKATE = (43, "Skateboard/rollerblade")
     GOLF_CART = (44, "Golf cart")
     ATV = (45, "ATV")
+    BUS_LOCAL_PUBLIC = (46, "Local public bus")
     MOTORCYCLE = (47, "Motorcycle (household)")
     TNC = (49, "Rideshare (Uber, Lyft, etc.)")
     MUNI_METRO = (53, "MUNI Metro")
@@ -308,10 +311,14 @@ class Mode(LabeledEnum):
     BUS_BRT = (61, "Rapid transit bus (BRT)")
     BUS_WORK = (62, "Employer shuttle/bus")
     MEDICAL = (63, "Medical transportation")
+    UBER = (64, "Uber")
+    LYFT = (65, "Lyft")
+    OTHER_TNC = (66, "Other rideshare (not Uber/Lyft)")
     BUS_PRIVATE_LOCAL = (67, "Local private bus")
     STREETCAR = (68, "Cable car/streetcar")
     BIKE_SHARE = (69, "Bike-share (standard)")
     BIKE_SHARE_ELECTRIC = (70, "Bike-share (electric)")
+    SCOOTER_SHARE_ALT = (71, "Scooter-share")
     MOPED_SHARE = (73, "Moped-share (Scoot, etc.)")
     SEGWAY = (74, "Segway")
     OTHER_ALT = (75, "Other")
@@ -330,6 +337,7 @@ class Mode(LabeledEnum):
     TNC_OTHER = (106, "Uber/Lyft/taxi/car service")
     MICROMOBILITY = (107, "Micromobility (scooter, moped, etc.)")
     MISSING = (995, "Missing Response")
+    OTHER_UNKNOWN = (997, "Other/Unknown")
 
 
 class ModeType(LabeledEnum):
@@ -425,6 +433,7 @@ class ModeType(LabeledEnum):
             Mode.BOAT: cls.FERRY,
             # Transit
             Mode.BUS_LOCAL: cls.TRANSIT,
+            Mode.BUS_LOCAL_PUBLIC: cls.TRANSIT,
             Mode.BUS_EXPRESS: cls.TRANSIT,
             Mode.BUS_BRT: cls.TRANSIT,
             Mode.BUS_OTHER: cls.TRANSIT,

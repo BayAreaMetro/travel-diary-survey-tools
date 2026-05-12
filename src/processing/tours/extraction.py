@@ -4,66 +4,88 @@ This module implements a hierarchical tour extraction algorithm that processes
 linked trip data to identify and classify tours and subtours based on spatial
 and temporal patterns.
 
-Algorithm Overview:
--------------------
-The tour building process follows a four-stage pipeline:
-1. Location Classification
+!!! Algorithm
+
+    The tour building process follows a seven-phase pipeline:
+
+    # 1. Location Classification
+
     - Calculates haversine distances from trip endpoints to known locations
       (home, work, school) using person-specific coordinates
     - Classifies each trip origin/destination as HOME, WORK, SCHOOL, or OTHER
       based on configurable distance thresholds
     - Only matches work/school locations if person has those locations defined
-2. Home-Based Tour Identification
+    - Adds boolean flags: o_is_home, d_is_home, o_is_work, d_is_work, etc.
+
+    # 2. Home-Based Tour Identification
+
     - Sorts trips by person, day, and departure time
     - Identifies tour boundaries by detecting:
-      * Departures from home (o_is_home=True, d_is_home=False)
-      * Returns to home (!o_is_home=True, d_is_home=True)
-      * Day boundaries (first trip of person-day)
+        * Departures from home (o_is_home=True, d_is_home=False)
+        * Returns to home (o_is_home=False, d_is_home=True)
+        * Day boundaries (first trip of person-day)
     - Assigns sequential tour IDs within each person-day
     - Format: tour_id = (day_id * 100) + tour_sequence_number
-3. Anchor Location Period Expansion (CRITICAL for subtours)
+
+    # 3. Anchor Period Expansion (CRITICAL for subtours)
+
     - For tours visiting usual anchor locations (work, school), expands the
       "at anchor" period by finding first arrival and last departure
     - Uses pure Polars window functions to identify anchor periods
     - Prevents subtours from being detected during travel to/from anchor
     - Generalizable: supports work, school, or future anchor types
-4. Anchor-Based Subtour Detection
+
+    # 4. Anchor-Based Subtour Detection
+
     - Within expanded anchor periods, identifies subtours by detecting:
-      * Departures from anchor (o_at_anchor=True, d_at_anchor=False)
-      * Returns to anchor (o_at_anchor=False, d_at_anchor=True)
+        * Departures from anchor (o_at_anchor=True, d_at_anchor=False)
+        * Returns to anchor (o_at_anchor=False, d_at_anchor=True)
     - Assigns hierarchical subtour IDs
     - Format: subtour_id = (tour_id * 10) + subtour_sequence_number
     - Currently supports work-based subtours, extensible to school-based
-5. Tour Attribute Aggregation
+
+    # 5. Tour Attribute Aggregation
+
+    - Groups trips by tour_id (and subtour_id for subtours)
     - Computes tour-level attributes from constituent trips:
-      * tour_purpose: Highest priority dest purpose (person-type specific)
-      * tour_mode: Highest priority travel mode (from mode hierarchy)
-      * origin_depart_time: First trip departure time
-      * dest_arrive_time: Last trip arrival time
-      * trip_count: Number of trips in tour
-      * stop_count: Number of intermediate stops (trip_count - 1)
-    - Half-tour assignment: outbound (before primary dest), inbound (after),
-      or subtour (work-based subtours)
+        * tour_purpose: Highest priority destination purpose (person-category
+          specific hierarchy)
+        * tour_mode: Highest priority travel mode (from configurable mode
+          hierarchy)
+        * origin_depart_time: First trip's departure time
+        * dest_arrive_time: Last trip's arrival time
+        * trip_count: Number of trips in tour
+        * stop_count: Number of intermediate stops (trip_count - 1)
 
-Configuration:
--------------
-Tour building behavior is controlled by TourConfig which defines:
-- distance_thresholds: Maximum distances (meters) for location matching
-- purpose_priority_by_person_category: Purpose hierarchies by person type
-- mode_hierarchy: Ordered list of modes (ascending priority)
-- person_type_mapping: Maps person_type codes to PersonCategory enum
+    - Assigns half-tour classification:
+        * "outbound": Trips before primary destination
+        * "inbound": Trips after primary destination
+        * "subtour": Work-based subtour trips
 
-Output:
--------
-Returns two DataFrames:
-1. linked_trips_with_tour_ids: Input trips with tour_id, subtour_id, and
-    tour attributes joined for analysis
-2. tours: Aggregated tour records with computed attributes (one row per tour)
-The algorithm handles edge cases including:
-- Incomplete tours (no return home at end of day)
-- Multi-day tours (spanning survey boundaries)
-- Missing work/school locations (null coordinates)
-- Non-sequential trip chains (spatial gaps)
+    # 6. Joint Tour Identification
+
+    - If joint_trips data provided, identifies tours where all trips involve
+      same group of travelers
+    - Assigns joint_tour_id to tours with stable participant groups
+    - Links tour-level joint travel to trip-level joint travel
+
+    # 7. Tour Validation and Correction
+
+    - Validates tour structure consistency
+    - Corrects data quality issues (e.g., inconsistent timing, missing values)
+    - Adds tour_id and joint_tour_id to unlinked_trips for reference
+
+    # Edge Case Handling is performed including
+
+    - Incomplete tours (no return home at end of day)
+    - Multi-day tours (spanning survey boundaries)
+    - Missing work/school locations (null coordinates)
+    - Non-sequential trip chains (spatial gaps)
+    - Hierarchical tour structure: Home-based tours → Work-based subtours
+    - Location classification robust to GPS/geododing errors via distance thresholds
+    - Tour purpose reflects primary activity, not intermediate stops
+    - Extensible design allows future additions (school-based subtours, other
+      anchor types)
 """
 
 import logging
@@ -85,7 +107,6 @@ from .location_helpers import (
     classify_trip_locations,
     prepare_person_locations,
 )
-from .person_type import derive_person_type
 from .tour_configs import TourConfig
 from .validation_helpers import validate_and_correct_tours
 
@@ -93,7 +114,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-@step()
+@step(
+    requires={
+        "households": {"hh_id", "home_lat", "home_lon"},
+        "persons": {
+            "person_id",
+            "age",
+            "employment",
+            "student",
+            "school_type",
+            "work_lat",
+            "work_lon",
+            "school_lat",
+            "school_lon",
+        },
+        "unlinked_trips": {"day_id", "linked_trip_id", "depart_time", "arrive_time"},
+        "linked_trips": {
+            "day_id",
+            "joint_trip_id",
+            "travel_dow",
+            "d_purpose_category",
+            "mode_type",
+        },
+    },
+    produces={
+        "unlinked_trips": {"tour_id"},
+        "linked_trips": {"tour_id"},
+        "tours": {"tour_id"},
+    },
+)
 def extract_tours(
     persons: pl.DataFrame,
     households: pl.DataFrame,
@@ -102,45 +151,52 @@ def extract_tours(
     joint_trips: pl.DataFrame | None = None,
     **kwargs: dict[str, Any],
 ) -> dict[str, pl.DataFrame]:
-    """Extract tours from linked trip data.
+    """Extract hierarchical tour structures from linked trip data.
 
-    Pipeline processes linked trip data through tour building steps:
-    1. Classify trip locations (home, work, school, other)
-    2. Identify home-based tours (assigns tour_id)
-    3. Expand anchor periods and detect subtours (assigns subtour_id)
-    4. Aggregate to tour-level records with attributes
-    5. Assign half-tour classification
-    6. Identify joint tours from stable joint trip participant groups
+    Builds tour and subtour structures from linked trip sequences using spatial
+    and temporal patterns. See module docstring for complete algorithm description.
 
     Args:
-        persons: DataFrame with person attributes
-        households: DataFrame with household attributes
-        unlinked_trips: DataFrame with unlinked trip data
-        linked_trips: DataFrame with linked trip data
-        joint_trips: Optional DataFrame with joint trip aggregations
-        **kwargs: Additional configuration parameters for TourConfig
+        persons: Person attributes including work/school locations. Used to identify
+            anchor locations for tour/subtour detection.
+        households: Household attributes including home locations. Home location is
+            primary anchor for tour identification.
+        unlinked_trips: Individual trip segments. Will receive tour_id assignment.
+        linked_trips: Journey records with coordinates and timing. Required columns:
+            person_id, day_id, o_lon, o_lat, d_lon, d_lat, depart_time, arrive_time.
+        joint_trips: Optional joint trip aggregations. If provided, enables joint
+            tour identification based on stable participant groups.
+        **kwargs: Configuration parameters for TourConfig:
+
+            - distance_thresholds: Dict of location type → distance threshold (meters).
+              Default: {"home": 100, "work": 200, "school": 200}
+            - mode_hierarchy: Mode priority for tour mode assignment (list).
+              Higher index = higher priority.
+            - purpose_hierarchy: Purpose priority by person type (dict).
+              Maps person categories to ordered purpose lists.
+            - person_category_expression: Polars expression to classify person
+              categories (e.g., worker, student).
 
     Returns:
-        Dict with keys:
-        - linked_trips: Input trips with tour_id, subtour_id, joint_tour_id
-        - tours: Aggregated tour records with
-            purpose, mode, timing, joint_tour_id
+        Dictionary containing:
+
+            - unlinked_trips: Original unlinked trips with tour_id, joint_tour_id
+            - linked_trips: Trips with tour_id, subtour_id, half_tour, joint_tour_id
+            - tours: Aggregated tour records with purpose, mode, timing, trip counts,
+              and joint_tour_id
     """
     logger.info("Building tours from linked trip data...")
 
     config = TourConfig(**kwargs)  # pyright: ignore[reportArgumentType]
 
-    # Derive person_type column
-    persons_ptype = derive_person_type(persons)
-
     # Prepare person location cache with categories
     person_locations = prepare_person_locations(
-        persons_ptype,
+        persons,
         households,
-        config.person_type_mapping,
+        config.person_category_expression(),
     )
 
-    msg = f"Processing {len(persons_ptype)} persons, {len(linked_trips)} trips"
+    msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
     logger.info(msg)
 
     # Step 1: Prepare person locations
@@ -214,7 +270,6 @@ def extract_tours(
     logger.info(msg)
 
     return {
-        "persons": persons_ptype,
         "unlinked_trips": unlinked_trips_with_tour_ids,
         "linked_trips": linked_trips_with_tour_dir,
         "tours": tours,

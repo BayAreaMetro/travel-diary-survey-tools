@@ -23,6 +23,17 @@ def format_tours(
     Transforms canonical tour data into DaySim tour format with proper
     field mappings and time conversions.
 
+    Key Transformations:
+
+    - **Purpose Mapping**: Map canonical tour purposes to DaySim purpose codes (work,
+      university, school, escort, shop, personal business, social, recreation, meal,
+      change mode)
+    - **Timing**: Convert departure and arrival times to minutes after midnight, calculate
+      duration
+    - **Location**: Map origin/destination to TAZ/MAZ, handle missing locations with -1
+    - **Tour Mode**: Determine primary mode from trip-level modes within tour
+    - **Parent Tours**: Link subtours to parent tour IDs for tour-based modeling
+
     Args:
         persons: DataFrame with canonical person fields
         days: DataFrame with canonical day fields
@@ -196,7 +207,7 @@ def format_tours(
         fhtindx1=pl.lit(0),
         fhtindx2=pl.lit(0),
         # Expansion factor
-        toexpfac=pl.col("toexpfac").fill_null(-1),
+        toexpfac=pl.col("toexpfac").fill_null(0),
     )
 
     # Select DaySim tour fields
