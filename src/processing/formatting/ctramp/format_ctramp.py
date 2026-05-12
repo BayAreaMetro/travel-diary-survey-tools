@@ -610,7 +610,6 @@ def format_ctramp(
         households_ctramp=households_ctramp,
         config=config,
     )
-    
 
     # Prepare result dictionary and clean up temporary columns
     tables = {
@@ -628,7 +627,6 @@ def format_ctramp(
 
     # Derive aoResults-style table from households
     tables["ao_results_ctramp"] = format_ao_results(tables["households_ctramp"])
-    
 
     logger.info("CT-RAMP formatting complete")
 

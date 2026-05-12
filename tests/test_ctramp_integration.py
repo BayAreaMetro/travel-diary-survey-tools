@@ -448,8 +448,8 @@ class TestColumnPresence:
             assert col in result.columns, f"Missing required column: {col}"
 
 
-class TestWeightsAndSampleRate:
-    """Tests for weight fields and sampleRate calculation in CTRAMP output."""
+class TestWeightsAndSampleRateIntegration:
+    """Integration tests for weight fields and sampleRate calculation in CTRAMP output."""
 
     def test_household_weight_and_samplerate(self, standard_config):
         """Test hh_weight and sampleRate are output when weight exists."""
@@ -844,8 +844,8 @@ class TestWeightsAndSampleRate:
         assert "trip_weight" not in result.columns
         assert "sampleRate" not in result.columns
 
-    def test_joint_tours_no_weight_fields(self, standard_config):
-        """Test joint tours do not include weight or sampleRate fields."""
+    def test_joint_tours_weight_fields(self, standard_config):
+        """Test joint tours include tour_weight from hh_weight but not sampleRate."""
         households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
             [
@@ -886,12 +886,12 @@ class TestWeightsAndSampleRate:
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_tour(tours, trips, persons, households_formatted, standard_config)
 
-        # Joint tours should NOT have weight or sampleRate fields
-        assert "tour_weight" not in result.columns
+        # Joint tours should have tour_weight (from hh_weight) but NOT sampleRate
+        assert "tour_weight" in result.columns
         assert "sampleRate" not in result.columns
 
-    def test_joint_trips_no_weight_fields(self, standard_config):
-        """Test joint trips do not include weight or sampleRate fields."""
+    def test_joint_trips_weight_fields(self, standard_config):
+        """Test joint trips include trip_weight from hh_weight but not sampleRate."""
         households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
             [
@@ -960,6 +960,6 @@ class TestWeightsAndSampleRate:
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_trip(joint_trips, trips, tours, households_formatted, standard_config)
 
-        # Joint trips should NOT have trip_weight or sampleRate fields
-        assert "trip_weight" not in result.columns
+        # Joint trips should have trip_weight (from hh_weight) but NOT sampleRate
+        assert "trip_weight" in result.columns
         assert "sampleRate" not in result.columns

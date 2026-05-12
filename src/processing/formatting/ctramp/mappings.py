@@ -108,7 +108,7 @@ def ctramp_purpose_category_expression(
         income: Polars expression for household income (absolute dollars)
         school_type: Polars expression for school type
             (from persons.SchoolType enum)
-        person_type: Polars expression for person category 
+        person_type: Polars expression for person category
             (from persons.CTRAMPPersonType enum)
         income_low_threshold: Income threshold for low bracket
         income_med_threshold: Income threshold for med bracket
@@ -157,9 +157,9 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(CTRAMPPurpose.WORK_HIGH.value))
         .otherwise(pl.lit(CTRAMPPurpose.WORK_VERY_HIGH.value))
     )
-    work_expr = home_expr.when(
-        purpose_category.is_in([PurposeCategory.WORK.value])
-    ).then(work_income_segmentation)
+    work_expr = home_expr.when(purpose_category.is_in([PurposeCategory.WORK.value])).then(
+        work_income_segmentation
+    )
 
     # School purposes - segmented by student type
     school_segmentation_expr = (
@@ -169,9 +169,9 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(CTRAMPPurpose.SCHOOL_HIGH.value))
         .otherwise(pl.lit(CTRAMPPurpose.SCHOOL_GRADE.value))
     )
-    school_expr = work_expr.when(
-        purpose_category.is_in([PurposeCategory.SCHOOL.value])
-    ).then(school_segmentation_expr)
+    school_expr = work_expr.when(purpose_category.is_in([PurposeCategory.SCHOOL.value])).then(
+        school_segmentation_expr
+    )
 
     # At-work sub-tour (work-related) - only for workers
     # Non-workers with work_related purpose will be mapped to discretionary
@@ -222,7 +222,8 @@ def ctramp_purpose_category_expression(
         pl.lit(CTRAMPPurpose.OTHMAINT.value)
     )
 
-    # Discretionary - all others - this includes school-related trips and work-related trips for nonworkers
+    # Discretionary - all others
+    # this includes school-related trips and work-related trips for nonworkers
     return maintenance_expr.otherwise(pl.lit(CTRAMPPurpose.OTHDISCR.value))
 
 
