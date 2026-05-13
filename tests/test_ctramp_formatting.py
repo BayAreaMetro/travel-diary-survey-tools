@@ -340,8 +340,8 @@ class TestEndToEndFormatting:
         person_types = persons_ctramp["type"].to_list()
         assert CTRAMPPersonType.FULL_TIME_WORKER.label in person_types
         assert CTRAMPPersonType.PART_TIME_WORKER.label in person_types
-        assert CTRAMPPersonType.CHILD_DRIVING_AGE.label in person_types
-        assert CTRAMPPersonType.CHILD_NON_DRIVING_AGE.label in person_types
+        assert CTRAMPPersonType.STUDENT_DRIVING_AGE.label in person_types
+        assert CTRAMPPersonType.STUDENT_NON_DRIVING_AGE.label in person_types
 
     def test_retired_household(self, standard_config):
         """Test formatting of retired household."""

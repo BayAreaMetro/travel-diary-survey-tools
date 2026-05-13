@@ -550,8 +550,8 @@ def ctramp_person_type_expression(
 
     Classification Precedence Rules (highest to lowest):
         1. Age < 5 → CHILD_UNDER_5 (Type 8) - overrides all other attributes
-        2. Age 5-15 → CHILD_NON_DRIVING_AGE (Type 6) - cannot be workers
-        3. Grade/high school student (16-17) → CHILD_DRIVING_AGE (Type 7)
+        2. Age 5-15 → STUDENT_NON_DRIVING_AGE (Type 6) - cannot be workers
+        3. Grade/high school student (16-17) → STUDENT_DRIVING_AGE (Type 7)
            - Children stay children regardless of employment
         4. Full-time employment → FULL_TIME_WORKER (Type 1)
            - Beats student status even for full-time college students
@@ -565,7 +565,7 @@ def ctramp_person_type_expression(
         - Children with impossible employment (e.g., 10-year-old FT worker) are
           classified by age rules
         - Young adults (16-24) who are neither students nor employed are
-          classified as NON_WORKER (Type 4), except 16-17 → CHILD_DRIVING_AGE
+          classified as NON_WORKER (Type 4), except 16-17 → STUDENT_DRIVING_AGE
         - Seniors 65+ with employment are classified as workers, not RETIRED
         - Impossible combinations (e.g., 4-year-old college student) should be
           logged using log_person_type_warnings() before classification
@@ -699,8 +699,8 @@ def ctramp_person_type_expression(
     # UNIVERSITY_STUDENT = 3, "University student"
     # NON_WORKER = 4, "Nonworker"
     # RETIRED = 5, "Retired"
-    # CHILD_NON_DRIVING_AGE = 6, "Child of non-driving age"
-    # CHILD_DRIVING_AGE = 7, "Child of driving age"
+    # STUDENT_NON_DRIVING_AGE = 6, "Student of non-driving age"
+    # STUDENT_DRIVING_AGE = 7, "Student of driving age"
     # CHILD_UNDER_5 = 8, "Child too young for school"
 
     # Build classification expression
@@ -708,21 +708,21 @@ def ctramp_person_type_expression(
         pl.when(is_under_5)
         .then(pl.lit(CTRAMPPersonType.CHILD_UNDER_5))
         .when(is_5_to_15)
-        .then(pl.lit(CTRAMPPersonType.CHILD_NON_DRIVING_AGE))
+        .then(pl.lit(CTRAMPPersonType.STUDENT_NON_DRIVING_AGE))
         # Teens: grade/high school students are children regardless of employment
         .when(is_16_to_17 & is_high_school)
-        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        .then(pl.lit(CTRAMPPersonType.STUDENT_DRIVING_AGE))
         .when(is_16_to_17 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_16_to_17 & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_16_to_17)
-        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        .then(pl.lit(CTRAMPPersonType.STUDENT_DRIVING_AGE))
         # Young adults: full-time employment beats student status
         .when(is_18_to_24 & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_18_to_24 & is_high_school)
-        .then(pl.lit(CTRAMPPersonType.CHILD_DRIVING_AGE))
+        .then(pl.lit(CTRAMPPersonType.STUDENT_DRIVING_AGE))
         # Part-time workers who are college students -> prioritize student status
         .when(is_18_to_24 & is_part_time & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))

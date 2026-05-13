@@ -642,7 +642,7 @@ def _bad_combo_rules() -> pl.DataFrame:
         (pt.UNIVERSITY_STUDENT.label, sc.COLLEGE_OR_HIGHER.value,    ec.FULL_TIME_EMPLOYED.value, "18-64", "full-time worker"),  # noqa: E501
         (pt.UNIVERSITY_STUDENT.label, sc.NOT_STUDENT.value,          ec.NOT_EMPLOYED.value,       "18-64", "nonworker"),  # noqa: E501
         (pt.UNIVERSITY_STUDENT.label, sc.NOT_STUDENT.value,          ec.PART_TIME_EMPLOYED.value, "18-64", "part-time worker"),  # noqa: E501
-        (pt.CHILD_DRIVING_AGE.label,  sc.NOT_STUDENT.value,          ec.NOT_EMPLOYED.value,       "18-64", "nonworker"),  # noqa: E501
+        (pt.STUDENT_DRIVING_AGE.label,  sc.NOT_STUDENT.value,          ec.NOT_EMPLOYED.value,       "18-64", "nonworker"),  # noqa: E501
     ]
     # fmt: on
 
