@@ -83,11 +83,14 @@ class PersonModel(BaseModel):
     ethnicity: Ethnicity = schema_field()
     telework_freq: CommuteFreq | None = schema_field(default=None)
     commute_freq: CommuteFreq | None = schema_field(default=None)
-    # NOTE: These commute subsidy fields are only used in CTRAMP format
-    # But might be useful elsewhere, consider standardizing to be less vague
-    # and/or moved into a data model extension.
-    commute_subsidy_use_3: BooleanYesNo | None = schema_field(default=None)
-    commute_subsidy_use_4: BooleanYesNo | None = schema_field(default=None)
+    # Uses commute subsidy: Free (fully subsidized) parking at work
+    commute_subsidy_free_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
+    # Uses commute subsidy: Discounted (partially subsidized) parking at work
+    commute_subsidy_discounted_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
     # NOTE: is proxy is vague.
     # Better and more flexible would be to have proxy_person_id on the proxied person
     # This allows for multiple proxy reporters and is more explicit.

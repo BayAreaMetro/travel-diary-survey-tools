@@ -104,8 +104,8 @@ class TestFreeParkingChoice:
         persons = pl.DataFrame(
             [
                 create_person(
-                    commute_subsidy_use_3=BooleanYesNo.YES,
-                    commute_subsidy_use_4=BooleanYesNo.NO,
+                    commute_subsidy_free_parking=BooleanYesNo.YES,
+                    commute_subsidy_discounted_parking=BooleanYesNo.NO,
                 )
             ]
         )
@@ -117,8 +117,8 @@ class TestFreeParkingChoice:
         persons = pl.DataFrame(
             [
                 create_person(
-                    commute_subsidy_use_3=BooleanYesNo.NO,
-                    commute_subsidy_use_4=BooleanYesNo.YES,
+                    commute_subsidy_free_parking=BooleanYesNo.NO,
+                    commute_subsidy_discounted_parking=BooleanYesNo.YES,
                 )
             ]
         )
@@ -130,8 +130,8 @@ class TestFreeParkingChoice:
         persons = pl.DataFrame(
             [
                 create_person(
-                    commute_subsidy_use_3=BooleanYesNo.YES,
-                    commute_subsidy_use_4=BooleanYesNo.YES,
+                    commute_subsidy_free_parking=BooleanYesNo.YES,
+                    commute_subsidy_discounted_parking=BooleanYesNo.YES,
                 )
             ]
         )
@@ -143,8 +143,8 @@ class TestFreeParkingChoice:
         persons = pl.DataFrame(
             [
                 create_person(
-                    commute_subsidy_use_3=BooleanYesNo.NO,
-                    commute_subsidy_use_4=BooleanYesNo.NO,
+                    commute_subsidy_free_parking=BooleanYesNo.NO,
+                    commute_subsidy_discounted_parking=BooleanYesNo.NO,
                 )
             ]
         )
@@ -156,8 +156,8 @@ class TestFreeParkingChoice:
         persons = pl.DataFrame(
             [
                 create_person(
-                    commute_subsidy_use_3=BooleanYesNo.MISSING,
-                    commute_subsidy_use_4=BooleanYesNo.MISSING,
+                    commute_subsidy_free_parking=BooleanYesNo.MISSING,
+                    commute_subsidy_discounted_parking=BooleanYesNo.MISSING,
                 )
             ]
         )
@@ -245,7 +245,7 @@ class TestPersonFormatting:
                     gender=Gender.MALE,
                     employment=Employment.EMPLOYED_FULLTIME,
                     student=Student.NONSTUDENT,
-                    commute_subsidy_use_3=BooleanYesNo.YES,
+                    commute_subsidy_free_parking=BooleanYesNo.YES,
                 )
             ]
         )

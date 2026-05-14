@@ -257,6 +257,14 @@ def clean_2023_bats(
         .alias("ethnicity")
     )
 
+    # Rename commute subsidy columns to canonical field names
+    persons = persons.rename(
+        {
+            "commute_subsidy_3": "commute_subsidy_free_parking",
+            "commute_subsidy_4": "commute_subsidy_discounted_parking",
+        }
+    )
+
     # ASSIGN COMPLETION STATUS =========================================
     # BATS 2023 has a "completion" field in the tables that just need to be renamed to canonical
     results = {

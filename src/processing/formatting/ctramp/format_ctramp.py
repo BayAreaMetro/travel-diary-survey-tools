@@ -401,8 +401,8 @@ def _drop_excess_fields(
             "person_num",
             "gender",
             "job_type",
-            "commute_subsidy_use_3",
-            "commute_subsidy_use_4",
+            "commute_subsidy_free_parking",
+            "commute_subsidy_discounted_parking",
         },
         "linked_trips": {
             "o_purpose",
