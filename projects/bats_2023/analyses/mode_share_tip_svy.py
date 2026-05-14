@@ -14,7 +14,8 @@ import svy
 
 # File paths
 input_dir = Path(r"E:\BATS2023_TIP_11052026\survey")
-output_dir = Path(r"E:\BATS2023_TIP_11052026\tip_svy")
+output_dir = Path(r"E:/Box/Modeling and Surveys/Surveys/Requests/TIP_investment analysis_2027/BATS2023_TIP_14052026/tip_svy")
+
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Column names for race and ethnicity variables
@@ -436,7 +437,7 @@ mode_group_share_design = add_counts_and_flags(
     metric_type="trip",
 )
 
-mode_group_share_design.write_csv(output_dir / "mode_group_share_with_se.csv")
+mode_group_share_design.write_csv(output_dir / "trip_mode_share_with_se.csv")
 
 
 # ============================================================================
