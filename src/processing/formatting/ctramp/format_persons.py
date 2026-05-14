@@ -385,7 +385,10 @@ def format_persons(
 
     Args:
         persons_canonical: Canonical persons DataFrame with derived person_type field
-            (free parking), commute_subsidy_discounted_parking (discounted parking),
+            commute_subsidy_provide_free_parking (employer provides free parking),
+            commute_subsidy_provide_discounted_parking (employer provides discounted parking),
+            commute_subsidy_use_free_parking (respondent uses free parking),
+            commute_subsidy_use_discounted_parking (respondent uses discounted parking),
             value_of_time
         tours_ctramp: Formatted CT-RAMP tours DataFrame with person_id and tour_purpose
             (CTRAMP-formatted purpose strings like 'work_low', 'school_grade', etc.)
@@ -471,11 +474,14 @@ def format_persons(
     )
 
     # Determine free parking eligibility
-    # Person can park for free if they use free or discounted parking
+    # Person parks for free if employer provides free/discounted parking
+    # OR if the respondent uses free/discounted parking
     persons_ctramp = persons_ctramp.with_columns(
         pl.when(
-            (pl.col("commute_subsidy_free_parking") == BooleanYesNo.YES.value)
-            | (pl.col("commute_subsidy_discounted_parking") == BooleanYesNo.YES.value)
+            (pl.col("commute_subsidy_provide_free_parking") == BooleanYesNo.YES.value)
+            | (pl.col("commute_subsidy_provide_discounted_parking") == BooleanYesNo.YES.value)
+            | (pl.col("commute_subsidy_use_free_parking") == BooleanYesNo.YES.value)
+            | (pl.col("commute_subsidy_use_discounted_parking") == BooleanYesNo.YES.value)
         )
         .then(pl.lit(FreeParkingChoice.PARK_FOR_FREE.value))
         .otherwise(pl.lit(FreeParkingChoice.PAY_TO_PARK.value))

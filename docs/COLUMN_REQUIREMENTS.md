@@ -55,8 +55,10 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `ethnicity` | Ethnicity |  |  |  |  |  |
     | `telework_freq` | CommuteFreq or None |  |  |  |  |  |
     | `commute_freq` | CommuteFreq or None |  |  |  |  |  |
-    | `commute_subsidy_use_3` | BooleanYesNo or None |  |  |  | ✓ |  |
-    | `commute_subsidy_use_4` | BooleanYesNo or None |  |  |  | ✓ |  |
+    | `commute_subsidy_provide_free_parking` | BooleanYesNo or None |  |  |  | ✓ |  |
+    | `commute_subsidy_provide_discounted_parking` | BooleanYesNo or None |  |  |  | ✓ |  |
+    | `commute_subsidy_use_free_parking` | BooleanYesNo or None |  |  |  | ✓ |  |
+    | `commute_subsidy_use_discounted_parking` | BooleanYesNo or None |  |  |  | ✓ |  |
     | `is_proxy` | bool or None |  |  |  |  | ✓ |
     | `num_days_complete` | int | ≥ 0 |  |  |  |  |
     | `complete` | bool or None |  |  |  |  |  |

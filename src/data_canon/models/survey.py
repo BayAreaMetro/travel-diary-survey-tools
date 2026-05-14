@@ -83,12 +83,20 @@ class PersonModel(BaseModel):
     ethnicity: Ethnicity = schema_field()
     telework_freq: CommuteFreq | None = schema_field(default=None)
     commute_freq: CommuteFreq | None = schema_field(default=None)
+    # Employer *provides* commute subsidy: Free (fully subsidized) parking at work
+    commute_subsidy_provide_free_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
+    # Employer *provides* commute subsidy: Discounted (partially subsidized) parking at work
+    commute_subsidy_provide_discounted_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
     # Uses commute subsidy: Free (fully subsidized) parking at work
-    commute_subsidy_free_parking: BooleanYesNo | None = schema_field(
+    commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(
         default=None, required_in_steps=["format_ctramp"]
     )
     # Uses commute subsidy: Discounted (partially subsidized) parking at work
-    commute_subsidy_discounted_parking: BooleanYesNo | None = schema_field(
+    commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(
         default=None, required_in_steps=["format_ctramp"]
     )
     # NOTE: is proxy is vague.
