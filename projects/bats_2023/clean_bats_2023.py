@@ -261,9 +261,9 @@ def clean_2023_bats(
     persons = persons.rename(
         {
             "commute_subsidy_3": "commute_subsidy_provide_free_parking",
-            "commute_subsidy_4": "commute_subsidy_provide_discounted_parking",      
+            "commute_subsidy_4": "commute_subsidy_provide_discounted_parking",
             "commute_subsidy_use_3": "commute_subsidy_use_free_parking",
-            "commute_subsidy_use_4": "commute_subsidy_use_discounted_parking",      
+            "commute_subsidy_use_4": "commute_subsidy_use_discounted_parking",
         }
     )
 
