@@ -233,7 +233,7 @@ def format_mandatory_location(
 
     Notes:
         - Excludes model-only fields (walk subzones)
-        - Filters to only persons with work OR school locations
+        - Includes ALL persons; WorkLocation and SchoolLocation default to 0 when not available
         - Uses pre-computed employment_category and student_category from persons_ctramp
     """
     logger.info("Formatting mandatory location data for CT-RAMP")
@@ -247,8 +247,7 @@ def format_mandatory_location(
         how="left",
     )
 
-    # Filter to only persons with work or school locations
-    # Add columns as null if they don't exist
+    # Add TAZ columns as null if they don't exist
     if f"work_{config.taz_field}" not in mandatory_loc.columns:
         mandatory_loc = mandatory_loc.with_columns(
             pl.lit(None).cast(pl.Int64).alias(f"work_{config.taz_field}")
@@ -257,17 +256,6 @@ def format_mandatory_location(
         mandatory_loc = mandatory_loc.with_columns(
             pl.lit(None).cast(pl.Int64).alias(f"school_{config.taz_field}")
         )
-
-    mandatory_loc = mandatory_loc.filter(
-        (
-            pl.col(f"work_{config.taz_field}").is_not_null()
-            & (pl.col(f"work_{config.taz_field}") > 0)
-        )
-        | (
-            pl.col(f"school_{config.taz_field}").is_not_null()
-            & (pl.col(f"school_{config.taz_field}") > 0)
-        )
-    )
 
     # Calculate fixed work/school distances for validation for persons that have fixed locations
     for fixed_type in ["work", "school"]:

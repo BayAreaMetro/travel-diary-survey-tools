@@ -193,7 +193,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPEmploymentCategory
+from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPPersonType
 from data_canon.models.ctramp import (
     AOResultsCTRAMPModel,
     CDAPResultsCTRAMPModel,
@@ -629,6 +629,21 @@ def format_ctramp(
             .alias("employment_category")
         )
     persons_with_type = enrich_persons_with_person_type(persons)
+
+    # Children under 16 get UNDER_16 employment category regardless of reported employment
+    persons_with_type = persons_with_type.with_columns(
+        pl.when(
+            pl.col("person_type").is_in(
+                [
+                    CTRAMPPersonType.CHILD_UNDER_5.value,
+                    CTRAMPPersonType.STUDENT_NON_DRIVING_AGE.value,
+                ]
+            )
+        )
+        .then(pl.lit(CTRAMPEmploymentCategory.UNDER_16.value))
+        .otherwise(pl.col("employment_category"))
+        .alias("employment_category")
+    )
 
     # Format tours - use empty DataFrame with proper schema if no tours exist
     if len(tours) == 0:

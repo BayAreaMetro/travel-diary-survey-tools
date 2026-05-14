@@ -12,9 +12,10 @@ from data_canon.core.labeled_enum import LabeledEnum
 class CTRAMPEmploymentCategory(StrEnum):
     """Enumeration for employment category."""
 
-    FULL_TIME_EMPLOYED = "Full-time employed"
-    PART_TIME_EMPLOYED = "Part-time employed"
+    FULL_TIME_EMPLOYED = "Full-time worker"
+    PART_TIME_EMPLOYED = "Part-time worker"
     NOT_EMPLOYED = "Not employed"
+    UNDER_16 = "Under age 16"
 
 
 class CTRAMPStudentCategory(StrEnum):
@@ -22,7 +23,7 @@ class CTRAMPStudentCategory(StrEnum):
 
     COLLEGE_OR_HIGHER = "College or higher"
     GRADE_OR_HIGH_SCHOOL = "Grade or high school"
-    NOT_STUDENT = "Not a student"
+    NOT_STUDENT = "Not student"
 
 
 class FreeParkingChoice(LabeledEnum):
