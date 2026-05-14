@@ -187,6 +187,7 @@ steps:
       gender_default_for_missing: "f"
       taz_field: "TAZ1454"  # TAZ field to use for CTRAMP formatting
       drop_missing_taz: true  # Drop households without valid TAZ
+      filter_zero_weight: true  # Drop households with null or zero survey weight
 
 
   - name: write_data

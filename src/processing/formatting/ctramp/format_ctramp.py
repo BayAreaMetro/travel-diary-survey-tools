@@ -375,6 +375,65 @@ def _drop_missing_taz(
     return households, persons, tours, linked_trips, joint_trips
 
 
+def _drop_zero_weight(
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+    tours: pl.DataFrame,
+    linked_trips: pl.DataFrame,
+    joint_trips: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Remove records with null or zero household weight and cascade.
+
+    Households with null or zero hh_weight are excluded from CT-RAMP output
+    (they have no representation in the travel model). Removal cascades to
+    persons, tours, and trips to maintain referential integrity.
+
+    Args:
+        households: Canonical household data with hh_weight column
+        persons: Canonical person data
+        tours: Canonical tour data
+        linked_trips: Canonical linked trip data
+        joint_trips: Canonical joint trip data
+
+    Returns:
+        Tuple of filtered DataFrames maintaining referential integrity
+    """
+    if "hh_weight" not in households.columns:
+        logger.warning("hh_weight column not found; skipping zero-weight filter.")
+        return households, persons, tours, linked_trips, joint_trips
+
+    n_before = len(households)
+    households = households.filter(pl.col("hh_weight").is_not_null() & (pl.col("hh_weight") > 0))
+    n_dropped = n_before - len(households)
+    if n_dropped == 0:
+        return households, persons, tours, linked_trips, joint_trips
+
+    logger.info(
+        "Dropped %d household(s) with null or zero hh_weight (keeping %d)",
+        n_dropped,
+        len(households),
+    )
+
+    valid_hh_ids = households["hh_id"]
+    persons = persons.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
+    if len(tours) > 0:
+        tours = tours.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
+    if len(linked_trips) > 0:
+        linked_trips = linked_trips.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
+    if len(joint_trips) > 0:
+        joint_trips = joint_trips.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
+
+    logger.info(
+        "After zero-weight filter: %d persons, %d tours, %d linked trips, %d joint trips",
+        len(persons),
+        len(tours),
+        len(linked_trips),
+        len(joint_trips),
+    )
+
+    return households, persons, tours, linked_trips, joint_trips
+
+
 def _drop_excess_fields(
     df: pl.DataFrame,
     model_cls: type,
@@ -401,8 +460,10 @@ def _drop_excess_fields(
             "person_num",
             "gender",
             "job_type",
-            "commute_subsidy_free_parking",
-            "commute_subsidy_discounted_parking",
+            "commute_subsidy_provide_free_parking",
+            "commute_subsidy_provide_discounted_parking",
+            "commute_subsidy_use_free_parking",
+            "commute_subsidy_use_discounted_parking",
         },
         "linked_trips": {
             "o_purpose",
@@ -425,6 +486,7 @@ def format_ctramp(
     income_base_year_dollars: int,
     taz_field: str = "taz",
     drop_missing_taz: bool = True,
+    filter_zero_weight: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -460,6 +522,9 @@ def format_ctramp(
             (default: "taz").
         drop_missing_taz: If True, remove households without valid TAZ IDs. This
             cascades to persons, tours, and trips (default: True).
+        filter_zero_weight: If True, remove households with null or zero
+            hh_weight before formatting, cascading to persons, tours, and
+            trips (default: True).
 
     Returns:
         Dictionary with keys:
@@ -513,12 +578,23 @@ def format_ctramp(
         income_high_threshold=income_high_threshold,
         income_base_year_dollars=income_base_year_dollars,
         drop_missing_taz=drop_missing_taz,
+        filter_zero_weight=filter_zero_weight,
         taz_field=taz_field,
     )
     logger.info("Starting CT-RAMP formatting")
 
     # Ensure TAZ columns are Int64 for filtering
     households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))
+
+    # Drop households with null or zero survey weight
+    if config.filter_zero_weight:
+        (
+            households,
+            persons,
+            tours,
+            linked_trips,
+            joint_trips,
+        ) = _drop_zero_weight(households, persons, tours, linked_trips, joint_trips)
 
     # Drop any households that do not have a TAZ assigned
     if config.drop_missing_taz:

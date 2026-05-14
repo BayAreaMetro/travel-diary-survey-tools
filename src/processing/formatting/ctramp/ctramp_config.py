@@ -55,6 +55,14 @@ class CTRAMPConfig(BaseModel):
         description="If True, remove households without valid TAZ IDs",
     )
 
+    filter_zero_weight: bool = Field(
+        default=True,
+        description=(
+            "If True, remove households with null or zero hh_weight before "
+            "formatting, cascading to persons, tours, and trips."
+        ),
+    )
+
     # Age thresholds
     age_adult: int = Field(
         default=4,
