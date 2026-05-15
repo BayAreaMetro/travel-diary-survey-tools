@@ -14,8 +14,8 @@ import svy
 
 # File paths
 input_dir = Path(r"E:\BATS2023_TIP_11052026\survey")
-output_dir = Path(r"E:/Box/Modeling and Surveys/Surveys/Requests/TIP_investment analysis_2027/BATS2023_TIP_14052026/tip_svy")
-
+#output_dir = Path(r"E:/Box/Modeling and Surveys/Surveys/Requests/TIP_investment analysis_2027/BATS2023_TIP_14052026/tip_svy")
+output_dir = Path(r"E:\BATS2023_TIP_14052026")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Column names for race and ethnicity variables
@@ -216,6 +216,7 @@ def add_counts_and_flags(
             .agg([
                 pl.sum("linked_trip_weight").alias("weighted_count"),
                 pl.len().alias("unweighted_count"),
+                pl.n_unique("person_id").alias("unique_persons"),
             ])
         )
 
@@ -251,6 +252,7 @@ def add_counts_and_flags(
             .agg([
                 (pl.col("linked_trip_weight") * pl.col("distance_miles")).sum().alias("weighted_count"),
                 pl.len().alias("unweighted_count"),
+                pl.n_unique("person_id").alias("unique_persons"),
             ])
         )
 
@@ -283,6 +285,7 @@ def add_counts_and_flags(
     result = result.with_columns([
         pl.col("weighted_count").fill_null(0.0),
         pl.col("unweighted_count").fill_null(0),
+        pl.col("unique_persons").fill_null(0),
     ])    
 
     result = result.with_columns([
@@ -314,6 +317,43 @@ def add_counts_and_flags(
         .then(pl.lit("Poor (Invalid range)"))
         .otherwise(pl.lit("Acceptable"))
         .alias("estimate_reliability"),
+    ]).with_columns([
+        # Mask unreliable estimates for responsible disclosure
+        # Suppress weighted_count to prevent users from back-calculating the share
+        pl.when(pl.col("suppress"))
+        .then(None)
+        .otherwise(pl.col("weighted_count"))
+        .alias("weighted_count"),
+        
+        pl.when(pl.col("suppress"))
+        .then(None)
+        .otherwise(pl.col("weighted_share"))
+        .alias("weighted_share"),
+        
+        pl.when(pl.col("suppress"))
+        .then(None)
+        .otherwise(pl.col("se"))
+        .alias("se"),
+        
+        pl.when(pl.col("suppress"))
+        .then(None)
+        .otherwise(pl.col("ci_lower"))
+        .alias("ci_lower"),
+        
+        pl.when(pl.col("suppress"))
+        .then(None)
+        .otherwise(pl.col("ci_upper"))
+        .alias("ci_upper"),
+        
+        pl.when(pl.col("suppress"))
+        .then(None)
+        .otherwise(pl.col("coeff_of_var"))
+        .alias("coeff_of_var"),
+        
+        pl.when(pl.col("suppress"))
+        .then(None)
+        .otherwise(pl.col("ci_width"))
+        .alias("ci_width"),
     ])
 
     return result
