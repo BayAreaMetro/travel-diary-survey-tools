@@ -4,8 +4,9 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.ctramp import CTRAMPIndustry
 from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
-from data_canon.codebook.persons import Ethnicity, Race
+from data_canon.codebook.persons import Ethnicity, Industry, Race
 from pipeline.decoration import step
 from utils.helpers import add_time_columns, expr_haversine
 
@@ -292,3 +293,125 @@ def clean_2023_bats(
         )
 
     return results
+
+
+@step()
+def enrich_2023_bats(persons: pl.DataFrame) -> dict[str, pl.DataFrame]:
+    """Derive BATS-2023-specific enrichment columns on the persons table.
+
+    Currently derives ``industry_empsix``: the six-category NAICS-based employment
+    sector (CT-RAMP empsix) from the raw ``industry`` integer code and, as a
+    secondary fallback, from keyword matching on the free-text ``industry_other``
+    field.  Mapping follows the ``INDUSTRY_RECODE`` / ``INDUSTRY_OTHER_TERM_RECODE``
+    dicts in the reference notebook:
+    https://github.com/BayAreaMetro/travel-model-one/blob/b759d9992745097c7f391273551f986809dc0907/utilities/telecommute/estimate_WFH_from_BATS2023.ipynb
+
+    This step must run after ``imputation`` (so that 997/995 industry values may
+    already be resolved) and before ``format_ctramp``.  Running it as a separate
+    survey-level step means the column is written to the survey CSVs and is also
+    available inside ``format_persons`` without re-derivation.
+    """
+    logger.info("Deriving industry_empsix for BATS 2023 persons")
+
+    _INDUSTRY_TO_EMPSIX = {
+        Industry.AGRICULTURE.value: CTRAMPIndustry.AGREMPN,
+        Industry.MINING.value: CTRAMPIndustry.AGREMPN,
+        Industry.UTILITIES.value: CTRAMPIndustry.MWTEMPN,
+        Industry.CONSTRUCTION.value: CTRAMPIndustry.OTHEMPN,
+        Industry.MANUFACTURING.value: CTRAMPIndustry.MWTEMPN,
+        Industry.WHOLESALE_TRADE.value: CTRAMPIndustry.MWTEMPN,
+        Industry.RETAIL_TRADE.value: CTRAMPIndustry.RETEMPN,
+        Industry.TRANSPORTATION.value: CTRAMPIndustry.MWTEMPN,
+        Industry.INFORMATION.value: CTRAMPIndustry.OTHEMPN,
+        Industry.FINANCE_AND_INSURANCE.value: CTRAMPIndustry.FPSEMPN,
+        Industry.REALESTATE.value: CTRAMPIndustry.FPSEMPN,
+        Industry.PROFESSIONAL.value: CTRAMPIndustry.FPSEMPN,
+        Industry.MANAGEMENT.value: CTRAMPIndustry.FPSEMPN,
+        Industry.ADMINISTRATIVE.value: CTRAMPIndustry.FPSEMPN,
+        Industry.EDUCATIONAL.value: CTRAMPIndustry.HEREMPN,
+        Industry.HEALTH_AND_SOCIAL.value: CTRAMPIndustry.HEREMPN,
+        Industry.ARTS_AND_RECREATION.value: CTRAMPIndustry.HEREMPN,
+        Industry.ACCOMMODATION.value: CTRAMPIndustry.HEREMPN,
+        Industry.OTHER.value: CTRAMPIndustry.OTHEMPN,
+        Industry.PUBLIC_ADMINISTRATION.value: CTRAMPIndustry.OTHEMPN,
+    }
+
+    # Primary recode: industry integer → empsix
+    # industry 997 (Other, please specify) and 995 (Missing) → null (handled below)
+    if "industry" in persons.columns:
+        persons = persons.with_columns(
+            pl.col("industry")
+            .replace_strict(
+                {k: v.value for k, v in _INDUSTRY_TO_EMPSIX.items()},
+                default=None,
+            )
+            .alias("industry_empsix")
+        )
+    else:
+        logger.warning("'industry' column not found; industry_empsix will be null for all persons")
+        persons = persons.with_columns(pl.lit(None).cast(pl.String).alias("industry_empsix"))
+
+    # Secondary fallback: keyword matching on industry_other free-text
+    # Only fills rows still null after the primary recode.
+    if "industry_other" in persons.columns:
+        _INDUSTRY_OTHER_TERM_RECODE = {
+            # FPSEMPN: Financial and professional services
+            "technology": CTRAMPIndustry.FPSEMPN,
+            "biotechnology": CTRAMPIndustry.FPSEMPN,
+            "biotech": CTRAMPIndustry.FPSEMPN,
+            "biomedical": CTRAMPIndustry.FPSEMPN,
+            "tech": CTRAMPIndustry.FPSEMPN,
+            "software": CTRAMPIndustry.FPSEMPN,
+            "security": CTRAMPIndustry.FPSEMPN,
+            "legal": CTRAMPIndustry.FPSEMPN,
+            "law": CTRAMPIndustry.FPSEMPN,
+            "attorney": CTRAMPIndustry.FPSEMPN,
+            "marketing": CTRAMPIndustry.FPSEMPN,
+            # OTHEMPN: Other employment
+            "government": CTRAMPIndustry.OTHEMPN,
+            "judicial": CTRAMPIndustry.OTHEMPN,
+            "national park service": CTRAMPIndustry.OTHEMPN,
+            "law enforcement": CTRAMPIndustry.OTHEMPN,
+            "military": CTRAMPIndustry.OTHEMPN,
+            "library": CTRAMPIndustry.OTHEMPN,
+            # MWTEMPN: Manufacturing, wholesale and transportation
+            "automotive": CTRAMPIndustry.MWTEMPN,
+            # HEREMPN: Health, educational and recreational services
+            "nonprofit": CTRAMPIndustry.HEREMPN,
+            "non-profit": CTRAMPIndustry.HEREMPN,
+            "non profit": CTRAMPIndustry.HEREMPN,
+            "philanthropy": CTRAMPIndustry.HEREMPN,
+            "childcare": CTRAMPIndustry.HEREMPN,
+            "health": CTRAMPIndustry.HEREMPN,
+            "fitness": CTRAMPIndustry.HEREMPN,
+            "school": CTRAMPIndustry.HEREMPN,
+            "hospitality": CTRAMPIndustry.HEREMPN,
+            "hotel": CTRAMPIndustry.HEREMPN,
+            # RETEMPN: Retail trade
+            "e-commerce": CTRAMPIndustry.RETEMPN,
+            "ecommerce": CTRAMPIndustry.RETEMPN,
+        }
+        persons = persons.with_columns(
+            pl.col("industry_other").str.to_lowercase().str.strip_chars().alias("_industry_other_norm")
+        )
+        for term, sector in _INDUSTRY_OTHER_TERM_RECODE.items():
+            persons = persons.with_columns(
+                pl.when(
+                    pl.col("industry_empsix").is_null()
+                    & pl.col("_industry_other_norm").str.contains(term, literal=True)
+                )
+                .then(pl.lit(sector.value))
+                .otherwise(pl.col("industry_empsix"))
+                .alias("industry_empsix")
+            )
+        persons = persons.drop("_industry_other_norm")
+
+    n_resolved = persons["industry_empsix"].drop_nulls().len()
+    n_null = persons["industry_empsix"].null_count()
+    logger.info(
+        "industry_empsix: %d resolved, %d still null (no industry reported or unmatched industry_other)",
+        n_resolved,
+        n_null,
+    )
+
+    return {"persons": persons}

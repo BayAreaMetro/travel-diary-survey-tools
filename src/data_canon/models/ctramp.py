@@ -16,6 +16,7 @@ from data_canon.codebook.ctramp import (
     CTRAMPPurpose,
     CTRAMPStudentCategory,
     CTRAMPTourCategory,
+    CTRAMPIndustry,
     FreeParkingChoice,
     IMFChoice,
     TourComposition,
@@ -155,6 +156,15 @@ class PersonCTRAMPModel(BaseModel):
     inmf_choice: int = Field(ge=0, le=96, description="Individual non-mandatory tour frequency")
     wfh_choice: WFHChoice = Field(
         description="Works from home choice (0=non-worker or workers who don't work from home, 1=workers who work from home) - Added in TM1.6",
+    )
+    industry_empsix: CTRAMPIndustry | None = Field(
+        default=None,
+        description=(
+            "Six-category NAICS-based employment sector "
+            "(RETEMPN=Retail, FPSEMPN=Financial/professional services, "
+            "HEREMPN=Health/education/recreation, AGREMPN=Agriculture/natural resources, "
+            "MWTEMPN=Manufacturing/wholesale/transportation, OTHEMPN=Other)"
+        ),
     )
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.

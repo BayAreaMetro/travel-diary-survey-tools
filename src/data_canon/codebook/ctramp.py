@@ -26,6 +26,17 @@ class CTRAMPStudentCategory(StrEnum):
     NOT_STUDENT = "Not student"
 
 
+class CTRAMPIndustry(StrEnum):
+    """Six-category employment sector classification (NAICS-based)."""
+
+    RETEMPN = "RETEMPN"  # Retail trade
+    FPSEMPN = "FPSEMPN"  # Financial and professional services
+    HEREMPN = "HEREMPN"  # Health, educational and recreational services
+    AGREMPN = "AGREMPN"  # Agricultural and natural resources
+    MWTEMPN = "MWTEMPN"  # Manufacturing, wholesale trade and transportation
+    OTHEMPN = "OTHEMPN"  # Other employment
+
+
 class FreeParkingChoice(LabeledEnum):
     """Enumeration for free parking choice categories."""
 

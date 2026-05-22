@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 import polars as pl
-from clean_bats_2023 import clean_2023_bats
+from clean_bats_2023 import clean_2023_bats, enrich_2023_bats
 
 from data_canon.models import (
     ctramp as ctramp_models,
@@ -87,6 +87,7 @@ processing_steps = [
     load_data,
     clean_2023_bats,
     add_zone_ids,
+    enrich_2023_bats,
     link_trips,
     detect_joint_trips,
     imputation,
