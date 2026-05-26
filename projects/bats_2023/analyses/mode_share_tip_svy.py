@@ -317,8 +317,21 @@ def add_counts_and_flags(
         .then(pl.lit("Poor (Invalid range)"))
         .otherwise(pl.lit("Acceptable"))
         .alias("estimate_reliability"),
-    ]).with_columns([
-        # Mask unreliable estimates for responsible disclosure
+    ])
+
+    return result
+
+
+# ============================================================================
+# Helper to apply masking to unreliable estimates
+# ============================================================================
+def apply_suppression_mask(df: pl.DataFrame) -> pl.DataFrame:
+    """Mask unreliable estimates based on suppress flag.
+    
+    Returns a new DataFrame with estimates set to null when suppress=True.
+    Prevents users from back-calculating unreliable shares.
+    """
+    return df.with_columns([
         # Suppress weighted_count to prevent users from back-calculating the share
         pl.when(pl.col("suppress"))
         .then(None)
@@ -355,9 +368,6 @@ def add_counts_and_flags(
         .otherwise(pl.col("ci_width"))
         .alias("ci_width"),
     ])
-
-    return result
-
 
 
 # ============================================================================
@@ -427,7 +437,13 @@ def estimate_domain_shares(
         metric_type=metric_type,
     )
     
-    share_design.write_csv(output_dir / output_filename)
+    # Save unmasked version (for internal review)
+    unmasked_filename = output_filename.replace(".csv", "_unmasked.csv")
+    share_design.write_csv(output_dir / unmasked_filename)
+    
+    # Save masked version (for release)
+    share_design_masked = apply_suppression_mask(share_design)
+    share_design_masked.write_csv(output_dir / output_filename)
 
 
 
@@ -477,7 +493,12 @@ mode_group_share_design = add_counts_and_flags(
     metric_type="trip",
 )
 
-mode_group_share_design.write_csv(output_dir / "trip_mode_share_with_se.csv")
+# Save unmasked version (for internal review)
+mode_group_share_design.write_csv(output_dir / "trips_mode_share_with_se_unmasked.csv")
+
+# Save masked version (for release)
+mode_group_share_design_masked = apply_suppression_mask(mode_group_share_design)
+mode_group_share_design_masked.write_csv(output_dir / "trips_mode_share_with_se.csv")
 
 
 # ============================================================================
@@ -525,7 +546,12 @@ mode_group_share_pmt_design = add_counts_and_flags(
     metric_type="pmt",
 )
 
-mode_group_share_pmt_design.write_csv(output_dir / "mode_group_share_pmt_with_se.csv")
+# Save unmasked version (for internal review)
+mode_group_share_pmt_design.write_csv(output_dir / "trips_mode_pmt_share_with_se_unmasked.csv")
+
+# Save masked version (for release)
+mode_group_share_pmt_design_masked = apply_suppression_mask(mode_group_share_pmt_design)
+mode_group_share_pmt_design_masked.write_csv(output_dir / "trips_mode_pmt_share_with_se.csv")
 
 
 
