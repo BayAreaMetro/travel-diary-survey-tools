@@ -15,7 +15,7 @@ import svy
 # File paths
 input_dir = Path(r"E:\BATS2023_TIP_11052026\survey")
 #output_dir = Path(r"E:/Box/Modeling and Surveys/Surveys/Requests/TIP_investment analysis_2027/BATS2023_TIP_14052026/tip_svy")
-output_dir = Path(r"E:\BATS2023_TIP_14052026")
+output_dir = Path(r"E:\BATS2023_TIP_26052026")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Column names for race and ethnicity variables
@@ -30,6 +30,19 @@ ALPHA = 1 - CONF_LEVEL
 CV_THRESHOLD = 0.30
 MIN_UNWEIGHTED_N = 30
 CI_WIDTH_THRESHOLD = 0.40
+
+# Domain groupings for demographic analysis
+# Each tuple defines (grouping_columns, output_filename_base)
+# Columns must exist in the enriched trips table after demographic attributes are joined
+DOMAIN_GROUPINGS = [
+    (["county", "income"], "trips_county_income_mode_share_with_se.csv"),
+    (["county", "race_eth"], "trips_county_race_mode_share_with_se.csv"),
+    (["county", "age_group"], "trips_county_age_mode_share_with_se.csv"),
+    # Add more groupings as needed, e.g.:
+    # (["income"], "trips_income_mode_share_with_se.csv"),
+    # (["age_group"], "trips_age_mode_share_with_se.csv"),
+    # (["county"], "trips_county_mode_share_with_se.csv"),
+]
 
 
 # ============================================================================
@@ -559,79 +572,35 @@ mode_group_share_pmt_design_masked.write_csv(output_dir / "trips_mode_pmt_share_
 # DOMAIN-SPECIFIC MODE SHARES WITH SE and CI
 # ============================================================================
 
-# County × Income
-trips_county_income = trips_enriched.filter(
-    pl.col("county").is_not_null() &
-    pl.col("income").is_not_null() &
-    pl.col("sample_segment").is_not_null() &
-    pl.col("hh_id").is_not_null() &
-    pl.col("person_id").is_not_null() &  
-    pl.col("linked_trip_weight").is_not_null()
-)
-estimate_domain_shares(
-    trips_county_income,
-    ["county", "income"],
-    "trips_county_income_mode_share_with_se.csv",
-    metric_type="trip",
-)
-
-# County × Race/Ethnicity
-trips_county_race = trips_enriched.filter(
-    pl.col("county").is_not_null() &
-    pl.col("race_eth").is_not_null() &
-    pl.col("sample_segment").is_not_null() &
-    pl.col("hh_id").is_not_null() &
-    pl.col("person_id").is_not_null() &  
-    pl.col("linked_trip_weight").is_not_null()
-)
-estimate_domain_shares(
-    trips_county_race,
-    ["county", "race_eth"],
-    "trips_county_race_mode_share_with_se.csv",
-    metric_type="trip",
-)
-
-# County × Age
-trips_county_age = trips_enriched.filter(
-    pl.col("county").is_not_null() &
-    pl.col("age_group").is_not_null() &
-    pl.col("sample_segment").is_not_null() &
-    pl.col("hh_id").is_not_null() &
-    pl.col("person_id").is_not_null() &  
-    pl.col("linked_trip_weight").is_not_null()
-)
-estimate_domain_shares(
-    trips_county_age,
-    ["county", "age_group"],
-    "trips_county_age_mode_share_with_se.csv",
-    metric_type="trip",
-)
-
-
-# ============================================================================
-# DOMAIN-SPECIFIC MODE SHARES (PMT) WITH SE and CI
-# ============================================================================
-
-# County × Income (PMT)
-estimate_domain_shares(
-    trips_county_income,
-    ["county", "income"],
-    "trips_county_income_mode_pmt_share_with_se.csv",
-    metric_type="pmt",
-)
-
-# County × Race/Ethnicity (PMT)
-estimate_domain_shares(
-    trips_county_race,
-    ["county", "race_eth"],
-    "trips_county_race_mode_pmt_share_with_se.csv",
-    metric_type="pmt",
-)
-
-# County × Age (PMT)
-estimate_domain_shares(
-    trips_county_age,
-    ["county", "age_group"],
-    "trips_county_age_mode_pmt_share_with_se.csv",
-    metric_type="pmt",
-)
+for domain_cols, output_filename in DOMAIN_GROUPINGS:
+    # Build filter condition for non-null required columns
+    filter_condition = (
+        pl.col("sample_segment").is_not_null() &
+        pl.col("hh_id").is_not_null() &
+        pl.col("person_id").is_not_null() &
+        pl.col("linked_trip_weight").is_not_null()
+    )
+    
+    # Add domain column filters
+    for col in domain_cols:
+        filter_condition = filter_condition & pl.col(col).is_not_null()
+    
+    # Filter data
+    trips_filtered = trips_enriched.filter(filter_condition)
+    
+    # Trip-based analysis
+    estimate_domain_shares(
+        trips_filtered,
+        domain_cols,
+        output_filename,
+        metric_type="trip",
+    )
+    
+    # PMT-based analysis
+    pmt_filename = output_filename.replace("_mode_share_", "_mode_pmt_share_")
+    estimate_domain_shares(
+        trips_filtered,
+        domain_cols,
+        pmt_filename,
+        metric_type="pmt",
+    )
