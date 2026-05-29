@@ -568,24 +568,42 @@ def _incorporate_day_into_ids(
         len(persons),
     )
 
-    # Update tours: replace hh_id and person_id with day-encoded values
+    # The `days` table has already been filtered to valid (non-zero-weight) days
+    # (e.g. Mon-Thu only).  Tours, trips, and joint trips must also be restricted
+    # to those days so that every tour/trip record can be joined back to a person
+    # record.  Use a semi-join on day_id so we drop rows without adding columns.
+    valid_day_ids = days.select("day_id")
+
+    # Update tours: drop non-target days, then encode CTRAMP IDs
     if len(tours) > 0 and "day_id" in tours.columns:
-        tours = tours.with_columns(
-            (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
-            pl.col("day_id").alias("person_id"),
+        tours = (
+            tours
+            .join(valid_day_ids, on="day_id", how="semi")
+            .with_columns(
+                (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
+                pl.col("day_id").alias("person_id"),
+            )
         )
 
-    # Update linked_trips: replace hh_id and person_id with day-encoded values
+    # Update linked_trips: drop non-target days, then encode CTRAMP IDs
     if len(linked_trips) > 0 and "day_id" in linked_trips.columns:
-        linked_trips = linked_trips.with_columns(
-            (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
-            pl.col("day_id").alias("person_id"),
+        linked_trips = (
+            linked_trips
+            .join(valid_day_ids, on="day_id", how="semi")
+            .with_columns(
+                (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
+                pl.col("day_id").alias("person_id"),
+            )
         )
 
     # Update joint_trips: only hh_id changes (no person_id at joint-trip level)
     if len(joint_trips) > 0 and "day_id" in joint_trips.columns:
-        joint_trips = joint_trips.with_columns(
-            (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
+        joint_trips = (
+            joint_trips
+            .join(valid_day_ids, on="day_id", how="semi")
+            .with_columns(
+                (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
+            )
         )
 
     return households, persons, tours, linked_trips, joint_trips
@@ -749,6 +767,18 @@ def format_ctramp(
             linked_trips,
             joint_trips,
         ) = _drop_missing_taz(households, persons, tours, linked_trips, joint_trips, config)
+
+    # Filter days to those with a valid (non-zero) weight so that non-target
+    # days (e.g. weekends in a Mon-Thu weighting run) are excluded from the
+    # CTRAMP expansion.  If day_weight is absent we keep all days.
+    if "day_weight" in days.columns:
+        n_days_before = len(days)
+        days = days.filter(pl.col("day_weight").is_not_null() & (pl.col("day_weight") > 0))
+        logger.info(
+            "Filtered days by day_weight > 0: %d → %d day records",
+            n_days_before,
+            len(days),
+        )
 
     # Expand to person-day level: each survey day becomes a distinct CTRAMP
     # household/person so that tour and trip counts are correctly attributed
