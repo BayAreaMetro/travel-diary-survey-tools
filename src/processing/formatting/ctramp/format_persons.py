@@ -518,26 +518,33 @@ def format_persons(
         ]
     )
 
-    # Derive wfh_choice from job_type, employment status, and work tours.
-    # Mirrors the binary-choice formulation in estimate_WFH_from_BATS2023.ipynb:
-    #   wfh = 1 if telecommuted (job_type == WFH) AND did not make a work tour.
-    #   wfh = 0 if they commuted to work (made work tours), even if they also telecommuted.
+    # Derive wfh_choice from employment status, observed telecommute time, and work tours.
     # This reflects the travel model's binary treatment: a person either WFH or commutes on a day.
-    persons_ctramp = persons_ctramp.with_columns(
-        pl.when(
-            pl.col("employment").is_in(
-                [
-                    Employment.EMPLOYED_FULLTIME.value,
-                    Employment.EMPLOYED_PARTTIME.value,
-                    Employment.EMPLOYED_SELF.value,
-                ]
-            )
-            & (pl.col("job_type") == JobType.WFH.value)
-            & (pl.col("work_count") == 0)  # Did not commute to work on the survey day
+    #
+    # When telecommute_time is available (carried from the days table during expansion):
+    #   wfh = 1 if employed AND telecommute_time > 0 AND no work tours that day.
+    #   job_type is intentionally NOT used: any job type counts as long as the person
+    #   actually reported telecommuting and did not make a work tour.
+    #
+    # Fallback when telecommute_time is absent: use job_type ∈ {WFH, HYBRID} as proxy.
+    employed_cond = pl.col("employment").is_in(
+        [
+            Employment.EMPLOYED_FULLTIME.value,
+            Employment.EMPLOYED_PARTTIME.value,
+            Employment.EMPLOYED_SELF.value,
+        ]
+    )
+    no_work_tour_cond = pl.col("work_count") == 0
+    if "telecommute_time" in persons_ctramp.columns:
+        wfh_cond = employed_cond & (pl.col("telecommute_time") > 0) & no_work_tour_cond
+    else:
+        wfh_cond = (
+            employed_cond
+            & pl.col("job_type").is_in([JobType.WFH.value, JobType.HYBRID.value])
+            & no_work_tour_cond
         )
-        .then(pl.lit(1))
-        .otherwise(pl.lit(0))
-        .alias("wfh_choice")
+    persons_ctramp = persons_ctramp.with_columns(
+        pl.when(wfh_cond).then(pl.lit(1)).otherwise(pl.lit(0)).alias("wfh_choice")
     )
 
     # industry_empsix is derived upstream by enrich_2023_bats and passed through as-is.

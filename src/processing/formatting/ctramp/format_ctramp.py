@@ -494,12 +494,17 @@ def _incorporate_day_into_ids(
     day_id_col = pl.col("day_id")
     day_num_expr = day_id_col % 100
 
-    # Build a person-day map: original person_id → (ctramp_person_id, ctramp_hh_id)
-    person_day_map = days.select(
+    # Build a person-day map: original person_id → (ctramp_person_id, ctramp_hh_id[, telecommute_time])
+    # telecommute_time is carried through when present so format_persons can use
+    # it directly as the WFH indicator instead of relying on job_type alone.
+    _day_cols = [
         pl.col("person_id"),
         day_id_col.alias("ctramp_person_id"),
         (pl.col("hh_id") * 100 + day_num_expr).alias("ctramp_hh_id"),
-    )
+    ]
+    if "telecommute_time" in days.columns:
+        _day_cols.append(pl.col("telecommute_time"))
+    person_day_map = days.select(_day_cols)
 
     # Count survey days per household and per person for weight scaling.
     # When a household/person is expanded to X day-records, each copy must
