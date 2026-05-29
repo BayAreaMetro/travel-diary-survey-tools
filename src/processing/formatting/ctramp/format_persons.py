@@ -181,6 +181,7 @@ def aggregate_tour_statistics(
                 "imf_choice": pl.Int64,
                 "inmf_choice": pl.Int64,
                 "activity_pattern": pl.String,
+                "work_count": pl.UInt32,
             }
         )
 
@@ -281,6 +282,7 @@ def aggregate_tour_statistics(
             "activity_pattern",
             "imf_choice",
             "inmf_choice",
+            "work_count",
         ]
     )
 
@@ -414,7 +416,7 @@ def format_persons(
         - activity_pattern: M=mandatory tours, N=non-mandatory only, H=no tours
         - imf_choice: Count of mandatory tours (work/school)
         - inmf_choice: Count of non-mandatory tours
-        - wfh_choice: Work from home indicator (currently always 0)
+        - wfh_choice: 1 if employed, job_type=WFH, and no work tours (binary: WFH or commute, not both)
     """
     logger.info("Formatting person data for CT-RAMP")
 
@@ -512,11 +514,15 @@ def format_persons(
             pl.col("activity_pattern").fill_null("H"),  # Home if no tours
             pl.col("imf_choice").fill_null(0),  # 0 mandatory tours
             pl.col("inmf_choice").fill_null(0),  # 0 non-mandatory tours
+            pl.col("work_count").fill_null(0),  # 0 work tours
         ]
     )
 
-    # Derive wfh_choice from job_type and employment status
-    # WFH = 1 only for employed workers (full-time, part-time, self-employed) AND job_type = WFH
+    # Derive wfh_choice from job_type, employment status, and work tours.
+    # Mirrors the binary-choice formulation in estimate_WFH_from_BATS2023.ipynb:
+    #   wfh = 1 if telecommuted (job_type == WFH) AND did not make a work tour.
+    #   wfh = 0 if they commuted to work (made work tours), even if they also telecommuted.
+    # This reflects the travel model's binary treatment: a person either WFH or commutes on a day.
     persons_ctramp = persons_ctramp.with_columns(
         pl.when(
             pl.col("employment").is_in(
@@ -527,6 +533,7 @@ def format_persons(
                 ]
             )
             & (pl.col("job_type") == JobType.WFH.value)
+            & (pl.col("work_count") == 0)  # Did not commute to work on the survey day
         )
         .then(pl.lit(1))
         .otherwise(pl.lit(0))
@@ -556,6 +563,18 @@ def format_persons(
             .otherwise(None)
             .alias("sampleRate")
         )
+
+    # Reorder columns to the canonical CT-RAMP person output order.
+    # Only include columns that are actually present in the DataFrame.
+    _COLUMN_ORDER = [
+        "hh_id", "person_id", "person_num", "age", "gender", "type",
+        "value_of_time", "fp_choice", "activity_pattern", "imf_choice",
+        "inmf_choice", "workDCLogsum", "schoolDCLogsum", "sampleRate",
+        "wfh_choice", "industry",
+    ]
+    ordered = [c for c in _COLUMN_ORDER if c in persons_ctramp.columns]
+    remaining = [c for c in persons_ctramp.columns if c not in ordered]
+    persons_ctramp = persons_ctramp.select(ordered + remaining)
 
     logger.info("Formatted %d persons for CT-RAMP", len(persons_ctramp))
     debug_ptype(persons_ctramp)

@@ -258,6 +258,21 @@ def format_households(
         pl.col(f"home_{config.taz_field}").alias("taz")
     )
 
+    # Reorder columns to the canonical CT-RAMP household output order.
+    # Only include columns that are actually present in the DataFrame.
+    _COLUMN_ORDER = [
+        "hh_id", "taz", "walk_subzone", "income", "autos", "cdap_pattern",
+        "jtf_choice", "jtf_pattern", "size", "workers", "auto_suff",
+        "ao_rn", "fp_rn", "cdap_rn", "imtf_rn", "imtod_rn", "immc_rn",
+        "jtf_rn", "jtl_rn", "jtod_rn", "jmc_rn", "inmtf_rn", "inmtl_rn",
+        "inmtod_rn", "inmmc_rn", "awf_rn", "awl_rn", "awtod_rn", "awmc_rn",
+        "stf_rn", "stl_rn", "humanVehicles", "autonomousVehicles",
+        "sampleRate", "pct_of_poverty",
+    ]
+    ordered = [c for c in _COLUMN_ORDER if c in households_ctramp.columns]
+    remaining = [c for c in households_ctramp.columns if c not in ordered]
+    households_ctramp = households_ctramp.select(ordered + remaining)
+
     logger.info("Formatted %d households for CT-RAMP", len(households_ctramp))
 
     return households_ctramp
