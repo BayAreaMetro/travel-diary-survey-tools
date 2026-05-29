@@ -296,20 +296,20 @@ def clean_2023_bats(
 
 
 @step()
-def enrich_2023_bats(persons: pl.DataFrame) -> dict[str, pl.DataFrame]:
+def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[str, pl.DataFrame]:
     """Derive BATS-2023-specific enrichment columns on the persons table.
 
-    Currently derives ``industry_empsix``: the six-category NAICS-based employment
-    sector (CT-RAMP empsix) from the raw ``industry`` integer code and, as a
-    secondary fallback, from keyword matching on the free-text ``industry_other``
-    field.  Mapping follows the ``INDUSTRY_RECODE`` / ``INDUSTRY_OTHER_TERM_RECODE``
-    dicts in the reference notebook:
-    https://github.com/BayAreaMetro/travel-model-one/blob/b759d9992745097c7f391273551f986809dc0907/utilities/telecommute/estimate_WFH_from_BATS2023.ipynb
+    Derives:
+    - ``industry_empsix``: six-category NAICS-based employment sector (CT-RAMP
+      empsix) from the raw ``industry`` integer code, with a keyword-matching
+      fallback on ``industry_other`` free-text.  Follows ``INDUSTRY_RECODE`` /
+      ``INDUSTRY_OTHER_TERM_RECODE`` from the reference notebook:
+      https://github.com/BayAreaMetro/travel-model-one/blob/b759d9992745097c7f391273551f986809dc0907/utilities/telecommute/estimate_WFH_from_BATS2023.ipynb
+    - ``is_home_based_worker``: True when a person is employed and their reported
+      work location (work_lat/work_lon) matches their household home location
+      (home_lat/home_lon) exactly.
 
-    This step must run after ``imputation`` (so that 997/995 industry values may
-    already be resolved) and before ``format_ctramp``.  Running it as a separate
-    survey-level step means the column is written to the survey CSVs and is also
-    available inside ``format_persons`` without re-derivation.
+    This step must run after ``imputation`` and before ``format_ctramp``.
     """
     logger.info("Deriving industry_empsix for BATS 2023 persons")
 
@@ -413,5 +413,26 @@ def enrich_2023_bats(persons: pl.DataFrame) -> dict[str, pl.DataFrame]:
         n_resolved,
         n_null,
     )
+
+    # Derive is_home_based_worker: employed person whose work lat/lon == home lat/lon
+    if all(c in persons.columns for c in ("work_lat", "work_lon")) and all(
+        c in households.columns for c in ("hh_id", "home_lat", "home_lon")
+    ):
+        persons = persons.join(
+            households.select("hh_id", "home_lat", "home_lon"),
+            on="hh_id",
+            how="left",
+        ).with_columns(
+            (
+                pl.col("work_lat").is_not_null()
+                & pl.col("work_lon").is_not_null()
+                & (pl.col("work_lat") == pl.col("home_lat"))
+                & (pl.col("work_lon") == pl.col("home_lon"))
+            ).alias("is_home_based_worker")
+        ).drop("home_lat", "home_lon")
+        n_hbw = persons["is_home_based_worker"].sum()
+        logger.info("is_home_based_worker: %d persons identified", n_hbw)
+    else:
+        logger.warning("work_lat/work_lon or home_lat/home_lon not available; skipping is_home_based_worker")
 
     return {"persons": persons}
