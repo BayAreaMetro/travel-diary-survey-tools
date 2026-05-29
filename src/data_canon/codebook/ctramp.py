@@ -147,7 +147,7 @@ class CTRAMPTourCategory(LabeledEnum):
     """Enumeration for tour category."""
 
     MANDATORY = "MANDATORY", "Mandatory tour"
-    INDIVIDUAL_NON_MANDATORY = "NON_MANDATORY", "Individual non-mandatory tour"
+    INDIVIDUAL_NON_MANDATORY = "INDIVIDUAL_NON_MANDATORY", "Individual non-mandatory tour"
     JOINT_NON_MANDATORY = "JOINT_NON_MANDATORY", "Joint non-mandatory tour"
     AT_WORK = "AT_WORK", "At-work subtour"
 
