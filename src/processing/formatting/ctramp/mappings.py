@@ -125,6 +125,7 @@ def ctramp_purpose_category_expression(
                     SchoolType.COLLEGE_2YEAR.value,
                     SchoolType.COLLEGE_4YEAR.value,
                     SchoolType.GRADUATE_SCHOOL.value,
+                    SchoolType.VOCATIONAL.value,
                 ]
             )
         )
@@ -165,7 +166,8 @@ def ctramp_purpose_category_expression(
     school_segmentation_expr = (
         pl.when(student_category == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value)
         .then(pl.lit(CTRAMPPurpose.UNIVERSITY.value))
-        .when(student_category == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value)
+        .when((student_category == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value) & 
+              (school_type == SchoolType.HIGH_SCHOOL.value))
         .then(pl.lit(CTRAMPPurpose.SCHOOL_HIGH.value))
         .otherwise(pl.lit(CTRAMPPurpose.SCHOOL_GRADE.value))
     )
