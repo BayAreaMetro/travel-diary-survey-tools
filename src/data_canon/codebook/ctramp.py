@@ -92,8 +92,8 @@ class CTRAMPPersonType(LabeledEnum):
     UNIVERSITY_STUDENT = 3, "University student"
     NON_WORKER = 4, "Non-worker"
     RETIRED = 5, "Retired"
-    STUDENT_NON_DRIVING_AGE = 6, "Student of non-driving age"
-    STUDENT_DRIVING_AGE = 7, "Student of driving age"
+    STUDENT_DRIVING_AGE = 6, "Student of driving age"
+    STUDENT_NON_DRIVING_AGE = 7, "Student of non-driving age"
     CHILD_UNDER_5 = 8, "Child too young for school"
 
 
