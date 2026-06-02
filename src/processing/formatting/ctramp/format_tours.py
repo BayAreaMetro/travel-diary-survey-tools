@@ -124,9 +124,23 @@ def format_individual_tour(
     # Promote workers with work-related tours only to work tours
     individual_tours = _promote_work_related_to_work_for_workers(individual_tours)
 
+    # Bring parent tour purpose onto each row so at-work labels can be gated
+    # by both subtour status and the parent tour being WORK.
+    parent_tour_purposes = individual_tours.select(
+        [
+            pl.col("tour_id").alias("_parent_tour_id_for_join"),
+            pl.col("tour_purpose").alias("_parent_tour_purpose"),
+        ]
+    )
+    individual_tours = individual_tours.join(
+        parent_tour_purposes,
+        left_on="parent_tour_id",
+        right_on="_parent_tour_id_for_join",
+        how="left",
+    )
+
     # Calculate subtour count (at-work tours)
     # atWork_freq represents the number of at-work subtours
-    # Per CTRAMP documentation: "Number of at work sub-tours (non-zero only for work tours)"
     subtour_counts = (
         individual_tours.filter(pl.col("parent_tour_id") != pl.col("tour_id"))
         .group_by("parent_tour_id")
@@ -156,6 +170,7 @@ def format_individual_tour(
             config.income_low_threshold,
             config.income_med_threshold,
             config.income_high_threshold,
+            pl.col("_parent_tour_purpose"),
         ).alias("tour_purpose_ctramp")
     )
 
@@ -167,13 +182,16 @@ def format_individual_tour(
     ]
 
     individual_tours = individual_tours.with_columns(
-        pl.when(pl.col("parent_tour_id") != pl.col("tour_id"))
+        pl.when(
+            (pl.col("parent_tour_id") != pl.col("tour_id"))
+            & (pl.col("_parent_tour_purpose") == PurposeCategory.WORK.value)
+        )
         .then(pl.lit(CTRAMPTourCategory.AT_WORK.value))
         .when(pl.col("tour_purpose").is_in(mandatory_purposes))
         .then(pl.lit(CTRAMPTourCategory.MANDATORY.value))
         .otherwise(pl.lit(CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY.value))
         .alias("tour_category_ctramp")
-    )
+    ).drop("_parent_tour_purpose")
 
     # Convert times to hour integers (5am-11pm = 5-23)
     individual_tours = individual_tours.with_columns(
