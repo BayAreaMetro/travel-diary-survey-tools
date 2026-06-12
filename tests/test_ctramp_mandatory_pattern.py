@@ -121,7 +121,7 @@ class TestWorkRelatedMapping:
         assert result["end_hour"][0] == 17
         assert result["num_ob_stops"][0] == 0  # 1 OB trip = 0 stops
         assert result["num_ib_stops"][0] == 0  # 1 IB trip = 0 stops
-        assert result["atWork_freq"][0] == 0  # No subtours
+        assert result["atWork_freq"][0] == 1  # Work tour with no subtours
         # Purpose should be work_med (income 100-150k is in med bracket)
         assert result["tour_purpose"][0] == "work_med"
 
@@ -243,10 +243,11 @@ class TestWorkRelatedMapping:
                 create_tour(
                     tour_id=1001,
                     person_id=101,
+                    parent_tour_id = 1000,
                     hh_id=1,
                     person_num=1,
                     tour_num=2,
-                    tour_purpose=PurposeCategory.WORK_RELATED,
+                    tour_purpose=PurposeCategory.WORK,
                     o_taz=100,
                     d_taz=200,
                     origin_depart_time=datetime.combine(datetime(2024, 1, 1), time(8, 0)),

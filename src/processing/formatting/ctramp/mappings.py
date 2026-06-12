@@ -97,6 +97,7 @@ def ctramp_purpose_category_expression(
     income_med_threshold: int,
     income_high_threshold: int,
     parent_tour_purpose: pl.Expr | None = None,
+    is_subtour: pl.Expr | None = None,
 ) -> pl.Expr:
     """Map canonical PurposeCategory to CTRAMP purpose string.
 
@@ -150,7 +151,27 @@ def ctramp_purpose_category_expression(
         pl.lit(CTRAMPPurpose.HOME.value)
     )
 
-    # Work purposes - segmented by income
+    # At-work sub-tour purposes only apply when the row is a subtour
+    # and the parent tour purpose is WORK.
+    if parent_tour_purpose is not None and is_subtour is not None:
+        is_at_work_subtour = is_subtour & (parent_tour_purpose == PurposeCategory.WORK.value)
+    else:
+        is_at_work_subtour = pl.lit(False)
+    
+    is_worker = person_type.is_in(
+        [
+            CTRAMPPersonType.FULL_TIME_WORKER.value,
+            CTRAMPPersonType.PART_TIME_WORKER.value,
+        ]
+    )
+
+    # At-work subtours with WORK/WORK_RELATED purposes → ATWORK_BUSINESS (check FIRST, before primary work)
+    atwork_business_expr = home_expr.when(
+        is_at_work_subtour & is_worker & 
+        ((purpose_category == PurposeCategory.WORK_RELATED.value) | (purpose_category == PurposeCategory.WORK.value))
+    ).then(pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value))
+
+    # Work purposes - segmented by income (only for primary work tours, not at-work subtours)
     work_income_segmentation = (
         pl.when(income < income_low_threshold)
         .then(pl.lit(CTRAMPPurpose.WORK_LOW.value))
@@ -160,7 +181,7 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(CTRAMPPurpose.WORK_HIGH.value))
         .otherwise(pl.lit(CTRAMPPurpose.WORK_VERY_HIGH.value))
     )
-    work_expr = home_expr.when(purpose_category.is_in([PurposeCategory.WORK.value])).then(
+    work_expr = atwork_business_expr.when(purpose_category.is_in([PurposeCategory.WORK.value])).then(
         work_income_segmentation
     )
 
@@ -177,28 +198,15 @@ def ctramp_purpose_category_expression(
         school_segmentation_expr
     )
 
-    # At-work sub-tour purposes only apply when the tour is a subtour of a WORK tour.
-    is_at_work_subtour = parent_tour_purpose == PurposeCategory.WORK.value if parent_tour_purpose is not None else pl.lit(False)
-    
-    is_worker = person_type.is_in(
-        [
-            CTRAMPPersonType.FULL_TIME_WORKER.value,
-            CTRAMPPersonType.PART_TIME_WORKER.value,
-        ]
-    )
-
-    atwork_expr = school_expr.when(
-        is_at_work_subtour & is_worker & (purpose_category == PurposeCategory.WORK_RELATED.value)
-    ).then(pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value))
-
     # Eating out vs at-work eating
-    eatout_expr = atwork_expr.when(
+    eatout_expr = school_expr.when(
         is_at_work_subtour & (purpose_category == PurposeCategory.MEAL.value)
     ).then(pl.lit(CTRAMPPurpose.ATWORK_EAT.value)).when(
         purpose_category == PurposeCategory.MEAL.value
     ).then(pl.lit(CTRAMPPurpose.EATOUT.value))
 
     # Escort
+    # TODO: Fix escort definition
     escort_segmentation_expr = (
         pl.when(
             student_category.is_in(
@@ -211,12 +219,24 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(CTRAMPPurpose.ESCORT_KIDS.value))
         .otherwise(pl.lit(CTRAMPPurpose.ESCORT_NO_KIDS.value))
     )
-    escort_expr = eatout_expr.when(purpose_category == PurposeCategory.ESCORT.value).then(
+    escort_expr = eatout_expr.when(
+        is_at_work_subtour & (purpose_category == PurposeCategory.ESCORT.value)
+    ).then(
+        pl.lit(CTRAMPPurpose.ATWORK_MAINT.value)
+    ).when(
+        purpose_category == PurposeCategory.ESCORT.value
+    ).then(
         escort_segmentation_expr
     )
 
     # Shopping
-    shopping_expr = escort_expr.when(purpose_category == PurposeCategory.SHOP.value).then(
+    shopping_expr = escort_expr.when(
+        is_at_work_subtour & (purpose_category == PurposeCategory.SHOP.value)
+    ).then(
+        pl.lit(CTRAMPPurpose.ATWORK_MAINT.value)
+    ).when(
+        purpose_category == PurposeCategory.SHOP.value
+    ).then(
         pl.lit(CTRAMPPurpose.SHOPPING.value)
     )
 

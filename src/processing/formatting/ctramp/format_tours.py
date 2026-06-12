@@ -14,6 +14,8 @@ from data_canon.codebook.ctramp import (
     CTRAMPEmploymentCategory,
     CTRAMPPersonType,
     CTRAMPTourCategory,
+    CTRAMPPurpose,
+    AtWorkFreq,
     TourComposition,
 )
 from data_canon.codebook.persons import SchoolType
@@ -51,8 +53,8 @@ def format_individual_tour(
     - Mode Translation: Maps canonical mode types to CT-RAMP mode codes
     - Time-of-Day: Extracts start/end hours from departure/arrival times
     - Stop Counts: Computes outbound and inbound stop counts from linked trips
-    - Subtour Frequency: Calculates atWork_freq by counting subtours for each
-      parent work tour
+        - Subtour Frequency: Encodes atWork_freq using CT-RAMP categorical values
+            based on work subtour pattern
     - Excludes: Model simulation fields (random numbers, wait times, logsums)
 
     Args:
@@ -76,7 +78,7 @@ def format_individual_tour(
             - orig_taz, dest_taz
             - start_hour, end_hour
             - tour_mode
-            - atWork_freq (subtour count)
+            - atWork_freq (subtour frequency category)
             - num_ob_stops, num_ib_stops
 
     Notes:
@@ -139,27 +141,6 @@ def format_individual_tour(
         how="left",
     )
 
-    # Calculate subtour count (at-work tours)
-    # atWork_freq represents the number of at-work subtours
-    subtour_counts = (
-        individual_tours.filter(pl.col("parent_tour_id") != pl.col("tour_id"))
-        .group_by("parent_tour_id")
-        .agg(pl.len().alias("atWork_freq"))
-    )
-
-    individual_tours = individual_tours.join(
-        subtour_counts,
-        left_on="tour_id",
-        right_on="parent_tour_id",
-        how="left",
-    ).with_columns(
-        # Only work tours can have at-work subtours; all other tours get 0
-        pl.when(pl.col("tour_purpose") == PurposeCategory.WORK.value)
-        .then(pl.col("atWork_freq").fill_null(0))
-        .otherwise(pl.lit(0))
-        .alias("atWork_freq")
-    )
-
     # Map tour purpose to CTRAMP format
     individual_tours = individual_tours.with_columns(
         ctramp_purpose_category_expression(
@@ -171,6 +152,7 @@ def format_individual_tour(
             config.income_med_threshold,
             config.income_high_threshold,
             pl.col("_parent_tour_purpose"),
+            pl.col("parent_tour_id") != pl.col("tour_id"),
         ).alias("tour_purpose_ctramp")
     )
 
@@ -192,6 +174,73 @@ def format_individual_tour(
         .otherwise(pl.lit(CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY.value))
         .alias("tour_category_ctramp")
     ).drop("_parent_tour_purpose")
+
+      # Build subtour mix summaries by parent tour, then map to CT-RAMP categories:
+    # 0=not work tour, 1=no subtour, 2=one eat, 3=one business,
+    # 4=one maintenance, 5=two business, 6=eat and business.
+    subtour_counts = (
+        individual_tours.filter(pl.col("parent_tour_id") != pl.col("tour_id"))
+        .group_by("parent_tour_id")
+        .agg(
+            [
+                pl.len().alias("_subtour_total"),
+                (pl.col("tour_purpose_ctramp") == CTRAMPPurpose.ATWORK_EAT.value)
+                .sum()
+                .alias("_subtour_eat_count"),
+                (pl.col("tour_purpose_ctramp") == CTRAMPPurpose.ATWORK_BUSINESS.value)
+                .sum()
+                .alias("_subtour_business_count"),
+                (pl.col("tour_purpose_ctramp") == CTRAMPPurpose.ATWORK_MAINT.value)
+                .sum()
+                .alias("_subtour_maint_count"),
+            ]
+        )
+    )
+
+    individual_tours = individual_tours.join(
+        subtour_counts,
+        left_on="tour_id",
+        right_on="parent_tour_id",
+        how="left",
+    ).with_columns(
+        # Only work tours use CT-RAMP atWork_freq categories.
+        pl.when(pl.col("tour_purpose") != PurposeCategory.WORK.value)
+        .then(pl.lit(AtWorkFreq.NONE_NOT_WORK.value))
+        .when(pl.col("_subtour_total").fill_null(0) == 0)
+        .then(pl.lit(AtWorkFreq.NO_SUBTOUR.value))
+        .when(
+            (pl.col("_subtour_total") == 1) & (pl.col("_subtour_eat_count") == 1)
+        )
+        .then(pl.lit(AtWorkFreq.ONE_EAT.value))
+        .when(
+            (pl.col("_subtour_total") == 1) & (pl.col("_subtour_business_count") == 1)
+        )
+        .then(pl.lit(AtWorkFreq.ONE_BUSINESS.value))
+        .when(
+            (pl.col("_subtour_total") == 1) & (pl.col("_subtour_maint_count") == 1)
+        )
+        .then(pl.lit(AtWorkFreq.ONE_MAINT.value))
+        .when(
+            (pl.col("_subtour_total") == 2) & (pl.col("_subtour_business_count") == 2)
+        )
+        .then(pl.lit(AtWorkFreq.TWO_BUSINESS.value))
+        .when(
+            (pl.col("_subtour_total") == 2)
+            & (pl.col("_subtour_business_count") == 1)
+            & (pl.col("_subtour_eat_count") == 1)
+        )
+        .then(pl.lit(AtWorkFreq.ONE_EAT_ONE_BUSINESS.value))
+        .otherwise(pl.lit(AtWorkFreq.OTHER.value))
+        .alias("atWork_freq")
+    ).drop(
+        [
+            "_subtour_total",
+            "_subtour_eat_count",
+            "_subtour_business_count",
+            "_subtour_maint_count",
+        ]
+    )
+
 
     # Convert times to hour integers (5am-11pm = 5-23)
     individual_tours = individual_tours.with_columns(
