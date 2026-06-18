@@ -4,10 +4,11 @@
 # config.yaml
 
 # Define directory shorthands
-survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
-weights_dir: "X:/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"
+# I think this needs to use the Weighted Dataset because the Unweighted Dataset is from March 2024
+survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Unweighted 2023 Dataset"
+weights_dir: "X:/survey_repos/ProjRoot_Tue-Thu20260616/WgtRoot_Tue-Thu20260616_nocommuteweighting/output/"
 pums_dir: "M:/Data/Census/PUMS/2023_1yr"
-output_dir: "M:/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_lmz_20260501"
+output_dir: "M:/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_lmz_20260618_NoMon"
 TM1_shapefile_dir: "E:/GitHub/travel-model-one/utilities/geographies"
 TM2_shapefile_dir: "E:/GitHub/TM2/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
