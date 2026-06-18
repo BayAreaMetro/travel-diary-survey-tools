@@ -6,9 +6,9 @@
 # Define directory shorthands
 # I think this needs to use the Weighted Dataset because the Unweighted Dataset is from March 2024
 survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Unweighted 2023 Dataset"
-weights_dir: "X:/survey_repos/ProjRoot_Tue-Thu20260616/WgtRoot_Tue-Thu20260616_nocommuteweighting/output/"
+weights_dir: "X:/survey_repos/ProjRoot_Tue-Thu20260616/WgtRoot_Tue-Thu20260616_nocommuteweighting_rmoveonly/output/"
 pums_dir: "M:/Data/Census/PUMS/2023_1yr"
-output_dir: "M:/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_lmz_20260618_NoMon"
+output_dir: "M:/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_lmz_20260618_NoMon_rmo"
 TM1_shapefile_dir: "E:/GitHub/travel-model-one/utilities/geographies"
 TM2_shapefile_dir: "E:/GitHub/TM2/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
