@@ -213,6 +213,8 @@ def _find_stable_groups_per_tour(
             [
                 # Collect all participant lists
                 pl.col("participants").alias("all_trip_participants"),
+                # Collect joint_trip_ids for this tour occasion
+                pl.col("joint_trip_ids").alias("joint_trip_ids_list"),
             ]
         )
         .with_columns(
@@ -231,6 +233,14 @@ def _find_stable_groups_per_tour(
         .with_columns(
             [
                 pl.col("stable_group").list.len().alias("stable_group_size"),
+                # Flatten and deduplicate joint_trip_ids (each exploded row has one id,
+                # so collected column is a flat list of integers)
+                pl.col("joint_trip_ids_list")
+                .map_elements(
+                    lambda ids: sorted(set(ids)),
+                    return_dtype=pl.List(pl.Int64),
+                )
+                .alias("joint_trip_ids"),
             ]
         )
     )
@@ -241,10 +251,12 @@ def _find_stable_groups_per_tour(
 def _assign_joint_tour_ids(
     valid_joint_tours: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Assign joint_tour_id to tours sharing the same stable group.
+    """Assign joint_tour_id to tours with same joint trip occasion.
 
-    Tours with identical stable groups (same people) get the same
-    joint_tour_id. IDs follow pattern: <hh_id><2-digit-sequence>
+    Tours that share the exact same set of joint_trip_ids are the same
+    occasion and get the same joint_tour_id. The same stable group on a
+    different occasion will have different joint_trip_ids and thus a
+    different joint_tour_id. IDs follow pattern: <hh_id><2-digit-sequence>
 
     Args:
         valid_joint_tours: Tours with stable groups of 2+ people
@@ -252,11 +264,13 @@ def _assign_joint_tour_ids(
     Returns:
         DataFrame with person_id, tour_id, joint_tour_id
     """
-    # Create a canonical group identifier (sorted participant list as string)
-    # This lets us group tours with identical participants
+    # Use sorted joint_trip_ids as the group key.
+    # Two persons on the same joint tour occasion share identical joint_trip_ids,
+    # so they get the same group_key and thus the same joint_tour_id.
+    # The same stable group on a different occasion has different joint_trip_ids.
     tours_with_group_key = valid_joint_tours.with_columns(
         [
-            pl.col("stable_group")
+            pl.col("joint_trip_ids")
             .map_elements(
                 lambda x: "_".join(map(str, sorted(x))),
                 return_dtype=pl.String,
