@@ -87,6 +87,9 @@ def format_individual_tour(
     """
     logger.info("Formatting individual tour data for CT-RAMP")
 
+    # Reclassify invalid joint tours before splitting individual vs joint records.
+    tours_canonical = _identify_misclassified_joint_tours(tours_canonical)
+
     # Derive/validate person_type in persons_with_type before joining to tours
     if "person_type" not in persons_canonical.columns or "type" not in persons_canonical.columns:
         logger.info("Deriving person_type for tour formatting")
@@ -403,6 +406,9 @@ def format_joint_tour(
     """
     logger.info("Formatting joint tour data for CT-RAMP")
 
+    # Reclassify invalid joint tours before building joint-tour outputs.
+    tours_canonical = _identify_misclassified_joint_tours(tours_canonical)
+
     # Handle empty tours DataFrame
     if len(tours_canonical) == 0:
         logger.info("No tours provided")
@@ -651,4 +657,67 @@ def _promote_work_related_to_work_for_workers(
             .alias("tour_purpose")
         )
         .drop(["_is_worker_type", "_has_work_tour", "_has_work_related_tour"])
+    )
+
+def _identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.DataFrame:
+    """Reclassify invalid joint tours by clearing their ``joint_tour_id``.
+
+    Misclassified joint tours include:
+
+    - WORK tours
+    - SCHOOL tours
+    - ESCORT tours
+    - Joint tour groups containing multiple distinct purposes
+
+    Args:
+        tours_canonical: Canonical tours DataFrame with tour_id, joint_tour_id, hh_id,
+            person_id, person_num, tour_category, tour_purpose, o_taz, d_taz,
+            origin_depart_time, origin_arrive_time, tour_mode, subtour_num
+
+    Returns:
+        Tours table with invalid joint tour groups converted to individual tours.
+    """
+    if len(tours_canonical) == 0 or "joint_tour_id" not in tours_canonical.columns:
+        return tours_canonical
+
+    joint_tours = tours_canonical.filter(pl.col("joint_tour_id").is_not_null())
+    if len(joint_tours) == 0:
+        return tours_canonical
+
+    misclassified_joint_ids = (
+        joint_tours.group_by("joint_tour_id")
+        .agg(
+            [
+                pl.col("tour_purpose").n_unique().alias("_n_unique_purposes"),
+                (pl.col("tour_purpose") == PurposeCategory.WORK.value).any().alias("_has_work"),
+                (pl.col("tour_purpose") == PurposeCategory.SCHOOL.value)
+                .any()
+                .alias("_has_school"),
+                (pl.col("tour_purpose") == PurposeCategory.ESCORT.value)
+                .any()
+                .alias("_has_escort"),
+            ]
+        )
+        .filter(
+            pl.col("_has_work")
+            | pl.col("_has_school")
+            | pl.col("_has_escort")
+            | (pl.col("_n_unique_purposes") > 1)
+        )
+        .select("joint_tour_id")
+    )
+
+    if len(misclassified_joint_ids) == 0:
+        return tours_canonical
+
+    logger.info(
+        "Reclassifying %d misclassified joint tours to individual tours",
+        len(misclassified_joint_ids),
+    )
+
+    return tours_canonical.with_columns(
+        pl.when(pl.col("joint_tour_id").is_in(misclassified_joint_ids["joint_tour_id"].implode()))
+        .then(pl.lit(None).cast(tours_canonical.schema["joint_tour_id"]))
+        .otherwise(pl.col("joint_tour_id"))
+        .alias("joint_tour_id")
     )
