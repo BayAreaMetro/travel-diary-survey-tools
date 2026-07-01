@@ -130,6 +130,23 @@ def identify_joint_tours(
     # Assign joint_tour_id to tours sharing the same stable group
     tours_with_joint_id = _assign_joint_tour_ids(valid_joint_tours)
 
+    # Safety check: a joint_tour_id must be shared by at least 2 persons.
+    # In edge cases, only one person's tour may survive eligibility filters
+    # for a given occasion. Those singleton IDs are reset to null.
+    valid_joint_ids = (
+        tours_with_joint_id.group_by("joint_tour_id")
+        .agg(pl.col("person_id").n_unique().alias("num_persons"))
+        .filter(pl.col("num_persons") >= 2)  # noqa: PLR2004
+        .select("joint_tour_id")
+    )
+
+    tours_with_joint_id = tours_with_joint_id.with_columns(
+        pl.when(pl.col("joint_tour_id").is_in(valid_joint_ids["joint_tour_id"].implode()))
+        .then(pl.col("joint_tour_id"))
+        .otherwise(pl.lit(None, dtype=pl.Int64))
+        .alias("joint_tour_id")
+    )
+
     # Join joint_tour_id back to original tables
     linked_trips = linked_trips.join(
         tours_with_joint_id.select(["person_id", "tour_id", "joint_tour_id"]),
