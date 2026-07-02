@@ -1,6 +1,6 @@
 """Post-processing script to strip location fields from BATS 2023 survey data.
 
-This script removes all fields containing '_lat' or '_lon' (case-insensitive) from
+This script removes all fields containing '_lat', '_lon', or '_bg' (case-insensitive) from
 CSV files in the survey output directory to prepare data for external sharing.
 
 Usage:
@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import logging
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -28,10 +29,10 @@ def contains_location_keywords(column_name: str) -> bool:
         column_name: Name of the column to check
 
     Returns:
-        True if column contains '_lat' or '_lon' (case-insensitive)
+        True if column contains '_lat', '_lon', or '_bg' (case-insensitive)
     """
     col_lower = column_name.lower()
-    return "_lat" in col_lower or "_lon" in col_lower
+    return "_lat" in col_lower or "_lon" in col_lower or "_bg" in col_lower
 
 
 def strip_location_fields(df: pl.DataFrame, file_name: str) -> tuple[pl.DataFrame, list[str]]:
@@ -151,6 +152,29 @@ def process_directory(input_directory: Path, output_directory: Path, skip_files:
     return results
 
 
+def copy_artifact(source_file: Path, destination_directory: Path) -> bool:
+    """Copy a single artifact into the destination directory if it exists."""
+    if not source_file.exists():
+        logger.warning(f"Artifact not found, skipping: {source_file}")
+        return False
+
+    destination_file = destination_directory / source_file.name
+    shutil.copy2(source_file, destination_file)
+    logger.info(f"Copied artifact: {source_file.name} -> {destination_file}")
+    return True
+
+
+def copy_pipeline_artifacts(survey_directory: Path, output_directory: Path) -> None:
+    """Copy codebook and pipeline metadata files into the external sharing folder."""
+    copy_artifact(survey_directory / "codebook.xlsx", output_directory)
+
+    pipeline_directory = survey_directory.parent
+    for source_file in sorted(pipeline_directory.glob("pipeline_*.log")):
+        copy_artifact(source_file, output_directory)
+    for source_file in sorted(pipeline_directory.glob("pipeline_*.yaml")):
+        copy_artifact(source_file, output_directory)
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Strip location fields from BATS 2023 survey CSV files.")
@@ -196,7 +220,7 @@ def main():
     logger.info(f"Input directory: {survey_dir}")
     logger.info(f"Output directory: {output_dir}")
     logger.info("")
-    logger.info("Removing all fields containing '_lat' or '_lon' (case-insensitive)")
+    logger.info("Removing all fields containing '_lat', '_lon', or '_bg' (case-insensitive)")
     if skip_files:
         logger.info(f"Skipping files: {', '.join(sorted(skip_files))}")
     logger.info("")
@@ -223,6 +247,8 @@ def main():
         logger.info("=" * 80)
     else:
         logger.warning("No files were processed")
+
+    copy_pipeline_artifacts(survey_dir, output_dir)
 
 
 if __name__ == "__main__":

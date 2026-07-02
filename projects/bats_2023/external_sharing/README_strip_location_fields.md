@@ -21,21 +21,24 @@ python strip_location_fields.py --survey-dir "E:\Box\Modeling and Surveys\Survey
 ## What It Does
 
 1. Scans all CSV files in the survey directory passed via `--survey-dir`
-2. Identifies columns containing "_lat" or "_lon" (case-insensitive)
+2. Identifies columns containing "_lat", "_lon", or "_bg" (case-insensitive)
 3. Removes those columns
 4. Writes cleaned CSV files to `external_sharing` beside the survey directory
 5. Writes a processing log file named `strip_location_fields_YYYYMMDD_HHMMSS.log`
 6. Can skip `tours_2023.csv` and `joint_trips_2023.csv` via command-line options
+7. Copies `codebook.xlsx` from the survey directory into `external_sharing`
+8. Copies any `pipeline_*.log` and `pipeline_*.yaml` files from the parent staging directory into `external_sharing`
 
 ## Fields Removed
 
 Any column name containing (case-insensitive):
 - `_lat` - Examples: `home_lat`, `latitude`, `d_lat`
 - `_lon` - Examples: `home_lon`, `longitude`, `o_lon`
+- `_bg` - Examples: `home_bg`
 
 ## Output Files
 
-### strip_location_fields.log
+### strip_location_fields_YYYYMMDD_HHMMSS.log
 Complete processing log showing:
 ```
 2026-07-01 10:30:15 - INFO - Processing: households_2023.csv
@@ -46,6 +49,12 @@ Complete processing log showing:
 
 ### Output CSVs
 Cleaned CSV files are written to the `external_sharing` folder next to the input survey directory.
+
+### Copied Artifacts
+The script also copies these files into `external_sharing` when they exist:
+- `codebook.xlsx`
+- `pipeline_*.log`
+- `pipeline_*.yaml`
 
 ## Workflow
 
@@ -67,6 +76,7 @@ Cleaned CSV files are written to the `external_sharing` folder next to the input
 
 ## Notes
 
-- Geography IDs (census tracts, TAZs, etc.) are NOT removed - only lat/lon coordinates
+- Geography IDs (census tracts, TAZs, etc.) are NOT removed - only lat/lon coordinates or block groups (bg)
 - Original files are not overwritten
 - The script processes all `.csv` files in the target directory unless skipped by option
+- Existing copied artifacts are overwritten with the latest versions
