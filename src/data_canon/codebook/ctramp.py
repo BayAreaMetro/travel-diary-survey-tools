@@ -217,8 +217,10 @@ class CTRAMPPurpose(LabeledEnum):
         }
         return mapping.get(self)
 
+
 class AtWorkFreq(LabeledEnum):
-    """Enumeration for at-work subtours"""
+    """Enumeration for at-work subtours."""
+
     NONE_NOT_WORK = 0, "No subtour since tour is not at work"
     NO_SUBTOUR = 1, "No at-work subtour"
     ONE_EAT = 2, "1 eating out"
@@ -227,6 +229,7 @@ class AtWorkFreq(LabeledEnum):
     TWO_BUSINESS = 5, "2 business"
     ONE_EAT_ONE_BUSINESS = 6, "1 eat, 1 business"
     OTHER = 7, "Other combo of at-work subtour not included in CTRAMP definition"
+
 
 class JTFChoice(LabeledEnum):
     """Enumeration for joint tour frequency choice categories."""
@@ -255,6 +258,7 @@ class JTFChoice(LabeledEnum):
     TWO_VISIT = 19, "2 visiting"
     ONE_VISIT_ONE_DISCR = 20, "1 visit, 1 discretionary"
     TWO_DISCR = 21, "2 discretionary"
+
 
 class WFHChoice(LabeledEnum):
     """Enumeration for work-from-home choice categories."""

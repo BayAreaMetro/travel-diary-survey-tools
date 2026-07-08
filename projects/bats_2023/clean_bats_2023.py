@@ -313,7 +313,7 @@ def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[st
     """
     logger.info("Deriving industry_empsix for BATS 2023 persons")
 
-    _INDUSTRY_TO_EMPSIX = {
+    industry_to_empsix = {
         Industry.AGRICULTURE.value: CTRAMPIndustry.AGREMPN,
         Industry.MINING.value: CTRAMPIndustry.AGREMPN,
         Industry.UTILITIES.value: CTRAMPIndustry.MWTEMPN,
@@ -342,7 +342,7 @@ def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[st
         persons = persons.with_columns(
             pl.col("industry")
             .replace_strict(
-                {k: v.value for k, v in _INDUSTRY_TO_EMPSIX.items()},
+                {k: v.value for k, v in industry_to_empsix.items()},
                 default=None,
             )
             .alias("industry_empsix")
@@ -354,7 +354,7 @@ def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[st
     # Secondary fallback: keyword matching on industry_other free-text
     # Only fills rows still null after the primary recode.
     if "industry_other" in persons.columns:
-        _INDUSTRY_OTHER_TERM_RECODE = {
+        industry_other_term_recode = {
             # FPSEMPN: Financial and professional services
             "technology": CTRAMPIndustry.FPSEMPN,
             "biotechnology": CTRAMPIndustry.FPSEMPN,
@@ -392,9 +392,12 @@ def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[st
             "ecommerce": CTRAMPIndustry.RETEMPN,
         }
         persons = persons.with_columns(
-            pl.col("industry_other").str.to_lowercase().str.strip_chars().alias("_industry_other_norm")
+            pl.col("industry_other")
+            .str.to_lowercase()
+            .str.strip_chars()
+            .alias("_industry_other_norm")
         )
-        for term, sector in _INDUSTRY_OTHER_TERM_RECODE.items():
+        for term, sector in industry_other_term_recode.items():
             persons = persons.with_columns(
                 pl.when(
                     pl.col("industry_empsix").is_null()
@@ -409,7 +412,8 @@ def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[st
     n_resolved = persons["industry_empsix"].drop_nulls().len()
     n_null = persons["industry_empsix"].null_count()
     logger.info(
-        "industry_empsix: %d resolved, %d still null (no industry reported or unmatched industry_other)",
+        "industry_empsix: %d resolved, %d still null "
+        "(no industry reported or unmatched industry_other)",
         n_resolved,
         n_null,
     )
@@ -418,21 +422,27 @@ def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[st
     if all(c in persons.columns for c in ("work_lat", "work_lon")) and all(
         c in households.columns for c in ("hh_id", "home_lat", "home_lon")
     ):
-        persons = persons.join(
-            households.select("hh_id", "home_lat", "home_lon"),
-            on="hh_id",
-            how="left",
-        ).with_columns(
-            (
-                pl.col("work_lat").is_not_null()
-                & pl.col("work_lon").is_not_null()
-                & (pl.col("work_lat") == pl.col("home_lat"))
-                & (pl.col("work_lon") == pl.col("home_lon"))
-            ).alias("is_home_based_worker")
-        ).drop("home_lat", "home_lon")
+        persons = (
+            persons.join(
+                households.select("hh_id", "home_lat", "home_lon"),
+                on="hh_id",
+                how="left",
+            )
+            .with_columns(
+                (
+                    pl.col("work_lat").is_not_null()
+                    & pl.col("work_lon").is_not_null()
+                    & (pl.col("work_lat") == pl.col("home_lat"))
+                    & (pl.col("work_lon") == pl.col("home_lon"))
+                ).alias("is_home_based_worker")
+            )
+            .drop("home_lat", "home_lon")
+        )
         n_hbw = persons["is_home_based_worker"].sum()
         logger.info("is_home_based_worker: %d persons identified", n_hbw)
     else:
-        logger.warning("work_lat/work_lon or home_lat/home_lon not available; skipping is_home_based_worker")
+        logger.warning(
+            "work_lat/work_lon or home_lat/home_lon not available; skipping is_home_based_worker"
+        )
 
     return {"persons": persons}

@@ -416,7 +416,8 @@ def format_persons(
         - activity_pattern: M=mandatory tours, N=non-mandatory only, H=no tours
         - imf_choice: Count of mandatory tours (work/school)
         - inmf_choice: Count of non-mandatory tours
-        - wfh_choice: 1 if employed, job_type=WFH, and no work tours (binary: WFH or commute, not both)
+        - wfh_choice: 1 if employed, job_type=WFH, and no work tours
+          (binary: WFH or commute, not both)
     """
     logger.info("Formatting person data for CT-RAMP")
 
@@ -573,13 +574,25 @@ def format_persons(
 
     # Reorder columns to the canonical CT-RAMP person output order.
     # Only include columns that are actually present in the DataFrame.
-    _COLUMN_ORDER = [
-        "hh_id", "person_id", "person_num", "age", "gender", "type",
-        "value_of_time", "fp_choice", "activity_pattern", "imf_choice",
-        "inmf_choice", "workDCLogsum", "schoolDCLogsum", "sampleRate",
-        "wfh_choice", "industry",
+    column_order = [
+        "hh_id",
+        "person_id",
+        "person_num",
+        "age",
+        "gender",
+        "type",
+        "value_of_time",
+        "fp_choice",
+        "activity_pattern",
+        "imf_choice",
+        "inmf_choice",
+        "workDCLogsum",
+        "schoolDCLogsum",
+        "sampleRate",
+        "wfh_choice",
+        "industry",
     ]
-    ordered = [c for c in _COLUMN_ORDER if c in persons_ctramp.columns]
+    ordered = [c for c in column_order if c in persons_ctramp.columns]
     remaining = [c for c in persons_ctramp.columns if c not in ordered]
     persons_ctramp = persons_ctramp.select(ordered + remaining)
 

@@ -200,7 +200,7 @@ def _write_checks(
 
 
 @step()
-def write_data(
+def write_data(  # noqa: C901
     output_paths: dict[str, str],
     canonical_data: CanonicalData,
     validate_input: bool,

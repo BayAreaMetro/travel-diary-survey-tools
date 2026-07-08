@@ -243,7 +243,7 @@ class TestWorkRelatedMapping:
                 create_tour(
                     tour_id=1001,
                     person_id=101,
-                    parent_tour_id = 1000,
+                    parent_tour_id=1000,
                     hh_id=1,
                     person_num=1,
                     tour_num=2,

@@ -494,7 +494,8 @@ def _incorporate_day_into_ids(
     day_id_col = pl.col("day_id")
     day_num_expr = day_id_col % 100
 
-    # Build a person-day map: original person_id → (ctramp_person_id, ctramp_hh_id[, telecommute_time])
+    # Build a person-day map: original person_id →
+    # (ctramp_person_id, ctramp_hh_id[, telecommute_time]).
     # telecommute_time is carried through when present so format_persons can use
     # it directly as the WFH indicator instead of relying on job_type alone.
     _day_cols = [
@@ -514,22 +515,12 @@ def _incorporate_day_into_ids(
     # person-day rows.  A 3-person household surveyed for 2 days has 6 rows in
     # `days` but only 2 household-days, so we unique on (hh_id, ctramp_hh_id)
     # before counting.
-    hh_day_unique = (
-        days.select(
-            pl.col("hh_id"),
-            (pl.col("hh_id") * 100 + day_num_expr).alias("ctramp_hh_id"),
-        )
-        .unique(["hh_id", "ctramp_hh_id"])
-    )
-    hh_num_days = (
-        hh_day_unique
-        .group_by("hh_id")
-        .agg(pl.len().alias("num_hh_days"))
-    )
-    person_num_days = (
-        days.group_by("person_id")
-        .agg(pl.len().alias("num_person_days"))
-    )
+    hh_day_unique = days.select(
+        pl.col("hh_id"),
+        (pl.col("hh_id") * 100 + day_num_expr).alias("ctramp_hh_id"),
+    ).unique(["hh_id", "ctramp_hh_id"])
+    hh_num_days = hh_day_unique.group_by("hh_id").agg(pl.len().alias("num_hh_days"))
+    person_num_days = days.group_by("person_id").agg(pl.len().alias("num_person_days"))
 
     # Build a household-day map: original hh_id → [ctramp_hh_id, num_hh_days]
     hh_day_map = hh_day_unique.join(hh_num_days, on="hh_id")
@@ -539,8 +530,7 @@ def _incorporate_day_into_ids(
 
     # Expand households: one row per household-day; scale hh_weight accordingly
     households = (
-        households
-        .join(hh_day_map, on="hh_id", how="inner")
+        households.join(hh_day_map, on="hh_id", how="inner")
         .drop("hh_id")
         .rename({"ctramp_hh_id": "hh_id"})
     )
@@ -552,8 +542,7 @@ def _incorporate_day_into_ids(
 
     # Expand persons: one row per person-day; scale person_weight accordingly
     persons = (
-        persons
-        .join(person_day_map, on="person_id", how="inner")
+        persons.join(person_day_map, on="person_id", how="inner")
         .join(person_num_days, on="person_id", how="left")
         .drop(["hh_id", "person_id"])
         .rename({"ctramp_hh_id": "hh_id", "ctramp_person_id": "person_id"})
@@ -581,34 +570,22 @@ def _incorporate_day_into_ids(
 
     # Update tours: drop non-target days, then encode CTRAMP IDs
     if len(tours) > 0 and "day_id" in tours.columns:
-        tours = (
-            tours
-            .join(valid_day_ids, on="day_id", how="semi")
-            .with_columns(
-                (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
-                pl.col("day_id").alias("person_id"),
-            )
+        tours = tours.join(valid_day_ids, on="day_id", how="semi").with_columns(
+            (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
+            pl.col("day_id").alias("person_id"),
         )
 
     # Update linked_trips: drop non-target days, then encode CTRAMP IDs
     if len(linked_trips) > 0 and "day_id" in linked_trips.columns:
-        linked_trips = (
-            linked_trips
-            .join(valid_day_ids, on="day_id", how="semi")
-            .with_columns(
-                (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
-                pl.col("day_id").alias("person_id"),
-            )
+        linked_trips = linked_trips.join(valid_day_ids, on="day_id", how="semi").with_columns(
+            (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
+            pl.col("day_id").alias("person_id"),
         )
 
     # Update joint_trips: only hh_id changes (no person_id at joint-trip level)
     if len(joint_trips) > 0 and "day_id" in joint_trips.columns:
-        joint_trips = (
-            joint_trips
-            .join(valid_day_ids, on="day_id", how="semi")
-            .with_columns(
-                (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
-            )
+        joint_trips = joint_trips.join(valid_day_ids, on="day_id", how="semi").with_columns(
+            (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
         )
 
     return households, persons, tours, linked_trips, joint_trips
@@ -635,7 +612,7 @@ def _incorporate_day_into_ids(
         "days": {"person_id", "hh_id", "day_id"},
     },
 )
-def format_ctramp(
+def format_ctramp(  # noqa: PLR0913
     persons: pl.DataFrame,
     households: pl.DataFrame,
     linked_trips: pl.DataFrame,

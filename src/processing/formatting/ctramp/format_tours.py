@@ -11,11 +11,11 @@ import logging
 import polars as pl
 
 from data_canon.codebook.ctramp import (
+    AtWorkFreq,
     CTRAMPEmploymentCategory,
     CTRAMPPersonType,
-    CTRAMPTourCategory,
     CTRAMPPurpose,
-    AtWorkFreq,
+    CTRAMPTourCategory,
     TourComposition,
 )
 from data_canon.codebook.persons import SchoolType
@@ -32,6 +32,7 @@ from .ctramp_config import CTRAMPConfig
 from .format_persons import enrich_persons_with_person_type
 
 logger = logging.getLogger(__name__)
+TWO_SUBTOURS = 2
 
 
 def format_individual_tour(
@@ -178,7 +179,7 @@ def format_individual_tour(
         .alias("tour_category_ctramp")
     ).drop("_parent_tour_purpose")
 
-      # Build subtour mix summaries by parent tour, then map to CT-RAMP categories:
+    # Build subtour mix summaries by parent tour, then map to CT-RAMP categories:
     # 0=not work tour, 1=no subtour, 2=one eat, 3=one business,
     # 4=one maintenance, 5=two business, 6=eat and business.
     subtour_counts = (
@@ -200,50 +201,48 @@ def format_individual_tour(
         )
     )
 
-    individual_tours = individual_tours.join(
-        subtour_counts,
-        left_on="tour_id",
-        right_on="parent_tour_id",
-        how="left",
-    ).with_columns(
-        # Only work tours use CT-RAMP atWork_freq categories.
-        pl.when(pl.col("tour_purpose") != PurposeCategory.WORK.value)
-        .then(pl.lit(AtWorkFreq.NONE_NOT_WORK.value))
-        .when(pl.col("_subtour_total").fill_null(0) == 0)
-        .then(pl.lit(AtWorkFreq.NO_SUBTOUR.value))
-        .when(
-            (pl.col("_subtour_total") == 1) & (pl.col("_subtour_eat_count") == 1)
+    individual_tours = (
+        individual_tours.join(
+            subtour_counts,
+            left_on="tour_id",
+            right_on="parent_tour_id",
+            how="left",
         )
-        .then(pl.lit(AtWorkFreq.ONE_EAT.value))
-        .when(
-            (pl.col("_subtour_total") == 1) & (pl.col("_subtour_business_count") == 1)
+        .with_columns(
+            # Only work tours use CT-RAMP atWork_freq categories.
+            pl.when(pl.col("tour_purpose") != PurposeCategory.WORK.value)
+            .then(pl.lit(AtWorkFreq.NONE_NOT_WORK.value))
+            .when(pl.col("_subtour_total").fill_null(0) == 0)
+            .then(pl.lit(AtWorkFreq.NO_SUBTOUR.value))
+            .when((pl.col("_subtour_total") == 1) & (pl.col("_subtour_eat_count") == 1))
+            .then(pl.lit(AtWorkFreq.ONE_EAT.value))
+            .when((pl.col("_subtour_total") == 1) & (pl.col("_subtour_business_count") == 1))
+            .then(pl.lit(AtWorkFreq.ONE_BUSINESS.value))
+            .when((pl.col("_subtour_total") == 1) & (pl.col("_subtour_maint_count") == 1))
+            .then(pl.lit(AtWorkFreq.ONE_MAINT.value))
+            .when(
+                (pl.col("_subtour_total") == TWO_SUBTOURS)
+                & (pl.col("_subtour_business_count") == TWO_SUBTOURS)
+            )
+            .then(pl.lit(AtWorkFreq.TWO_BUSINESS.value))
+            .when(
+                (pl.col("_subtour_total") == TWO_SUBTOURS)
+                & (pl.col("_subtour_business_count") == 1)
+                & (pl.col("_subtour_eat_count") == 1)
+            )
+            .then(pl.lit(AtWorkFreq.ONE_EAT_ONE_BUSINESS.value))
+            .otherwise(pl.lit(AtWorkFreq.OTHER.value))
+            .alias("atWork_freq")
         )
-        .then(pl.lit(AtWorkFreq.ONE_BUSINESS.value))
-        .when(
-            (pl.col("_subtour_total") == 1) & (pl.col("_subtour_maint_count") == 1)
+        .drop(
+            [
+                "_subtour_total",
+                "_subtour_eat_count",
+                "_subtour_business_count",
+                "_subtour_maint_count",
+            ]
         )
-        .then(pl.lit(AtWorkFreq.ONE_MAINT.value))
-        .when(
-            (pl.col("_subtour_total") == 2) & (pl.col("_subtour_business_count") == 2)
-        )
-        .then(pl.lit(AtWorkFreq.TWO_BUSINESS.value))
-        .when(
-            (pl.col("_subtour_total") == 2)
-            & (pl.col("_subtour_business_count") == 1)
-            & (pl.col("_subtour_eat_count") == 1)
-        )
-        .then(pl.lit(AtWorkFreq.ONE_EAT_ONE_BUSINESS.value))
-        .otherwise(pl.lit(AtWorkFreq.OTHER.value))
-        .alias("atWork_freq")
-    ).drop(
-        [
-            "_subtour_total",
-            "_subtour_eat_count",
-            "_subtour_business_count",
-            "_subtour_maint_count",
-        ]
     )
-
 
     # Convert times to hour integers (5am-11pm = 5-23)
     individual_tours = individual_tours.with_columns(
@@ -659,6 +658,7 @@ def _promote_work_related_to_work_for_workers(
         .drop(["_is_worker_type", "_has_work_tour", "_has_work_related_tour"])
     )
 
+
 def _identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.DataFrame:
     """Reclassify invalid joint tours by clearing their ``joint_tour_id``.
 
@@ -690,12 +690,8 @@ def _identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.Dat
             [
                 pl.col("tour_purpose").n_unique().alias("_n_unique_purposes"),
                 (pl.col("tour_purpose") == PurposeCategory.WORK.value).any().alias("_has_work"),
-                (pl.col("tour_purpose") == PurposeCategory.SCHOOL.value)
-                .any()
-                .alias("_has_school"),
-                (pl.col("tour_purpose") == PurposeCategory.ESCORT.value)
-                .any()
-                .alias("_has_escort"),
+                (pl.col("tour_purpose") == PurposeCategory.SCHOOL.value).any().alias("_has_school"),
+                (pl.col("tour_purpose") == PurposeCategory.ESCORT.value).any().alias("_has_escort"),
             ]
         )
         .filter(

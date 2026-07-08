@@ -11,12 +11,12 @@ from pydantic import BaseModel, Field, field_validator
 from data_canon.codebook.ctramp import (
     CTRAMPActivityPattern,
     CTRAMPEmploymentCategory,
+    CTRAMPIndustry,
     CTRAMPModeType,
     CTRAMPPersonType,
     CTRAMPPurpose,
     CTRAMPStudentCategory,
     CTRAMPTourCategory,
-    CTRAMPIndustry,
     FreeParkingChoice,
     IMFChoice,
     TourComposition,

@@ -116,6 +116,7 @@ def ctramp_purpose_category_expression(
         income_med_threshold: Income threshold for med bracket
         income_high_threshold: Income threshold for high bracket
         parent_tour_purpose: Polars expression for parent tour purpose (if available)
+        is_subtour: Polars expression indicating whether the row is a subtour.
 
     Returns:
         Polars expression resolving to CTRAMP purpose string
@@ -156,8 +157,8 @@ def ctramp_purpose_category_expression(
     if parent_tour_purpose is not None and is_subtour is not None:
         is_at_work_subtour = is_subtour & (parent_tour_purpose == PurposeCategory.WORK.value)
     else:
-        is_at_work_subtour = pl.lit(False)
-    
+        is_at_work_subtour = pl.lit(value=False)
+
     is_worker = person_type.is_in(
         [
             CTRAMPPersonType.FULL_TIME_WORKER.value,
@@ -165,10 +166,15 @@ def ctramp_purpose_category_expression(
         ]
     )
 
-    # At-work subtours with WORK/WORK_RELATED purposes → ATWORK_BUSINESS (check FIRST, before primary work)
+    # At-work subtours with WORK/WORK_RELATED purposes → ATWORK_BUSINESS.
+    # Check this first, before primary work segmentation.
     atwork_business_expr = home_expr.when(
-        is_at_work_subtour & is_worker & 
-        ((purpose_category == PurposeCategory.WORK_RELATED.value) | (purpose_category == PurposeCategory.WORK.value))
+        is_at_work_subtour
+        & is_worker
+        & (
+            (purpose_category == PurposeCategory.WORK_RELATED.value)
+            | (purpose_category == PurposeCategory.WORK.value)
+        )
     ).then(pl.lit(CTRAMPPurpose.ATWORK_BUSINESS.value))
 
     # Work purposes - segmented by income (only for primary work tours, not at-work subtours)
@@ -181,16 +187,18 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(CTRAMPPurpose.WORK_HIGH.value))
         .otherwise(pl.lit(CTRAMPPurpose.WORK_VERY_HIGH.value))
     )
-    work_expr = atwork_business_expr.when(purpose_category.is_in([PurposeCategory.WORK.value])).then(
-        work_income_segmentation
-    )
+    work_expr = atwork_business_expr.when(
+        purpose_category.is_in([PurposeCategory.WORK.value])
+    ).then(work_income_segmentation)
 
     # School purposes - segmented by student type
     school_segmentation_expr = (
         pl.when(student_category == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value)
         .then(pl.lit(CTRAMPPurpose.UNIVERSITY.value))
-        .when((student_category == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value) & 
-              (school_type == SchoolType.HIGH_SCHOOL.value))
+        .when(
+            (student_category == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value)
+            & (school_type == SchoolType.HIGH_SCHOOL.value)
+        )
         .then(pl.lit(CTRAMPPurpose.SCHOOL_HIGH.value))
         .otherwise(pl.lit(CTRAMPPurpose.SCHOOL_GRADE.value))
     )
@@ -199,14 +207,15 @@ def ctramp_purpose_category_expression(
     )
 
     # Eating out vs at-work eating
-    eatout_expr = school_expr.when(
-        is_at_work_subtour & (purpose_category == PurposeCategory.MEAL.value)
-    ).then(pl.lit(CTRAMPPurpose.ATWORK_EAT.value)).when(
-        purpose_category == PurposeCategory.MEAL.value
-    ).then(pl.lit(CTRAMPPurpose.EATOUT.value))
+    eatout_expr = (
+        school_expr.when(is_at_work_subtour & (purpose_category == PurposeCategory.MEAL.value))
+        .then(pl.lit(CTRAMPPurpose.ATWORK_EAT.value))
+        .when(purpose_category == PurposeCategory.MEAL.value)
+        .then(pl.lit(CTRAMPPurpose.EATOUT.value))
+    )
 
     # Escort
-    # TODO: Fix escort definition
+    # Escort still uses the current student-category heuristic.
     escort_segmentation_expr = (
         pl.when(
             student_category.is_in(
@@ -219,25 +228,19 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(CTRAMPPurpose.ESCORT_KIDS.value))
         .otherwise(pl.lit(CTRAMPPurpose.ESCORT_NO_KIDS.value))
     )
-    escort_expr = eatout_expr.when(
-        is_at_work_subtour & (purpose_category == PurposeCategory.ESCORT.value)
-    ).then(
-        pl.lit(CTRAMPPurpose.ATWORK_MAINT.value)
-    ).when(
-        purpose_category == PurposeCategory.ESCORT.value
-    ).then(
-        escort_segmentation_expr
+    escort_expr = (
+        eatout_expr.when(is_at_work_subtour & (purpose_category == PurposeCategory.ESCORT.value))
+        .then(pl.lit(CTRAMPPurpose.ATWORK_MAINT.value))
+        .when(purpose_category == PurposeCategory.ESCORT.value)
+        .then(escort_segmentation_expr)
     )
 
     # Shopping
-    shopping_expr = escort_expr.when(
-        is_at_work_subtour & (purpose_category == PurposeCategory.SHOP.value)
-    ).then(
-        pl.lit(CTRAMPPurpose.ATWORK_MAINT.value)
-    ).when(
-        purpose_category == PurposeCategory.SHOP.value
-    ).then(
-        pl.lit(CTRAMPPurpose.SHOPPING.value)
+    shopping_expr = (
+        escort_expr.when(is_at_work_subtour & (purpose_category == PurposeCategory.SHOP.value))
+        .then(pl.lit(CTRAMPPurpose.ATWORK_MAINT.value))
+        .when(purpose_category == PurposeCategory.SHOP.value)
+        .then(pl.lit(CTRAMPPurpose.SHOPPING.value))
     )
 
     # Social/recreation
@@ -246,11 +249,12 @@ def ctramp_purpose_category_expression(
     )
 
     # Maintenance/errands
-    maintenance_expr = social_expr.when(
-        is_at_work_subtour & (purpose_category == PurposeCategory.ERRAND.value)
-    ).then(pl.lit(CTRAMPPurpose.ATWORK_MAINT.value)).when(
-        purpose_category == PurposeCategory.ERRAND.value
-    ).then(pl.lit(CTRAMPPurpose.OTHMAINT.value))
+    maintenance_expr = (
+        social_expr.when(is_at_work_subtour & (purpose_category == PurposeCategory.ERRAND.value))
+        .then(pl.lit(CTRAMPPurpose.ATWORK_MAINT.value))
+        .when(purpose_category == PurposeCategory.ERRAND.value)
+        .then(pl.lit(CTRAMPPurpose.OTHMAINT.value))
+    )
 
     # Discretionary - all others
     # this includes school-related trips and work-related trips for nonworkers
