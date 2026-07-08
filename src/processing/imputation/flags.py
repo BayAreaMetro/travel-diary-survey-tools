@@ -65,4 +65,3 @@ def stash_preimputed_columns(
         if col in df.columns and col in original_df.columns:
             result_df = stash_preimputed_column(result_df, original_df, col)
     return result_df
-    return result_df
