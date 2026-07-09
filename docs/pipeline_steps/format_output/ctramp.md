@@ -60,11 +60,13 @@ BATS collects income as a categorical bracket (e.g. `$50,000–$74,999`).  CT-RA
 purpose as a function of household income — `work_low`, `work_med`, `work_high`, or
 `work_very_high` — because higher-income workers have different mode choice sensitivities.
 
-The pipeline converts the categorical bracket to a **dollar midpoint**, then classifies it against
-configurable thresholds (set in the config via `income_low_threshold`, `income_med_threshold`,
+The pipeline converts the categorical bracket to a **dollar midpoint** (in survey-year 2023
+dollars), converts it to year-2000 dollars (multiplying by `income_survey_year_to_ctramp_year`, since
+CT-RAMP income categories are in year-2000 dollars), then classifies it against configurable
+thresholds (set in the config via `income_low_threshold`, `income_med_threshold`,
 `income_high_threshold`; see [CTRAMPConfig][processing.formatting.ctramp.ctramp_config.CTRAMPConfig]).
-The `income_base_year_dollars` parameter records the reference year for the dollar amounts so that
-the values remain interpretable when the survey is compared against future model runs.
+The thresholds are in year-2000 dollars, matching MTC CT-RAMP
+`INCOME_SEGMENT_DOLLAR_LIMITS = {30000, 60000, 100000, MAX}`.
 
 ### Person type
 
@@ -163,10 +165,10 @@ configuration parameters.  Key parameters from `config_tm17_calibration.yaml`:
 ```yaml
 - name: format_ctramp
   params:
-    income_low_threshold: 60000     # below → work_low
-    income_med_threshold: 150000    # below → work_med
-    income_high_threshold: 240000   # below → work_high, above → work_very_high
-    income_base_year_dollars: 2023
+    income_low_threshold: 30000     # below → work_low ($2000)
+    income_med_threshold: 60000     # below → work_med ($2000)
+    income_high_threshold: 100000   # below → work_high, above → work_very_high ($2000)
+    income_survey_year_to_ctramp_year: 0.5319148936  # = 1 / 1.88
     age_adult: 4                    # AgeCategory enum value; 4 = AGE_18_TO_24+
     gender_default_for_missing: "f" # CT-RAMP requires binary gender
     taz_field: "TAZ1454"            # Which zone geography to use

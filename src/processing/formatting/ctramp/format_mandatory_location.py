@@ -221,7 +221,7 @@ def format_mandatory_location(
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income,
             home_taz (for HomeTAZ field)
         linked_trips_canonical: Canonical linked trips DataFrame for distance calculations
-        config: CT-RAMP configuration with income_base_year_dollars
+        config: CT-RAMP configuration
 
     Returns:
         DataFrame with CT-RAMP mandatory location fields:
@@ -276,7 +276,7 @@ def format_mandatory_location(
         [
             pl.col("hh_id").alias("HHID"),
             pl.col(f"home_{config.taz_field}").cast(pl.Int64).alias("HomeTAZ"),
-            (pl.col("income") / config.income_base_year_dollars).cast(pl.Int64).alias("Income"),
+            pl.col("income").cast(pl.Int64).alias("Income"),
             pl.col("person_id").alias("PersonID"),
             pl.col("person_num").alias("PersonNum"),
             pl.col("person_type").alias("PersonType"),

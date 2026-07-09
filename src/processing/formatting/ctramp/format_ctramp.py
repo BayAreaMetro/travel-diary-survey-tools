@@ -622,7 +622,7 @@ def format_ctramp(  # noqa: PLR0913
     income_low_threshold: int,
     income_med_threshold: int,
     income_high_threshold: int,
-    income_base_year_dollars: int,
+    income_survey_year_to_ctramp_year: float,
     taz_field: str = "taz",
     drop_missing_taz: bool = True,
     filter_zero_weight: bool = True,
@@ -658,10 +658,10 @@ def format_ctramp(  # noqa: PLR0913
         income_med_threshold: Dollar value dividing medium from high income bracket.
             Must be between income_low_threshold and income_high_threshold.
         income_high_threshold: Dollar value dividing high from very high income
-            bracket. Must be greater than income_med_threshold.
-        income_base_year_dollars: Target year for income conversion (e.g., 2000,
-            2010). Categorical income values are converted to midpoint dollars in
-            this base year.
+            bracket (in year-2000 dollars). Must be greater than income_med_threshold.
+        income_survey_year_to_ctramp_year: Factor to convert survey-year dollars to
+            CT-RAMP-year dollars. Household income is multiplied by this factor (for
+            BATS 2023 -> CT-RAMP year 2000 the factor is 1 / 1.88 ~= 0.532).
         taz_field: Field name containing the TAZ ID for CTRAMP formatting
             (default: "taz").
         drop_missing_taz: If True, remove households without valid TAZ IDs. This
@@ -698,10 +698,10 @@ def format_ctramp(  # noqa: PLR0913
             linked_trips=canonical_linked_trips,
             tours=canonical_tours,
             joint_trips=canonical_joint_trips,
-            income_low_threshold=60000,          # $60k divides low from medium
-            income_med_threshold=150000,         # $150k divides medium from high
-            income_high_threshold=250000,        # $250k divides high from very high
-            income_base_year_dollars=2000,       # Convert income to $2000
+            income_low_threshold=30000,          # $30k divides low from medium ($2000)
+            income_med_threshold=60000,          # $60k divides medium from high ($2000)
+            income_high_threshold=100000,        # $100k divides high from very high ($2000)
+            income_survey_year_to_ctramp_year=0.5319148936,  # 1/1.88: convert 2023 income to $2000
             drop_missing_taz=True                # Remove households without TAZ
         )
 
@@ -720,7 +720,7 @@ def format_ctramp(  # noqa: PLR0913
         income_low_threshold=income_low_threshold,
         income_med_threshold=income_med_threshold,
         income_high_threshold=income_high_threshold,
-        income_base_year_dollars=income_base_year_dollars,
+        income_survey_year_to_ctramp_year=income_survey_year_to_ctramp_year,
         drop_missing_taz=drop_missing_taz,
         filter_zero_weight=filter_zero_weight,
         taz_field=taz_field,

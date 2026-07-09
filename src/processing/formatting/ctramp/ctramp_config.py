@@ -12,7 +12,7 @@ class CTRAMPConfig(BaseModel):
         income_high_threshold: Income threshold for high income bracket
         drop_missing_taz: If True, remove households without valid TAZ IDs
         age_adult: Age threshold for adult vs child in joint tour composition
-        income_base_year_dollars: Base year for income dollar units
+        income_survey_year_to_ctramp_year: Factor to convert survey-year dollars to CT-RAMP-year dollars
         gender_default_for_missing: Default gender for missing/non-binary
     """
 
@@ -75,11 +75,13 @@ class CTRAMPConfig(BaseModel):
     )
 
     # Economic parameters
-    income_base_year_dollars: int = Field(
-        ge=1000,
+    income_survey_year_to_ctramp_year: float = Field(
+        gt=0,
         description=(
-            "Base year for income dollar units (e.g., 2023 for $2023). "
-            "Used for converting income to CT-RAMP format."
+            "Factor to convert survey-year dollars to CT-RAMP-year dollars. "
+            "Survey income is multiplied by this factor. For BATS 2023 -> CT-RAMP "
+            "year 2000 the factor is 1 / 1.88 ~= 0.532 (2000 -> 2023 inflation is 1.88) per "
+            "https://github.com/BayAreaMetro/modeling-website/wiki/InflationAssumptions"
         ),
     )
 

@@ -227,6 +227,14 @@ def format_households(
             income=pl.coalesce(pl.col("income"), income_bin_expr)
         )
 
+    # Convert nominal survey-year income to CT-RAMP year-2000 dollars.
+    households_ctramp = households_ctramp.with_columns(
+        (pl.col("income") * config.income_survey_year_to_ctramp_year)
+        .round()
+        .cast(pl.Int64)
+        .alias("income")
+    )
+
     # Compute jtf_choice for all households
     if tours_canonical is None:
         msg = "Tours data is required to compute jtf_choice"

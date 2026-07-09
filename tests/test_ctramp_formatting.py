@@ -88,10 +88,10 @@ def get_required_non_null_fields(model):
 def standard_config():
     """Standard test configuration with explicit parameters."""
     return CTRAMPConfig(
-        income_low_threshold=60000,  # $60k
-        income_med_threshold=150000,  # $150k
-        income_high_threshold=240000,  # $240k
-        income_base_year_dollars=2023,
+        income_low_threshold=30000,  # $30k ($2000, MTC)
+        income_med_threshold=60000,  # $60k ($2000, MTC)
+        income_high_threshold=100000,  # $100k ($2000, MTC)
+        income_survey_year_to_ctramp_year=0.5319148936,
         age_adult=4,  # AGE_18_TO_24 = category 4 (18+ are adults)
     )
 
@@ -203,7 +203,7 @@ class TestHouseholdFormatting:
         assert len(result) == 1
         assert result["hh_id"][0] == 1
         assert result["taz"][0] == 100
-        assert result["income"][0] == 87000  # Midpoint rounded to $1000
+        assert result["income"][0] == 46277  # $87k (2023) midpoint deflated to $2000 (/1.88)
         assert result["autos"][0] == 1
         assert result["size"][0] == 2
         assert result["workers"][0] == 1
@@ -227,7 +227,7 @@ class TestHouseholdFormatting:
         tours = pl.DataFrame([], schema=get_tour_schema())
         result = format_households(households, persons, tours, standard_config)
 
-        assert result["income"][0] == 62000  # Midpoint of $50,000-$74,999 rounded to $1000
+        assert result["income"][0] == 32979  # $62k (2023) midpoint deflated to $2000 (/1.88)
 
 
 class TestPersonFormatting:
@@ -303,7 +303,7 @@ class TestEndToEndFormatting:
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
-            income_base_year_dollars=standard_config.income_base_year_dollars,
+            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
         )
 
         households_ctramp = result["households_ctramp"]
@@ -327,7 +327,7 @@ class TestEndToEndFormatting:
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
-            income_base_year_dollars=standard_config.income_base_year_dollars,
+            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
         )
 
         households_ctramp = result["households_ctramp"]
@@ -356,7 +356,7 @@ class TestEndToEndFormatting:
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
-            income_base_year_dollars=standard_config.income_base_year_dollars,
+            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
         )
 
         persons_ctramp = result["persons_ctramp"]
@@ -380,7 +380,7 @@ class TestEndToEndFormatting:
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
-            income_base_year_dollars=standard_config.income_base_year_dollars,
+            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
         )
 
         persons_ctramp = result["persons_ctramp"]
@@ -415,7 +415,7 @@ class TestEndToEndFormatting:
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
-            income_base_year_dollars=standard_config.income_base_year_dollars,
+            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
             drop_missing_taz=True,
         )
 
@@ -453,7 +453,7 @@ class TestEndToEndFormatting:
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
-            income_base_year_dollars=standard_config.income_base_year_dollars,
+            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
             drop_missing_taz=False,
         )
 
