@@ -14,8 +14,8 @@ from data_canon.codebook.ctramp import (
     AtWorkFreq,
     CTRAMPEmploymentCategory,
     CTRAMPPersonType,
-    CTRAMPPurpose,
     CTRAMPTourCategory,
+    CTRAMPTourPurpose,
     TourComposition,
 )
 from data_canon.codebook.persons import SchoolType
@@ -32,7 +32,6 @@ from .ctramp_config import CTRAMPConfig
 from .format_persons import enrich_persons_with_person_type
 
 logger = logging.getLogger(__name__)
-TWO_SUBTOURS = 2
 
 
 def format_individual_tour(
@@ -188,13 +187,13 @@ def format_individual_tour(
         .agg(
             [
                 pl.len().alias("_subtour_total"),
-                (pl.col("tour_purpose_ctramp") == CTRAMPPurpose.ATWORK_EAT.value)
+                (pl.col("tour_purpose_ctramp") == CTRAMPTourPurpose.ATWORK_EAT.value)
                 .sum()
                 .alias("_subtour_eat_count"),
-                (pl.col("tour_purpose_ctramp") == CTRAMPPurpose.ATWORK_BUSINESS.value)
+                (pl.col("tour_purpose_ctramp") == CTRAMPTourPurpose.ATWORK_BUSINESS.value)
                 .sum()
                 .alias("_subtour_business_count"),
-                (pl.col("tour_purpose_ctramp") == CTRAMPPurpose.ATWORK_MAINT.value)
+                (pl.col("tour_purpose_ctramp") == CTRAMPTourPurpose.ATWORK_MAINT.value)
                 .sum()
                 .alias("_subtour_maint_count"),
             ]
@@ -220,13 +219,10 @@ def format_individual_tour(
             .then(pl.lit(AtWorkFreq.ONE_BUSINESS.value))
             .when((pl.col("_subtour_total") == 1) & (pl.col("_subtour_maint_count") == 1))
             .then(pl.lit(AtWorkFreq.ONE_MAINT.value))
-            .when(
-                (pl.col("_subtour_total") == TWO_SUBTOURS)
-                & (pl.col("_subtour_business_count") == TWO_SUBTOURS)
-            )
+            .when((pl.col("_subtour_total") == 2) & (pl.col("_subtour_business_count") == 2))
             .then(pl.lit(AtWorkFreq.TWO_BUSINESS.value))
             .when(
-                (pl.col("_subtour_total") == TWO_SUBTOURS)
+                (pl.col("_subtour_total") == 2)
                 & (pl.col("_subtour_business_count") == 1)
                 & (pl.col("_subtour_eat_count") == 1)
             )

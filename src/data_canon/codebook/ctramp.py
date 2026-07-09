@@ -171,7 +171,7 @@ class CTRAMPSimplePurpose(StrEnum):
     IND_MAINT = "ind_maint"
 
 
-class CTRAMPPurpose(LabeledEnum):
+class CTRAMPTourPurpose(LabeledEnum):
     """Enumeration for tour purpose."""
 
     HOME = "Home", "Home"
@@ -218,8 +218,27 @@ class CTRAMPPurpose(LabeledEnum):
         return mapping.get(self)
 
 
+class CTRAMPTripPurpose(LabeledEnum):
+    """Enumeration for trip purpose.
+
+    Initially identical to CTRAMPTourPurpose; to be simplified/refined separately.
+    """
+
+    HOME = "Home", "Home"
+    WORK = "work", "Work - All incomes"
+    UNIVERSITY = "university", "University"
+    SCHOOL = "school", "School - High school or grade school"
+    ATWORK = "atwork", "At-work"
+    EATOUT = "eatout", "Eating out"
+    ESCORT = "escort", "Escort"
+    SHOPPING = "shopping", "Shopping"
+    SOCIAL = "social", "Social/recreational"
+    OTHMAINT = "othmaint", "Other maintenance"
+    OTHDISCR = "othdiscr", "Other discretionary"
+
+
 class AtWorkFreq(LabeledEnum):
-    """Enumeration for at-work subtours."""
+    """Enumeration for at-work subtours"""
 
     NONE_NOT_WORK = 0, "No subtour since tour is not at work"
     NO_SUBTOUR = 1, "No at-work subtour"

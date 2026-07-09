@@ -163,6 +163,7 @@ def format_individual_trip(
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
+                purpose_kind="trip",
             ).alias("orig_purpose"),
             ctramp_purpose_category_expression(
                 pl.col("d_purpose_category"),
@@ -172,6 +173,7 @@ def format_individual_trip(
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
+                purpose_kind="trip",
             ).alias("dest_purpose"),
             # tour_purpose is already CTRAMP formatted from join, no need to remap
         ]
@@ -333,6 +335,7 @@ def format_joint_trip(
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
+                purpose_kind="trip",
             ).alias("orig_purpose"),
             ctramp_purpose_category_expression(
                 pl.col("d_purpose_category"),
@@ -342,6 +345,7 @@ def format_joint_trip(
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
+                purpose_kind="trip",
             ).alias("dest_purpose"),
             ctramp_purpose_category_expression(
                 pl.col("tour_purpose"),

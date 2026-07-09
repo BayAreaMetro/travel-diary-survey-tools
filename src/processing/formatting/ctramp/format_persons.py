@@ -29,8 +29,8 @@ from data_canon.codebook.ctramp import (
     _INMF_REVERSE_LOOKUP,
     CTRAMPEmploymentCategory,
     CTRAMPPersonType,
-    CTRAMPPurpose,
     CTRAMPStudentCategory,
+    CTRAMPTourPurpose,
     FreeParkingChoice,
     IMFChoice,
 )
@@ -187,21 +187,21 @@ def aggregate_tour_statistics(
 
     # Define purpose categories for aggregation
     work_purposes = [
-        CTRAMPPurpose.WORK_LOW.value,
-        CTRAMPPurpose.WORK_MED.value,
-        CTRAMPPurpose.WORK_HIGH.value,
-        CTRAMPPurpose.WORK_VERY_HIGH.value,
+        CTRAMPTourPurpose.WORK_LOW.value,
+        CTRAMPTourPurpose.WORK_MED.value,
+        CTRAMPTourPurpose.WORK_HIGH.value,
+        CTRAMPTourPurpose.WORK_VERY_HIGH.value,
     ]
     school_purposes = [
-        CTRAMPPurpose.SCHOOL_GRADE.value,
-        CTRAMPPurpose.SCHOOL_HIGH.value,
-        CTRAMPPurpose.UNIVERSITY.value,
+        CTRAMPTourPurpose.SCHOOL_GRADE.value,
+        CTRAMPTourPurpose.SCHOOL_HIGH.value,
+        CTRAMPTourPurpose.UNIVERSITY.value,
     ]
 
     # Define escort purposes (includes both segmented variants)
     escort_purposes = [
-        CTRAMPPurpose.ESCORT_KIDS.value,
-        CTRAMPPurpose.ESCORT_NO_KIDS.value,
+        CTRAMPTourPurpose.ESCORT_KIDS.value,
+        CTRAMPTourPurpose.ESCORT_NO_KIDS.value,
     ]
 
     # Classify each tour into purpose-specific flags
@@ -416,8 +416,20 @@ def format_persons(
         - activity_pattern: M=mandatory tours, N=non-mandatory only, H=no tours
         - imf_choice: Count of mandatory tours (work/school)
         - inmf_choice: Count of non-mandatory tours
-        - wfh_choice: 1 if employed, job_type=WFH, and no work tours
-          (binary: WFH or commute, not both)
+        - wfh_choice: 1 if employed, job_type=WFH, and no work tours (binary: WFH or commute, not both)
+        - employment_category: derived from the BATS `employment` field via
+          [`EMPLOYMENT_TO_CTRAMP`][processing.formatting.ctramp.mappings.EMPLOYMENT_TO_CTRAMP]:
+
+          | BATS employment value | CT-RAMP EmploymentCategory |
+          |---|---|
+          | `EMPLOYED_FULLTIME` | Full-time worker |
+          | `EMPLOYED_SELF` | Full-time worker (self-employed treated as full-time) |
+          | `EMPLOYED_PARTTIME` | Part-time worker |
+          | `EMPLOYED_UNPAID` | Part-time worker (unpaid work treated as part-time) |
+          | all others (not employed, retired, student, etc.) | Not employed |
+
+          Children classified as `CHILD_UNDER_5` or `STUDENT_NON_DRIVING_AGE` by person type
+          are overridden to `Under age 16` regardless of reported employment.
     """
     logger.info("Formatting person data for CT-RAMP")
 
