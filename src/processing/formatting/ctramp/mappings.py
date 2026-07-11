@@ -25,11 +25,88 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from data_canon.codebook.trips import AccessEgressMode, ModeType, PurposeCategory
+from data_canon.codebook.trips import AccessEgressMode, Mode, ModeType, PurposeCategory
 
 from .ctramp_config import CTRAMPConfig
 
 logger = logging.getLogger(__name__)
+
+
+# Transit submode ranks (ordered by CT-RAMP hierarchy: COM > HVY > EXP > LRF > LOC)
+# TODO: Need to verify transit submode ranks.
+# When a transit tour/trip uses multiple submodes, the highest-ranked submode wins.
+TRANSIT_SUBMODE_NONE = 0
+TRANSIT_SUBMODE_LOCAL = 1
+TRANSIT_SUBMODE_LRF = 2  # light rail / ferry
+TRANSIT_SUBMODE_EXPRESS = 3
+TRANSIT_SUBMODE_HEAVY = 4
+TRANSIT_SUBMODE_COMMUTER = 5
+
+# Detailed Mode -> transit submode rank. Modes not listed have no transit submode.
+MODE_TO_TRANSIT_SUBMODE = {
+    # Local bus
+    Mode.BUS_LOCAL.value: TRANSIT_SUBMODE_LOCAL,
+    Mode.BUS_LOCAL_PUBLIC.value: TRANSIT_SUBMODE_LOCAL,
+    Mode.BUS_OTHER.value: TRANSIT_SUBMODE_LOCAL,
+    Mode.PARATRANSIT.value: TRANSIT_SUBMODE_LOCAL,
+    # Light rail / streetcar / ferry
+    Mode.LIGHT_RAIL.value: TRANSIT_SUBMODE_LRF,
+    Mode.MUNI_METRO.value: TRANSIT_SUBMODE_LRF,
+    Mode.STREETCAR.value: TRANSIT_SUBMODE_LRF,
+    Mode.FERRY.value: TRANSIT_SUBMODE_LRF,
+    Mode.WATER.value: TRANSIT_SUBMODE_LRF,
+    Mode.BOAT.value: TRANSIT_SUBMODE_LRF,
+    # Express / bus rapid transit
+    Mode.BUS_EXPRESS.value: TRANSIT_SUBMODE_EXPRESS,
+    Mode.BUS_BRT.value: TRANSIT_SUBMODE_EXPRESS,
+    # Heavy rail
+    Mode.BART.value: TRANSIT_SUBMODE_HEAVY,
+    # Commuter rail
+    Mode.RAIL.value: TRANSIT_SUBMODE_COMMUTER,
+    Mode.RAIL_OTHER.value: TRANSIT_SUBMODE_COMMUTER,
+    Mode.RAIL_INTERCITY.value: TRANSIT_SUBMODE_COMMUTER,
+}
+
+
+def aggregate_transit_submode(unlinked_trips: pl.DataFrame, group_col: str) -> pl.DataFrame:
+    """Aggregate the highest transit submode used within each tour group.
+
+    Uses the detailed ``mode_1``-``mode_4`` columns on unlinked trips to detect
+    the transit submode (local bus, light rail/ferry, express bus, heavy rail,
+    commuter rail) and returns the highest-ranked submode present per group.
+
+    Args:
+        unlinked_trips: Canonical unlinked trips DataFrame containing ``group_col``
+            and detailed ``mode_1``-``mode_4`` columns.
+        group_col: Column to group by (e.g. ``tour_id`` or ``joint_tour_id``).
+
+    Returns:
+        DataFrame with columns ``[group_col, transit_submode]`` where
+        ``transit_submode`` is the highest submode rank (0 if none).
+    """
+    mode_cols = [c for c in ("mode_1", "mode_2", "mode_3", "mode_4") if c in unlinked_trips.columns]
+    if not mode_cols or group_col not in unlinked_trips.columns:
+        return pl.DataFrame(
+            {group_col: [], "transit_submode": []},
+            schema={
+                group_col: unlinked_trips.schema.get(group_col, pl.Int64),
+                "transit_submode": pl.Int64,
+            },
+        )
+
+    return (
+        unlinked_trips.select([group_col, *mode_cols])
+        .filter(pl.col(group_col).is_not_null())
+        .unpivot(index=group_col, on=mode_cols, variable_name="_mode_slot", value_name="_mode")
+        .drop_nulls("_mode")
+        .with_columns(
+            pl.col("_mode")
+            .replace_strict(MODE_TO_TRANSIT_SUBMODE, default=TRANSIT_SUBMODE_NONE)
+            .alias("_submode_rank")
+        )
+        .group_by(group_col)
+        .agg(pl.col("_submode_rank").max().alias("transit_submode"))
+    )
 
 
 GENDER_MAP = {
@@ -323,6 +400,7 @@ def ctramp_mode_expression(
     num_travelers: pl.Expr,
     access_mode: pl.Expr | None = None,
     egress_mode: pl.Expr | None = None,
+    transit_submode: pl.Expr | None = None,
 ) -> pl.Expr:
     """Map canonical mode_type to CTRAMP mode integer code.
 
@@ -332,14 +410,21 @@ def ctramp_mode_expression(
         num_travelers: Polars expression for number of travelers in vehicle
         access_mode: Optional polars expression for access mode (AccessEgressMode enum)
         egress_mode: Optional polars expression for egress mode (AccessEgressMode enum)
+        transit_submode: Optional polars expression for the transit submode rank
+            (see ``TRANSIT_SUBMODE_*`` and :func:`aggregate_transit_submode`). When
+            provided, transit trips are mapped to the matching CT-RAMP submode code
+            (local/express/light rail-ferry/heavy rail/commuter rail) instead of
+            always defaulting to local bus.
 
     Returns:
         Polars expression resolving to CTRAMPModeType integer code (21 codes)
 
     Notes:
         - Walk=7, Bike=8
-        - Transit: WLK_LOC_WLK=9 (walk-to-transit) or DRV_LOC_WLK=14 (drive-to-transit)
-          Uses access_mode/egress_mode to detect drive-to-transit
+        - Transit walk-access codes: LOC=9, LRF=10, EXP=11, HVY=12, COM=13
+        - Transit drive-access codes: LOC=14, LRF=15, EXP=16, HVY=17, COM=18
+          Uses access_mode/egress_mode to detect drive-to-transit and
+          transit_submode to pick the submode; defaults to local bus.
         - Personal vehicle by occupancy: DA=1, SR2=3, SR3=5 (non-toll)
         - TNC: Single passenger=20, Shared=21
         - Taxi=19
@@ -379,14 +464,45 @@ def ctramp_mode_expression(
         drove_to_transit = access_mode.is_in(drove_access_egress) | egress_mode.is_in(
             drove_access_egress
         )
-        transit_mode_code = (
-            pl.when(drove_to_transit)
-            .then(pl.lit(CTRAMPModeType.DRV_LOC_WLK.value))
+    else:
+        drove_to_transit = None
+
+    # Pick the walk-access and drive-access transit codes based on submode rank.
+    # When no submode is available, default to local bus (WLK_LOC_WLK / DRV_LOC_WLK).
+    if transit_submode is not None:
+        walk_transit_code = (
+            pl.when(transit_submode == TRANSIT_SUBMODE_COMMUTER)
+            .then(pl.lit(CTRAMPModeType.WLK_COM_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_HEAVY)
+            .then(pl.lit(CTRAMPModeType.WLK_HVY_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_LRF)
+            .then(pl.lit(CTRAMPModeType.WLK_LRF_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_EXPRESS)
+            .then(pl.lit(CTRAMPModeType.WLK_EXP_WLK.value))
             .otherwise(pl.lit(CTRAMPModeType.WLK_LOC_WLK.value))
+        )
+        drive_transit_code = (
+            pl.when(transit_submode == TRANSIT_SUBMODE_COMMUTER)
+            .then(pl.lit(CTRAMPModeType.DRV_COM_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_HEAVY)
+            .then(pl.lit(CTRAMPModeType.DRV_HVY_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_LRF)
+            .then(pl.lit(CTRAMPModeType.DRV_LRF_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_EXPRESS)
+            .then(pl.lit(CTRAMPModeType.DRV_EXP_WLK.value))
+            .otherwise(pl.lit(CTRAMPModeType.DRV_LOC_WLK.value))
+        )
+    else:
+        walk_transit_code = pl.lit(CTRAMPModeType.WLK_LOC_WLK.value)
+        drive_transit_code = pl.lit(CTRAMPModeType.DRV_LOC_WLK.value)
+
+    if drove_to_transit is not None:
+        transit_mode_code = (
+            pl.when(drove_to_transit).then(drive_transit_code).otherwise(walk_transit_code)
         )
     else:
         # No access/egress info available, default to walk-to-transit
-        transit_mode_code = pl.lit(CTRAMPModeType.WLK_LOC_WLK.value)
+        transit_mode_code = walk_transit_code
 
     transit_expr = bike_expr.when(mode_type.is_in(transit_modes)).then(transit_mode_code)
 

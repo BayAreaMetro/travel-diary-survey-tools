@@ -626,6 +626,7 @@ def format_ctramp(  # noqa: PLR0913
     taz_field: str = "taz",
     drop_missing_taz: bool = True,
     filter_zero_weight: bool = True,
+    unlinked_trips: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -827,6 +828,7 @@ def format_ctramp(  # noqa: PLR0913
             persons_canonical=persons_with_type,
             households_ctramp=households_ctramp,
             config=config,
+            unlinked_trips_canonical=unlinked_trips,
         )
 
     # Format persons with tour statistics (works with empty or populated tours)
@@ -851,6 +853,7 @@ def format_ctramp(  # noqa: PLR0913
         persons_canonical=persons,
         households_ctramp=households_ctramp,
         config=config,
+        unlinked_trips_canonical=unlinked_trips,
     )
 
     individual_trips_ctramp = format_individual_trip(
@@ -859,6 +862,7 @@ def format_ctramp(  # noqa: PLR0913
         persons_canonical=persons,
         households_ctramp=households_ctramp,
         config=config,
+        unlinked_trips_canonical=unlinked_trips,
     )
 
     joint_trips_ctramp = format_joint_trip(
@@ -867,6 +871,7 @@ def format_ctramp(  # noqa: PLR0913
         tours_canonical=tours,
         households_ctramp=households_ctramp,
         config=config,
+        unlinked_trips_canonical=unlinked_trips,
     )
 
     # Prepare result dictionary and clean up temporary columns

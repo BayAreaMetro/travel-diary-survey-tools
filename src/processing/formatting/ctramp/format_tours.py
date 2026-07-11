@@ -23,6 +23,7 @@ from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.mappings import (
     EMPLOYMENT_TO_CTRAMP,
+    aggregate_transit_submode,
     ctramp_mode_expression,
     ctramp_purpose_category_expression,
     ctramp_student_category_expression,
@@ -40,6 +41,7 @@ def format_individual_tour(
     persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
+    unlinked_trips_canonical: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Format individual tours to CT-RAMP specification.
 
@@ -257,15 +259,47 @@ def format_individual_tour(
         individual_tours = individual_tours.join(tour_travelers, on="tour_id", how="left")
         # For tours with no trips (shouldn't happen), default to 1
         num_travelers_expr = pl.col("max_num_travelers").fill_null(1)
+        
+        # Get access/egress for tour's transit trip - Access and egress is based on the first transit trip
+        tour_access_egress = (
+            linked_trips_canonical.filter(pl.col("access_mode").is_not_null())
+            .sort(["tour_id", "depart_time", "arrive_time"])
+            .group_by("tour_id")
+            .agg(
+                [
+                    pl.col("access_mode").first().alias("tour_access_mode"),
+                    pl.col("egress_mode").first().alias("tour_egress_mode")
+                ]
+            )
+        )
+        individual_tours = individual_tours.join(tour_access_egress, on="tour_id", how="left")
+        access_expr = pl.col("tour_access_mode")
+        egress_expr = pl.col("tour_egress_mode")
     else:
         num_travelers_expr = pl.lit(1)
+        access_expr = None
+        egress_expr = None
+
+
+    # Derive the highest transit submode per tour from detailed unlinked-trip modes
+    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
+        submode_by_indiv_tour = aggregate_transit_submode(
+            unlinked_trips_canonical, "tour_id"
+        )
+        individual_tours = individual_tours.join(
+            submode_by_indiv_tour, on="tour_id", how="left"
+        )
+        indiv_submode_expr = pl.col("transit_submode")
+    else:
+        indiv_submode_expr = None
 
     individual_tours = individual_tours.with_columns(
         ctramp_mode_expression(
             pl.col("tour_mode"),
             num_travelers_expr,
-            None,  # Tours don't have access/egress modes
-            None,
+            access_expr,
+            egress_expr,
+            indiv_submode_expr
         ).alias("tour_mode_ctramp")
     )
 
@@ -366,6 +400,7 @@ def format_joint_tour(
     persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
+    unlinked_trips_canonical: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Format joint tours to CT-RAMP specification.
 
@@ -488,6 +523,7 @@ def format_joint_tour(
     if len(linked_trips_canonical) > 0:
         joint_trip_stats = (
             linked_trips_canonical.filter(pl.col("joint_tour_id").is_not_null())
+            .sort(["joint_tour_id", "depart_time", "arrive_time"])
             .group_by("joint_tour_id")
             .agg(
                 [
@@ -512,6 +548,15 @@ def format_joint_tour(
                     .then(1)
                     .sum()
                     .alias("num_subtour_stops"),
+                    # Access/egress from joint tour's first transit trip
+                    pl.col("access_mode")
+                    .filter(pl.col("access_mode").is_not_null())
+                    .first()
+                    .alias("tour_access_mode"),
+                    pl.col("egress_mode")
+                    .filter(pl.col("egress_mode").is_not_null())
+                    .first()
+                    .alias("tour_egress_mode")
                 ]
             )
         )
@@ -523,6 +568,8 @@ def format_joint_tour(
                 pl.col("num_ob_stops").fill_null(0),
                 pl.col("num_ib_stops").fill_null(0),
                 pl.col("num_subtour_stops").fill_null(0),
+                pl.lit(None).alias("tour_access_mode"),
+                pl.lit(None).alias("tour_egress_mode")
             ]
         )
     else:
@@ -534,6 +581,18 @@ def format_joint_tour(
                 pl.lit(0).alias("num_subtour_stops"),
             ]
         )
+
+    # Derive the highest transit submode per joint tour from detailed unlinked-trip modes
+    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
+        submode_by_joint_tour = aggregate_transit_submode(
+            unlinked_trips_canonical, "joint_tour_id"
+        )
+        joint_tours_formatted = joint_tours_formatted.join(
+            submode_by_joint_tour, on="joint_tour_id", how="left"
+        )
+        joint_submode_expr = pl.col("transit_submode")
+    else:
+        joint_submode_expr = None
 
     # Map purpose and mode
     joint_tours_formatted = joint_tours_formatted.with_columns(
@@ -552,6 +611,7 @@ def format_joint_tour(
                 pl.col("num_travelers"),
                 None,  # Tours don't have access/egress modes
                 None,
+                joint_submode_expr,
             ).alias("tour_mode_ctramp"),
         ]
     )

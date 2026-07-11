@@ -18,6 +18,7 @@ from .ctramp_config import CTRAMPConfig
 from .format_persons import enrich_persons_with_person_type
 from .mappings import (
     EMPLOYMENT_TO_CTRAMP,
+    aggregate_transit_submode,
     ctramp_mode_expression,
     ctramp_purpose_category_expression,
     ctramp_student_category_expression,
@@ -32,6 +33,7 @@ def format_individual_trip(
     persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
+    unlinked_trips_canonical: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Format individual trips to CT-RAMP specification.
 
@@ -180,12 +182,23 @@ def format_individual_trip(
     )
 
     # Map trip mode (tour_mode already formatted from join)
+    # Derive the transit submode per linked trip from detailed unlinked-trip modes
+    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
+        submode_by_trip = aggregate_transit_submode(unlinked_trips_canonical, "linked_trip_id")
+        individual_trips = individual_trips.join(
+            submode_by_trip, on="linked_trip_id", how="left"
+        )
+        trip_submode_expr = pl.col("transit_submode")
+    else:
+        trip_submode_expr = None
+
     individual_trips = individual_trips.with_columns(
         ctramp_mode_expression(
             pl.col("mode_type"),
             pl.col("num_travelers"),
             pl.col("access_mode"),
             pl.col("egress_mode"),
+            trip_submode_expr,
         ).alias("trip_mode")
     )
 
@@ -241,6 +254,7 @@ def format_joint_trip(
     tours_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
+    unlinked_trips_canonical: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Format joint trips to CT-RAMP specification.
 
@@ -304,6 +318,25 @@ def format_joint_trip(
         how="left",
     )
 
+    # Derive the transit submode per joint trip from detailed unlinked-trip modes,
+    # bridging unlinked segments to joint_trip_id via linked_trip_id.
+    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
+        submode_by_linked = aggregate_transit_submode(
+            unlinked_trips_canonical, "linked_trip_id"
+        )
+        submode_by_joint = (
+            joint_linked_trips.select(["joint_trip_id", "linked_trip_id"])
+            .join(submode_by_linked, on="linked_trip_id", how="left")
+            .group_by("joint_trip_id")
+            .agg(pl.col("transit_submode").max().alias("transit_submode"))
+        )
+        joint_trips_formatted = joint_trips_formatted.join(
+            submode_by_joint, on="joint_trip_id", how="left"
+        )
+        trip_submode_expr = pl.col("transit_submode")
+    else:
+        trip_submode_expr = None
+
     # Join with tour context
     joint_trips_formatted = joint_trips_formatted.join(
         tours_canonical.select(["tour_id", "joint_tour_id", "tour_purpose", "tour_mode"]),
@@ -361,12 +394,14 @@ def format_joint_trip(
                 pl.col("num_travelers").fill_null(2),
                 pl.col("access_mode"),
                 pl.col("egress_mode"),
+                trip_submode_expr,
             ).alias("trip_mode"),
             ctramp_mode_expression(
                 pl.col("tour_mode"),
                 pl.col("num_travelers").fill_null(2),
                 None,  # Tour mode doesn't have access/egress
                 None,
+                trip_submode_expr,
             ).alias("tour_mode_ctramp"),
         ]
     )
