@@ -13,6 +13,7 @@ import polars as pl
 from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPPersonType
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
+from data_canon.codebook.trips import Purpose
 
 from .ctramp_config import CTRAMPConfig
 from .format_persons import enrich_persons_with_person_type
@@ -25,6 +26,38 @@ from .mappings import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _log_purpose_mapping_counts(
+    trips: pl.DataFrame, purpose_col: str, ctramp_col: str, trip_end: str
+) -> None:
+    """Log value counts for detailed survey ``Purpose`` vs the resulting CT-RAMP trip purpose.
+
+    Reports, for each combination of the detailed linked-trip purpose
+    (``o_purpose``/``d_purpose``) and the derived CT-RAMP trip purpose
+    (``orig_purpose``/``dest_purpose``), how many trips fall into that pair.
+    Useful for auditing how the detailed survey purposes collapse into
+    ``CTRAMPTripPurpose``.
+    """
+    if trips.is_empty() or purpose_col not in trips.columns or ctramp_col not in trips.columns:
+        return
+
+    purpose_labels = {p.value: p.label for p in Purpose}
+    counts = (
+        trips.group_by([purpose_col, ctramp_col])
+        .agg(pl.len().alias("n"))
+        .sort([purpose_col, "n"], descending=[False, True])
+    )
+
+    lines = [
+        f"Trip {trip_end} purpose mapping counts ({purpose_col} -> {ctramp_col}):",
+        f"  {'count':>8}  {'detailed Purpose':<48}  {ctramp_col}",
+    ]
+    for row in counts.iter_rows(named=True):
+        code = row[purpose_col]
+        label = purpose_labels.get(code, "unknown")
+        lines.append(f"  {row['n']:>8}  {f'{label} ({code})':<48}  {row[ctramp_col]}")
+    logger.info("\n".join(lines))
 
 
 def format_individual_trip(
@@ -180,6 +213,10 @@ def format_individual_trip(
             # tour_purpose is already CTRAMP formatted from join, no need to remap
         ]
     )
+
+    # Log how detailed survey purposes collapse into CT-RAMP trip purposes.
+    _log_purpose_mapping_counts(individual_trips, "o_purpose", "orig_purpose", "origin")
+    _log_purpose_mapping_counts(individual_trips, "d_purpose", "dest_purpose", "destination")
 
     # Map trip mode (tour_mode already formatted from join)
     # Derive the transit submode per linked trip from detailed unlinked-trip modes
