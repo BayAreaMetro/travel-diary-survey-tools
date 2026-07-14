@@ -381,6 +381,11 @@ def aggregate_linked_trips(
         pl.col("distance_meters").sum(),
         # Travel duration (sum of segment durations)
         pl.col("duration_minutes").sum().alias("travel_duration_minutes"),
+        # Elapsed travel duration from first departure to final arrival
+        (pl.col("arrive_time").max() - pl.col("depart_time").min())
+        .dt.total_minutes()
+        .cast(pl.Int64)
+        .alias("travel_duration"),
         # Total trip duration
         (pl.col("arrive_time").max() - pl.col("depart_time").min())
         .dt.total_minutes()
@@ -455,7 +460,7 @@ def aggregate_linked_trips(
         how="left",
     )
 
-    # Compute d_duration: whole minutes spent at the destination before the next
+    # Compute d_activity_duration: whole minutes spent at the destination before the next
     # departure (i.e. the activity duration at the trip destination). Ordered
     # within each person-day. Sentinels: -1 when the destination is home; -2 for
     # the last trip of a person-day (no subsequent departure).
@@ -476,7 +481,7 @@ def aggregate_linked_trips(
                 (pl.col("_next_depart_time") - pl.col("arrive_time")).dt.total_minutes()
             )
             .cast(pl.Int64)
-            .alias("d_duration")
+            .alias("d_activity_duration")
         )
         .drop("_next_depart_time")
     )
