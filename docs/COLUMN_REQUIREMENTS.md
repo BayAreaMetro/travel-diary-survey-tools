@@ -131,10 +131,14 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `access_mode` | AccessEgressMode or None |  |  |  |  | ✓ | ✓ |
     | `egress_mode` | AccessEgressMode or None |  |  |  |  | ✓ | ✓ |
     | `duration_minutes` | float | ≥ 0 |  |  |  |  |  |
+    | `travel_duration` | int | ≥ 0 |  |  |  |  |  |
     | `distance_meters` | float | ≥ 0 |  |  |  |  |  |
     | `depart_time` | datetime |  | ✓ |  |  |  |  |
     | `arrive_time` | datetime |  | ✓ |  |  |  |  |
+    | `d_activity_duration` | int |  |  |  |  |  |  |
     | `tour_direction` | TourDirection |  |  |  |  |  | ✓ |
+    | `o_location_type` | LocationType |  |  |  |  |  |  |
+    | `d_location_type` | LocationType |  |  |  |  |  |  |
     | `complete` | bool or None |  |  |  |  |  |  |
     | `linked_trip_weight` | float or None | ≥ 0 |  |  |  |  |  |
 
