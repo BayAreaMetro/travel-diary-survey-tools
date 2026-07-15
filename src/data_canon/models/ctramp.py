@@ -362,7 +362,10 @@ class IndividualTripCTRAMPModel(BaseModel):
         )
     )
     stop_id: int = Field(
-        description="Stop number unique to half tour; in order of trips; -1 if this is a half tour"
+        description=(
+            "Trip number within the half tour, 0-based in order of trips; "
+            "-1 if the half-tour leg has no intermediate stop (a single trip)"
+        )
     )
     inbound: int = Field(
         ge=0,
@@ -506,7 +509,10 @@ class JointTripCTRAMPModel(BaseModel):
         description="Joint tour number unique to the household (0=first joint tour, 1=second, etc.)",
     )
     stop_id: int = Field(
-        description="Stop number unique to half tour; in order of trips; -1 if this is a half tour"
+        description=(
+            "Trip number within the half tour, 0-based in order of trips; "
+            "-1 if the half-tour leg has no intermediate stop (a single trip)"
+        )
     )
     inbound: int = Field(
         ge=0,

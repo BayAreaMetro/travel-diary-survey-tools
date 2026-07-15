@@ -363,10 +363,14 @@ def format_individual_tour(
         )
         raise ValueError(msg)
 
+    # Assign CT-RAMP tour_id: 0-based per person for parent tours, with at-work
+    # subtours encoded as a two-digit integer <1-based parent tour #><subtour #>.
+    individual_tours = _assign_ctramp_tour_ids(individual_tours)
+
     # Format columns to CTRAMP specifications
     individual_tours = individual_tours.with_columns(
         [
-            pl.col("tour_num").alias("tour_id"),  # CTRAMP tour_id is tour_num
+            pl.col("_ctramp_tour_id").alias("tour_id"),  # CTRAMP 0-based per-person tour id
             pl.col("tour_id").alias("_tour_id_canonical"),  # Temp column for joining with trips
             pl.col("tour_category_ctramp").alias("tour_category"),
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
@@ -379,7 +383,7 @@ def format_individual_tour(
             pl.col("num_ob_stops").cast(pl.Int64),
             pl.col("num_ib_stops").cast(pl.Int64),
         ]
-    )
+    ).drop("_ctramp_tour_id")
 
     # Add sampleRate if tour_weight exists
     if "tour_weight" in individual_tours.columns:
@@ -650,10 +654,19 @@ def format_joint_tour(
                 )
                 raise ValueError(msg)
 
+    # CT-RAMP joint tour_id is 0-based per household (0=first joint tour, ...).
+    # The canonical joint_tour_id is a household-scoped 1-based enumerator, so a
+    # dense rank within the household minus 1 yields the CT-RAMP numbering.
+    joint_tours_formatted = joint_tours_formatted.with_columns(
+        (pl.col("joint_tour_id").rank("dense").over("hh_id") - 1)
+        .cast(pl.Int64)
+        .alias("_ctramp_joint_tour_id")
+    )
+
     # Select final columns with snake_case names
     select_cols = [
         pl.col("hh_id"),
-        pl.col("joint_tour_id").alias("tour_id"),
+        pl.col("_ctramp_joint_tour_id").alias("tour_id"),
         pl.col("tour_category"),
         pl.col("tour_purpose_ctramp").alias("tour_purpose"),
         pl.col("Composition").alias("tour_composition"),
@@ -672,6 +685,110 @@ def format_joint_tour(
 
     logger.info("Formatted %d joint tour records", len(joint_tours_ctramp))
     return joint_tours_ctramp
+
+
+def _assign_ctramp_tour_ids(individual_tours: pl.DataFrame) -> pl.DataFrame:
+    """Assign CT-RAMP ``tour_id`` values to individual tours.
+
+    CT-RAMP numbers a person's home-based tours 0-based (first tour is 0, second
+    is 1, ...). At-work subtours are encoded as a two-digit integer where the
+    first digit is the 1-based parent tour number and the second digit is the
+    subtour sequence number (e.g. ``12`` is the second subtour on the person's
+    first tour, whose own ``tour_id`` is ``0``).
+
+    Subtours are identified the same way as elsewhere in this module: a tour
+    whose ``parent_tour_id`` is non-null and points to a *different* tour. Parent
+    tours either have a null ``parent_tour_id`` or one equal to their own
+    ``tour_id``. A subtour whose parent cannot be resolved to a base tour (for
+    example, the parent was filtered out because it belongs to a joint tour) is
+    treated as a base tour so that every row receives a valid, non-null
+    ``tour_id``.
+
+    Args:
+        individual_tours: Canonical individual tours with ``person_id``, canonical
+            ``tour_id``, and ``parent_tour_id``.
+
+    Returns:
+        DataFrame with a ``_ctramp_tour_id`` column added.
+    """
+    is_subtour_candidate = pl.col("parent_tour_id").is_not_null() & (
+        pl.col("parent_tour_id") != pl.col("tour_id")
+    )
+    individual_tours = individual_tours.with_columns(
+        is_subtour_candidate.alias("_is_subtour_candidate")
+    )
+
+    # Tour ids that can serve as parents (i.e. are not themselves subtours).
+    parent_keys = individual_tours.filter(~pl.col("_is_subtour_candidate"))["tour_id"]
+
+    # A tour is only encoded as a subtour when its parent resolves to a base tour.
+    # Orphan subtours (parent filtered out / missing) fall back to base tours.
+    individual_tours = individual_tours.with_columns(
+        (
+            pl.col("_is_subtour_candidate")
+            & pl.col("parent_tour_id").is_in(parent_keys.implode())
+        ).alias("_is_subtour")
+    )
+
+    # Base tours: 0-based index per person, ordered by canonical tour_id
+    # (which is monotonic in day and tour sequence).
+    parent_idx = (
+        individual_tours.filter(~pl.col("_is_subtour"))
+        .select(["person_id", "tour_id"])
+        .with_columns(
+            (pl.col("tour_id").rank("ordinal").over("person_id") - 1)
+            .cast(pl.Int64)
+            .alias("_ctramp_parent_idx")
+        )
+        .select(
+            pl.col("tour_id").alias("_parent_key"),
+            pl.col("_ctramp_parent_idx"),
+        )
+    )
+
+    # Subtours: 1-based sequence within their parent tour, ordered by tour_id.
+    subtour_seq = (
+        individual_tours.filter(pl.col("_is_subtour"))
+        .select(["tour_id", "parent_tour_id"])
+        .with_columns(
+            pl.col("tour_id")
+            .rank("ordinal")
+            .over("parent_tour_id")
+            .cast(pl.Int64)
+            .alias("_subtour_seq")
+        )
+        .select(["tour_id", "_subtour_seq"])
+    )
+
+    # Base tours key on their own tour_id; subtours key on their parent_tour_id.
+    individual_tours = (
+        individual_tours.with_columns(
+            pl.when(pl.col("_is_subtour"))
+            .then(pl.col("parent_tour_id"))
+            .otherwise(pl.col("tour_id"))
+            .alias("_parent_key")
+        )
+        .join(parent_idx, on="_parent_key", how="left")
+        .join(subtour_seq, on="tour_id", how="left")
+    )
+
+    individual_tours = individual_tours.with_columns(
+        pl.when(pl.col("_is_subtour"))
+        .then((pl.col("_ctramp_parent_idx") + 1) * 10 + pl.col("_subtour_seq"))
+        .otherwise(pl.col("_ctramp_parent_idx"))
+        .cast(pl.Int64)
+        .alias("_ctramp_tour_id")
+    ).drop(
+        [
+            "_is_subtour_candidate",
+            "_is_subtour",
+            "_parent_key",
+            "_ctramp_parent_idx",
+            "_subtour_seq",
+        ]
+    )
+
+    return individual_tours
 
 
 def _promote_work_related_to_work_for_workers(

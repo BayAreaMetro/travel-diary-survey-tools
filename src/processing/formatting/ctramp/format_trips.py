@@ -157,9 +157,11 @@ def format_individual_trip(
         how="left",
     )
 
-    # Create stop_id: sequence number within each tour direction
-    # (outbound/inbound). Starting at 1 for each direction
-    # Map tour_direction enum to string for easier handling
+    # Create stop_id: trips within each half-tour leg (outbound/inbound/subtour)
+    # are numbered 0-based in order of departure. A leg that consists of a single
+    # trip (i.e. no intermediate stop) is assigned -1.
+    # Group by the globally-unique canonical tour id so tours from different
+    # persons/days are never combined.
     individual_trips = (
         individual_trips.with_columns(
             pl.when(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
@@ -169,14 +171,32 @@ def format_individual_trip(
             .otherwise(pl.lit("subtour"))
             .alias("tour_direction_str")
         )
-        .sort(["tour_id", "tour_direction_str", "depart_time"])
+        .sort(["_canonical_tour_id", "tour_direction_str", "depart_time", "arrive_time"])
         .with_columns(
-            pl.col("depart_time")
-            .rank("dense")
-            .over(["tour_id", "tour_direction_str"])
+            (
+                pl.col("depart_time")
+                .rank("ordinal")
+                .over(["_canonical_tour_id", "tour_direction_str"])
+                - 1
+            )
+            .cast(pl.Int64)
+            .alias("_stop_seq")
+        )
+        .with_columns(
+            # Single-trip leg (max 0-based sequence is 0) has no intermediate stop
+            # and is assigned -1; otherwise keep the 0-based sequence.
+            pl.when(
+                pl.col("_stop_seq")
+                .max()
+                .over(["_canonical_tour_id", "tour_direction_str"])
+                == 0
+            )
+            .then(pl.lit(-1))
+            .otherwise(pl.col("_stop_seq"))
             .cast(pl.Int64)
             .alias("stop_id")
         )
+        .drop("_stop_seq")
     )
 
     # Map inbound flag (0=outbound, 1=inbound)
@@ -462,17 +482,55 @@ def format_joint_trip(
         .alias("inbound")
     )
 
-    # Create stop_id as sequence within tour
-    joint_trips_formatted = joint_trips_formatted.sort(
-        ["joint_tour_id", "depart_time"]
-    ).with_columns(
-        pl.col("joint_trip_id").rank("dense").over("joint_tour_id").cast(pl.Int64).alias("stop_id")
+    # Create stop_id: trips within each half-tour leg are numbered 0-based in
+    # order of departure; a leg consisting of a single trip (no intermediate
+    # stop) is assigned -1. Directions are split so outbound and inbound legs are
+    # numbered independently.
+    joint_trips_formatted = (
+        joint_trips_formatted.with_columns(
+            pl.when(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
+            .then(pl.lit("outbound"))
+            .when(pl.col("tour_direction") == TourDirection.INBOUND.value)
+            .then(pl.lit("inbound"))
+            .otherwise(pl.lit("subtour"))
+            .alias("tour_direction_str")
+        )
+        .sort(["joint_tour_id", "tour_direction_str", "depart_time", "arrive_time"])
+        .with_columns(
+            (
+                pl.col("depart_time")
+                .rank("ordinal")
+                .over(["joint_tour_id", "tour_direction_str"])
+                - 1
+            )
+            .cast(pl.Int64)
+            .alias("_stop_seq")
+        )
+        .with_columns(
+            # Single-trip leg (max 0-based sequence is 0) has no intermediate stop
+            # and is assigned -1; otherwise keep the 0-based sequence.
+            pl.when(
+                pl.col("_stop_seq").max().over(["joint_tour_id", "tour_direction_str"]) == 0
+            )
+            .then(pl.lit(-1))
+            .otherwise(pl.col("_stop_seq"))
+            .cast(pl.Int64)
+            .alias("stop_id")
+        )
+        .drop("_stop_seq")
+    )
+
+    # CT-RAMP joint tour_id is 0-based per household (0=first joint tour, ...).
+    joint_trips_formatted = joint_trips_formatted.with_columns(
+        (pl.col("joint_tour_id").rank("dense").over("hh_id") - 1)
+        .cast(pl.Int64)
+        .alias("_ctramp_joint_tour_id")
     )
 
     # Select final columns with snake_case names
     select_cols = [
         pl.col("hh_id"),
-        pl.col("joint_tour_id").alias("tour_id"),
+        pl.col("_ctramp_joint_tour_id").alias("tour_id"),
         pl.col("stop_id"),
         pl.col("inbound"),
         pl.col("tour_purpose_ctramp").alias("tour_purpose"),

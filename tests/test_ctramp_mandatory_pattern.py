@@ -112,7 +112,7 @@ class TestWorkRelatedMapping:
         )
 
         assert len(result) == 1
-        assert result["tour_id"][0] == 1  # CTRAMP tour_id is tour_num (1 for first tour)
+        assert result["tour_id"][0] == 0  # CTRAMP tour_id is 0-based (0 for first tour)
         assert result["hh_id"][0] == 1
         assert result["person_id"][0] == 101
         assert result["orig_taz"][0] == 100
@@ -194,7 +194,7 @@ class TestWorkRelatedMapping:
         )
 
         assert len(result) == 1
-        assert result["tour_id"][0] == 1  # CTRAMP tour_id is tour_num (1 for first tour)
+        assert result["tour_id"][0] == 0  # CTRAMP tour_id is 0-based (0 for first tour)
         assert result["hh_id"][0] == 1
         assert result["person_id"][0] == 101
         assert result["orig_taz"][0] == 100
@@ -308,7 +308,7 @@ class TestWorkRelatedMapping:
             config=standard_config,
         )
 
-        # Filter to the WORK_RELATED tour (tour_num=2)
-        atwork_tour = result.filter(pl.col("tour_id") == 2)
+        # Filter to the at-work subtour (parent tour_id 0 -> subtour encoded as 11)
+        atwork_tour = result.filter(pl.col("tour_id") == 11)
         assert len(atwork_tour) == 1
         assert atwork_tour["tour_purpose"][0] == "atwork_business"
