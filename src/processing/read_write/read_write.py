@@ -248,9 +248,12 @@ def write_data(  # noqa: C901
         # Sort by hh_id then person_id where available so related tables
         # (e.g. householdData and personData) are in the same order and
         # can be visually compared or joined without an extra sort step.
-        sort_cols = [c for c in ("hh_id", "person_id") if c in df.columns]
-        if sort_cols:
-            df = df.sort(sort_cols)
+        # Only polars frames: text outputs are plain strings, and geo outputs
+        # are GeoDataFrames, which sort via a different API.
+        if isinstance(df, pl.DataFrame):
+            sort_cols = [c for c in ("hh_id", "person_id") if c in df.columns]
+            if sort_cols:
+                df = df.sort(sort_cols)
 
         # Perform checks before writing
         if validate_input:
