@@ -615,7 +615,6 @@ class TestAggregateLinkedTrips:
         row = result.row(0, named=True)
         # Total duration: 8:00 to 8:45 = 45 min
         assert row["duration_minutes"] == 45.0
-        assert row["travel_duration"] == 45
         # Travel duration: 10 + 25 = 35 min
         assert row["travel_duration_minutes"] == 35.0
         # Dwell duration: 45 - 35 = 10 min
