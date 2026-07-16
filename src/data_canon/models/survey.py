@@ -81,8 +81,8 @@ class PersonModel(BaseModel):
     school_type: SchoolType | None = schema_field()
     work_park: WorkParking | None = schema_field()
     work_mode: Mode | None = schema_field()
-    race: Race = schema_field()
-    ethnicity: Ethnicity = schema_field()
+    race: Race | None = schema_field(default=None)
+    ethnicity: Ethnicity | None = schema_field(default=None)
     telework_freq: CommuteFreq | None = schema_field(default=None)
     commute_freq: CommuteFreq | None = schema_field(default=None)
     # Employer *provides* commute subsidy: Free (fully subsidized) parking at work
@@ -225,10 +225,15 @@ class LinkedTripModel(BaseModel):
     )
     tour_direction: TourDirection = schema_field()
     o_location_type: LocationType = schema_field(
-        description="Classified location type of the trip origin (Home/Work/School/Other/Alternate work)."
+        description=(
+            "Classified location type of the trip origin (Home/Work/School/Other/Alternate work)."
+        ),
     )
     d_location_type: LocationType = schema_field(
-        description="Classified location type of the trip destination (Home/Work/School/Other/Alternate work)."
+        description=(
+            "Classified location type of the trip destination "
+            "(Home/Work/School/Other/Alternate work)."
+        )
     )
     complete: bool | None = schema_field(default=None)
     linked_trip_weight: float | None = schema_field(default=None, ge=0)

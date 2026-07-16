@@ -45,14 +45,15 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `work_lon` | float or None | ≥ -180, ≤ 180 | ✓ | ✓ |  |  |
     | `school_lat` | float or None | ≥ -90, ≤ 90 | ✓ | ✓ |  |  |
     | `school_lon` | float or None | ≥ -180, ≤ 180 | ✓ | ✓ |  |  |
+    | `industry` | Industry or None |  |  |  |  |  |
     | `job_type` | JobType or None |  |  |  | ✓ |  |
     | `employment` | Employment |  | ✓ |  |  |  |
     | `student` | Student |  | ✓ |  |  |  |
     | `school_type` | SchoolType or None |  | ✓ |  |  |  |
     | `work_park` | WorkParking or None |  |  |  |  | ✓ |
     | `work_mode` | Mode or None |  |  |  |  | ✓ |
-    | `race` | Race |  |  |  |  |  |
-    | `ethnicity` | Ethnicity |  |  |  |  |  |
+    | `race` | Race or None |  |  |  |  |  |
+    | `ethnicity` | Ethnicity or None |  |  |  |  |  |
     | `telework_freq` | CommuteFreq or None |  |  |  |  |  |
     | `commute_freq` | CommuteFreq or None |  |  |  |  |  |
     | `commute_subsidy_provide_free_parking` | BooleanYesNo or None |  |  |  | ✓ |  |
@@ -66,15 +67,15 @@ Each tab shows the fields for one canonical table. Only steps that reference the
 
 === "days"
 
-    | Field | Type | Constraints | format_daysim |
-    | --- | --- | --- | --- |
-    | `person_id` | int | ≥ 1, FK → `persons.person_id`, REQ_CHILD |  |
-    | `day_id` | int | ≥ 1, UNIQUE |  |
-    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |
-    | `travel_date` | datetime |  |  |
-    | `travel_dow` | TravelDow |  | ✓ |
-    | `complete` | bool or None |  |  |
-    | `day_weight` | float or None | ≥ 0 |  |
+    | Field | Type | Constraints | format_ctramp | format_daysim |
+    | --- | --- | --- | --- | --- |
+    | `person_id` | int | ≥ 1, FK → `persons.person_id`, REQ_CHILD | ✓ |  |
+    | `day_id` | int | ≥ 1, UNIQUE | ✓ |  |
+    | `hh_id` | int | ≥ 1, FK → `households.hh_id` | ✓ |  |
+    | `travel_date` | datetime |  |  |  |
+    | `travel_dow` | TravelDow |  |  | ✓ |
+    | `complete` | bool or None |  |  |  |
+    | `day_weight` | float or None | ≥ 0 |  |  |
 
 === "unlinked_trips"
 
@@ -132,10 +133,14 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `access_mode` | AccessEgressMode or None |  |  |  |  | ✓ | ✓ |
     | `egress_mode` | AccessEgressMode or None |  |  |  |  | ✓ | ✓ |
     | `duration_minutes` | float | ≥ 0 |  |  |  |  |  |
+    | `travel_duration` | int | ≥ 0 |  |  |  |  |  |
     | `distance_meters` | float | ≥ 0 |  |  |  |  |  |
     | `depart_time` | datetime |  | ✓ |  |  |  |  |
     | `arrive_time` | datetime |  | ✓ |  |  |  |  |
+    | `d_activity_duration` | int |  |  |  |  |  |  |
     | `tour_direction` | TourDirection |  |  |  |  |  | ✓ |
+    | `o_location_type` | LocationType |  |  |  |  |  |  |
+    | `d_location_type` | LocationType |  |  |  |  |  |  |
     | `complete` | bool or None |  |  |  |  |  |  |
     | `linked_trip_weight` | float or None | ≥ 0 |  |  |  |  |  |
 
