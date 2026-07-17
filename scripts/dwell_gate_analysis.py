@@ -23,8 +23,12 @@ Reported, per relevant destination purpose and split by whether the person has a
 *reported* fixed location of that kind (proxy for "has a primary"):
   - dwell percentiles and a text histogram (look for the short-stay noise spike)
   - retention at candidate dwell gates
-  - a recurrence table: distinct person-locations surviving each
-    (min_distinct_days x min_dwell) combination
+
+For WORK_RELATED / SCHOOL_RELATED, the per-location max-dwell distribution is
+also broken out by ``diary_platform`` x recurrence (n_days), because a single
+median hides that (a) recurrence and dwell are coupled and (b) single-day
+platforms (browserMove, call center collect one travel day) are a different,
+recall-filtered population. Gate-survivor counts are reported per platform.
 """
 
 import argparse
@@ -51,6 +55,10 @@ PERCENTILES = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
 CANDIDATE_GATES_MIN = [10, 15, 20, 30, 45, 60, 90, 120, 180]
 RECURRENCE_DAYS = [1, 2, 3]
 RECURRENCE_DWELL = [15, 30, 45]
+# Recurrence buckets collapse n_days >= this into a "4+" group.
+NDAYS_BUCKET_CAP = 4
+# Dwell thresholds to report the retained share at, per recurrence cell.
+SHARE_GATES_MIN = [30, 60]
 
 
 def _load(path: str) -> pl.DataFrame:
@@ -120,35 +128,77 @@ def _report_class(sub: pl.DataFrame, reported_col: str) -> None:
             print(f"     >= {g:3d} min: {kept:6d} ({100 * kept / grp.height:5.1f}%)")
 
 
-def _report_recurrence(sub: pl.DataFrame, cluster_decimals: int) -> None:
-    """Distinct person-locations surviving each (min_days x min_dwell) gate."""
-    clustered = (
+def _cluster_locations(sub: pl.DataFrame, cluster_decimals: int, group: list[str]) -> pl.DataFrame:
+    """Collapse trip ends to one row per person-location: n_days + max dwell."""
+    return (
         sub.with_columns(
             pl.col("d_lat").round(cluster_decimals).alias("_clat"),
             pl.col("d_lon").round(cluster_decimals).alias("_clon"),
         )
-        .group_by(["person_id", "_clat", "_clon"])
+        .group_by([*group, "person_id", "_clat", "_clon"])
         .agg(
             pl.col("day_id").n_unique().alias("distinct_days"),
             pl.col("dwell_min").max().alias("max_dwell"),
         )
+        .with_columns(
+            pl.when(pl.col("distinct_days") >= NDAYS_BUCKET_CAP)
+            .then(pl.lit(f"{NDAYS_BUCKET_CAP}+"))
+            .otherwise(pl.col("distinct_days").cast(pl.Utf8))
+            .alias("nd_bucket")
+        )
     )
-    print(
-        f"\n   recurrence (cluster coords to {cluster_decimals}dp, "
-        f"{clustered.height} distinct person-locations):"
-    )
-    for days in RECURRENCE_DAYS:
-        for dwell in RECURRENCE_DWELL:
-            kept = clustered.filter(
-                (pl.col("distinct_days") >= days) & (pl.col("max_dwell") >= dwell)
-            ).height
-            print(f"     >= {days} day(s) AND max_dwell >= {dwell:3d} min: {kept:6d}")
+
+
+def _report_recurrence(sub: pl.DataFrame, cluster_decimals: int, has_platform: bool) -> None:
+    """Per-location max-dwell distribution by platform x recurrence (n_days).
+
+    A single median hides that recurrence and dwell are coupled and that
+    single-day platforms are a different population (recall-filtered). This
+    prints the full spread per cell so the dwell/recurrence/platform trade-off
+    is visible, then the gate-survivor counts split by platform.
+    """
+    group = ["diary_platform"] if has_platform else []
+    clustered = _cluster_locations(sub, cluster_decimals, group)
+    platforms = clustered["diary_platform"].unique().sort().to_list() if has_platform else ["(all)"]
+    print(f"\n   per-location max-dwell by platform x n_days (cluster to {cluster_decimals}dp):")
+    for plat in platforms:
+        pf = clustered.filter(pl.col("diary_platform") == plat) if has_platform else clustered
+        print(f"\n   [{plat}]  {pf.height} person-locations")
+        buckets = [str(n) for n in range(1, NDAYS_BUCKET_CAP)] + [f"{NDAYS_BUCKET_CAP}+"]
+        for nb in buckets:
+            cell = pf.filter(pl.col("nd_bucket") == nb)
+            if cell.is_empty():
+                continue
+            d = cell["max_dwell"]
+            pcts = " ".join(f"p{int(x * 100)}={d.quantile(x):.0f}" for x in PERCENTILES)
+            shares = " ".join(
+                f">={g}min {100 * cell.filter(pl.col('max_dwell') >= g).height / cell.height:5.1f}%"
+                for g in SHARE_GATES_MIN
+            )
+            print(f"     n_days={nb:2s} loc={cell.height:6d} {pcts} | {shares}")
+            print(_text_histogram(d))
+
+    print("\n   gate survivors (>= days AND >= dwell), by platform:")
+    for plat in platforms:
+        pf = clustered.filter(pl.col("diary_platform") == plat) if has_platform else clustered
+        cells = []
+        for days in RECURRENCE_DAYS:
+            for dwell in RECURRENCE_DWELL:
+                kept = pf.filter(
+                    (pl.col("distinct_days") >= days) & (pl.col("max_dwell") >= dwell)
+                ).height
+                cells.append(f"{days}d/{dwell}m={kept}")
+        print(f"     [{plat}] " + "  ".join(cells))
 
 
 def analyse(linked_trips: pl.DataFrame, persons: pl.DataFrame, cluster_decimals: int) -> None:
     """Print dwell and recurrence distributions for each destination purpose class."""
+    has_platform = "diary_platform" in persons.columns
+    person_cols = ["person_id", "work_lat", "school_lat"]
+    if has_platform:
+        person_cols.append("diary_platform")
     lt = _dwell_column(linked_trips).join(
-        persons.select(["person_id", "work_lat", "school_lat"]),
+        persons.select(person_cols),
         on="person_id",
         how="left",
     )
@@ -163,7 +213,7 @@ def analyse(linked_trips: pl.DataFrame, persons: pl.DataFrame, cluster_decimals:
             continue
         _report_class(sub, reported_col)
         if name in ("WORK_RELATED", "SCHOOL_RELATED") and {"d_lat", "d_lon"}.issubset(sub.columns):
-            _report_recurrence(sub, cluster_decimals)
+            _report_recurrence(sub, cluster_decimals, has_platform)
 
 
 def main() -> None:
