@@ -14,7 +14,7 @@ from datetime import datetime
 from pydantic import BaseModel, model_validator
 
 from data_canon.codebook.days import TravelDow
-from data_canon.codebook.generic import BooleanYesNo, LocationType
+from data_canon.codebook.generic import BooleanYesNo, LocationSource, LocationType
 from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
@@ -335,3 +335,62 @@ class JointTripModel(BaseModel):
     depart_arrive_mean: datetime = schema_field(description="Mean arrival time across member trips")
     complete: bool | None = schema_field(default=None)
     joint_trip_weight: float | None = schema_field(default=None, ge=0)
+
+
+class PersonLocationModel(BaseModel):
+    """A single habitual location for a person in the person-location registry.
+
+    This is the tall replacement for the wide scalar ``work_lat/work_lon``,
+    ``school_lat/school_lon`` columns: one row per known location, so a person
+    can hold multiple locations of the same kind (e.g. a primary workplace plus
+    a recurring alternate worksite) with per-row provenance and statistics.
+
+    A location is identified by ``(person_id, location_type, location_num)``.
+    ``location_num`` numbers locations of the same kind for a person, with the
+    primary (when known) at ``1``. An alternate worksite is therefore just a
+    ``WORK`` row with ``location_num > 1`` and ``source = OBSERVED`` — there is
+    no separate ``ALTERNATE_WORK`` kind at the registry level.
+    """
+
+    person_id: int = schema_field(ge=1, fk_to="persons.person_id")
+    location_type: LocationType = schema_field(
+        description="Kind of location (Home/Work/School/Other)."
+    )
+    location_num: int = schema_field(
+        ge=1,
+        description=(
+            "Sequence number of this location within its kind for the person "
+            "(1 = primary when a primary is known)."
+        ),
+    )
+    is_primary: bool | None = schema_field(
+        default=None,
+        description=(
+            "Whether this is the person's primary location of its kind. None "
+            "when primacy is unknown (e.g. a multi-site worker with no single "
+            "usual workplace)."
+        ),
+    )
+    lat: float = schema_field(ge=-90, le=90)
+    lon: float = schema_field(ge=-180, le=180)
+    source: LocationSource = schema_field(
+        description="How this location was established (Reported/Observed/Imputed)."
+    )
+    n_days: int | None = schema_field(
+        default=None,
+        ge=1,
+        description=(
+            "For OBSERVED locations, the number of distinct travel days on which "
+            "the person was seen at this location (recurrence). None for "
+            "REPORTED locations."
+        ),
+    )
+    dwell_minutes: float | None = schema_field(
+        default=None,
+        ge=0,
+        description=(
+            "For OBSERVED locations, the representative (maximum observed) "
+            "activity duration in minutes at this location, used by the "
+            "population gate. None for REPORTED locations."
+        ),
+    )

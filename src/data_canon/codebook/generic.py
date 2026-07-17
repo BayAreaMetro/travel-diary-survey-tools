@@ -57,3 +57,21 @@ class LocationType(LabeledEnum):
     visible, and the tour anchored there is treated as a work tour (rather than
     work-related).
     """
+
+
+class LocationSource(LabeledEnum):
+    """Provenance of a habitual location in the person-location registry.
+
+    Records *how* a registry location was established, which the wide scalar
+    location columns cannot express. See ``PersonLocationModel``.
+    """
+
+    REPORTED = (1, "Reported")
+    """Taken from the survey's usual home/work/school location questions."""
+
+    OBSERVED = (2, "Observed")
+    """Derived from recurring observed travel (e.g. a habitual alternate
+    worksite the respondent visits repeatedly but did not report)."""
+
+    IMPUTED = (3, "Imputed")
+    """Filled in by imputation when neither reported nor observed."""
