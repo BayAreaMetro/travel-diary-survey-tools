@@ -514,6 +514,14 @@ def format_persons(
 
     # Note: employment_category was already computed before person_type derivation
 
+    # industry_empsix is derived upstream by enrich_2023_bats and passed through as-is.
+    # For pipelines that do not run that step, add a null column so downstream
+    # validation and output schemas remain consistent.
+    if "industry_empsix" not in persons_ctramp.columns:
+        persons_ctramp = persons_ctramp.with_columns(
+            pl.lit(None).cast(pl.String).alias("industry_empsix")
+        )
+
     # Note: value_of_time is model output, not survey data
     # If it exists in the input, keep it; otherwise it will be null
     if "value_of_time" not in persons_ctramp.columns:

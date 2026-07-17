@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 import polars as pl
-from clean_bats_2023 import clean_2023_bats
+from clean_bats_2023 import clean_2023_bats, enrich_2023_bats
 from dotenv import load_dotenv
 
 from data_canon.models import (
@@ -99,6 +99,7 @@ processing_steps = [
     detect_joint_trips,
     imputation,
     extract_tours,
+    enrich_2023_bats,
     format_ctramp,
     format_daysim,
     write_data,
