@@ -287,8 +287,11 @@ def format_individual_tour(
             submode_by_indiv_tour, on="tour_id", how="left"
         )
         indiv_submode_expr = pl.col("transit_submode")
+        tnc_type = pl.col("tnc_type")
     else:
         indiv_submode_expr = None
+        tnc_type = None
+
 
     individual_tours = individual_tours.with_columns(
         ctramp_mode_expression(
@@ -296,7 +299,8 @@ def format_individual_tour(
             num_travelers_expr,
             access_expr,
             egress_expr,
-            indiv_submode_expr
+            indiv_submode_expr,
+            tnc_type
         ).alias("tour_mode_ctramp")
     )
 
@@ -592,8 +596,10 @@ def format_joint_tour(
             submode_by_joint_tour, on="joint_tour_id", how="left"
         )
         joint_submode_expr = pl.col("transit_submode")
+        tnc_type = pl.col("tnc_type")
     else:
         joint_submode_expr = None
+        tnc_type = None
 
     # Map purpose and mode
     joint_tours_formatted = joint_tours_formatted.with_columns(
@@ -613,6 +619,7 @@ def format_joint_tour(
                 None,  # Tours don't have access/egress modes
                 None,
                 joint_submode_expr,
+                tnc_type
             ).alias("tour_mode_ctramp"),
         ]
     )

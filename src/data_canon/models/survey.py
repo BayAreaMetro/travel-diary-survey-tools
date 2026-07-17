@@ -38,6 +38,7 @@ from data_canon.codebook.trips import (
     ModeType,
     Purpose,
     PurposeCategory,
+    TNCType
 )
 from data_canon.core.schema_field import schema_field
 
@@ -150,6 +151,7 @@ class UnlinkedTripModel(BaseModel):
     mode_2: Mode | None
     mode_3: Mode | None
     mode_4: Mode | None
+    tnc_type: TNCType | None 
     duration_minutes: float = schema_field(ge=0)
     distance_meters: float = schema_field(ge=0)
     depart_time: datetime | None = schema_field()

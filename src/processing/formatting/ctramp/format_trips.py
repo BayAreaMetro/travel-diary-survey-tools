@@ -13,7 +13,7 @@ import polars as pl
 from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPPersonType
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
-from data_canon.codebook.trips import Purpose
+from data_canon.codebook.trips import Purpose, TNCType
 
 from .ctramp_config import CTRAMPConfig
 from .format_persons import enrich_persons_with_person_type
@@ -246,8 +246,10 @@ def format_individual_trip(
             submode_by_trip, on="linked_trip_id", how="left"
         )
         trip_submode_expr = pl.col("transit_submode")
+        tnc_type = pl.col("tnc_type")
     else:
         trip_submode_expr = None
+        tnc_type = None
 
     individual_trips = individual_trips.with_columns(
         ctramp_mode_expression(
@@ -256,6 +258,7 @@ def format_individual_trip(
             pl.col("access_mode"),
             pl.col("egress_mode"),
             trip_submode_expr,
+            tnc_type
         ).alias("trip_mode")
     )
 
@@ -385,14 +388,23 @@ def format_joint_trip(
             joint_linked_trips.select(["joint_trip_id", "linked_trip_id"])
             .join(submode_by_linked, on="linked_trip_id", how="left")
             .group_by("joint_trip_id")
-            .agg(pl.col("transit_submode").max().alias("transit_submode"))
+            .agg(
+                pl.col("transit_submode").max().alias("transit_submode"),
+                # Aggregate TNC type across segments (POOLED wins, else min).
+                pl.when((pl.col("tnc_type") == TNCType.POOLED.value).any())
+                .then(pl.lit(TNCType.POOLED.value))
+                .otherwise(pl.col("tnc_type").min())
+                .alias("tnc_type"),
+            )
         )
         joint_trips_formatted = joint_trips_formatted.join(
             submode_by_joint, on="joint_trip_id", how="left"
         )
         trip_submode_expr = pl.col("transit_submode")
+        tnc_type = pl.col("tnc_type")
     else:
         trip_submode_expr = None
+        tnc_type = None
 
     # Join with tour context
     joint_trips_formatted = joint_trips_formatted.join(
@@ -452,6 +464,7 @@ def format_joint_trip(
                 pl.col("access_mode"),
                 pl.col("egress_mode"),
                 trip_submode_expr,
+                tnc_type,
             ).alias("trip_mode"),
             ctramp_mode_expression(
                 pl.col("tour_mode"),
@@ -459,6 +472,7 @@ def format_joint_trip(
                 None,  # Tour mode doesn't have access/egress
                 None,
                 trip_submode_expr,
+                tnc_type,
             ).alias("tour_mode_ctramp"),
         ]
     )

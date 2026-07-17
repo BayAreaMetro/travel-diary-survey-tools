@@ -27,7 +27,7 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from data_canon.codebook.trips import AccessEgressMode, Mode, ModeType, PurposeCategory
+from data_canon.codebook.trips import AccessEgressMode, Mode, ModeType, PurposeCategory, TNCType
 
 from .ctramp_config import CTRAMPConfig
 
@@ -71,32 +71,38 @@ MODE_TO_TRANSIT_SUBMODE = {
 
 
 def aggregate_transit_submode(unlinked_trips: pl.DataFrame, group_col: str) -> pl.DataFrame:
-    """Aggregate the highest transit submode used within each tour group.
+    """Aggregate the highest transit submode and the TNC type within each group.
 
     Uses the detailed ``mode_1``-``mode_4`` columns on unlinked trips to detect
     the transit submode (local bus, light rail/ferry, express bus, heavy rail,
     commuter rail) and returns the highest-ranked submode present per group.
+    Also aggregates ``tnc_type`` across the group's TNC segments: ``POOLED`` wins
+    if any TNC segment is pooled, otherwise the lowest ``tnc_type`` present
+    (``null`` if the group has no TNC segments).
 
     Args:
-        unlinked_trips: Canonical unlinked trips DataFrame containing ``group_col``
-            and detailed ``mode_1``-``mode_4`` columns.
+        unlinked_trips: Canonical unlinked trips DataFrame containing ``group_col``,
+            the detailed ``mode_1``-``mode_4`` columns, and optionally ``mode_type``
+            and ``tnc_type``.
         group_col: Column to group by (e.g. ``tour_id`` or ``joint_tour_id``).
 
     Returns:
-        DataFrame with columns ``[group_col, transit_submode]`` where
-        ``transit_submode`` is the highest submode rank (0 if none).
+        DataFrame with columns ``[group_col, transit_submode, tnc_type]`` where
+        ``transit_submode`` is the highest submode rank (0 if none) and
+        ``tnc_type`` is the aggregated TNC service type (null if no TNC segments).
     """
     mode_cols = [c for c in ("mode_1", "mode_2", "mode_3", "mode_4") if c in unlinked_trips.columns]
     if not mode_cols or group_col not in unlinked_trips.columns:
         return pl.DataFrame(
-            {group_col: [], "transit_submode": []},
+            {group_col: [], "transit_submode": [], "tnc_type": []},
             schema={
                 group_col: unlinked_trips.schema.get(group_col, pl.Int64),
                 "transit_submode": pl.Int64,
+                "tnc_type": pl.Int64,
             },
         )
 
-    return (
+    submode = (
         unlinked_trips.select([group_col, *mode_cols])
         .filter(pl.col(group_col).is_not_null())
         .unpivot(index=group_col, on=mode_cols, variable_name="_mode_slot", value_name="_mode")
@@ -109,6 +115,26 @@ def aggregate_transit_submode(unlinked_trips: pl.DataFrame, group_col: str) -> p
         .group_by(group_col)
         .agg(pl.col("_submode_rank").max().alias("transit_submode"))
     )
+
+    # Aggregate TNC type across the group's TNC segments (POOLED wins, else min).
+    if "tnc_type" in unlinked_trips.columns and "mode_type" in unlinked_trips.columns:
+        tnc = (
+            unlinked_trips.filter(
+                pl.col(group_col).is_not_null() & (pl.col("mode_type") == ModeType.TNC.value)
+            )
+            .group_by(group_col)
+            .agg(
+                pl.when((pl.col("tnc_type") == TNCType.POOLED.value).any())
+                .then(pl.lit(TNCType.POOLED.value))
+                .otherwise(pl.col("tnc_type").min())
+                .alias("tnc_type")
+            )
+        )
+        submode = submode.join(tnc, on=group_col, how="full", coalesce=True)
+    else:
+        submode = submode.with_columns(pl.lit(None, dtype=pl.Int64).alias("tnc_type"))
+
+    return submode
 
 
 GENDER_MAP = {
@@ -403,6 +429,7 @@ def ctramp_mode_expression(
     access_mode: pl.Expr | None = None,
     egress_mode: pl.Expr | None = None,
     transit_submode: pl.Expr | None = None,
+    tnc_type: pl.Expr | None = None,
 ) -> pl.Expr:
     """Map canonical mode_type to CTRAMP mode integer code.
 
@@ -417,6 +444,7 @@ def ctramp_mode_expression(
             provided, transit trips are mapped to the matching CT-RAMP submode code
             (local/express/light rail-ferry/heavy rail/commuter rail) instead of
             always defaulting to local bus.
+        tnc_type: Optional polars expression for determining TNC type
 
     Returns:
         Polars expression resolving to CTRAMPModeType integer code (21 codes)
@@ -428,7 +456,7 @@ def ctramp_mode_expression(
           Uses access_mode/egress_mode to detect drive-to-transit and
           transit_submode to pick the submode; defaults to local bus.
         - Personal vehicle by occupancy: DA=1, SR2=3, SR3=5 (non-toll)
-        - TNC: Single passenger=20, Shared=21
+        - TNC by service type: Regualr/Premium =20, Shared=21
         - Taxi=19
         - School bus treated as SR3=5
         - Unknown modes default to DA=1
@@ -520,9 +548,9 @@ def ctramp_mode_expression(
 
     # TNC - distinguish between single (TNC=20) and shared (TNC2=21)
     tnc_occupancy = (
-        pl.when(num_travelers == 1)
-        .then(pl.lit(CTRAMPModeType.TNC.value))
-        .otherwise(pl.lit(CTRAMPModeType.TNC2.value))
+        pl.when(tnc_type == TNCType.POOLED.value)
+        .then(pl.lit(CTRAMPModeType.TNC2.value))
+        .otherwise(pl.lit(CTRAMPModeType.TNC.value))
     )
     tnc_expr = taxi_expr.when(mode_type == ModeType.TNC.value).then(tnc_occupancy)
 
