@@ -4,17 +4,20 @@ This is the tall replacement for the wide scalar ``home_lat/lon``,
 ``work_lat/lon``, ``school_lat/lon`` columns produced by
 ``prepare_person_locations``. Each row is one known location for a person, so a
 person can hold multiple locations of the same kind (e.g. a primary workplace
-plus a recurring alternate worksite) with per-row provenance and statistics. See
-``PersonLocationModel`` for the schema. For example::
+plus a recurring alternate worksite) with per-row provenance and a weekly dwell
+profile. See ``PersonLocationModel`` for the schema. For example (dwell columns
+abbreviated to the days visited)::
 
-    person_id  location_type  location_num  is_primary  source    n_days  dwell_min
-    1          WORK           1             True        reported   -        -
-    1          WORK           2             False       observed   4        210
-    2          WORK           1             None        observed   3        180
-    2          WORK           2             None        observed   2        150
+    person_id  location_type  location_num  is_primary  source    weekly dwell (min)
+    1          WORK           1             True        reported   -
+    1          WORK           2             False       observed   Tue 210, Thu 200
+    2          WORK           1             None        observed   Mon 180, Wed 175
+    2          WORK           2             None        observed   Tue 150, Thu 160
 
-    (person 1: office worker, a main office plus a regular offsite;
+    (person 1: office worker, a main office plus a Tue/Thu offsite;
      person 2: multi-site worker with no single office.)
+    Recurrence (days seen) and overall dwell are the count and max of the
+    per-day dwell columns.
 
 Two builders:
 
@@ -45,10 +48,24 @@ import logging
 import polars as pl
 from pydantic import BaseModel, Field
 
+from data_canon.codebook.days import TravelDow
 from data_canon.codebook.generic import LocationSource, LocationType
 from data_canon.codebook.trips import PurposeCategory
 
 logger = logging.getLogger(__name__)
+
+# Weekly dwell-profile columns: one per travel day-of-week, holding the activity
+# duration in minutes at a location on that day (null when not visited).
+_DOW_COLUMNS = [
+    (TravelDow.MONDAY, "dwell_mon"),
+    (TravelDow.TUESDAY, "dwell_tue"),
+    (TravelDow.WEDNESDAY, "dwell_wed"),
+    (TravelDow.THURSDAY, "dwell_thu"),
+    (TravelDow.FRIDAY, "dwell_fri"),
+    (TravelDow.SATURDAY, "dwell_sat"),
+    (TravelDow.SUNDAY, "dwell_sun"),
+]
+_DOW_COLUMN_NAMES = [name for _dow, name in _DOW_COLUMNS]
 
 # Sentinel values of d_activity_duration that are not real dwell times
 # (see LinkedTripModel.d_activity_duration): -1 = destination is home,
@@ -65,9 +82,7 @@ _REGISTRY_COLUMNS = [
     "lat",
     "lon",
     "source",
-    "n_days",
-    "dwell_minutes",
-    "days_of_week",
+    *_DOW_COLUMN_NAMES,
 ]
 
 # Reported scalar location columns, mapped to their registry location type.
@@ -92,12 +107,12 @@ class RegistryGateConfig(BaseModel):
 
     A destination becomes an observed work/school location when the respondent
     spent at least ``min_dwell_minutes`` there. Dwell is the only filter: it
-    separates real worksites and campuses from brief stops. How many distinct
-    days the location was visited is recorded on each row as ``n_days`` for
-    downstream use, but is not filtered on here, because some survey platforms
-    collect only a single travel day (see the analysis doc) and would otherwise
-    be excluded outright. ``min_distinct_days`` is retained as an optional knob
-    and defaults to 1 (off).
+    separates real worksites and campuses from brief stops. The per-day dwell
+    profile (and thus how many distinct days the location was visited) is
+    recorded on each row for downstream use, but recurrence is not filtered on
+    here, because some survey platforms collect only a single travel day and
+    would otherwise be excluded outright. ``min_distinct_days`` is retained as an
+    optional knob and defaults to 1 (off).
     """
 
     min_dwell_minutes: float = Field(
@@ -113,7 +128,8 @@ class RegistryGateConfig(BaseModel):
         ge=1,
         description=(
             "Optional minimum number of distinct travel days the location was "
-            "visited. Defaults to 1 (no filter); n_days is recorded regardless."
+            "visited. Defaults to 1 (no filter); the per-day dwell profile is "
+            "recorded regardless."
         ),
     )
     cluster_decimals: int = Field(
@@ -150,9 +166,7 @@ def build_reported_registry(person_locations: pl.DataFrame) -> pl.DataFrame:
             pl.col(lat_col).alias("lat"),
             pl.col(lon_col).alias("lon"),
             pl.lit(LocationSource.REPORTED.value, dtype=pl.Int64).alias("source"),
-            pl.lit(None, dtype=pl.Int64).alias("n_days"),
-            pl.lit(None, dtype=pl.Float64).alias("dwell_minutes"),
-            pl.lit(None, dtype=pl.List(pl.Int64)).alias("days_of_week"),
+            *[pl.lit(None, dtype=pl.Float64).alias(name) for name in _DOW_COLUMN_NAMES],
         )
         for loc_type, lat_col, lon_col in _REPORTED_SCALARS
         if lat_col in person_locations.columns and lon_col in person_locations.columns
@@ -167,16 +181,25 @@ def _derive_pool(
     config: RegistryGateConfig,
 ) -> pl.DataFrame:
     """Cluster one purpose pool's destinations into observed locations."""
-    # Distinct travel days-of-week seen at each location (weekly usage pattern).
+    has_dow = "travel_dow" in valid_trips.columns
+    # Internal gating stats (recurrence + overall dwell) plus the mean coords.
     aggs = [
-        pl.col("day_id").n_unique().alias("n_days"),
-        pl.col("d_activity_duration").max().cast(pl.Float64).alias("dwell_minutes"),
+        pl.col("day_id").n_unique().alias("_n_days"),
+        pl.col("d_activity_duration").max().cast(pl.Float64).alias("_max_dwell"),
         pl.col("d_lat").mean().alias("lat"),
         pl.col("d_lon").mean().alias("lon"),
     ]
-    has_dow = "travel_dow" in valid_trips.columns
+    # Weekly dwell profile: the max dwell on each travel day-of-week (null when
+    # the day was not visited, or when linked_trips carries no travel_dow).
     if has_dow:
-        aggs.append(pl.col("travel_dow").cast(pl.Int64).unique().sort().alias("days_of_week"))
+        aggs += [
+            pl.col("d_activity_duration")
+            .filter(pl.col("travel_dow") == dow.value)
+            .max()
+            .cast(pl.Float64)
+            .alias(name)
+            for dow, name in _DOW_COLUMNS
+        ]
 
     clustered = (
         valid_trips.filter(pl.col("d_purpose_category").is_in(purposes))
@@ -189,11 +212,11 @@ def _derive_pool(
     )
     if not has_dow:
         clustered = clustered.with_columns(
-            pl.lit(None, dtype=pl.List(pl.Int64)).alias("days_of_week")
+            [pl.lit(None, dtype=pl.Float64).alias(name) for name in _DOW_COLUMN_NAMES]
         )
     gated = clustered.filter(
-        (pl.col("dwell_minutes") >= config.min_dwell_minutes)
-        & (pl.col("n_days") >= config.min_distinct_days)
+        (pl.col("_max_dwell") >= config.min_dwell_minutes)
+        & (pl.col("_n_days") >= config.min_distinct_days)
     )
     return gated.select(
         pl.col("person_id"),
@@ -202,9 +225,7 @@ def _derive_pool(
         pl.col("lat"),
         pl.col("lon"),
         pl.lit(LocationSource.OBSERVED.value, dtype=pl.Int64).alias("source"),
-        pl.col("n_days").cast(pl.Int64),
-        pl.col("dwell_minutes"),
-        pl.col("days_of_week"),
+        *[pl.col(name) for name in _DOW_COLUMN_NAMES],
     )
 
 
@@ -227,7 +248,7 @@ def derive_observed_locations(
     Returns:
         Tall table of observed WORK/SCHOOL locations without ``location_num``.
         Each row has ``source = OBSERVED``, ``is_primary = None`` (primacy
-        unknown), and populated ``n_days``/``dwell_minutes`` statistics.
+        unknown), and a populated per-day dwell profile (``dwell_mon``..).
     """
     config = config or RegistryGateConfig()
 
@@ -315,10 +336,13 @@ def _assign_location_num(registry: pl.DataFrame) -> pl.DataFrame:
     """
     return (
         registry.with_columns(
-            (pl.col("source") != LocationSource.REPORTED.value).cast(pl.Int8).alias("_source_order")
+            (pl.col("source") != LocationSource.REPORTED.value)
+            .cast(pl.Int8)
+            .alias("_source_order"),
+            pl.max_horizontal(_DOW_COLUMN_NAMES).alias("_sort_dwell"),
         )
         .sort(
-            ["person_id", "location_type", "_source_order", "dwell_minutes"],
+            ["person_id", "location_type", "_source_order", "_sort_dwell"],
             descending=[False, False, False, True],
             nulls_last=True,
         )
@@ -327,7 +351,7 @@ def _assign_location_num(registry: pl.DataFrame) -> pl.DataFrame:
                 "location_num"
             )
         )
-        .drop("_source_order")
+        .drop("_source_order", "_sort_dwell")
     )
 
 

@@ -30,6 +30,22 @@ USUAL_WORK = (37.85, -122.45)
 ALT_WORK = (37.95, -122.55)
 ALT_SCHOOL = (37.99, -122.59)
 
+# Weekly dwell-profile columns (1=Mon..7=Sun); _linked_trip maps day_id to one.
+DWELL_COLS = [
+    "dwell_mon",
+    "dwell_tue",
+    "dwell_wed",
+    "dwell_thu",
+    "dwell_fri",
+    "dwell_sat",
+    "dwell_sun",
+]
+
+
+def _days_seen(row) -> int:
+    """Number of days-of-week with a recorded dwell (derived recurrence)."""
+    return sum(row[c] is not None for c in DWELL_COLS)
+
 
 def _person_locations() -> pl.DataFrame:
     """Two people: person 1 has home+work+school, person 2 only home (nulls)."""
@@ -80,8 +96,8 @@ def test_reported_registry_reproduces_scalar_coordinates():
     # provenance + primacy for reported rows
     assert reg["source"].unique().to_list() == [LocationSource.REPORTED.value]
     assert reg["is_primary"].unique().to_list() == [True]
-    assert reg["n_days"].null_count() == reg.height
-    assert reg["dwell_minutes"].null_count() == reg.height
+    for col in DWELL_COLS:
+        assert reg[col].null_count() == reg.height
 
 
 def test_reported_registry_skips_null_locations():
@@ -110,17 +126,23 @@ def test_worksite_with_sufficient_dwell_is_recorded():
     assert row["location_type"] == LocationType.WORK.value
     assert row["source"] == LocationSource.OBSERVED.value
     assert row["is_primary"] is None
-    assert row["n_days"] == 3
-    assert row["dwell_minutes"] == 130  # max observed dwell
+    # days 10/11/12 map to Wed/Thu/Fri; each records that day's dwell
+    assert row["dwell_wed"] == 120
+    assert row["dwell_thu"] == 130
+    assert row["dwell_fri"] == 110
+    assert row["dwell_mon"] is None
+    assert _days_seen(row) == 3
     assert abs(row["lat"] - ALT_WORK[0]) < 1e-6
 
 
-def test_single_day_location_is_recorded_with_ndays_one():
-    """A single-day visit is admitted (recurrence is not filtered) and n_days=1."""
-    trips = pl.DataFrame([_linked_trip(1, 10, *ALT_WORK, 300)])
+def test_single_day_location_is_recorded():
+    """A single-day visit is admitted (recurrence is not filtered)."""
+    trips = pl.DataFrame([_linked_trip(1, 10, *ALT_WORK, 300)])  # day 10 -> Wed
     observed = derive_observed_locations(trips)
     assert observed.height == 1
-    assert observed.row(0, named=True)["n_days"] == 1
+    row = observed.row(0, named=True)
+    assert _days_seen(row) == 1
+    assert row["dwell_wed"] == 300
 
 
 def test_short_dwell_cluster_excluded_by_dwell_cutoff():
@@ -150,8 +172,8 @@ def test_dwell_sentinels_are_ignored():
     # person 2 (sentinels only) drops out; person 1 keeps only the real day
     assert observed["person_id"].to_list() == [1]
     row = observed.row(0, named=True)
-    assert row["n_days"] == 1
-    assert row["dwell_minutes"] == 90
+    assert _days_seen(row) == 1  # day 12 -> Friday only
+    assert row["dwell_fri"] == 90
 
 
 def test_non_work_or_school_purposes_ignored():
@@ -185,25 +207,29 @@ def test_school_pool_derives_observed_school():
     assert observed.height == 1
     row = observed.row(0, named=True)
     assert row["location_type"] == LocationType.SCHOOL.value
-    assert row["n_days"] == 2
+    assert _days_seen(row) == 2  # days 10/11 -> Wed/Thu
 
 
-def test_observed_location_records_days_of_week():
-    """An observed location records the distinct travel days-of-week it was seen."""
+def test_weekly_dwell_profile_is_recorded_per_day():
+    """An observed location records the dwell on each day-of-week it was seen."""
     trips = pl.DataFrame(
         [
             _linked_trip(1, 10, *ALT_WORK, 120, dow=1),  # Monday
             _linked_trip(1, 11, *ALT_WORK, 130, dow=3),  # Wednesday
         ]
     )
-    observed = derive_observed_locations(trips)
-    assert observed.row(0, named=True)["days_of_week"] == [1, 3]
+    row = derive_observed_locations(trips).row(0, named=True)
+    assert row["dwell_mon"] == 120
+    assert row["dwell_wed"] == 130
+    assert row["dwell_tue"] is None
+    assert _days_seen(row) == 2
 
 
-def test_reported_locations_have_no_days_of_week():
-    """Reported locations carry no day-of-week pattern (null)."""
+def test_reported_locations_have_no_dwell_profile():
+    """Reported locations carry no per-day dwell (all null)."""
     reg = build_reported_registry(_person_locations())
-    assert reg["days_of_week"].null_count() == reg.height
+    for col in DWELL_COLS:
+        assert reg[col].null_count() == reg.height
 
 
 def test_dwell_cutoff_is_tunable():

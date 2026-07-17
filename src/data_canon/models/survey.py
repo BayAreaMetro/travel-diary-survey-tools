@@ -371,30 +371,29 @@ class PersonLocationModel(BaseModel):
     source: LocationSource = schema_field(
         description="How this location was established (Reported/Observed/Imputed)."
     )
-    n_days: int | None = schema_field(
-        default=None,
-        ge=1,
-        description=(
-            "For OBSERVED locations, the number of distinct travel days on which "
-            "the person was seen at this location (recurrence). None for "
-            "REPORTED locations."
-        ),
+    # Weekly dwell profile: for OBSERVED locations, the activity duration in
+    # minutes at this location on each travel day-of-week (the maximum observed
+    # on that day), null on days it was not visited. This is the per-day weekly
+    # usage pattern; recurrence (days seen) and the overall dwell are derivable
+    # as the count and maximum of these columns. All null for REPORTED locations.
+    dwell_mon: float | None = schema_field(
+        default=None, ge=0, description="Dwell minutes on Monday."
     )
-    dwell_minutes: float | None = schema_field(
-        default=None,
-        ge=0,
-        description=(
-            "For OBSERVED locations, the representative (maximum observed) "
-            "activity duration in minutes at this location, used by the "
-            "population gate. None for REPORTED locations."
-        ),
+    dwell_tue: float | None = schema_field(
+        default=None, ge=0, description="Dwell minutes on Tuesday."
     )
-    days_of_week: list[int] | None = schema_field(
-        default=None,
-        description=(
-            "For OBSERVED locations, the distinct travel days-of-week the person "
-            "was seen at this location (TravelDow values, 1=Mon..7=Sun) — a "
-            "weekly usage pattern reserved for future day-specific modelling. "
-            "Not yet consumed. None for REPORTED locations."
-        ),
+    dwell_wed: float | None = schema_field(
+        default=None, ge=0, description="Dwell minutes on Wednesday."
+    )
+    dwell_thu: float | None = schema_field(
+        default=None, ge=0, description="Dwell minutes on Thursday."
+    )
+    dwell_fri: float | None = schema_field(
+        default=None, ge=0, description="Dwell minutes on Friday."
+    )
+    dwell_sat: float | None = schema_field(
+        default=None, ge=0, description="Dwell minutes on Saturday."
+    )
+    dwell_sun: float | None = schema_field(
+        default=None, ge=0, description="Dwell minutes on Sunday."
     )
