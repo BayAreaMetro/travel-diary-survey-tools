@@ -1,105 +1,59 @@
-# Location-registry population gate: dwell x recurrence x platform
+# Choosing the dwell cutoff for observed locations
 
-Reference data for tuning the person-location registry population gate
-(`RegistryGateConfig`, issue #71), which promotes an observed destination to a
-habitual **WORK** location. Three signals establish a location:
+The registry records a work or school location it observes in a person's travel
+when they spent enough time there. This note shows the dwell-time distributions
+that cutoff is read from, using BATS-2023 output.
 
-1. **Reported** — the survey usual-location question (`source = REPORTED`).
-2. **Long dwell** — the respondent spends substantial time there (`dwell_minutes`).
-3. **Repeat across days** — a recurring visit (`n_days`), *available only when the
-   diary spans multiple days*.
-
-- **Source:** BATS-2023 canonical output (`linked_trips` + `persons`).
 - **Reproduce:** `uv run python scripts/dwell_gate_analysis.py --linked-trips
   <linked_trips.parquet> --persons <persons.parquet>`.
-- **Dwell** = `d_activity_duration` (#68), excluding sentinels (`-1` home, `-2`
-  last trip of day). Numbers below are from a pre-#68 cache (dwell reconstructed
-  as next-depart − arrive); the shipped script prefers `d_activity_duration`.
-- **Per-location** statistic = the **max** observed dwell in a coordinate cluster
-  (rounded to 3 dp ≈ 110 m), which is what the gate uses.
+- **Pools:** work = work + work-related trips; school = school + school-related.
+- **Per location:** destinations are grouped to ~110 m (3 decimal places); each
+  location's dwell is its longest observed stay. `n_days` is the number of
+  distinct days it was visited.
+- **Dwell** excludes the two `d_activity_duration` sentinels (`-1` home end,
+  `-2` last trip of the day).
 
-## Recurrence is not uniformly available (the platform caveat)
+## Distributions
 
-`n_days` depends on how many travel days the diary platform collects:
+Percentile columns are dwell minutes; the `≥N` columns are the share of
+locations kept at that cutoff.
 
-| diary_platform | persons w/ trips | median days | % exactly 1 day |
-|----------------|------------------|-------------|-----------------|
-| rmove          | 12,080           | 6           | 2.6%            |
-| browser (bMove)| 1,901            | 1           | **100%**        |
-| call center    | 235              | 1           | **100%**        |
+**Work (work + work-related) — 20,239 locations**
 
-**17% of respondents get a single travel day**, so a `n_days ≥ 2` requirement can
-*never* fire for them — it is an rmove-only signal. A gate that hard-requires
-recurrence silently yields zero observed locations for browserMove and call
-center, regardless of whether those respondents have a real alternate worksite.
+| platform | n_days | locations | p25 | p50 | p75 | p90 | ≥15m | ≥30m | ≥45m | ≥60m |
+|----------|--------|-----------|-----|-----|-----|-----|------|------|------|------|
+| rmove    | 1      | 14,365    | 7   | 58  | 224 | 452 | 67%  | 59%  | 54%  | 50%  |
+| rmove    | 2      | 2,698     | 133 | 327 | 495 | 557 | 92%  | 87%  | 85%  | 83%  |
+| rmove    | 3      | 1,318     | 264 | 431 | 528 | 585 | 96%  | 95%  | 94%  | 93%  |
+| rmove    | 4+     | 1,188     | 332 | 488 | 548 | 617 | 99%  | 98%  | 98%  | 97%  |
+| browser  | 1      | 627       | 285 | 463 | 540 | 595 | 96%  | 95%  | 93%  | 92%  |
+| call     | 1      | 43        | 165 | 390 | 490 | 541 | 100% | 100% | 98%  | 91%  |
 
-## Dwell distribution by platform x recurrence (WORK_RELATED)
+**School (school + school-related) — 3,320 locations**
 
-Per-location max dwell, so the coupling between the three signals is visible
-rather than hidden behind a median.
+| platform | n_days | locations | p25 | p50 | p75 | p90 | ≥15m | ≥30m | ≥45m | ≥60m |
+|----------|--------|-----------|-----|-----|-----|-----|------|------|------|------|
+| rmove    | 1      | 2,248     | 20  | 96  | 307 | 470 | 77%  | 73%  | 69%  | 63%  |
+| rmove    | 2      | 507       | 93  | 270 | 454 | 540 | 86%  | 85%  | 84%  | 81%  |
+| rmove    | 3      | 158       | 121 | 362 | 490 | 571 | 92%  | 88%  | 87%  | 85%  |
+| rmove    | 4+     | 125       | 243 | 416 | 530 | 590 | 93%  | 91%  | 91%  | 90%  |
+| browser  | 1      | 274       | 181 | 380 | 439 | 515 | 91%  | 90%  | 89%  | 86%  |
+| call     | 1      | 8         | 118 | 390 | 400 | 450 | 100% | 100% | 100% | 88%  |
 
-**rmove** — recurrence and dwell are strongly coupled; short-stop noise collapses
-as `n_days` rises:
+## Reading the tables
 
-| n_days | locations | p25 | p50 | p75 | p90 | ≥30 min | ≥60 min |
-|--------|-----------|-----|-----|-----|-----|---------|---------|
-| 1      | 11,455    | 5   | 32  | 134 | 312 | 51.0%   | 40.6%   |
-| 2      | 1,293     | 31  | 155 | 399 | 529 | 75.4%   | 66.9%   |
-| 3      | 430       | 98  | 277 | 481 | 567 | 86.3%   | 81.2%   |
-| 4+     | 280       | 190 | 427 | 527 | 593 | 93.2%   | 89.3%   |
+Only the **rmove single-day** row carries a large mass of very short stays (its
+p25 is 7 minutes for work); every other row is already concentrated at long
+dwells before any cutoff. So the cutoff's job is mainly to drop brief single-day
+stops without touching the clearly-substantial locations. A **30-minute** cutoff
+does that: it removes the short-stay stops while keeping essentially all of the
+longer-stay and repeat-visit locations.
 
-The `n_days = 1` cell is ~50% short-stop noise (a large 0–32 min spike); by 3+
-days it is overwhelmingly full-day worksites. Recurrence is a strong quality
-signal on rmove.
+## On the number of days
 
-**Single-day platforms are a different, cleaner population.** Their one day of
-data is recall-based, so only salient stops are reported — the 2-minute GPS
-pass-throughs that flood rmove's single-day trace are simply absent:
-
-| platform (all n_days = 1) | locations | p25 | p50 | p75 | ≥30 min | ≥60 min |
-|---------------------------|-----------|-----|-----|-----|---------|---------|
-| rmove                     | 11,455    | 5   | 32  | 134 | 51.0%   | 40.6%   |
-| browser (bMove)           | 147       | 40  | 148 | 420 | 78.9%   | 70.1%   |
-| call center               | 13        | 55  | 115 | 157 | 92.3%   | 69.2%   |
-
-A browserMove single-day WORK_RELATED location (p50 = 148 min) looks like an
-rmove **2-day** location (p50 = 155 min), not an rmove single-day one (p50 = 32
-min). So the dwell distribution that would need recurrence to clean it up on
-rmove is *already* clean on the single-day platforms.
-
-## Gate survivors, by platform
-
-Person-locations passing `n_days ≥ D` **and** `max_dwell ≥ M`:
-
-| platform | 1d/30m | 2d/30m | 3d/30m |
-|----------|--------|--------|--------|
-| rmove    | 7,446  | 1,607  | 632    |
-| browser  | 116    | **0**  | **0**  |
-| call     | 12     | **0**  | **0**  |
-
-The `2d/30m` column is the current `RegistryGateConfig` default. It keeps 1,607
-habitual rmove worksites and **zero** from the single-day platforms — the bias
-this analysis exists to surface.
-
-## Implication for the gate (open design question)
-
-The distributions argue against a single hard `dwell AND days` conjunction and
-for treating the three signals as **graded evidence recorded on the row**
-(`source`, `dwell_minutes`, `n_days` are all stored), with the population rule
-platform-aware:
-
-- **Multi-day diary (rmove):** recurrence is available and strongly denoises, so
-  `n_days ≥ 2` with a modest dwell bar (≥30 min) is well supported.
-- **Single-day diary (browserMove, call center):** recurrence is unavailable, but
-  the recall-filtered dwell distribution is already ≈ rmove's multi-day one, so a
-  **dwell-only** rule (at a comparable bar) admits mostly substantial activity,
-  not gig noise. These would carry weaker provenance (no recurrence corroboration).
-
-This also folds #70's per-day alternate-work notion in as the single-day branch
-of one mechanism — {habitual multi-day} ∪ {dominant single-day activity} —
-distinguished by provenance rather than kept as a parallel system.
-
-The **step-1 code deliberately does not decide this**: `derive_observed_work_
-locations` applies a uniform `n_days ≥ min_distinct_days` gate (hence rmove-only
-today), and the platform-aware rule lands with the classification rewire in the
-follow-up, once the trade-off above is settled.
+`n_days` looks like a strong signal — dwell rises steadily with it — but it is
+only available where the survey collects multiple travel days. Of respondents
+with trips, rmove has a median of 6 days, while **browserMove and call-center
+respondents each provide a single day (about 17% of respondents)**. Filtering on
+`n_days ≥ 2` would therefore exclude those platforms entirely. It is recorded on
+each location for later use, but the population rule uses dwell only.

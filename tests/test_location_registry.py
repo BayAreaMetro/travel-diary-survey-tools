@@ -2,8 +2,8 @@
 
 Covers:
 - Reported scalar locations unpivot into tall rows and reproduce the input coords
-- Observed habitual worksites are promoted only when they pass the dwell AND
-  recurrence gate; the gate is tunable via RegistryGateConfig
+- Observed work/school locations are recorded when they pass the dwell cutoff;
+  recurrence (n_days) is recorded but not filtered on by default (tunable)
 - The combined registry numbers locations primary-first, de-duplicates observed
   locations coinciding with a reported one, and conforms to PersonLocationModel
 """
@@ -17,14 +17,18 @@ from processing.tours.location_registry import (
     RegistryGateConfig,
     build_location_registry,
     build_reported_registry,
-    derive_observed_work_locations,
+    derive_observed_locations,
 )
 
+WORK = PurposeCategory.WORK.value
 WORK_RELATED = PurposeCategory.WORK_RELATED.value
+SCHOOL = PurposeCategory.SCHOOL.value
+SCHOOL_RELATED = PurposeCategory.SCHOOL_RELATED.value
 SHOP = PurposeCategory.SHOP.value
 
 USUAL_WORK = (37.85, -122.45)
 ALT_WORK = (37.95, -122.55)
+ALT_SCHOOL = (37.99, -122.59)
 
 
 def _person_locations() -> pl.DataFrame:
@@ -87,12 +91,11 @@ def test_reported_registry_skips_null_locations():
     assert p2["location_type"].item() == LocationType.HOME.value
 
 
-# --- derive_observed_work_locations (the gate) ------------------------------
+# --- derive_observed_locations (the dwell cutoff) ---------------------------
 
 
-def test_habitual_alternate_worksite_is_promoted():
-    """A worksite visited on 3 days for ~2h each becomes an OBSERVED WORK row."""
-    # Person 1 visits ALT_WORK on 3 distinct days, ~120 min each: habitual.
+def test_worksite_with_sufficient_dwell_is_recorded():
+    """A place with a long-enough stay becomes an OBSERVED WORK row."""
     trips = pl.DataFrame(
         [
             _linked_trip(1, 10, *ALT_WORK, 120),
@@ -100,7 +103,7 @@ def test_habitual_alternate_worksite_is_promoted():
             _linked_trip(1, 12, *ALT_WORK, 110),
         ]
     )
-    observed = derive_observed_work_locations(trips)
+    observed = derive_observed_locations(trips)
     assert observed.height == 1
     row = observed.row(0, named=True)
     assert row["location_type"] == LocationType.WORK.value
@@ -111,16 +114,16 @@ def test_habitual_alternate_worksite_is_promoted():
     assert abs(row["lat"] - ALT_WORK[0]) < 1e-6
 
 
-def test_one_off_visit_excluded_by_recurrence_gate():
-    """A single long-dwell day fails the >=2 distinct-days requirement."""
-    # Long dwell but only one day -> not habitual.
+def test_single_day_location_is_recorded_with_ndays_one():
+    """A single-day visit is admitted (recurrence is not filtered) and n_days=1."""
     trips = pl.DataFrame([_linked_trip(1, 10, *ALT_WORK, 300)])
-    assert derive_observed_work_locations(trips).height == 0
+    observed = derive_observed_locations(trips)
+    assert observed.height == 1
+    assert observed.row(0, named=True)["n_days"] == 1
 
 
-def test_short_dwell_cluster_excluded_by_dwell_gate():
-    """A recurring but brief gig/delivery cluster fails the dwell gate."""
-    # Recurs across 3 days but each stay is a brief gig/delivery stop.
+def test_short_dwell_cluster_excluded_by_dwell_cutoff():
+    """A cluster of brief stops stays below the dwell cutoff and is dropped."""
     trips = pl.DataFrame(
         [
             _linked_trip(1, 10, *ALT_WORK, 8),
@@ -128,40 +131,76 @@ def test_short_dwell_cluster_excluded_by_dwell_gate():
             _linked_trip(1, 12, *ALT_WORK, 5),
         ]
     )
-    assert derive_observed_work_locations(trips).height == 0
+    assert derive_observed_locations(trips).height == 0
 
 
 def test_dwell_sentinels_are_ignored():
-    """Sentinel dwell values (-1, -2) do not count as real observations."""
-    # -1 (home) and -2 (last trip of day) are not real dwell times.
+    """Sentinel dwell values (-1, -2) count toward neither dwell nor n_days."""
     trips = pl.DataFrame(
         [
-            _linked_trip(1, 10, *ALT_WORK, -1),
-            _linked_trip(1, 11, *ALT_WORK, -2),
-            _linked_trip(1, 12, *ALT_WORK, 90),
+            _linked_trip(1, 10, *ALT_WORK, -1),  # home sentinel
+            _linked_trip(1, 11, *ALT_WORK, -2),  # last-trip-of-day sentinel
+            _linked_trip(1, 12, *ALT_WORK, 90),  # one real visit
+            _linked_trip(2, 20, *ALT_WORK, -1),  # person 2: only sentinels
+            _linked_trip(2, 21, *ALT_WORK, -2),
         ]
     )
-    # Only one real (day 12) observation remains -> fails the >=2 day recurrence.
-    assert derive_observed_work_locations(trips).height == 0
+    observed = derive_observed_locations(trips)
+    # person 2 (sentinels only) drops out; person 1 keeps only the real day
+    assert observed["person_id"].to_list() == [1]
+    row = observed.row(0, named=True)
+    assert row["n_days"] == 1
+    assert row["dwell_minutes"] == 90
 
 
-def test_non_work_related_purposes_ignored():
-    """Non-WORK_RELATED destinations (e.g. shopping) never enter the registry."""
+def test_non_work_or_school_purposes_ignored():
+    """Destinations outside the work/school pools (e.g. shopping) are ignored."""
     trips = pl.DataFrame(
         [
             _linked_trip(1, 10, *ALT_WORK, 200, purpose=SHOP),
             _linked_trip(1, 11, *ALT_WORK, 200, purpose=SHOP),
         ]
     )
-    assert derive_observed_work_locations(trips).height == 0
+    assert derive_observed_locations(trips).height == 0
 
 
-def test_gate_is_tunable():
-    """Loosening min_distinct_days to 1 admits a single-day worksite."""
+def test_work_purpose_contributes_to_pool():
+    """A WORK-purpose destination (not only WORK_RELATED) is pooled as work."""
+    trips = pl.DataFrame([_linked_trip(1, 10, *ALT_WORK, 300, purpose=WORK)])
+    observed = derive_observed_locations(trips)
+    assert observed.height == 1
+    assert observed.row(0, named=True)["location_type"] == LocationType.WORK.value
+
+
+def test_school_pool_derives_observed_school():
+    """School + school-related destinations pool into an OBSERVED SCHOOL row."""
+    trips = pl.DataFrame(
+        [
+            _linked_trip(1, 10, *ALT_SCHOOL, 200, purpose=SCHOOL),
+            _linked_trip(1, 11, *ALT_SCHOOL, 210, purpose=SCHOOL_RELATED),
+        ]
+    )
+    observed = derive_observed_locations(trips)
+    assert observed.height == 1
+    row = observed.row(0, named=True)
+    assert row["location_type"] == LocationType.SCHOOL.value
+    assert row["n_days"] == 2
+
+
+def test_dwell_cutoff_is_tunable():
+    """The dwell cutoff is the tuning knob: 20 min fails 30, passes 15."""
+    trips = pl.DataFrame([_linked_trip(1, 10, *ALT_WORK, 20)])
+    assert derive_observed_locations(trips).height == 0
+    loose = RegistryGateConfig(min_dwell_minutes=15)
+    assert derive_observed_locations(trips, loose).height == 1
+
+
+def test_recurrence_filter_is_optional_and_off_by_default():
+    """min_distinct_days defaults off; setting it applies a recurrence filter."""
     trips = pl.DataFrame([_linked_trip(1, 10, *ALT_WORK, 300)])
-    # Default: excluded (needs >=2 days). Loosened to 1 day: admitted.
-    loose = RegistryGateConfig(min_distinct_days=1)
-    assert derive_observed_work_locations(trips, loose).height == 1
+    assert derive_observed_locations(trips).height == 1  # default: single day kept
+    strict = RegistryGateConfig(min_distinct_days=2)
+    assert derive_observed_locations(trips, strict).height == 0
 
 
 # --- build_location_registry (combined) -------------------------------------
@@ -197,7 +236,6 @@ def test_observed_worksite_numbered_after_reported_primary():
 
 def test_observed_coinciding_with_reported_work_is_deduped():
     """An observed cluster on the reported workplace is not re-added."""
-    # Observed cluster sits on the reported workplace -> not re-added.
     trips = pl.DataFrame(
         [
             _linked_trip(1, 10, *USUAL_WORK, 120),
@@ -218,6 +256,7 @@ def test_registry_rows_conform_to_model():
         [
             _linked_trip(1, 10, *ALT_WORK, 120),
             _linked_trip(1, 11, *ALT_WORK, 130),
+            _linked_trip(1, 12, *ALT_SCHOOL, 200, purpose=SCHOOL),
         ]
     )
     reg = build_location_registry(_person_locations(), trips)

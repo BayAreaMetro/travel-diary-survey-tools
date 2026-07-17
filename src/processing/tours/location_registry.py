@@ -12,9 +12,9 @@ Two builders:
 - ``build_reported_registry`` unpivots the reported scalar locations into tall
   rows (``source = REPORTED``). This alone reproduces exactly the coordinates the
   scalar model carries today.
-- ``derive_observed_work_locations`` scans observed WORK_RELATED travel and
-  promotes *habitual* alternate worksites to ``WORK`` rows (``source =
-  OBSERVED``), gated by a minimum dwell and a minimum number of distinct days.
+- ``derive_observed_locations`` groups observed work (work + work-related) and
+  school (school + school-related) travel and records each place the respondent
+  spent enough time at as a ``WORK``/``SCHOOL`` row (``source = OBSERVED``).
 
 ``build_location_registry`` combines the two, de-duplicates observed locations
 that coincide with a reported one, and numbers each person's locations within a
@@ -25,8 +25,8 @@ Nothing in the pipeline consumes the registry yet: this is migration step 1
 anchor detection onto the registry, and retiring the per-day ``ALTERNATE_WORK``
 scalar patch, is a separate follow-up.
 
-The population gate (``RegistryGateConfig``) is tuned from the observed dwell and
-recurrence distributions; see ``scripts/dwell_gate_analysis.py`` and
+The population rule (``RegistryGateConfig``) is a dwell-time cutoff read from the
+observed distributions; see ``scripts/dwell_gate_analysis.py`` and
 ``docs/analysis/location_registry_dwell_distribution.md``.
 """
 
@@ -66,31 +66,43 @@ _REPORTED_SCALARS = [
     (LocationType.SCHOOL, "school_lat", "school_lon"),
 ]
 
+# Observed location kinds and the destination purposes pooled to derive them.
+# A work location is any place reached on a work or work-related trip; likewise
+# for school. Pooling the "related" purpose with its base captures worksites and
+# campuses that are not the person's reported primary one.
+_OBSERVED_POOLS = [
+    (LocationType.WORK, [PurposeCategory.WORK.value, PurposeCategory.WORK_RELATED.value]),
+    (LocationType.SCHOOL, [PurposeCategory.SCHOOL.value, PurposeCategory.SCHOOL_RELATED.value]),
+]
+
 
 class RegistryGateConfig(BaseModel):
-    """Population gate for promoting observed locations into the registry.
+    """Rule for promoting observed locations into the registry.
 
-    Defaults are chosen from the BATS-2023 observed dwell and recurrence
-    distributions (see the analysis doc). A habitual alternate worksite is one
-    the respondent both *stays at* (dwell filters gig/delivery stops) and
-    *returns to* (recurrence filters one-off meetings).
+    A destination becomes an observed work/school location when the respondent
+    spent at least ``min_dwell_minutes`` there. Dwell is the only filter: it
+    separates real worksites and campuses from brief stops. How many distinct
+    days the location was visited is recorded on each row as ``n_days`` for
+    downstream use, but is not filtered on here, because some survey platforms
+    collect only a single travel day (see the analysis doc) and would otherwise
+    be excluded outright. ``min_distinct_days`` is retained as an optional knob
+    and defaults to 1 (off).
     """
 
     min_dwell_minutes: float = Field(
         default=30.0,
         ge=0,
         description=(
-            "Minimum representative (max observed) activity duration in minutes "
-            "for an observed location to enter the registry. Filters brief "
-            "gig/delivery stops from genuine worksites."
+            "Minimum activity duration in minutes (the location's longest "
+            "observed stay) for it to enter the registry."
         ),
     )
     min_distinct_days: int = Field(
-        default=2,
+        default=1,
         ge=1,
         description=(
-            "Minimum number of distinct travel days a person must be seen at a "
-            "location for it to count as habitual. Filters one-off meetings."
+            "Optional minimum number of distinct travel days the location was "
+            "visited. Defaults to 1 (no filter); n_days is recorded regardless."
         ),
     )
     cluster_decimals: int = Field(
@@ -98,8 +110,8 @@ class RegistryGateConfig(BaseModel):
         ge=0,
         le=6,
         description=(
-            "Decimal places to round lat/lon to when clustering repeat visits "
-            "to the same place (3 dp is roughly 110 m)."
+            "Decimal places to round lat/lon to when grouping repeat visits to "
+            "the same place (3 dp is roughly 110 m)."
         ),
     )
 
@@ -136,60 +148,34 @@ def build_reported_registry(person_locations: pl.DataFrame) -> pl.DataFrame:
     return pl.concat(frames, how="vertical")
 
 
-def derive_observed_work_locations(
-    linked_trips: pl.DataFrame,
-    config: RegistryGateConfig | None = None,
+def _derive_pool(
+    valid_trips: pl.DataFrame,
+    location_type: LocationType,
+    purposes: list[int],
+    config: RegistryGateConfig,
 ) -> pl.DataFrame:
-    """Promote habitual observed WORK_RELATED locations to WORK registry rows.
-
-    Clusters a person's WORK_RELATED destinations by rounded coordinates and
-    keeps clusters that pass the population gate (dwell and recurrence). A
-    WORK_RELATED purpose already excludes the usual workplace, so a surviving
-    cluster is a genuine alternate worksite.
-
-    Args:
-        linked_trips: Linked trips with ``person_id``, ``day_id``, ``d_lat``,
-            ``d_lon``, ``d_purpose_category`` and ``d_activity_duration``.
-        config: Population gate parameters (defaults if not given).
-
-    Returns:
-        Tall table of observed WORK locations without ``location_num``. Each row
-        has ``source = OBSERVED``, ``is_primary = None`` (primacy unknown), and
-        populated ``n_days``/``dwell_minutes`` statistics.
-    """
-    config = config or RegistryGateConfig()
-
-    if "d_activity_duration" not in linked_trips.columns:
-        msg = (
-            "derive_observed_work_locations requires the d_activity_duration "
-            "column (linked-trip field added in #68)."
+    """Cluster one purpose pool's destinations into observed locations."""
+    clustered = (
+        valid_trips.filter(pl.col("d_purpose_category").is_in(purposes))
+        .with_columns(
+            pl.col("d_lat").round(config.cluster_decimals).alias("_cell_lat"),
+            pl.col("d_lon").round(config.cluster_decimals).alias("_cell_lon"),
         )
-        raise ValueError(msg)
-
-    candidates = linked_trips.filter(
-        (pl.col("d_purpose_category") == PurposeCategory.WORK_RELATED.value)
-        & pl.col("d_activity_duration").is_not_null()
-        & ~pl.col("d_activity_duration").is_in(_DWELL_SENTINELS)
-    ).with_columns(
-        pl.col("d_lat").round(config.cluster_decimals).alias("_cell_lat"),
-        pl.col("d_lon").round(config.cluster_decimals).alias("_cell_lon"),
+        .group_by(["person_id", "_cell_lat", "_cell_lon"])
+        .agg(
+            pl.col("day_id").n_unique().alias("n_days"),
+            pl.col("d_activity_duration").max().cast(pl.Float64).alias("dwell_minutes"),
+            pl.col("d_lat").mean().alias("lat"),
+            pl.col("d_lon").mean().alias("lon"),
+        )
     )
-
-    clustered = candidates.group_by(["person_id", "_cell_lat", "_cell_lon"]).agg(
-        pl.col("day_id").n_unique().alias("n_days"),
-        pl.col("d_activity_duration").max().cast(pl.Float64).alias("dwell_minutes"),
-        pl.col("d_lat").mean().alias("lat"),
-        pl.col("d_lon").mean().alias("lon"),
-    )
-
     gated = clustered.filter(
-        (pl.col("n_days") >= config.min_distinct_days)
-        & (pl.col("dwell_minutes") >= config.min_dwell_minutes)
+        (pl.col("dwell_minutes") >= config.min_dwell_minutes)
+        & (pl.col("n_days") >= config.min_distinct_days)
     )
-
     return gated.select(
         pl.col("person_id"),
-        pl.lit(LocationType.WORK.value, dtype=pl.Int64).alias("location_type"),
+        pl.lit(location_type.value, dtype=pl.Int64).alias("location_type"),
         pl.lit(None, dtype=pl.Boolean).alias("is_primary"),
         pl.col("lat"),
         pl.col("lon"),
@@ -199,31 +185,73 @@ def derive_observed_work_locations(
     )
 
 
+def derive_observed_locations(
+    linked_trips: pl.DataFrame,
+    config: RegistryGateConfig | None = None,
+) -> pl.DataFrame:
+    """Derive observed work and school locations from travel.
+
+    Groups a person's work (work + work-related) and school (school +
+    school-related) destinations by rounded coordinates and keeps each place
+    where they spent at least the configured dwell time. The number of distinct
+    days each place was visited is recorded but not filtered on.
+
+    Args:
+        linked_trips: Linked trips with ``person_id``, ``day_id``, ``d_lat``,
+            ``d_lon``, ``d_purpose_category`` and ``d_activity_duration``.
+        config: Population rule parameters (defaults if not given).
+
+    Returns:
+        Tall table of observed WORK/SCHOOL locations without ``location_num``.
+        Each row has ``source = OBSERVED``, ``is_primary = None`` (primacy
+        unknown), and populated ``n_days``/``dwell_minutes`` statistics.
+    """
+    config = config or RegistryGateConfig()
+
+    if "d_activity_duration" not in linked_trips.columns:
+        msg = (
+            "derive_observed_locations requires the d_activity_duration column "
+            "(linked-trip field added in #68)."
+        )
+        raise ValueError(msg)
+
+    valid_trips = linked_trips.filter(
+        pl.col("d_activity_duration").is_not_null()
+        & ~pl.col("d_activity_duration").is_in(_DWELL_SENTINELS)
+    )
+    frames = [
+        _derive_pool(valid_trips, location_type, purposes, config)
+        for location_type, purposes in _OBSERVED_POOLS
+    ]
+    return pl.concat(frames, how="vertical")
+
+
 def _drop_observed_duplicating_reported(
     observed: pl.DataFrame,
     reported: pl.DataFrame,
     cluster_decimals: int,
 ) -> pl.DataFrame:
-    """Drop observed rows that fall in the same cell as a reported location.
+    """Drop observed rows in the same cell as a reported location of that kind.
 
-    Guards against re-adding a person's reported workplace as an "observed"
-    alternate when a WORK_RELATED trip happens to end near it.
+    Guards against re-adding a person's reported workplace/school as an
+    "observed" location when a work/school trip ends at or near it.
     """
-    reported_cells = (
-        reported.filter(pl.col("location_type") == LocationType.WORK.value)
-        .select(
-            "person_id",
-            pl.col("lat").round(cluster_decimals).alias("_cell_lat"),
-            pl.col("lon").round(cluster_decimals).alias("_cell_lon"),
-        )
-        .unique()
-    )
+    reported_cells = reported.select(
+        "person_id",
+        "location_type",
+        pl.col("lat").round(cluster_decimals).alias("_cell_lat"),
+        pl.col("lon").round(cluster_decimals).alias("_cell_lon"),
+    ).unique()
     return (
         observed.with_columns(
             pl.col("lat").round(cluster_decimals).alias("_cell_lat"),
             pl.col("lon").round(cluster_decimals).alias("_cell_lon"),
         )
-        .join(reported_cells, on=["person_id", "_cell_lat", "_cell_lon"], how="anti")
+        .join(
+            reported_cells,
+            on=["person_id", "location_type", "_cell_lat", "_cell_lon"],
+            how="anti",
+        )
         .drop("_cell_lat", "_cell_lon")
     )
 
@@ -262,9 +290,9 @@ def build_location_registry(
     Args:
         person_locations: Wide per-person reported locations (see
             ``build_reported_registry``).
-        linked_trips: Optional linked trips for deriving observed alternate
-            worksites. If omitted, only reported locations are included.
-        config: Population gate parameters (defaults if not given).
+        linked_trips: Optional linked trips for deriving observed work/school
+            locations. If omitted, only reported locations are included.
+        config: Population rule parameters (defaults if not given).
 
     Returns:
         Tall registry conforming to ``PersonLocationModel``, ordered by
@@ -274,7 +302,7 @@ def build_location_registry(
     reported = build_reported_registry(person_locations)
 
     if linked_trips is not None and linked_trips.height > 0:
-        observed = derive_observed_work_locations(linked_trips, config)
+        observed = derive_observed_locations(linked_trips, config)
         observed = _drop_observed_duplicating_reported(observed, reported, config.cluster_decimals)
         registry = pl.concat([reported, observed], how="vertical")
     else:
