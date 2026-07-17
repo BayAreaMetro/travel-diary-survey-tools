@@ -54,10 +54,10 @@ locations kept at that cutoff.
 
 Only the **rmove single-day** row carries a large mass of very short stays (its
 p25 is 7 minutes for work); every other row is already concentrated at long
-dwells before any cutoff. So the cutoff's job is mainly to drop brief single-day
-stops without touching the clearly-substantial locations. A **30-minute** cutoff
-does that: it removes the short-stay stops while keeping essentially all of the
-longer-stay and repeat-visit locations.
+dwells before any cutoff. The cutoff mainly governs how many substantial
+alternate locations enter the registry. The default is **90 minutes**, favouring
+half-day-plus locations as alternate work anchors; it is a weak lever (30→90 min
+trims the observed work set only ~23%) and tunable via `RegistryGateConfig`.
 
 ## On the number of days
 
@@ -67,3 +67,16 @@ with trips, rmove has a median of 6 days, while **browserMove and call-center
 respondents each provide a single day (about 17% of respondents)**. Filtering on
 `n_days ≥ 2` would therefore exclude those platforms entirely. It is recorded on
 each location for later use, but the population rule uses dwell only.
+
+## How observed locations are used
+
+Observed locations drive **anchor detection**, not trip classification. Work and
+school trips already classify as WORK/SCHOOL via their purpose, so using observed
+locations to classify would only re-tag *non-work* trips (a meal or social stop
+near a worksite) spatially — which we deliberately do not do.
+
+Instead, anchoring is resolved **per day**: a person anchors at their reported
+workplace on days they visit it; on days they do not, an observed work location
+they visited becomes that day's anchor. This lets a hybrid worker be based at a
+different site on different days, while work-related errands on an office day
+remain work-based subtours rather than anchors.

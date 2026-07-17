@@ -29,10 +29,12 @@ Two builders:
 that coincide with a reported one, and numbers each person's locations within a
 kind (primary first).
 
-Nothing in the pipeline consumes the registry yet: this is migration step 1
-(introduce alongside the scalars, no behavior change). Moving classification and
-anchor detection onto the registry, and retiring the per-day ``ALTERNATE_WORK``
-scalar patch, is a separate follow-up.
+The registry is the source of truth for anchor detection: ``add_anchor_flags``
+(in ``location_helpers.py``) resolves each day's work anchor from it, so an
+observed alternate worksite anchors on days the reported workplace is not
+visited. This replaced the per-day ``ALTERNATE_WORK`` derivation. Trip
+*classification* deliberately still uses only reported locations (see
+``classify_trip_locations``).
 
 The population rule (``RegistryGateConfig``) is a dwell-time cutoff read from the
 observed distributions; see ``scripts/dwell_gate_analysis.py`` and
@@ -99,7 +101,7 @@ class RegistryGateConfig(BaseModel):
     """
 
     min_dwell_minutes: float = Field(
-        default=30.0,
+        default=90.0,
         ge=0,
         description=(
             "Minimum activity duration in minutes (the location's longest "

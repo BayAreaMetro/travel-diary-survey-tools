@@ -40,6 +40,7 @@ from data_canon.codebook.generic import LocationType
 from data_canon.codebook.persons import AgeCategory, Employment, SchoolType, Student
 from data_canon.codebook.tours import PersonCategory
 from data_canon.codebook.trips import ModeType, PurposeCategory
+from processing.tours.location_registry import RegistryGateConfig
 
 
 class TourConfig(BaseModel):
@@ -164,6 +165,14 @@ class TourConfig(BaseModel):
         description=(
             "If True, only detect work-based subtours from 'usual workplace' "
             "(coordinate match to work_lat/work_lon)."
+        ),
+    )
+
+    registry_gate: RegistryGateConfig = Field(
+        default_factory=RegistryGateConfig,
+        description=(
+            "Population rule for the person-location registry: the dwell cutoff "
+            "for recording observed work/school locations."
         ),
     )
 

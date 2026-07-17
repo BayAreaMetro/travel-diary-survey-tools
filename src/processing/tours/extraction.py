@@ -104,9 +104,11 @@ from .detection_helpers import (
 )
 from .joint_tour_helpers import identify_joint_tours
 from .location_helpers import (
+    add_anchor_flags,
     classify_trip_locations,
     prepare_person_locations,
 )
+from .location_registry import build_location_registry
 from .tour_configs import TourConfig
 from .validation_helpers import validate_and_correct_tours
 
@@ -134,6 +136,7 @@ logger = logging.getLogger(__name__)
             "joint_trip_id",
             "travel_dow",
             "d_purpose_category",
+            "d_activity_duration",
             "mode_type",
         },
     },
@@ -196,13 +199,30 @@ def extract_tours(
         config.person_category_expression(),
     )
 
+    # Build the person-location registry (reported locations plus observed
+    # work/school locations derived from travel). It is the single source of
+    # truth for both location classification and anchor detection.
+    registry = build_location_registry(person_locations, linked_trips, config.registry_gate)
+
     msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
     logger.info(msg)
 
-    # Step 1: Prepare person locations
+    # Step 1: Classify trip ends against the registry
     linked_trips_classified = classify_trip_locations(
         linked_trips,
-        person_locations,
+        registry,
+        config.distance_thresholds,
+    ).join(
+        person_locations.select(["person_id", "person_category"]),
+        on="person_id",
+        how="left",
+    )
+
+    # Anchor flags from the registry (reported + observed work/school locations,
+    # with per-day resolution). These drive anchor-period and subtour detection.
+    linked_trips_classified = add_anchor_flags(
+        linked_trips_classified,
+        registry,
         config.distance_thresholds,
     )
 
@@ -213,11 +233,7 @@ def extract_tours(
     )
 
     # Step 3: Expand anchor location periods (work, school, etc.)
-    linked_trips_with_anchor_periods = expand_anchor_periods(
-        linked_trips_with_hb_tours,
-        person_locations,
-        config.distance_thresholds,
-    )
+    linked_trips_with_anchor_periods = expand_anchor_periods(linked_trips_with_hb_tours)
 
     # Step 4: Detect anchor-based subtours (work-based, school-based, etc.)
     linked_trips_with_subtours = detect_anchor_based_subtours(linked_trips_with_anchor_periods)
