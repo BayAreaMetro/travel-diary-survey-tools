@@ -5,7 +5,16 @@ This is the tall replacement for the wide scalar ``home_lat/lon``,
 ``prepare_person_locations``. Each row is one known location for a person, so a
 person can hold multiple locations of the same kind (e.g. a primary workplace
 plus a recurring alternate worksite) with per-row provenance and statistics. See
-``PersonLocationModel`` for the schema.
+``PersonLocationModel`` for the schema. For example::
+
+    person_id  location_type  location_num  is_primary  source    n_days  dwell_min
+    1          WORK           1             True        reported   -        -
+    1          WORK           2             False       observed   4        210
+    2          WORK           1             None        observed   3        180
+    2          WORK           2             None        observed   2        150
+
+    (person 1: office worker, a main office plus a regular offsite;
+     person 2: multi-site worker with no single office.)
 
 Two builders:
 
@@ -256,6 +265,34 @@ def _drop_observed_duplicating_reported(
     )
 
 
+def _resolve_observed_primacy(registry: pl.DataFrame) -> pl.DataFrame:
+    """Set ``is_primary`` on observed rows relative to the reported locations.
+
+    An observed location is *not* primary (``False``) when the person has a
+    reported location of the same kind (that reported one is the primary), and
+    *unknown* (``None``) when they have none — e.g. a multi-site worker with no
+    single usual workplace. Reported rows keep ``is_primary = True``.
+    """
+    reported_kinds = (
+        registry.filter(pl.col("source") == LocationSource.REPORTED.value)
+        .select("person_id", "location_type")
+        .unique()
+        .with_columns(pl.lit(value=True).alias("_has_reported"))
+    )
+    return (
+        registry.join(reported_kinds, on=["person_id", "location_type"], how="left")
+        .with_columns(
+            pl.when(pl.col("source") == LocationSource.REPORTED.value)
+            .then(pl.lit(value=True))
+            .when(pl.col("_has_reported").fill_null(value=False))
+            .then(pl.lit(value=False))
+            .otherwise(pl.lit(None, dtype=pl.Boolean))
+            .alias("is_primary")
+        )
+        .drop("_has_reported")
+    )
+
+
 def _assign_location_num(registry: pl.DataFrame) -> pl.DataFrame:
     """Number locations within each (person, location_type), primary first.
 
@@ -304,7 +341,7 @@ def build_location_registry(
     if linked_trips is not None and linked_trips.height > 0:
         observed = derive_observed_locations(linked_trips, config)
         observed = _drop_observed_duplicating_reported(observed, reported, config.cluster_decimals)
-        registry = pl.concat([reported, observed], how="vertical")
+        registry = _resolve_observed_primacy(pl.concat([reported, observed], how="vertical"))
     else:
         registry = reported
 

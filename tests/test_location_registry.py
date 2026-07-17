@@ -231,7 +231,26 @@ def test_observed_worksite_numbered_after_reported_primary():
         LocationSource.REPORTED.value,
         LocationSource.OBSERVED.value,
     ]
-    assert work["is_primary"].to_list() == [True, None]
+    # reported one is primary; the observed site is known NOT to be primary
+    assert work["is_primary"].to_list() == [True, False]
+
+
+def test_observed_location_without_reported_primary_has_unknown_primacy():
+    """With no reported location of that kind, observed primacy is unknown (None)."""
+    # person 2 has no reported work; a multi-site worker with no single office.
+    trips = pl.DataFrame(
+        [
+            _linked_trip(2, 20, *ALT_WORK, 200),
+            _linked_trip(2, 21, *USUAL_WORK, 210),
+        ]
+    )
+    reg = build_location_registry(_person_locations(), trips)
+    work = reg.filter(
+        (pl.col("person_id") == 2) & (pl.col("location_type") == LocationType.WORK.value)
+    )
+    assert work.height == 2
+    assert work["source"].unique().to_list() == [LocationSource.OBSERVED.value]
+    assert work["is_primary"].to_list() == [None, None]
 
 
 def test_observed_coinciding_with_reported_work_is_deduped():

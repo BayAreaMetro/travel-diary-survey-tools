@@ -1,5 +1,15 @@
 # Choosing the dwell cutoff for observed locations
 
+The registry stores one row per known location, so a person can hold several of
+a kind. For example:
+
+| person_id | location_type | location_num | is_primary | source | n_days | dwell_minutes | what it represents |
+|---|---|---|---|---|---|---|---|
+| 1 | WORK | 1 | true | reported | – | – | office worker's main office |
+| 1 | WORK | 2 | false | observed | 4 | 210 | a second worksite they regularly visit |
+| 2 | WORK | 1 | _null_ | observed | 3 | 180 | travelling worker — no single main office |
+| 2 | WORK | 2 | _null_ | observed | 2 | 150 | travelling worker — another worksite |
+
 The registry records a work or school location it observes in a person's travel
 when they spent enough time there. This note shows the dwell-time distributions
 that cutoff is read from, using BATS-2023 output.
