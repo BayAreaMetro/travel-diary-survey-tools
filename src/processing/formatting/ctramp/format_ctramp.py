@@ -224,12 +224,12 @@ MODEL_MAP = {
     "households_ctramp": HouseholdCTRAMPModel,
     "persons_ctramp": PersonCTRAMPModel,
     "mandatory_locations_ctramp": MandatoryLocationCTRAMPModel,
-    "cdap_results_ctramp": CDAPResultsCTRAMPModel,
-    "ao_results_ctramp": AOResultsCTRAMPModel,
     "individual_trips_ctramp": IndividualTripCTRAMPModel,
     "individual_tours_ctramp": IndividualTourCTRAMPModel,
     "joint_trips_ctramp": JointTripCTRAMPModel,
     "joint_tours_ctramp": JointTourCTRAMPModel,
+    "cdap_results_ctramp": CDAPResultsCTRAMPModel,
+    "ao_results_ctramp": AOResultsCTRAMPModel,
 }
 
 
@@ -885,13 +885,10 @@ def format_ctramp(  # noqa: PLR0913
         "mandatory_locations_ctramp": mandatory_location_ctramp,
     }
 
-    # Derive cdapResults-style table from persons
+    # Derive cdapResults / aoResults from the formatted persons/households before
+    # the cleanup loop trims each table to its own model.
     tables["cdap_results_ctramp"] = format_cdap_results(tables["persons_ctramp"])
-
-    # Derive aoResults-style table from households
     tables["ao_results_ctramp"] = format_ao_results(tables["households_ctramp"])
-
-    logger.info("CT-RAMP formatting complete")
 
     # Cleanup tables
     for table_name, df in tables.items():

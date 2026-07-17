@@ -161,13 +161,8 @@ steps:
   # - name: final_check
   #   validate_input: true
 
-  # Derives industry_empsix (CT-RAMP six-category empsix) from the raw industry
-  # integer code using the INDUSTRY_RECODE mapping, with a keyword-matching
-  # fallback on the industry_other free-text field (INDUSTRY_OTHER_TERM_RECODE).
-  # Running this before format_ctramp means the column is written to survey CSVs.
-  - name: enrich_2023_bats
-    validate_input: false
-    cache: true
+  # industry_empsix is now derived inside format_ctramp (from the canonical
+  # industry code), so no separate enrichment step is needed.
 
   - name: format_ctramp
     validate_input: false

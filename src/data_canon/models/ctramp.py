@@ -160,12 +160,7 @@ class PersonCTRAMPModel(BaseModel):
     )
     industry_empsix: CTRAMPIndustry | None = Field(
         default=None,
-        description=(
-            "Six-category NAICS-based employment sector "
-            "(RETEMPN=Retail, FPSEMPN=Financial/professional services, "
-            "HEREMPN=Health/education/recreation, AGREMPN=Agriculture/natural resources, "
-            "MWTEMPN=Manufacturing/wholesale/transportation, OTHEMPN=Other)"
-        ),
+        description="Six-category employment sector (empsix), derived from the canonical industry code",
     )
 
     # NOTE: Not part of CT-RAMP spec; for survey - model comparative analysis.

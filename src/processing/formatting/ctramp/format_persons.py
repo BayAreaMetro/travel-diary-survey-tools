@@ -42,6 +42,7 @@ from .ctramp_config import CTRAMPConfig
 from .mappings import (
     EMPLOYMENT_TO_CTRAMP,
     GENDER_MAP,
+    add_industry_empsix,
     ctramp_person_type_expression,
     ctramp_student_category_expression,
     log_person_type_warnings,
@@ -560,13 +561,13 @@ def format_persons(
         pl.when(wfh_cond).then(pl.lit(1)).otherwise(pl.lit(0)).alias("wfh_choice")
     )
 
-    # industry_empsix is derived upstream by enrich_2023_bats and passed through as-is.
-    # For pipelines that do not run that step, add a null column so downstream
-    # validation and output schemas remain consistent.
-    if "industry_empsix" not in persons_ctramp.columns:
-        persons_ctramp = persons_ctramp.with_columns(
-            pl.lit(None).cast(pl.String).alias("industry_empsix")
-        )
+    # Derive industry_empsix (CT-RAMP empsix employment sector) from the canonical
+    # industry code, filling from free-text industry_other where available.
+    persons_ctramp = persons_ctramp.join(
+        add_industry_empsix(persons_canonical).select(["person_id", "industry_empsix"]),
+        on="person_id",
+        how="left",
+    )
 
     # Note: value_of_time is model output, not survey data
     # If it exists in the input, keep it; otherwise it will be null

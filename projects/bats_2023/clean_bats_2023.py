@@ -4,7 +4,6 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPIndustry
 from data_canon.codebook.households import (
     IncomeBroad,
     IncomeDetailed,
@@ -12,7 +11,7 @@ from data_canon.codebook.households import (
     ResidenceRentOwn,
     ResidenceType,
 )
-from data_canon.codebook.persons import Ethnicity, Industry, Race
+from data_canon.codebook.persons import Ethnicity, Race
 from data_canon.core.labeled_enum import LabeledEnum
 from pipeline.decoration import step
 from utils.helpers import add_time_columns, expr_haversine, get_income_midpoint
@@ -182,6 +181,8 @@ def clean_2023_bats(
             )
         )
         .mode()
+        # mode() can return several tied values in arbitrary order; sort so the
+        # tie-break is deterministic (smallest code) rather than hash-dependent.
         .sort()
         .first()
         .fill_null(995),
@@ -338,156 +339,3 @@ def clean_2023_bats(
         )
 
     return results
-
-
-@step()
-def enrich_2023_bats(households: pl.DataFrame, persons: pl.DataFrame) -> dict[str, pl.DataFrame]:
-    """Derive BATS-2023-specific enrichment columns on the persons table.
-
-    Derives:
-    - ``industry_empsix``: six-category NAICS-based employment sector (CT-RAMP
-      empsix) from the raw ``industry`` integer code, with a keyword-matching
-      fallback on ``industry_other`` free-text.  Follows ``INDUSTRY_RECODE`` /
-      ``INDUSTRY_OTHER_TERM_RECODE`` from the reference notebook:
-      https://github.com/BayAreaMetro/travel-model-one/blob/b759d9992745097c7f391273551f986809dc0907/utilities/telecommute/estimate_WFH_from_BATS2023.ipynb
-    - ``is_home_based_worker``: True when a person is employed and their reported
-      work location (work_lat/work_lon) matches their household home location
-      (home_lat/home_lon) exactly.
-
-    This step must run after ``imputation`` and before ``format_ctramp``.
-    """
-    logger.info("Deriving industry_empsix for BATS 2023 persons")
-
-    industry_to_empsix = {
-        Industry.AGRICULTURE.value: CTRAMPIndustry.AGREMPN,
-        Industry.MINING.value: CTRAMPIndustry.AGREMPN,
-        Industry.UTILITIES.value: CTRAMPIndustry.MWTEMPN,
-        Industry.CONSTRUCTION.value: CTRAMPIndustry.OTHEMPN,
-        Industry.MANUFACTURING.value: CTRAMPIndustry.MWTEMPN,
-        Industry.WHOLESALE_TRADE.value: CTRAMPIndustry.MWTEMPN,
-        Industry.RETAIL_TRADE.value: CTRAMPIndustry.RETEMPN,
-        Industry.TRANSPORTATION.value: CTRAMPIndustry.MWTEMPN,
-        Industry.INFORMATION.value: CTRAMPIndustry.OTHEMPN,
-        Industry.FINANCE_AND_INSURANCE.value: CTRAMPIndustry.FPSEMPN,
-        Industry.REALESTATE.value: CTRAMPIndustry.FPSEMPN,
-        Industry.PROFESSIONAL.value: CTRAMPIndustry.FPSEMPN,
-        Industry.MANAGEMENT.value: CTRAMPIndustry.FPSEMPN,
-        Industry.ADMINISTRATIVE.value: CTRAMPIndustry.FPSEMPN,
-        Industry.EDUCATIONAL.value: CTRAMPIndustry.HEREMPN,
-        Industry.HEALTH_AND_SOCIAL.value: CTRAMPIndustry.HEREMPN,
-        Industry.ARTS_AND_RECREATION.value: CTRAMPIndustry.HEREMPN,
-        Industry.ACCOMMODATION.value: CTRAMPIndustry.HEREMPN,
-        Industry.OTHER.value: CTRAMPIndustry.OTHEMPN,
-        Industry.PUBLIC_ADMINISTRATION.value: CTRAMPIndustry.OTHEMPN,
-    }
-
-    # Primary recode: industry integer → empsix
-    # industry 997 (Other, please specify) and 995 (Missing) → null (handled below)
-    if "industry" in persons.columns:
-        persons = persons.with_columns(
-            pl.col("industry")
-            .replace_strict(
-                {k: v.value for k, v in industry_to_empsix.items()},
-                default=None,
-            )
-            .alias("industry_empsix")
-        )
-    else:
-        logger.warning("'industry' column not found; industry_empsix will be null for all persons")
-        persons = persons.with_columns(pl.lit(None).cast(pl.String).alias("industry_empsix"))
-
-    # Secondary fallback: keyword matching on industry_other free-text
-    # Only fills rows still null after the primary recode.
-    if "industry_other" in persons.columns:
-        industry_other_term_recode = {
-            # FPSEMPN: Financial and professional services
-            "technology": CTRAMPIndustry.FPSEMPN,
-            "biotechnology": CTRAMPIndustry.FPSEMPN,
-            "biotech": CTRAMPIndustry.FPSEMPN,
-            "biomedical": CTRAMPIndustry.FPSEMPN,
-            "tech": CTRAMPIndustry.FPSEMPN,
-            "software": CTRAMPIndustry.FPSEMPN,
-            "security": CTRAMPIndustry.FPSEMPN,
-            "legal": CTRAMPIndustry.FPSEMPN,
-            "law": CTRAMPIndustry.FPSEMPN,
-            "attorney": CTRAMPIndustry.FPSEMPN,
-            "marketing": CTRAMPIndustry.FPSEMPN,
-            # OTHEMPN: Other employment
-            "government": CTRAMPIndustry.OTHEMPN,
-            "judicial": CTRAMPIndustry.OTHEMPN,
-            "national park service": CTRAMPIndustry.OTHEMPN,
-            "law enforcement": CTRAMPIndustry.OTHEMPN,
-            "military": CTRAMPIndustry.OTHEMPN,
-            "library": CTRAMPIndustry.OTHEMPN,
-            # MWTEMPN: Manufacturing, wholesale and transportation
-            "automotive": CTRAMPIndustry.MWTEMPN,
-            # HEREMPN: Health, educational and recreational services
-            "nonprofit": CTRAMPIndustry.HEREMPN,
-            "non-profit": CTRAMPIndustry.HEREMPN,
-            "non profit": CTRAMPIndustry.HEREMPN,
-            "philanthropy": CTRAMPIndustry.HEREMPN,
-            "childcare": CTRAMPIndustry.HEREMPN,
-            "health": CTRAMPIndustry.HEREMPN,
-            "fitness": CTRAMPIndustry.HEREMPN,
-            "school": CTRAMPIndustry.HEREMPN,
-            "hospitality": CTRAMPIndustry.HEREMPN,
-            "hotel": CTRAMPIndustry.HEREMPN,
-            # RETEMPN: Retail trade
-            "e-commerce": CTRAMPIndustry.RETEMPN,
-            "ecommerce": CTRAMPIndustry.RETEMPN,
-        }
-        persons = persons.with_columns(
-            pl.col("industry_other")
-            .str.to_lowercase()
-            .str.strip_chars()
-            .alias("_industry_other_norm")
-        )
-        for term, sector in industry_other_term_recode.items():
-            persons = persons.with_columns(
-                pl.when(
-                    pl.col("industry_empsix").is_null()
-                    & pl.col("_industry_other_norm").str.contains(term, literal=True)
-                )
-                .then(pl.lit(sector.value))
-                .otherwise(pl.col("industry_empsix"))
-                .alias("industry_empsix")
-            )
-        persons = persons.drop("_industry_other_norm")
-
-    n_resolved = persons["industry_empsix"].drop_nulls().len()
-    n_null = persons["industry_empsix"].null_count()
-    logger.info(
-        "industry_empsix: %d resolved, %d still null "
-        "(no industry reported or unmatched industry_other)",
-        n_resolved,
-        n_null,
-    )
-
-    # Derive is_home_based_worker: employed person whose work lat/lon == home lat/lon
-    if all(c in persons.columns for c in ("work_lat", "work_lon")) and all(
-        c in households.columns for c in ("hh_id", "home_lat", "home_lon")
-    ):
-        persons = (
-            persons.join(
-                households.select("hh_id", "home_lat", "home_lon"),
-                on="hh_id",
-                how="left",
-            )
-            .with_columns(
-                (
-                    pl.col("work_lat").is_not_null()
-                    & pl.col("work_lon").is_not_null()
-                    & (pl.col("work_lat") == pl.col("home_lat"))
-                    & (pl.col("work_lon") == pl.col("home_lon"))
-                ).alias("is_home_based_worker")
-            )
-            .drop("home_lat", "home_lon")
-        )
-        n_hbw = persons["is_home_based_worker"].sum()
-        logger.info("is_home_based_worker: %d persons identified", n_hbw)
-    else:
-        logger.warning(
-            "work_lat/work_lon or home_lat/home_lon not available; skipping is_home_based_worker"
-        )
-
-    return {"persons": persons}

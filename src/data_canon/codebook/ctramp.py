@@ -27,7 +27,7 @@ class CTRAMPStudentCategory(StrEnum):
 
 
 class CTRAMPIndustry(StrEnum):
-    """Six-category employment sector classification (NAICS-based)."""
+    """Six-category employment sector classification (empsix), used by MTC travel models."""
 
     RETEMPN = "RETEMPN"  # Retail trade
     FPSEMPN = "FPSEMPN"  # Financial and professional services
