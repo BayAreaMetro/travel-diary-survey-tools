@@ -4,6 +4,5 @@
         "--no-cov"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true,
-    "black-formatter.importStrategy": "useBundled"
+    "python.testing.pytestEnabled": true
 }

@@ -279,9 +279,9 @@ def expand_anchor_periods(
             .then(pl.col("work_lon"))
             .otherwise(pl.col("_alt_work_lon"))
             .alias("_day_work_lon"),
-            (
-                ~pl.col("_visited_usual_work") & pl.col("_alt_work_lat").is_not_null()
-            ).alias("_is_alternate_work_day"),
+            (~pl.col("_visited_usual_work") & pl.col("_alt_work_lat").is_not_null()).alias(
+                "_is_alternate_work_day"
+            ),
         ]
     )
 
@@ -427,8 +427,10 @@ def expand_anchor_periods(
         ]
     )
 
-    # Clean up temporary columns. Keep _o_at_workplace / _d_at_workplace (used by
-    # subtour detection) and _is_alternate_work_day (used by tour purpose).
+    # Clean up temporary columns. Keep _o_at_workplace / _d_at_workplace, which
+    # subtour detection reads. _is_alternate_work_day is dropped: tour purpose
+    # reads the day's work location from o/d_location_type == ALTERNATE_WORK,
+    # which is written above and outlives this cleanup.
     drop_cols = [
         "work_lat",
         "work_lon",

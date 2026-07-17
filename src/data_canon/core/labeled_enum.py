@@ -8,6 +8,7 @@ canonical field names for pydantic model mapping.
 from enum import Enum, EnumType
 from typing import Optional, Self, overload
 
+from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
 
@@ -197,16 +198,15 @@ class LabeledEnum(Enum, metaclass=LabeledEnumMeta):
         """
         return {member.value: member.label for member in cls}
 
-    @property
-    def id(self) -> int | str:
-        """Alias for value, for compatibility with code using .id."""
-        return self.value
-
     @classmethod
-    def __get_pydantic_core_schema__(cls, source: type, handler) -> any:  # pyright: ignore[reportGeneralTypeIssues] # noqa: ANN001
+    def __get_pydantic_core_schema__(
+        cls,
+        source: type,
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
         """Pydantic v2 schema: accept an existing member, a value, or a label."""
 
-        def validate(v) -> "LabeledEnum":  # noqa: ANN001
+        def validate(v: object) -> "LabeledEnum":
             if isinstance(v, cls):
                 return v
             member = cls.from_value(v, strict=False)

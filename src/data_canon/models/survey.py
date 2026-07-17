@@ -208,10 +208,6 @@ class LinkedTripModel(BaseModel):
     access_mode: AccessEgressMode | None = schema_field(default=None)
     egress_mode: AccessEgressMode | None = schema_field(default=None)
     duration_minutes: float = schema_field(ge=0)
-    travel_duration: int = schema_field(
-        ge=0,
-        description="Whole minutes from linked-trip depart_time to arrive_time.",
-    )
     distance_meters: float = schema_field(ge=0)
     depart_time: datetime = schema_field()
     arrive_time: datetime = schema_field()
@@ -233,7 +229,7 @@ class LinkedTripModel(BaseModel):
         description=(
             "Classified location type of the trip destination "
             "(Home/Work/School/Other/Alternate work)."
-        )
+        ),
     )
     complete: bool | None = schema_field(default=None)
     linked_trip_weight: float | None = schema_field(default=None, ge=0)

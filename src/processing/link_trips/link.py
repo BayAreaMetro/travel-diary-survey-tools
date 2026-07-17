@@ -381,11 +381,6 @@ def aggregate_linked_trips(
         pl.col("distance_meters").sum(),
         # Travel duration (sum of segment durations)
         pl.col("duration_minutes").sum().alias("travel_duration_minutes"),
-        # Elapsed travel duration from first departure to final arrival
-        (pl.col("arrive_time").max() - pl.col("depart_time").min())
-        .dt.total_minutes()
-        .cast(pl.Int64)
-        .alias("travel_duration"),
         # Total trip duration
         (pl.col("arrive_time").max() - pl.col("depart_time").min())
         .dt.total_minutes()
@@ -467,19 +462,14 @@ def aggregate_linked_trips(
     linked_trips = (
         linked_trips.sort(["person_id", "day_id", "depart_time", "arrive_time"])
         .with_columns(
-            pl.col("depart_time")
-            .shift(-1)
-            .over(["person_id", "day_id"])
-            .alias("_next_depart_time")
+            pl.col("depart_time").shift(-1).over(["person_id", "day_id"]).alias("_next_depart_time")
         )
         .with_columns(
             pl.when(pl.col("d_purpose_category") == PurposeCategory.HOME.value)
             .then(pl.lit(-1))
             .when(pl.col("_next_depart_time").is_null())
             .then(pl.lit(-2))
-            .otherwise(
-                (pl.col("_next_depart_time") - pl.col("arrive_time")).dt.total_minutes()
-            )
+            .otherwise((pl.col("_next_depart_time") - pl.col("arrive_time")).dt.total_minutes())
             .cast(pl.Int64)
             .alias("d_activity_duration")
         )
