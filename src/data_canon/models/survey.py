@@ -389,3 +389,12 @@ class PersonLocationModel(BaseModel):
             "population gate. None for REPORTED locations."
         ),
     )
+    days_of_week: list[int] | None = schema_field(
+        default=None,
+        description=(
+            "For OBSERVED locations, the distinct travel days-of-week the person "
+            "was seen at this location (TravelDow values, 1=Mon..7=Sun) — a "
+            "weekly usage pattern reserved for future day-specific modelling. "
+            "Not yet consumed. None for REPORTED locations."
+        ),
+    )

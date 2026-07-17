@@ -37,8 +37,7 @@ visited. This replaced the per-day ``ALTERNATE_WORK`` derivation. Trip
 ``classify_trip_locations``).
 
 The population rule (``RegistryGateConfig``) is a dwell-time cutoff read from the
-observed distributions; see ``scripts/dwell_gate_analysis.py`` and
-``docs/analysis/location_registry_dwell_distribution.md``.
+observed dwell distributions.
 """
 
 import logging
@@ -68,6 +67,7 @@ _REGISTRY_COLUMNS = [
     "source",
     "n_days",
     "dwell_minutes",
+    "days_of_week",
 ]
 
 # Reported scalar location columns, mapped to their registry location type.
@@ -152,6 +152,7 @@ def build_reported_registry(person_locations: pl.DataFrame) -> pl.DataFrame:
             pl.lit(LocationSource.REPORTED.value, dtype=pl.Int64).alias("source"),
             pl.lit(None, dtype=pl.Int64).alias("n_days"),
             pl.lit(None, dtype=pl.Float64).alias("dwell_minutes"),
+            pl.lit(None, dtype=pl.List(pl.Int64)).alias("days_of_week"),
         )
         for loc_type, lat_col, lon_col in _REPORTED_SCALARS
         if lat_col in person_locations.columns and lon_col in person_locations.columns
@@ -166,6 +167,17 @@ def _derive_pool(
     config: RegistryGateConfig,
 ) -> pl.DataFrame:
     """Cluster one purpose pool's destinations into observed locations."""
+    # Distinct travel days-of-week seen at each location (weekly usage pattern).
+    aggs = [
+        pl.col("day_id").n_unique().alias("n_days"),
+        pl.col("d_activity_duration").max().cast(pl.Float64).alias("dwell_minutes"),
+        pl.col("d_lat").mean().alias("lat"),
+        pl.col("d_lon").mean().alias("lon"),
+    ]
+    has_dow = "travel_dow" in valid_trips.columns
+    if has_dow:
+        aggs.append(pl.col("travel_dow").cast(pl.Int64).unique().sort().alias("days_of_week"))
+
     clustered = (
         valid_trips.filter(pl.col("d_purpose_category").is_in(purposes))
         .with_columns(
@@ -173,13 +185,12 @@ def _derive_pool(
             pl.col("d_lon").round(config.cluster_decimals).alias("_cell_lon"),
         )
         .group_by(["person_id", "_cell_lat", "_cell_lon"])
-        .agg(
-            pl.col("day_id").n_unique().alias("n_days"),
-            pl.col("d_activity_duration").max().cast(pl.Float64).alias("dwell_minutes"),
-            pl.col("d_lat").mean().alias("lat"),
-            pl.col("d_lon").mean().alias("lon"),
-        )
+        .agg(aggs)
     )
+    if not has_dow:
+        clustered = clustered.with_columns(
+            pl.lit(None, dtype=pl.List(pl.Int64)).alias("days_of_week")
+        )
     gated = clustered.filter(
         (pl.col("dwell_minutes") >= config.min_dwell_minutes)
         & (pl.col("n_days") >= config.min_distinct_days)
@@ -193,6 +204,7 @@ def _derive_pool(
         pl.lit(LocationSource.OBSERVED.value, dtype=pl.Int64).alias("source"),
         pl.col("n_days").cast(pl.Int64),
         pl.col("dwell_minutes"),
+        pl.col("days_of_week"),
     )
 
 

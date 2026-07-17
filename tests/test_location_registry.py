@@ -46,7 +46,7 @@ def _person_locations() -> pl.DataFrame:
     )
 
 
-def _linked_trip(person_id, day_id, lat, lon, dwell, purpose=WORK_RELATED):
+def _linked_trip(person_id, day_id, lat, lon, dwell, purpose=WORK_RELATED, dow=None):
     return {
         "person_id": person_id,
         "day_id": day_id,
@@ -54,6 +54,7 @@ def _linked_trip(person_id, day_id, lat, lon, dwell, purpose=WORK_RELATED):
         "d_lon": lon,
         "d_purpose_category": purpose,
         "d_activity_duration": dwell,
+        "travel_dow": dow if dow is not None else ((day_id - 1) % 7) + 1,
     }
 
 
@@ -185,6 +186,24 @@ def test_school_pool_derives_observed_school():
     row = observed.row(0, named=True)
     assert row["location_type"] == LocationType.SCHOOL.value
     assert row["n_days"] == 2
+
+
+def test_observed_location_records_days_of_week():
+    """An observed location records the distinct travel days-of-week it was seen."""
+    trips = pl.DataFrame(
+        [
+            _linked_trip(1, 10, *ALT_WORK, 120, dow=1),  # Monday
+            _linked_trip(1, 11, *ALT_WORK, 130, dow=3),  # Wednesday
+        ]
+    )
+    observed = derive_observed_locations(trips)
+    assert observed.row(0, named=True)["days_of_week"] == [1, 3]
+
+
+def test_reported_locations_have_no_days_of_week():
+    """Reported locations carry no day-of-week pattern (null)."""
+    reg = build_reported_registry(_person_locations())
+    assert reg["days_of_week"].null_count() == reg.height
 
 
 def test_dwell_cutoff_is_tunable():
