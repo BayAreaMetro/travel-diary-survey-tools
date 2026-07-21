@@ -71,6 +71,7 @@ def format_individual_tour(
             but re-derived if missing or invalid
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds
+        unlinked_trips_canonical: Unlinked canonical trips DataFrame to derive transit submode
 
     Returns:
         DataFrame with CT-RAMP individual tour fields:
@@ -256,8 +257,9 @@ def format_individual_tour(
         individual_tours = individual_tours.join(tour_travelers, on="tour_id", how="left")
         # For tours with no trips (shouldn't happen), default to 1
         num_travelers_expr = pl.col("max_num_travelers").fill_null(1)
-        
-        # Get access/egress for tour's transit trip - Access and egress is based on the first transit trip
+
+        # Get access/egress for tour's transit trip
+        # Access and egress is based on the first transit trip
         tour_access_egress = (
             linked_trips_canonical.filter(pl.col("access_mode").is_not_null())
             .sort(["tour_id", "depart_time", "arrive_time"])
@@ -430,6 +432,7 @@ def format_joint_tour(
             age_category (for composition determination)
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds and age_adult category
+        unlinked_trips_canonical: Unlinked canonical trips DataFrame to derive transit submode
 
     Returns:
         DataFrame with CT-RAMP joint tour fields
@@ -616,8 +619,8 @@ def format_joint_tour(
             ctramp_mode_expression(
                 pl.col("tour_mode"),
                 pl.col("num_travelers"),
-                None,  # Tours don't have access/egress modes
-                None,
+                pl.col("tour_access_mode"),
+                pl.col("tour_egress_mode"),
                 joint_submode_expr,
                 tnc_type
             ).alias("tour_mode_ctramp"),

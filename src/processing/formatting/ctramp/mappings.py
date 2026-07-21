@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 
 # Transit submode ranks (ordered by CT-RAMP hierarchy: COM > HVY > EXP > LRF > LOC)
-# TODO: Need to verify transit submode ranks.
 # When a transit tour/trip uses multiple submodes, the highest-ranked submode wins.
 TRANSIT_SUBMODE_NONE = 0
 TRANSIT_SUBMODE_LOCAL = 1
@@ -224,6 +223,7 @@ def ctramp_purpose_category_expression(
         income_med_threshold: Income threshold for med bracket
         income_high_threshold: Income threshold for high bracket
         parent_tour_purpose: Polars expression for parent tour purpose (if available)
+        is_subtour: Polars expression for identifying subtours
         purpose_kind: Emit detailed tour purposes (CTRAMPTourPurpose) or the
             simplified trip purposes (CTRAMPTripPurpose), which collapse work
             income levels, school types, and at-work/escort sub-purposes.
@@ -280,7 +280,8 @@ def ctramp_purpose_category_expression(
         ]
     )
 
-    # At-work subtours with WORK/WORK_RELATED purposes → ATWORK_BUSINESS (check FIRST, before primary work)
+    # At-work subtours with WORK/WORK_RELATED purposes
+    # ATWORK_BUSINESS (check FIRST, before primary work)
     atwork_business_expr = home_expr.when(
         is_at_work_subtour
         & is_worker

@@ -413,6 +413,40 @@ def format_joint_trip(
         how="left",
     )
 
+    # Derive tour-level access/egress from the joint tour's first transit trip,
+    # mirroring format_joint_tour so the joint tour mode reflects access/egress.
+    tour_access_egress = joint_linked_trips.group_by("tour_id").agg(
+        pl.col("access_mode")
+        .filter(pl.col("access_mode").is_not_null())
+        .first()
+        .alias("tour_access_mode"),
+        pl.col("egress_mode")
+        .filter(pl.col("egress_mode").is_not_null())
+        .first()
+        .alias("tour_egress_mode"),
+    )
+    joint_trips_formatted = joint_trips_formatted.join(
+        tour_access_egress, on="tour_id", how="left"
+    )
+
+    # Derive tour-level transit submode / TNC type per joint tour, mirroring
+    # format_joint_tour so the joint tour mode uses the tour's highest submode
+    # rather than a single trip leg's submode.
+    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
+        tour_submode = aggregate_transit_submode(
+            unlinked_trips_canonical, "joint_tour_id"
+        ).rename(
+            {"transit_submode": "tour_transit_submode", "tnc_type": "tour_tnc_type"}
+        )
+        joint_trips_formatted = joint_trips_formatted.join(
+            tour_submode, on="joint_tour_id", how="left"
+        )
+        tour_submode_expr = pl.col("tour_transit_submode")
+        tour_tnc_type = pl.col("tour_tnc_type")
+    else:
+        tour_submode_expr = None
+        tour_tnc_type = None# Derive tour-level transit submode / TNC type per joint tour,
+
     # Filter to only trips on joint tours
     joint_trips_formatted = joint_trips_formatted.filter(pl.col("joint_tour_id").is_not_null())
 
@@ -469,10 +503,10 @@ def format_joint_trip(
             ctramp_mode_expression(
                 pl.col("tour_mode"),
                 pl.col("num_travelers").fill_null(2),
-                None,  # Tour mode doesn't have access/egress
-                None,
-                trip_submode_expr,
-                tnc_type,
+                pl.col("tour_access_mode"),
+                pl.col("tour_egress_mode"),
+                tour_submode_expr,
+                tour_tnc_type,
             ).alias("tour_mode_ctramp"),
         ]
     )
