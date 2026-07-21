@@ -28,7 +28,8 @@ from data_canon.models.ctramp import (
     PersonCTRAMPModel,
 )
 from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
-from processing.formatting.ctramp.format_ctramp import _drop_invalid_tours, format_ctramp
+from processing.formatting.ctramp.filters import _drop_invalid_tours
+from processing.formatting.ctramp.format_ctramp import format_ctramp
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_persons import format_persons
 from processing.formatting.ctramp.format_tours import (
