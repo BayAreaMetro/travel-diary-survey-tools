@@ -10,7 +10,10 @@ from data_canon.codebook.tours import TourDataQuality
 from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
 from data_canon.core.dataclass import CanonicalData
 from data_canon.core.exceptions import DataValidationError
-from data_canon.validation.custom import check_valid_tours_are_complete
+from data_canon.validation.custom import (
+    check_trip_spatial_continuity,
+    check_valid_tours_are_complete,
+)
 from tests.fixtures import create_household, create_person
 
 
@@ -467,3 +470,82 @@ class TestValidToursAreComplete:
         """Frames without tour_data_quality produce no errors."""
         tours = pl.DataFrame({"tour_id": [1], "single_trip_tour": [True], "tour_purpose": [None]})
         assert check_valid_tours_are_complete(tours) == []
+
+
+class TestTripSpatialContinuity:
+    """Tests for the check_trip_spatial_continuity custom validator."""
+
+    def _trips(self, points):
+        """Build a linked_trips frame from (person, day, depart, o, d) points.
+
+        Each origin/destination is a (lat, lon) tuple.
+        """
+        return pl.DataFrame(
+            {
+                "linked_trip_id": list(range(1, len(points) + 1)),
+                "person_id": [p[0] for p in points],
+                "day_id": [p[1] for p in points],
+                "depart_time": [p[2] for p in points],
+                "o_lat": [p[3][0] for p in points],
+                "o_lon": [p[3][1] for p in points],
+                "d_lat": [p[4][0] for p in points],
+                "d_lon": [p[4][1] for p in points],
+            }
+        )
+
+    def test_continuous_trips_pass(self):
+        """A day where each trip resumes where the last ended has no gaps."""
+        home, work = (37.70, -122.40), (37.80, -122.45)
+        trips = self._trips(
+            [
+                (1, 1, 8.0, home, work),
+                (1, 1, 17.0, work, home),  # resumes at work -> continuous
+            ]
+        )
+        assert check_trip_spatial_continuity(trips) == []
+
+    def test_small_sample_with_gap_never_fails(self):
+        """A high gap rate over only a few junctions is noise, not a failure."""
+        home, a = (37.70, -122.40), (37.75, -122.42)
+        far = (38.50, -123.20)
+        # One person-day, one junction that jumps: 100% rate but tiny sample.
+        trips = self._trips(
+            [
+                (1, 1, 8.0, home, a),
+                (1, 1, 17.0, far, home),
+            ]
+        )
+        assert check_trip_spatial_continuity(trips) == []
+
+    def test_low_rate_at_scale_passes(self):
+        """A small fraction of gaps across many junctions is normal survey noise."""
+        home, a = (37.70, -122.40), (37.75, -122.42)
+        far = (38.20, -122.90)
+        points = []
+        # 1,200 continuous person-days (1 junction each, gap 0)
+        for person in range(1, 1201):
+            points.append((person, 1, 8.0, home, a))
+            points.append((person, 1, 17.0, a, home))
+        # 20 person-days with a genuine gap -> ~1.6% << 15% ceiling
+        for person in range(1201, 1221):
+            points.append((person, 1, 8.0, home, a))
+            points.append((person, 1, 17.0, far, home))
+        assert check_trip_spatial_continuity(self._trips(points)) == []
+
+    def test_high_rate_at_scale_fails(self):
+        """A high gap rate over a meaningful sample flags a systemic problem."""
+        home, a = (37.70, -122.40), (37.75, -122.42)
+        far = (38.50, -123.20)
+        points = []
+        # 1,200 person-days where every junction jumps -> 100% rate at scale.
+        for person in range(1, 1201):
+            points.append((person, 1, 8.0, home, a))
+            points.append((person, 1, 17.0, far, home))
+        errors = check_trip_spatial_continuity(self._trips(points))
+        assert len(errors) == 1
+        assert "systemic" in errors[0].lower()
+
+    def test_missing_columns_is_noop(self):
+        """Frames without coordinate columns produce no errors."""
+        trips = pl.DataFrame({"linked_trip_id": [1], "person_id": [1], "day_id": [1]})
+        assert check_trip_spatial_continuity(trips) == []
