@@ -32,7 +32,12 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.tours import TourDataQuality
+
 logger = logging.getLogger(__name__)
+
+# Trip tables whose records inherit a tour's validity, matched on ``tour_id``.
+INVALID_TOUR_MEMBER_TABLES = ("unlinked_trips", "linked_trips")
 
 # Canonical mapping: config_key -> (table_name, id_column, weight_column)
 WEIGHT_CONFIG_MAPPING: dict[str, tuple[str, str, str]] = {
@@ -125,6 +130,50 @@ def cascade_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
                 & pl.col("_parent_complete").fill_null(value=True)
             ).alias("complete")
         ).drop("_parent_complete")
+
+
+def mark_invalid_tours_incomplete(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Treat non-VALID tours and their member trips as incomplete, in place.
+
+    A tour whose ``tour_data_quality`` is not VALID (single-trip, loop, missing
+    home anchor, change-mode, spatial gap, ...) is malformed and is dropped from
+    CT-RAMP output, so it should not carry weight either. This folds tour
+    invalidity into the ``complete`` flag - on the tour itself and on every trip
+    that belongs to it (matched by ``tour_id``) - so the existing
+    completeness-based zeroing gives those records a weight of 0 while retaining
+    them in the output.
+
+    Runs after :func:`cascade_completeness`; because it only turns ``complete``
+    from True to False, the two compose regardless of order. Tables missing
+    ``tour_data_quality`` / ``complete`` / ``tour_id`` are left unchanged. Joint
+    trips carry no ``tour_id``; their weight is a mean over linked-trip weights,
+    so it follows once the member linked trips are zeroed.
+    """
+    tours = tables.get("tours")
+    if tours is None or "tour_data_quality" not in tours.columns or "complete" not in tours.columns:
+        return
+
+    is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
+    tables["tours"] = tours.with_columns(
+        (pl.col("complete").fill_null(value=False) & is_valid).alias("complete")
+    )
+
+    invalid_ids = tours.filter(~is_valid).select("tour_id").unique()
+    if invalid_ids.height == 0:
+        return
+    invalid_flag = invalid_ids.with_columns(pl.lit(value=True).alias("_invalid_tour"))
+
+    for name in INVALID_TOUR_MEMBER_TABLES:
+        df = tables.get(name)
+        if df is None or "tour_id" not in df.columns or "complete" not in df.columns:
+            continue
+        joined = df.join(invalid_flag, on="tour_id", how="left")
+        tables[name] = joined.with_columns(
+            (
+                pl.col("complete").fill_null(value=False)
+                & ~pl.col("_invalid_tour").fill_null(value=False)
+            ).alias("complete")
+        ).drop("_invalid_tour")
 
 
 def collect_tables(

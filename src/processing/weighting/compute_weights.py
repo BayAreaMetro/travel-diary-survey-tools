@@ -103,6 +103,7 @@ def compute_weights(  # noqa: PLR0913
     strict_survey_nulls: bool = False,
     # -- Completeness handling ------------------------------------------
     exclude_incompletes: bool = True,
+    valid_tours_only: bool = True,
     # -- Canonical tables (auto-injected by pipeline) -------------------
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -147,6 +148,7 @@ def compute_weights(  # noqa: PLR0913
         expansion_factor_grid=expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
         exclude_incompletes=exclude_incompletes,
+        valid_tours_only=valid_tours_only,
     )
     # Prepare the balancing configs (max expansion factor, weight bounds, max iterations, etc.)
     balance_cfg = BalancingConfig(

@@ -193,6 +193,12 @@ steps:
       # keep incomplete households in the seed and give them computed weights.
       exclude_incompletes: true
 
+      # Treat non-VALID tours (single-trip, loop, missing-anchor, change-mode,
+      # spatial-gap) and their member trips as incomplete, so they get 0 weight
+      # and the weighted tour universe matches what CT-RAMP keeps. Set false to
+      # weight invalid tours as-is.
+      valid_tours_only: true
+
       # -- EF grid search (optional) -----------------------------------
       # Re-run balancing across a grid of max_expansion_factor values and
       # add a diagnostic chart showing fit vs weight quality tradeoffs.

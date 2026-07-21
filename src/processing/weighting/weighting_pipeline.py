@@ -62,6 +62,7 @@ from processing.weighting.balancing.base_weights import compute_base_weights
 from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
 from processing.weighting.balancing.weight_propagation import (
     cascade_completeness,
+    mark_invalid_tours_incomplete,
     propagate_weights,
     safe_join_weight,
 )
@@ -593,6 +594,12 @@ class WeightingPipeline:
         # person / day forces all its descendants incomplete) and so downstream
         # consumers can read a correct ``complete`` flag on trips and tours.
         cascade_completeness(tables)
+
+        # Treat non-VALID tours (and their member trips) as incomplete so they
+        # are zeroed alongside incompletes - the weighted tour universe then
+        # matches what CT-RAMP actually keeps.
+        if self.config.valid_tours_only:
+            mark_invalid_tours_incomplete(tables)
 
         # Zero out hh_weight for incomplete households (unless they were kept in
         # the seed and balanced normally).

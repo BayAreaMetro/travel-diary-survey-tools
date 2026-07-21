@@ -249,6 +249,7 @@ class WeightingConfig:
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
     exclude_incompletes: bool = True
+    valid_tours_only: bool = True
 
 
 @dataclass

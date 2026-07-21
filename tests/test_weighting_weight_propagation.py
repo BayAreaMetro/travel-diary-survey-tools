@@ -3,11 +3,13 @@
 import polars as pl
 import pytest
 
+from data_canon.codebook.tours import TourDataQuality
 from processing.weighting.balancing.weight_propagation import (
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
     cascade_completeness,
     collect_tables,
+    mark_invalid_tours_incomplete,
     non_null_tables,
     propagate_weights,
     safe_join_weight,
@@ -569,3 +571,89 @@ class TestCascadeCompleteness:
         tables = {"households": pl.DataFrame({"hh_id": [1], "complete": [False]})}
         cascade_completeness(tables)  # must not raise
         assert tables["households"]["complete"].to_list() == [False]
+
+
+class TestMarkInvalidToursIncomplete:
+    """Tests for mark_invalid_tours_incomplete (fold tour validity into complete)."""
+
+    def _tables(self) -> dict:
+        # tour 1 VALID, tour 2 SINGLE_TRIP (invalid); all rows start complete
+        return {
+            "tours": pl.DataFrame(
+                {
+                    "tour_id": [1, 2],
+                    "tour_data_quality": [
+                        TourDataQuality.VALID.value,
+                        TourDataQuality.SINGLE_TRIP.value,
+                    ],
+                    "complete": [True, True],
+                }
+            ),
+            "linked_trips": pl.DataFrame(
+                {"linked_trip_id": [1, 2, 3], "tour_id": [1, 1, 2], "complete": [True, True, True]}
+            ),
+            "unlinked_trips": pl.DataFrame(
+                {
+                    "unlinked_trip_id": [1, 2, 3],
+                    "tour_id": [1, 1, 2],
+                    "complete": [True, True, True],
+                }
+            ),
+        }
+
+    def test_invalid_tour_becomes_incomplete(self):
+        """A non-VALID tour flips to incomplete; the VALID one stays complete."""
+        tables = self._tables()
+        mark_invalid_tours_incomplete(tables)
+        assert tables["tours"].sort("tour_id")["complete"].to_list() == [True, False]
+
+    def test_member_trips_of_invalid_tour_become_incomplete(self):
+        """Trips belonging to an invalid tour flip to incomplete; others untouched."""
+        tables = self._tables()
+        mark_invalid_tours_incomplete(tables)
+        # linked/unlinked trip 3 belongs to invalid tour 2 -> incomplete
+        assert tables["linked_trips"].sort("linked_trip_id")["complete"].to_list() == [
+            True,
+            True,
+            False,
+        ]
+        assert tables["unlinked_trips"].sort("unlinked_trip_id")["complete"].to_list() == [
+            True,
+            True,
+            False,
+        ]
+
+    def test_already_incomplete_stays_incomplete(self):
+        """Folding never revives a record that was already incomplete."""
+        tables = self._tables()
+        tables["linked_trips"] = tables["linked_trips"].with_columns(
+            pl.Series("complete", [False, True, True])
+        )
+        mark_invalid_tours_incomplete(tables)
+        assert tables["linked_trips"].sort("linked_trip_id")["complete"].to_list() == [
+            False,
+            True,
+            False,
+        ]
+
+    def test_all_valid_leaves_everything_complete(self):
+        """When every tour is VALID, nothing is zeroed."""
+        tables = self._tables()
+        tables["tours"] = tables["tours"].with_columns(
+            pl.Series("tour_data_quality", [TourDataQuality.VALID.value] * 2)
+        )
+        mark_invalid_tours_incomplete(tables)
+        assert tables["tours"]["complete"].to_list() == [True, True]
+        assert tables["linked_trips"]["complete"].to_list() == [True, True, True]
+
+    def test_missing_quality_column_is_noop(self):
+        """Tours without tour_data_quality are left unchanged."""
+        tables = {
+            "tours": pl.DataFrame({"tour_id": [1], "complete": [True]}),
+            "linked_trips": pl.DataFrame(
+                {"linked_trip_id": [1], "tour_id": [1], "complete": [True]}
+            ),
+        }
+        mark_invalid_tours_incomplete(tables)  # must not raise
+        assert tables["tours"]["complete"].to_list() == [True]
+        assert tables["linked_trips"]["complete"].to_list() == [True]

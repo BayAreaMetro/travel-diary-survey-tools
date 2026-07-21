@@ -40,6 +40,7 @@ from processing.weighting.balancing.weight_propagation import (
     WEIGHT_CONFIG_MAPPING,
     cascade_completeness,
     collect_tables,
+    mark_invalid_tours_incomplete,
     propagate_weights,
 )
 
@@ -225,6 +226,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, ExistingWeightConfig | dict],
     derive_missing_weights: bool = False,
     rebalance_incompletes: bool = False,
+    valid_tours_only: bool = True,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
     days: pl.DataFrame | None = None,
@@ -294,6 +296,10 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
             population estimate constant when incomplete records are dropped to
             zero. The rescale is a single naive global factor per table and is
             carried down to derived tables via propagation (default: False).
+        valid_tours_only: If True (default), treat non-VALID tours and their
+            member trips as incomplete so they are zeroed alongside incompletes,
+            keeping the weighted tour universe consistent with the tours CT-RAMP
+            retains. Set False to weight invalid tours as-is.
         households: Households DataFrame.
         persons: Persons DataFrame.
         days: Days DataFrame.
@@ -406,6 +412,11 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     # incomplete household/person/day forces its descendants incomplete) before
     # zeroing their weights.
     cascade_completeness(tables)
+
+    # Treat non-VALID tours (and their member trips) as incomplete so they are
+    # zeroed alongside incompletes, matching the CT-RAMP tour universe.
+    if valid_tours_only:
+        mark_invalid_tours_incomplete(tables)
 
     # Zero out weights for incomplete records on tables that already have
     # weights, optionally rebalancing survivors to preserve each table's total.
