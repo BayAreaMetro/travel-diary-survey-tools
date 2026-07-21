@@ -194,6 +194,7 @@ import logging
 import polars as pl
 
 from data_canon.codebook.ctramp import CTRAMPEmploymentCategory
+from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.models.ctramp import (
     AOResultsCTRAMPModel,
     CDAPResultsCTRAMPModel,
@@ -231,6 +232,156 @@ MODEL_MAP = {
     "cdap_results_ctramp": CDAPResultsCTRAMPModel,
     "ao_results_ctramp": AOResultsCTRAMPModel,
 }
+
+
+def _drop_by_tour_ids(
+    tours: pl.DataFrame,
+    linked_trips: pl.DataFrame,
+    joint_trips: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Cascade a tour filter down to linked trips and joint trips.
+
+    Keeps only linked trips whose ``tour_id`` still exists in ``tours``, then
+    keeps only joint trips whose ``joint_trip_id`` still appears in the surviving
+    linked trips. This preserves referential integrity after tours are removed.
+
+    Args:
+        tours: Tours that survived a filter (defines the surviving tour_ids)
+        linked_trips: Linked trips to prune to the surviving tours
+        joint_trips: Joint trips to prune to the surviving linked trips
+
+    Returns:
+        Tuple of (tours, linked_trips, joint_trips) with integrity maintained
+    """
+    linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
+
+    if len(joint_trips) > 0 and "joint_trip_id" in linked_trips.columns:
+        valid_joint_trip_ids = linked_trips.filter(pl.col("joint_trip_id").is_not_null())[
+            "joint_trip_id"
+        ].unique()
+        joint_trips = joint_trips.filter(
+            pl.col("joint_trip_id").is_in(valid_joint_trip_ids.implode())
+        )
+
+    return tours, linked_trips, joint_trips
+
+
+def _drop_invalid_tours(
+    tours: pl.DataFrame,
+    linked_trips: pl.DataFrame,
+    joint_trips: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Remove tours unusable for the model, cascading to linked and joint trips.
+
+    Drops tours that are not VALID (single-trip, loop, missing-anchor,
+    change-mode, indeterminate) or not COMPLETE (do not start and end at home).
+    Mirrors the DaySim formatter (``format_daysim``), which drops both, so the
+    CT-RAMP and DaySim outputs contain the same set of tours. Without this,
+    single-trip/loop tours (which carry a null ``tour_purpose``) survive into
+    CT-RAMP output and are silently coerced to the ``OTHDISCR`` catch-all purpose.
+
+    Args:
+        tours: Canonical tour data with ``tour_data_quality`` and ``tour_category``
+        linked_trips: Canonical linked trip data
+        joint_trips: Aggregated joint trip data
+
+    Returns:
+        Tuple of (tours, linked_trips, joint_trips) with unusable tours and their
+        orphaned trips removed.
+    """
+    # tour_data_quality is produced during tour extraction; guard for callers
+    # (e.g. schema-only empty frames) that do not carry every column.
+    has_quality = "tour_data_quality" in tours.columns
+    has_category = "tour_category" in tours.columns
+    if not (has_quality or has_category):
+        return tours, linked_trips, joint_trips
+
+    is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
+    is_complete = pl.col("tour_category") == TourCategory.COMPLETE.value
+
+    # Tag each tour's drop reason so the log can distinguish structurally invalid
+    # tours from partial/open ones (valid but not home-based).
+    if has_quality and has_category:
+        keep = is_valid & is_complete
+        reason = pl.when(~is_valid).then(pl.lit("invalid")).otherwise(pl.lit("partial/open"))
+    elif has_quality:
+        keep = is_valid
+        reason = pl.lit("invalid")
+    else:
+        keep = is_complete
+        reason = pl.lit("partial/open")
+
+    n_og_tours = len(tours)
+    dropped = tours.filter(~keep).with_columns(reason.alias("_reason"))
+    _log_drop_summary(dropped, linked_trips, n_og_tours)
+
+    tours = tours.filter(keep)
+    tours, linked_trips, joint_trips = _drop_by_tour_ids(tours, linked_trips, joint_trips)
+    return tours, linked_trips, joint_trips
+
+
+def _completeness_split(df: pl.DataFrame) -> tuple[int, int]:
+    """Return (already_incomplete, net_new) counts from the ``complete`` flag.
+
+    ``already_incomplete`` are records flagged incomplete (household / person /
+    day cascade) — they were already excluded from the weighted model. ``net_new``
+    are otherwise-complete records now being dropped. When the ``complete`` column
+    is absent (e.g. tests), everything is treated as net-new.
+    """
+    total = df.height
+    if "complete" not in df.columns:
+        return 0, total
+    incomplete = df.filter(~pl.col("complete").fill_null(value=False)).height
+    return incomplete, total - incomplete
+
+
+def _drop_grid(title: str, df: pl.DataFrame, denom: int) -> list[str]:
+    """Build the lines of one drop grid (tours or member trips).
+
+    ``net %`` is the net-new share of all records — the genuinely new data loss.
+    """
+    header = f"  {title:<14}{'dropped':>9}{'incomplete':>13}{'net-new':>10}{'net %':>8}"
+
+    def row(name: str, incomplete: int, net: int) -> str:
+        total = incomplete + net
+        pct = net * 100 / denom if denom > 0 else 0
+        return f"  {name:<14}{total:>9,}{incomplete:>13,}{net:>10,}{pct:>7.1f}%"
+
+    lines = [header]
+    for label in ("invalid", "partial/open"):
+        incomplete, net = _completeness_split(df.filter(pl.col("_reason") == label))
+        if incomplete + net == 0:
+            continue
+        lines.append(row(label, incomplete, net))
+    incomplete, net = _completeness_split(df)
+    lines.append(row("total", incomplete, net))
+    return lines
+
+
+def _log_drop_summary(dropped: pl.DataFrame, linked_trips: pl.DataFrame, n_og_tours: int) -> None:
+    """Log a two-grid table of dropped tours and member trips.
+
+    Splits each count into records that were already incomplete (household /
+    person / day flagged incomplete — already out of the weighted model) versus
+    net-new removal of otherwise-complete records, so the log makes clear how
+    much is genuinely new loss.
+    """
+    if dropped.height == 0:
+        return
+
+    dropped_trips = linked_trips.join(
+        dropped.select("tour_id", "_reason"), on="tour_id", how="inner"
+    )
+    lines = [
+        "Dropped tours/member-trips to match DaySim (DaySim already drops these).",
+        '  "incomplete" = flagged incomplete via the household>person>day>trip cascade; '
+        '"net-new" = otherwise-complete records.',
+        "",
+        *_drop_grid("TOURS", dropped, n_og_tours),
+        "",
+        *_drop_grid("MEMBER TRIPS", dropped_trips, len(linked_trips)),
+    ]
+    logger.info("\n".join(lines))
 
 
 def _drop_missing_taz(
@@ -425,6 +576,7 @@ def format_ctramp(
     income_base_year_dollars: int,
     taz_field: str = "taz",
     drop_missing_taz: bool = True,
+    drop_invalid_tours: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -460,6 +612,10 @@ def format_ctramp(
             (default: "taz").
         drop_missing_taz: If True, remove households without valid TAZ IDs. This
             cascades to persons, tours, and trips (default: True).
+        drop_invalid_tours: If True, remove tours that are not VALID (single-trip,
+            loop, missing-anchor, change-mode, indeterminate) or not COMPLETE (do
+            not start and end at home), mirroring the DaySim formatter (which drops
+            both). Cascades to linked and joint trips (default: True).
 
     Returns:
         Dictionary with keys:
@@ -513,9 +669,15 @@ def format_ctramp(
         income_high_threshold=income_high_threshold,
         income_base_year_dollars=income_base_year_dollars,
         drop_missing_taz=drop_missing_taz,
+        drop_invalid_tours=drop_invalid_tours,
         taz_field=taz_field,
     )
     logger.info("Starting CT-RAMP formatting")
+
+    # Drop invalid/partial tours before anything else so CT-RAMP and DaySim
+    # outputs contain the same set of tours (and no null-purpose leakage).
+    if config.drop_invalid_tours:
+        tours, linked_trips, joint_trips = _drop_invalid_tours(tours, linked_trips, joint_trips)
 
     # Ensure TAZ columns are Int64 for filtering
     households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))

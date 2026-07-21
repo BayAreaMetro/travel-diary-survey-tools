@@ -6,6 +6,7 @@ import pytest
 from processing.weighting.balancing.weight_propagation import (
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
+    cascade_completeness,
     collect_tables,
     non_null_tables,
     propagate_weights,
@@ -431,6 +432,19 @@ class TestPropagateCompletionFlag:
         persons = tables["persons"].sort("person_id")
         assert persons["person_weight"].to_list() == [10.0, 10.0, 0.0]
 
+    def test_zero_incompletes_false_keeps_carried_weights(self):
+        """With zero_incompletes=False, incomplete children keep the parent weight."""
+        tables = _make_tables_with_complete()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight, zero_incompletes=False)
+
+        # Person 3 (complete=False, in HH 2 with weight 20) keeps 20 instead of 0
+        persons = tables["persons"].sort("person_id")
+        assert persons["person_weight"].to_list() == [10.0, 10.0, 20.0]
+        days = tables["days"].sort("day_id")
+        assert days["day_weight"].to_list() == [10.0, 10.0, 20.0]
+
     def test_incomplete_days_get_zero_weight(self):
         """Days with complete=False get weight 0."""
         tables = _make_tables_with_complete()
@@ -488,3 +502,70 @@ class TestPropagateCompletionFlag:
 
         persons = tables["persons"].sort("person_id")
         assert persons["person_weight"].to_list() == [10.0, 10.0, 20.0]
+
+
+class TestCascadeCompleteness:
+    """Tests for cascade_completeness (household-down completeness flagging)."""
+
+    def _tables(self) -> dict:
+        return {
+            "households": pl.DataFrame({"hh_id": [1, 2], "complete": [True, False]}),
+            "persons": pl.DataFrame(
+                {"person_id": [1, 2], "hh_id": [1, 2], "complete": [True, True]}
+            ),
+            "days": pl.DataFrame(
+                {"day_id": [1, 2, 3], "person_id": [1, 1, 2], "complete": [True, False, True]}
+            ),
+            "tours": pl.DataFrame(
+                {"tour_id": [1, 2, 3], "day_id": [1, 2, 3], "complete": [True, True, True]}
+            ),
+            "linked_trips": pl.DataFrame(
+                {"linked_trip_id": [1, 2, 3], "day_id": [1, 2, 3], "complete": [True, True, True]}
+            ),
+        }
+
+    def test_incomplete_household_cascades_to_person(self):
+        """Person 2 is in incomplete household 2 -> becomes incomplete."""
+        tables = self._tables()
+        cascade_completeness(tables)
+        persons = tables["persons"].sort("person_id")
+        assert persons["complete"].to_list() == [True, False]
+
+    def test_incomplete_day_and_ancestors_cascade_to_tours(self):
+        """Tours inherit incompleteness from their day (and its ancestors)."""
+        tables = self._tables()
+        cascade_completeness(tables)
+        # day 1: complete; day 2: own incomplete; day 3: complete but person 2's HH incomplete
+        assert tables["days"].sort("day_id")["complete"].to_list() == [True, False, False]
+        # tours on days 2 and 3 become incomplete even though their own flag was True
+        assert tables["tours"].sort("tour_id")["complete"].to_list() == [True, False, False]
+        assert tables["linked_trips"].sort("linked_trip_id")["complete"].to_list() == [
+            True,
+            False,
+            False,
+        ]
+
+    def test_own_incomplete_respected_under_complete_ancestors(self):
+        """A record flagged incomplete stays incomplete even if all ancestors are complete."""
+        tables = self._tables()
+        # tour 1 is on complete day 1 but is itself flagged incomplete
+        tables["tours"] = pl.DataFrame({"tour_id": [1], "day_id": [1], "complete": [False]})
+        cascade_completeness(tables)
+        assert tables["tours"]["complete"].to_list() == [False]
+
+    def test_all_complete_stays_complete(self):
+        """When nothing is incomplete, every record stays complete."""
+        tables = {
+            "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+            "persons": pl.DataFrame({"person_id": [1], "hh_id": [1], "complete": [True]}),
+            "days": pl.DataFrame({"day_id": [1], "person_id": [1], "complete": [True]}),
+            "tours": pl.DataFrame({"tour_id": [1], "day_id": [1], "complete": [True]}),
+        }
+        cascade_completeness(tables)
+        assert tables["tours"]["complete"].to_list() == [True]
+
+    def test_missing_tables_are_skipped(self):
+        """Cascade tolerates missing child tables (e.g. only households present)."""
+        tables = {"households": pl.DataFrame({"hh_id": [1], "complete": [False]})}
+        cascade_completeness(tables)  # must not raise
+        assert tables["households"]["complete"].to_list() == [False]

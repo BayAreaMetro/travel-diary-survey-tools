@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 import polars as pl
 
+from data_canon.codebook.tours import TourDataQuality
 from utils.helpers import expr_haversine
 
 # Registry of custom validators
@@ -114,5 +115,47 @@ def check_single_trip_tour_flag_consistency(
     return errors
 
 
-# Register the tour validator
+def check_valid_tours_are_complete(tours: pl.DataFrame) -> list[str]:
+    """Verify tours flagged VALID are genuinely complete.
+
+    A tour marked ``tour_data_quality == VALID`` must not be a single-trip tour
+    and must have a non-null ``tour_purpose``. This guards the downstream
+    formatters, which keep only VALID tours: a tour mislabeled VALID but missing
+    its purpose would survive that filter and leak into the model output (in
+    CT-RAMP, silently coerced to the OTHDISCR catch-all purpose).
+
+    ``TourModel.validate_complete_tours`` enforces the converse (non-single-trip
+    tours have a purpose); this check keys on ``tour_data_quality`` instead, so
+    the two are complementary rather than redundant.
+
+    Args:
+        tours: Tour records with tour_data_quality, single_trip_tour, tour_purpose
+
+    Returns:
+        List of error messages (empty if validation passes)
+    """
+    errors = []
+
+    # tour_data_quality is produced during extraction; skip if absent
+    # (e.g. schema-only empty frames).
+    if "tour_data_quality" not in tours.columns:
+        return errors
+
+    invalid = tours.filter(
+        (pl.col("tour_data_quality") == TourDataQuality.VALID.value)
+        & (pl.col("single_trip_tour") | pl.col("tour_purpose").is_null())
+    )
+
+    if len(invalid) > 0:
+        tour_ids = invalid["tour_id"].to_list()[:5]
+        errors.append(
+            f"Found {len(invalid)} tours flagged VALID that are single-trip "
+            f"or have a null tour_purpose. Sample tour IDs: {tour_ids}"
+        )
+
+    return errors
+
+
+# Register the tour validators
 CUSTOM_VALIDATORS["tours"].append(check_single_trip_tour_flag_consistency)
+CUSTOM_VALIDATORS["tours"].append(check_valid_tours_are_complete)

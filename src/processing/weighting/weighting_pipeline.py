@@ -61,6 +61,7 @@ from processing.weighting.balancing.balancer import (
 from processing.weighting.balancing.base_weights import compute_base_weights
 from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
 from processing.weighting.balancing.weight_propagation import (
+    cascade_completeness,
     propagate_weights,
     safe_join_weight,
 )
@@ -307,22 +308,30 @@ class WeightingPipeline:
         # Pivot into incidence bundle (one row per hh_id)
         self.survey_bundle = build_incidence_table(hh_recoded, per_recoded, names)
 
-        # Drop incomplete households from weighting (filter all bundle tables)
-        complete_hh_ids = (
-            self.data.households.filter(pl.col("complete"))  # pyright: ignore[reportOptionalMemberAccess]
-            .select("hh_id")
-            .to_series()
-        )
-        self.survey_bundle = self.survey_bundle.filter_households(complete_hh_ids)
+        # Drop incomplete households from the weighting seed (filter all bundle
+        # tables). When excluded, they are re-added with zero weight during
+        # propagate(); the balancer distributes each zone's population across the
+        # surviving complete respondents, so the weighted totals still sum to the
+        # control totals. When exclude_incompletes is False they stay in the seed
+        # and receive computed weights.
+        n_incompletes = 0
+        if self.config.exclude_incompletes:
+            complete_hh_ids = (
+                self.data.households.filter(pl.col("complete"))  # pyright: ignore[reportOptionalMemberAccess]
+                .select("hh_id")
+                .to_series()
+            )
+            n_incompletes = self.data.households.height - complete_hh_ids.len()  # pyright: ignore[reportOptionalMemberAccess]
+            self.survey_bundle = self.survey_bundle.filter_households(complete_hh_ids)
 
-        # Report survey content after recoding and filtering incomplete HHs (before imputation)
+        # Report survey content after recoding and filtering (before imputation)
         n_survey_hh = self.survey_bundle.household_pivot["h_total"].sum()
         n_survey_per = self.survey_bundle.person_pivot["p_total"].sum()
-        n_incompletes = complete_hh_ids.len() - self.data.households.height  # pyright: ignore[reportOptionalMemberAccess]
 
         logger.info(
-            "Survey after recoding and filtering incomplete HHs: "
-            "%d HHs, %d persons, %d incomplete HHs that were dropped",
+            "Survey after recoding (exclude_incompletes=%s): "
+            "%d HHs, %d persons, %d incomplete HHs dropped from the seed",
+            self.config.exclude_incompletes,
             n_survey_hh,
             n_survey_per,
             n_incompletes,
@@ -579,9 +588,16 @@ class WeightingPipeline:
         tables = self.data.as_dict()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        # Zero out hh_weight for incomplete households
+        # Flag completeness from households down so that the per-level zeroing
+        # below derives directly from the cascade (an incomplete household /
+        # person / day forces all its descendants incomplete) and so downstream
+        # consumers can read a correct ``complete`` flag on trips and tours.
+        cascade_completeness(tables)
+
+        # Zero out hh_weight for incomplete households (unless they were kept in
+        # the seed and balanced normally).
         hh = tables["households"]
-        if hh is not None and "complete" in hh.columns:
+        if self.config.exclude_incompletes and hh is not None and "complete" in hh.columns:
             tables["households"] = hh.with_columns(
                 pl.when(pl.col("complete"))
                 .then(pl.col("hh_weight"))
@@ -590,7 +606,7 @@ class WeightingPipeline:
             )
 
         # Propagate the weights through the survey relational structure (HH → PER → DAY → TRIP/TOUR)
-        propagate_weights(tables, has_weight)
+        propagate_weights(tables, has_weight, zero_incompletes=self.config.exclude_incompletes)
 
         # Write propagated tables back to self.data
         for name, df in tables.items():

@@ -75,6 +75,57 @@ TABLE_NAMES = [
     "tours",
 ]
 
+# Completeness cascade: (parent_table, child_table, join_key). A child is
+# effectively complete only if it and its parent are complete; incompleteness
+# flows household -> person -> day -> trips/tours.
+COMPLETENESS_CASCADE = [
+    ("households", "persons", "hh_id"),
+    ("persons", "days", "person_id"),
+    ("days", "unlinked_trips", "day_id"),
+    ("days", "linked_trips", "day_id"),
+    ("days", "joint_trips", "day_id"),
+    ("days", "tours", "day_id"),
+]
+
+
+def cascade_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Flag completeness from households down through the hierarchy, in place.
+
+    A record is effectively complete only if it *and* every ancestor is
+    complete. Incompleteness flows downward: an incomplete household forces all
+    its persons, days, trips and tours incomplete; an incomplete person forces
+    its days/trips/tours; an incomplete day forces its trips/tours.
+
+    Each child table's ``complete`` column is overwritten with
+    ``own_complete AND parent_complete``. A null own flag is treated as
+    incomplete; a missing parent (orphan) does not force incompleteness. Tables
+    missing the ``complete`` column or the join key are left unchanged. Because
+    the cascade runs parent-before-child, each parent is already effective when
+    its children are processed.
+    """
+    for parent, child, key in COMPLETENESS_CASCADE:
+        parent_df = tables.get(parent)
+        child_df = tables.get(child)
+        if parent_df is None or child_df is None:
+            continue
+        if (
+            "complete" not in parent_df.columns
+            or "complete" not in child_df.columns
+            or key not in child_df.columns
+        ):
+            continue
+
+        parent_flag = parent_df.select(
+            key, pl.col("complete").fill_null(value=False).alias("_parent_complete")
+        )
+        child_df = child_df.join(parent_flag, on=key, how="left")
+        tables[child] = child_df.with_columns(
+            (
+                pl.col("complete").fill_null(value=False)
+                & pl.col("_parent_complete").fill_null(value=True)
+            ).alias("complete")
+        ).drop("_parent_complete")
+
 
 def collect_tables(
     *,
@@ -119,6 +170,7 @@ def propagate_weights(  # noqa: C901, PLR0912
     has_weight: dict[str, str],
     *,
     skip: set[str] | None = None,
+    zero_incompletes: bool = True,
 ) -> None:
     """Carry forward and aggregate weights through the hierarchy.
 
@@ -131,6 +183,10 @@ def propagate_weights(  # noqa: C901, PLR0912
             E.g. ``{"households": "hh_weight"}``.
         skip: Table names to skip (e.g. tables that already have
             externally provided weights).
+        zero_incompletes: If True (default), set the weight to 0 for records
+            whose ``complete`` flag is False after each carry-forward join. If
+            False, incomplete records keep their carried-forward weight (used
+            when incomplete records were left in the weighting sample).
     """
     skip = skip or set()
 
@@ -165,7 +221,7 @@ def propagate_weights(  # noqa: C901, PLR0912
         tables[child] = safe_join_weight(child_df, w, join_key)
 
         # Zero out weight for incomplete records
-        if "complete" in tables[child].columns:
+        if zero_incompletes and "complete" in tables[child].columns:
             tables[child] = tables[child].with_columns(
                 pl.when(pl.col("complete"))
                 .then(pl.col(weight_col))

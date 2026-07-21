@@ -38,6 +38,7 @@ from pipeline.decoration import step
 from processing.weighting.balancing.weight_propagation import (
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
+    cascade_completeness,
     collect_tables,
     propagate_weights,
 )
@@ -167,10 +168,63 @@ class ExistingWeightConfig(BaseModel):
             raise ValueError(msg)
 
 
+def _zero_out_incompletes(
+    tables: dict[str, pl.DataFrame | None],
+    has_weight: dict[str, str],
+    *,
+    rebalance: bool,
+) -> None:
+    """Zero the weight of incomplete records, optionally rebalancing survivors.
+
+    For every weighted table that has a ``complete`` column, sets the weight to
+    ``0`` where ``complete == False``. When *rebalance* is True, the surviving
+    (complete) weights are then scaled up so the table's total weight returns to
+    its pre-zeroing value — preserving the population estimate ("retain unity").
+    The rescale is a single naive global factor per table. Modifies *tables* in
+    place.
+
+    Args:
+        tables: Mutable dict of table_name → DataFrame (or None).
+        has_weight: Dict of table_name → weight column name.
+        rebalance: If True, rescale surviving weights to preserve each table's
+            total weight after zeroing incompletes.
+    """
+    for table_name, weight_col in has_weight.items():
+        df = tables.get(table_name)
+        if df is None or "complete" not in df.columns:
+            continue
+
+        pre_zero_total = df.select(pl.col(weight_col).sum()).item()
+        df = df.with_columns(
+            pl.when(pl.col("complete")).then(pl.col(weight_col)).otherwise(0.0).alias(weight_col)
+        )
+
+        if rebalance:
+            surviving_total = df.select(pl.col(weight_col).sum()).item()
+            if surviving_total and surviving_total > 0:
+                scale = pre_zero_total / surviving_total
+                df = df.with_columns((pl.col(weight_col) * scale).alias(weight_col))
+                logger.info(
+                    "Rebalanced %s after zeroing incompletes: scaled surviving weights "
+                    "by %.4f to preserve total weight %.1f",
+                    table_name,
+                    scale,
+                    pre_zero_total,
+                )
+            else:
+                logger.warning(
+                    "Cannot rebalance %s: no complete records with positive weight remain",
+                    table_name,
+                )
+
+        tables[table_name] = df
+
+
 @step()
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, ExistingWeightConfig | dict],
     derive_missing_weights: bool = False,
+    rebalance_incompletes: bool = False,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
     days: pl.DataFrame | None = None,
@@ -234,6 +288,12 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
         derive_missing_weights: Whether to derive weights for tables
             without provided weight files (default: False).
+        rebalance_incompletes: If True, after zeroing the weights of incomplete
+            records, rescale the surviving (complete) weights so each provided
+            table's total weight returns to its pre-zeroing value. This keeps the
+            population estimate constant when incomplete records are dropped to
+            zero. The rescale is a single naive global factor per table and is
+            carried down to derived tables via propagation (default: False).
         households: Households DataFrame.
         persons: Persons DataFrame.
         days: Days DataFrame.
@@ -251,6 +311,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         - name: add_existing_weights
           params:
             derive_missing_weights: true
+            rebalance_incompletes: true
             weights:
               household_weights:
                 weight_path: "weights/hh_weights.csv"
@@ -341,16 +402,14 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         tables[table_name] = df.join(weight_df, on=cfg.table_id_col, how="left")
         has_weight[table_name] = cfg.canonical_weight_col
 
-    # Zero out weights for incomplete records on tables that already have weights
-    for table_name, weight_col in has_weight.items():
-        df = tables.get(table_name)
-        if df is not None and "complete" in df.columns:
-            tables[table_name] = df.with_columns(
-                pl.when(pl.col("complete"))
-                .then(pl.col(weight_col))
-                .otherwise(0.0)
-                .alias(weight_col)
-            )
+    # Flag completeness from households down so incompleteness cascades (an
+    # incomplete household/person/day forces its descendants incomplete) before
+    # zeroing their weights.
+    cascade_completeness(tables)
+
+    # Zero out weights for incomplete records on tables that already have
+    # weights, optionally rebalancing survivors to preserve each table's total.
+    _zero_out_incompletes(tables, has_weight, rebalance=rebalance_incompletes)
 
     # Derive missing weights if requested
     if derive_missing_weights:

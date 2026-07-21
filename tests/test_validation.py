@@ -6,9 +6,11 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.persons import AgeCategory, Gender
+from data_canon.codebook.tours import TourDataQuality
 from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
 from data_canon.core.dataclass import CanonicalData
 from data_canon.core.exceptions import DataValidationError
+from data_canon.validation.custom import check_valid_tours_are_complete
 from tests.fixtures import create_household, create_person
 
 
@@ -412,3 +414,56 @@ class TestCustomValidators:
             ]
         )
         data.validate("persons", step="link_trips")
+
+
+class TestValidToursAreComplete:
+    """Tests for the check_valid_tours_are_complete custom validator."""
+
+    def _tours(self, quality, *, single_trip, purpose):
+        """Build a one-row tours frame with the given quality/flag/purpose."""
+        return pl.DataFrame(
+            {
+                "tour_id": [1],
+                "tour_data_quality": [quality],
+                "single_trip_tour": [single_trip],
+                "tour_purpose": [purpose],
+            },
+            schema={
+                "tour_id": pl.Int64,
+                "tour_data_quality": pl.Int64,
+                "single_trip_tour": pl.Boolean,
+                "tour_purpose": pl.Int64,
+            },
+        )
+
+    def test_valid_complete_tour_passes(self):
+        """A VALID tour that is not single-trip and has a purpose is clean."""
+        tours = self._tours(
+            TourDataQuality.VALID.value, single_trip=False, purpose=PurposeCategory.WORK.value
+        )
+        assert check_valid_tours_are_complete(tours) == []
+
+    def test_single_trip_flagged_invalid_passes(self):
+        """A single-trip tour flagged non-VALID is allowed to lack a purpose."""
+        tours = self._tours(TourDataQuality.SINGLE_TRIP.value, single_trip=True, purpose=None)
+        assert check_valid_tours_are_complete(tours) == []
+
+    def test_valid_but_single_trip_fails(self):
+        """A tour mislabeled VALID but flagged single-trip is reported."""
+        tours = self._tours(
+            TourDataQuality.VALID.value, single_trip=True, purpose=PurposeCategory.WORK.value
+        )
+        errors = check_valid_tours_are_complete(tours)
+        assert len(errors) == 1
+        assert "VALID" in errors[0]
+
+    def test_valid_but_null_purpose_fails(self):
+        """A tour marked VALID with a null purpose is reported."""
+        tours = self._tours(TourDataQuality.VALID.value, single_trip=False, purpose=None)
+        errors = check_valid_tours_are_complete(tours)
+        assert len(errors) == 1
+
+    def test_missing_quality_column_is_noop(self):
+        """Frames without tour_data_quality produce no errors."""
+        tours = pl.DataFrame({"tour_id": [1], "single_trip_tour": [True], "tour_purpose": [None]})
+        assert check_valid_tours_are_complete(tours) == []
