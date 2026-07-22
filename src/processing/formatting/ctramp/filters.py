@@ -134,44 +134,63 @@ def _drop_invalid_tours(
     linked_trips: pl.DataFrame,
     joint_trips: pl.DataFrame,
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    """Remove tours unusable for the model, cascading to linked and joint trips.
+    """Remove tours not admissible to the model, cascading to linked and joint trips.
 
-    Drops tours that are not VALID (single-trip, loop, missing-anchor,
-    change-mode, indeterminate) or not COMPLETE (do not start and end at home).
-    Mirrors the DaySim formatter (``format_daysim``), which drops both, so the
-    CT-RAMP and DaySim outputs contain the same set of tours. Without this,
+    Keeps only tours the ``model_usable`` gate admits -- cascaded survey
+    completeness AND an admissible tour structure (VALID quality, COMPLETE
+    home-to-home category). That gate is stamped upstream by the
+    ``flag_model_usable`` step (see [`processing.completeness`]
+    [processing.completeness]) and is shared with the DaySim formatter and the
+    weighting, so all three agree on the tour universe. Without this,
     single-trip/loop tours (which carry a null ``tour_purpose``) survive into
     CT-RAMP output and are silently coerced to the ``OTHDISCR`` catch-all purpose.
 
+    When ``model_usable`` is absent (schema-only frames, unit tests that predate
+    the gate) the criterion is re-derived from ``tour_data_quality`` /
+    ``tour_category`` so the behaviour is unchanged.
+
     Args:
-        tours: Canonical tour data with ``tour_data_quality`` and ``tour_category``
+        tours: Canonical tour data with ``model_usable`` (or the
+            ``tour_data_quality`` / ``tour_category`` descriptors)
         linked_trips: Canonical linked trip data
         joint_trips: Aggregated joint trip data
 
     Returns:
-        Tuple of (tours, linked_trips, joint_trips) with unusable tours and their
-        orphaned trips removed.
+        Tuple of (tours, linked_trips, joint_trips) with inadmissible tours and
+        their orphaned trips removed.
     """
-    # tour_data_quality is produced during tour extraction; guard for callers
-    # (e.g. schema-only empty frames) that do not carry every column.
+    has_gate = "model_usable" in tours.columns
     has_quality = "tour_data_quality" in tours.columns
     has_category = "tour_category" in tours.columns
-    if not (has_quality or has_category):
+    if not (has_gate or has_quality or has_category):
         return tours, linked_trips, joint_trips
 
     is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
     is_complete = pl.col("tour_category") == TourCategory.COMPLETE.value
 
-    # Tag each tour's drop reason so the log can distinguish structurally invalid
-    # tours from partial/open ones (valid but not home-based).
+    # Re-derive the criterion from the descriptors as a fallback. The column may
+    # exist but be unstamped (null) on frames that never passed through
+    # ``flag_model_usable`` -- e.g. schema-built fixtures -- so fall back per row
+    # rather than treating null as "drop".
     if has_quality and has_category:
-        keep = is_valid & is_complete
+        derived = is_valid & is_complete
+    elif has_quality:
+        derived = is_valid
+    elif has_category:
+        derived = is_complete
+    else:
+        derived = pl.lit(value=True)
+
+    # The upstream gate is authoritative wherever it has been stamped.
+    keep = pl.col("model_usable").fill_null(derived) if has_gate else derived
+
+    # Tag each dropped tour's reason so the log can distinguish structurally
+    # invalid tours from partial/open ones (valid but not home-based).
+    if has_quality and has_category:
         reason = pl.when(~is_valid).then(pl.lit("invalid")).otherwise(pl.lit("partial/open"))
     elif has_quality:
-        keep = is_valid
         reason = pl.lit("invalid")
     else:
-        keep = is_complete
         reason = pl.lit("partial/open")
 
     n_og_tours = len(tours)

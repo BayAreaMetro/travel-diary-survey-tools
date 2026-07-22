@@ -56,6 +56,7 @@ class HouseholdModel(BaseModel):
     hh_weight: float | None = schema_field(ge=0)
     num_vehicles: int = schema_field(ge=0)
     complete: bool = schema_field()
+    model_usable: bool | None = schema_field(default=None)
 
 
 class PersonModel(BaseModel):
@@ -98,6 +99,7 @@ class PersonModel(BaseModel):
     is_proxy: bool | None = schema_field(default=None)
     num_days_complete: int = schema_field(ge=0, default=0)
     complete: bool | None = schema_field(default=None)
+    model_usable: bool | None = schema_field(default=None)
     person_weight: float | None = schema_field(default=None, ge=0)
 
 
@@ -114,6 +116,7 @@ class PersonDayModel(BaseModel):
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
     complete: bool | None = schema_field(default=False)
+    model_usable: bool | None = schema_field(default=None)
     day_weight: float | None = schema_field(default=None, ge=0)
 
 
@@ -145,6 +148,7 @@ class UnlinkedTripModel(BaseModel):
     arrive_time: datetime | None = schema_field()
     num_travelers: int = schema_field(ge=1)
     complete: bool | None = schema_field(default=None)
+    model_usable: bool | None = schema_field(default=None)
     unlinked_trip_weight: float | None = schema_field(default=None, ge=0)
 
     # You can add custom row-level validators here
@@ -223,6 +227,7 @@ class LinkedTripModel(BaseModel):
         ),
     )
     complete: bool | None = schema_field(default=None)
+    model_usable: bool | None = schema_field(default=None)
     linked_trip_weight: float | None = schema_field(default=None, ge=0)
 
 
@@ -273,6 +278,7 @@ class TourModel(BaseModel):
     inbound_mode: ModeType | None = schema_field()
     num_travelers: int = schema_field(ge=1, default=1)
     complete: bool | None = schema_field(default=None)
+    model_usable: bool | None = schema_field(default=None)
     tour_weight: float | None = schema_field(default=None, ge=0)
 
     @model_validator(mode="after")
@@ -334,4 +340,5 @@ class JointTripModel(BaseModel):
     depart_time_mean: datetime = schema_field(description="Mean departure time across member trips")
     depart_arrive_mean: datetime = schema_field(description="Mean arrival time across member trips")
     complete: bool | None = schema_field(default=None)
+    model_usable: bool | None = schema_field(default=None)
     joint_trip_weight: float | None = schema_field(default=None, ge=0)

@@ -530,7 +530,11 @@ class TestAddExistingWeights:
 
 
 class TestRebalanceIncompletes:
-    """Tests for the rebalance_incompletes option of add_existing_weights."""
+    """Tests for the rebalance_incompletes option of add_existing_weights.
+
+    These gate on ``complete`` (the survey gate) rather than the default
+    ``model_usable``, since the fixtures carry no tour structure.
+    """
 
     def _households(self) -> pl.DataFrame:
         """Four households, one incomplete (hh 3)."""
@@ -554,6 +558,7 @@ class TestRebalanceIncompletes:
         result = add_existing_weights(
             weights=self._weights_config(tmp_path),
             households=self._households(),
+            weight_gate="complete",
         )
         weights = result["households"].sort("hh_id")["hh_weight"].to_list()
         # hh 3 (incomplete) zeroed; others unchanged; total drops from 100 to 70
@@ -566,6 +571,7 @@ class TestRebalanceIncompletes:
             weights=self._weights_config(tmp_path),
             households=self._households(),
             rebalance_incompletes=True,
+            weight_gate="complete",
         )
         df = result["households"].sort("hh_id")
         weights = df["hh_weight"].to_list()
@@ -587,5 +593,6 @@ class TestRebalanceIncompletes:
             weights={"household_weights": {"weight_path": str(weight_file)}},
             households=households,
             rebalance_incompletes=True,
+            weight_gate="complete",
         )
         assert result["households"]["hh_weight"].to_list() == [0.0, 0.0]

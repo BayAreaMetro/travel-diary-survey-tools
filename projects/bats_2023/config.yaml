@@ -132,6 +132,17 @@ steps:
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
 
+  - name: flag_model_usable
+    validate_input: false
+    cache: true
+    params:
+      # Fold strict tour structure (VALID quality + COMPLETE category) into the
+      # model_usable gate. `complete` stays untouched as survey-reporting
+      # completeness, so partials/overnights remain valid survey data; they are
+      # just not admissible to the tour-based model. Set false to make
+      # model_usable equal reporting completeness.
+      require_valid_tours: true
+
   - name: compute_weights
     validate_input: false
     cache: true
@@ -193,11 +204,12 @@ steps:
       # keep incomplete households in the seed and give them computed weights.
       exclude_incompletes: true
 
-      # Treat non-VALID tours (single-trip, loop, missing-anchor, change-mode,
-      # spatial-gap) and their member trips as incomplete, so they get 0 weight
-      # and the weighted tour universe matches what CT-RAMP keeps. Set false to
-      # weight invalid tours as-is.
-      valid_tours_only: true
+      # Which gate decides who carries weight (stamped by flag_model_usable):
+      #   model_usable -> only model-admissible records, so the weighted tour
+      #                   universe matches what CT-RAMP/DaySim keep.
+      #   complete     -> the whole valid survey, including partial/overnight
+      #                   tours (survey-analysis weights).
+      weight_gate: model_usable
 
       # -- EF grid search (optional) -----------------------------------
       # Re-run balancing across a grid of max_expansion_factor values and

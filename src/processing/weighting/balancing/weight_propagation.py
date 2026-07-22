@@ -20,24 +20,23 @@ steps to propagate household weights down through the canonical table hierarchy.
 * ``sum(day_weight) ≈ sum(person_weight x complete_travel_days)``
 * ``sum(unlinked_trip_weight) ≈ sum(day_weight x trips_per_day)``
 
-# Completion flag
+# Gate column
 
-If a table has a ``complete`` boolean column, records with
-``complete == False`` receive a weight of **0** after the carry-forward
-join.  This ensures that incomplete records never contribute to
-downstream aggregations (the aggregation step already excludes zeros).
+Records excluded by the *gate column* receive a weight of **0** after the
+carry-forward join, so they never contribute to downstream aggregations (the
+aggregation step already excludes zeros).  The gate defaults to
+``model_usable`` -- the modelling gate stamped by the ``flag_model_usable``
+step (see [`processing.completeness`][processing.completeness]) -- so the
+weighted sample matches the tours CT-RAMP/DaySim actually keep.  Pass
+``complete`` instead to weight the whole valid survey, including partial and
+overnight tours.
 """
 
 import logging
 
 import polars as pl
 
-from data_canon.codebook.tours import TourDataQuality
-
 logger = logging.getLogger(__name__)
-
-# Trip tables whose records inherit a tour's validity, matched on ``tour_id``.
-INVALID_TOUR_MEMBER_TABLES = ("unlinked_trips", "linked_trips")
 
 # Canonical mapping: config_key -> (table_name, id_column, weight_column)
 WEIGHT_CONFIG_MAPPING: dict[str, tuple[str, str, str]] = {
@@ -79,101 +78,6 @@ TABLE_NAMES = [
     "joint_trips",
     "tours",
 ]
-
-# Completeness cascade: (parent_table, child_table, join_key). A child is
-# effectively complete only if it and its parent are complete; incompleteness
-# flows household -> person -> day -> trips/tours.
-COMPLETENESS_CASCADE = [
-    ("households", "persons", "hh_id"),
-    ("persons", "days", "person_id"),
-    ("days", "unlinked_trips", "day_id"),
-    ("days", "linked_trips", "day_id"),
-    ("days", "joint_trips", "day_id"),
-    ("days", "tours", "day_id"),
-]
-
-
-def cascade_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
-    """Flag completeness from households down through the hierarchy, in place.
-
-    A record is effectively complete only if it *and* every ancestor is
-    complete. Incompleteness flows downward: an incomplete household forces all
-    its persons, days, trips and tours incomplete; an incomplete person forces
-    its days/trips/tours; an incomplete day forces its trips/tours.
-
-    Each child table's ``complete`` column is overwritten with
-    ``own_complete AND parent_complete``. A null own flag is treated as
-    incomplete; a missing parent (orphan) does not force incompleteness. Tables
-    missing the ``complete`` column or the join key are left unchanged. Because
-    the cascade runs parent-before-child, each parent is already effective when
-    its children are processed.
-    """
-    for parent, child, key in COMPLETENESS_CASCADE:
-        parent_df = tables.get(parent)
-        child_df = tables.get(child)
-        if parent_df is None or child_df is None:
-            continue
-        if (
-            "complete" not in parent_df.columns
-            or "complete" not in child_df.columns
-            or key not in child_df.columns
-        ):
-            continue
-
-        parent_flag = parent_df.select(
-            key, pl.col("complete").fill_null(value=False).alias("_parent_complete")
-        )
-        child_df = child_df.join(parent_flag, on=key, how="left")
-        tables[child] = child_df.with_columns(
-            (
-                pl.col("complete").fill_null(value=False)
-                & pl.col("_parent_complete").fill_null(value=True)
-            ).alias("complete")
-        ).drop("_parent_complete")
-
-
-def mark_invalid_tours_incomplete(tables: dict[str, pl.DataFrame | None]) -> None:
-    """Treat non-VALID tours and their member trips as incomplete, in place.
-
-    A tour whose ``tour_data_quality`` is not VALID (single-trip, loop, missing
-    home anchor, change-mode, spatial gap, ...) is malformed and is dropped from
-    CT-RAMP output, so it should not carry weight either. This folds tour
-    invalidity into the ``complete`` flag - on the tour itself and on every trip
-    that belongs to it (matched by ``tour_id``) - so the existing
-    completeness-based zeroing gives those records a weight of 0 while retaining
-    them in the output.
-
-    Runs after :func:`cascade_completeness`; because it only turns ``complete``
-    from True to False, the two compose regardless of order. Tables missing
-    ``tour_data_quality`` / ``complete`` / ``tour_id`` are left unchanged. Joint
-    trips carry no ``tour_id``; their weight is a mean over linked-trip weights,
-    so it follows once the member linked trips are zeroed.
-    """
-    tours = tables.get("tours")
-    if tours is None or "tour_data_quality" not in tours.columns or "complete" not in tours.columns:
-        return
-
-    is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
-    tables["tours"] = tours.with_columns(
-        (pl.col("complete").fill_null(value=False) & is_valid).alias("complete")
-    )
-
-    invalid_ids = tours.filter(~is_valid).select("tour_id").unique()
-    if invalid_ids.height == 0:
-        return
-    invalid_flag = invalid_ids.with_columns(pl.lit(value=True).alias("_invalid_tour"))
-
-    for name in INVALID_TOUR_MEMBER_TABLES:
-        df = tables.get(name)
-        if df is None or "tour_id" not in df.columns or "complete" not in df.columns:
-            continue
-        joined = df.join(invalid_flag, on="tour_id", how="left")
-        tables[name] = joined.with_columns(
-            (
-                pl.col("complete").fill_null(value=False)
-                & ~pl.col("_invalid_tour").fill_null(value=False)
-            ).alias("complete")
-        ).drop("_invalid_tour")
 
 
 def collect_tables(
@@ -219,7 +123,7 @@ def propagate_weights(  # noqa: C901, PLR0912
     has_weight: dict[str, str],
     *,
     skip: set[str] | None = None,
-    zero_incompletes: bool = True,
+    gate_column: str | None = "model_usable",
 ) -> None:
     """Carry forward and aggregate weights through the hierarchy.
 
@@ -232,10 +136,11 @@ def propagate_weights(  # noqa: C901, PLR0912
             E.g. ``{"households": "hh_weight"}``.
         skip: Table names to skip (e.g. tables that already have
             externally provided weights).
-        zero_incompletes: If True (default), set the weight to 0 for records
-            whose ``complete`` flag is False after each carry-forward join. If
-            False, incomplete records keep their carried-forward weight (used
-            when incomplete records were left in the weighting sample).
+        gate_column: Boolean column deciding which records may carry weight.
+            Records where it is False get a weight of 0 after each
+            carry-forward join. Defaults to ``model_usable`` (the modelling
+            gate); pass ``complete`` to weight the whole valid survey including
+            partial/overnight tours, or None to skip zeroing entirely.
     """
     skip = skip or set()
 
@@ -269,10 +174,10 @@ def propagate_weights(  # noqa: C901, PLR0912
         w = parent_df.select(join_key, parent_weight).rename({parent_weight: weight_col})
         tables[child] = safe_join_weight(child_df, w, join_key)
 
-        # Zero out weight for incomplete records
-        if zero_incompletes and "complete" in tables[child].columns:
+        # Zero out weight for records the gate excludes
+        if gate_column and gate_column in tables[child].columns:
             tables[child] = tables[child].with_columns(
-                pl.when(pl.col("complete"))
+                pl.when(pl.col(gate_column).fill_null(value=False))
                 .then(pl.col(weight_col))
                 .otherwise(0.0)
                 .alias(weight_col)

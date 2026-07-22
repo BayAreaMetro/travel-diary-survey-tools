@@ -61,8 +61,6 @@ from processing.weighting.balancing.balancer import (
 from processing.weighting.balancing.base_weights import compute_base_weights
 from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
 from processing.weighting.balancing.weight_propagation import (
-    cascade_completeness,
-    mark_invalid_tours_incomplete,
     propagate_weights,
     safe_join_weight,
 )
@@ -589,31 +587,28 @@ class WeightingPipeline:
         tables = self.data.as_dict()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        # Flag completeness from households down so that the per-level zeroing
-        # below derives directly from the cascade (an incomplete household /
-        # person / day forces all its descendants incomplete) and so downstream
-        # consumers can read a correct ``complete`` flag on trips and tours.
-        cascade_completeness(tables)
+        # Records are gated by a single flag stamped upstream by the
+        # ``flag_model_usable`` step (default ``model_usable``: cascaded survey
+        # completeness AND admissible tour structure). Nothing is re-derived here.
+        gate = self.config.weight_gate
 
-        # Treat non-VALID tours (and their member trips) as incomplete so they
-        # are zeroed alongside incompletes - the weighted tour universe then
-        # matches what CT-RAMP actually keeps.
-        if self.config.valid_tours_only:
-            mark_invalid_tours_incomplete(tables)
-
-        # Zero out hh_weight for incomplete households (unless they were kept in
+        # Zero out hh_weight for gated-out households (unless they were kept in
         # the seed and balanced normally).
         hh = tables["households"]
-        if self.config.exclude_incompletes and hh is not None and "complete" in hh.columns:
+        if self.config.exclude_incompletes and hh is not None and gate in hh.columns:
             tables["households"] = hh.with_columns(
-                pl.when(pl.col("complete"))
+                pl.when(pl.col(gate).fill_null(value=False))
                 .then(pl.col("hh_weight"))
                 .otherwise(0.0)
                 .alias("hh_weight")
             )
 
         # Propagate the weights through the survey relational structure (HH → PER → DAY → TRIP/TOUR)
-        propagate_weights(tables, has_weight, zero_incompletes=self.config.exclude_incompletes)
+        propagate_weights(
+            tables,
+            has_weight,
+            gate_column=gate if self.config.exclude_incompletes else None,
+        )
 
         # Write propagated tables back to self.data
         for name, df in tables.items():
