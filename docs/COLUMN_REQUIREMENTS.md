@@ -117,12 +117,12 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `linked_trip_id` | int | ≥ 1, UNIQUE |  |  | ✓ |  |  |
     | `joint_trip_id` | int or None | ≥ 1, FK → `joint_trips.joint_trip_id` |  | ✓ |  |  |  |
     | `tour_id` | int | ≥ 1, FK → `tours.tour_id` |  |  |  |  | ✓ |
-    | `travel_dow` | TravelDow |  |  | ✓ |  |  |  |
-    | `o_purpose` | Purpose |  |  |  |  | ✓ |  |
-    | `o_purpose_category` | PurposeCategory |  |  |  |  |  |  |
+    | `travel_dow` | TravelDow |  |  |  |  |  |  |
+    | `o_purpose` | Purpose |  |  | ✓ |  | ✓ |  |
+    | `o_purpose_category` | PurposeCategory |  |  | ✓ |  |  |  |
     | `o_lat` | float | ≥ -90, ≤ 90 | ✓ |  | ✓ |  |  |
     | `o_lon` | float | ≥ -180, ≤ 180 | ✓ |  | ✓ |  |  |
-    | `d_purpose` | Purpose |  |  |  |  | ✓ |  |
+    | `d_purpose` | Purpose |  |  | ✓ |  | ✓ |  |
     | `d_purpose_category` | PurposeCategory |  |  | ✓ |  |  |  |
     | `d_lat` | float | ≥ -90, ≤ 90 | ✓ |  | ✓ |  |  |
     | `d_lon` | float | ≥ -180, ≤ 180 | ✓ |  | ✓ |  |  |

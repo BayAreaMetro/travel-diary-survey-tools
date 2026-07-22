@@ -121,7 +121,7 @@ def identify_home_based_tours(
 
 
 def expand_anchor_periods(linked_trips: pl.DataFrame) -> pl.DataFrame:
-    """Expand work/school anchor periods for tours using the registry anchor flags.
+    """Expand work/school anchor periods for tours using the anchor flags.
 
     For tours whose trips visit a person's work or school location, this finds
     the first arrival and last departure at that anchor, so subtours are only
@@ -131,9 +131,9 @@ def expand_anchor_periods(linked_trips: pl.DataFrame) -> pl.DataFrame:
 
     The anchor flags ``_o_at_work``/``_d_at_work`` (and ``_at_school``) come from
     ``classify_trip_locations``: a trip end is at the work anchor when it is
-    within the work threshold of *any* of the person's registry work locations
+    within the work threshold of *any* of the person's habitual work locations
     (reported or observed), or is a WORK-purpose end. Because observed
-    alternate worksites are registry work locations, a day at an alternate
+    alternate worksites are habitual work locations, a day at an alternate
     workplace anchors there naturally — no per-day derivation needed.
 
     Args:
@@ -313,8 +313,8 @@ def detect_anchor_based_subtours(  # noqa: C901, PLR0915
         # Pulled outside inner loop to filter once per tour
         if anchor_type == LocationType.WORK.value:
             # Distance-based work anchor flags: WORK_RELATED errands away from any
-            # registry work location read as "away from anchor" (and become
-            # subtours), while a registry work location is treated as the anchor.
+            # habitual work location read as "away from anchor" (and become
+            # subtours), while a habitual work location is treated as the anchor.
             o_at_anchor = tour_df["_o_at_work"].to_list()
             d_at_anchor = tour_df["_d_at_work"].to_list()
         elif anchor_type == LocationType.SCHOOL.value:

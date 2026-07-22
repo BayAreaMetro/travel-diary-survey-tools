@@ -65,7 +65,7 @@ def _calculate_tour_purp_and_dest(
     )
 
     # Effective destination purpose: a WORK_RELATED trip that ends at one of the
-    # person's work locations (classified WORK via the registry — a usual or an
+    # person's work locations (classified WORK — a usual or an
     # observed alternate worksite) is treated as WORK, so the tour is classified
     # as a work tour. WORK_RELATED errands away from any work location keep their
     # purpose and stay subtour activities.

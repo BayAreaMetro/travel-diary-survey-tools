@@ -40,7 +40,7 @@ from data_canon.codebook.generic import LocationType
 from data_canon.codebook.persons import AgeCategory, Employment, SchoolType, Student
 from data_canon.codebook.tours import PersonCategory
 from data_canon.codebook.trips import ModeType, PurposeCategory
-from processing.tours.location_registry import RegistryGateConfig
+from processing.tours.habitual_locations import HabitualLocationConfig
 
 
 class TourConfig(BaseModel):
@@ -168,11 +168,11 @@ class TourConfig(BaseModel):
         ),
     )
 
-    registry_gate: RegistryGateConfig = Field(
-        default_factory=RegistryGateConfig,
+    habitual_locations: HabitualLocationConfig = Field(
+        default_factory=HabitualLocationConfig,
         description=(
-            "Population rule for the person-location registry: the dwell cutoff "
-            "for recording observed work/school locations."
+            "Rules for promoting observed places into habitual locations, and "
+            "the radius within which two points are treated as the same place."
         ),
     )
 

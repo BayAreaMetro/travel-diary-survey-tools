@@ -62,9 +62,9 @@ def prepare_person_locations(
     return person_locations
 
 
-# Location kinds: (registry LocationType, purpose categories that also match).
+# Location kinds: (LocationType, purpose categories that also match).
 # A trip end matches a kind if it lies within the kind's distance threshold of
-# any of the person's registry locations of that kind, OR its purpose indicates
+# any of the person's habitual locations of that kind, OR its purpose indicates
 # the kind (the hybrid strategy).
 _LOCATION_CONFIGS = {
     "home": (LocationType.HOME, [PurposeCategory.HOME]),
@@ -75,10 +75,10 @@ _LOCATION_CONFIGS = {
 
 def classify_trip_locations(
     linked_trips: pl.DataFrame,
-    registry: pl.DataFrame,
+    habitual_locations: pl.DataFrame,
     distance_thresholds: dict,
 ) -> pl.DataFrame:
-    """Classify trip origins and destinations against the person-location registry.
+    """Classify trip origins and destinations against a person's habitual locations.
 
     Uses a hybrid strategy: a trip end matches a location type if EITHER its
     purpose code indicates that type OR it lies within the type's distance
@@ -93,8 +93,8 @@ def classify_trip_locations(
 
     Args:
         linked_trips: Trip data with o_lat, o_lon, d_lat, d_lon and purpose codes.
-        registry: Person-location registry (see ``location_registry.py``) with
-            person_id, location_type, lat, lon, source.
+        habitual_locations: Habitual locations (see ``habitual_locations.py``)
+            with person_id, location_type, lat, lon, source.
         distance_thresholds: Dict mapping LocationType to distance in meters.
 
     Returns:
@@ -103,14 +103,14 @@ def classify_trip_locations(
         - _d_is_home, _d_is_work, _d_is_school (bool flags)
         - o_location_type, d_location_type (LocationType value)
     """
-    logger.info("Classifying trip locations against reported registry locations...")
+    logger.info("Classifying trip locations against reported habitual locations...")
 
-    reg = registry.filter(pl.col("source") == LocationSource.REPORTED.value).select(
+    reg = habitual_locations.filter(pl.col("source") == LocationSource.REPORTED.value).select(
         "person_id", "location_type", "lat", "lon"
     )
     for end in ["o", "d"]:
         linked_trips = linked_trips.join(
-            _min_distance_to_registry(linked_trips, reg, end),
+            _min_distance_to_locations(linked_trips, reg, end),
             on="linked_trip_id",
             how="left",
         )
@@ -125,12 +125,12 @@ def classify_trip_locations(
     return linked_trips.drop(drop_cols)
 
 
-def _min_distance_to_registry(
+def _min_distance_to_locations(
     linked_trips: pl.DataFrame,
     reg: pl.DataFrame,
     end: str,
 ) -> pl.DataFrame:
-    """Minimum distance from a trip end to each registry location kind.
+    """Minimum distance from a trip end to each habitual location kind.
 
     Returns one row per linked_trip_id with ``{end}_dist_to_{kind}_meters``
     columns (null when the person has no location of that kind).
@@ -158,7 +158,7 @@ def _add_location_flags(df: pl.DataFrame, distance_thresholds: dict) -> pl.DataF
     """Create boolean flags for location matches.
 
     Uses hybrid strategy: matches if EITHER purpose code OR distance to any
-    registry location of that kind indicates the location type.
+    habitual location of that kind indicates the location type.
 
     Args:
         df: DataFrame with per-kind minimum distance columns
@@ -190,7 +190,7 @@ def _add_location_flags(df: pl.DataFrame, distance_thresholds: dict) -> pl.DataF
     return df.with_columns(flag_cols)
 
 
-# Anchor subsets drawn from the registry: (name, LocationType, LocationSource,
+# Anchor subsets drawn from the habitual locations: (name, LocationType, LocationSource,
 # primary purpose that also counts as being at that anchor).
 _ANCHOR_SUBSETS = [
     ("reported_work", LocationType.WORK, LocationSource.REPORTED, PurposeCategory.WORK),
@@ -201,13 +201,13 @@ _ANCHOR_SUBSETS = [
 
 def add_anchor_flags(
     linked_trips: pl.DataFrame,
-    registry: pl.DataFrame,
+    habitual_locations: pl.DataFrame,
     distance_thresholds: dict,
 ) -> pl.DataFrame:
     """Add per-end work/school anchor flags with per-day resolution.
 
     A tour anchor is the place a person is *based* for the day. The rule is
-    per-day, which a person-level registry alone cannot express:
+    per-day, which the person-level location table alone cannot express:
 
     - A trip end is at the WORK anchor if it is at one of the person's *reported*
       work locations, OR — on days they did not visit their reported work at
@@ -223,14 +223,14 @@ def add_anchor_flags(
     Args:
         linked_trips: Classified trips with person_id, day_id, o/d coords and
             purpose codes.
-        registry: Person-location registry with person_id, location_type, lat,
-            lon, source.
+        habitual_locations: Habitual locations with person_id, location_type,
+            lat, lon, source.
         distance_thresholds: Dict mapping LocationType to distance in meters.
 
     Returns:
         Trips with _o_at_work, _d_at_work, _o_at_school, _d_at_school flags.
     """
-    logger.info("Computing anchor flags from the registry...")
+    logger.info("Computing anchor flags from habitual locations...")
 
     threshold = {
         "reported_work": distance_thresholds[LocationType.WORK],
@@ -241,7 +241,7 @@ def add_anchor_flags(
     # Minimum distance from each end to each anchor subset.
     for end in ["o", "d"]:
         for name, loc_type, source, _purpose in _ANCHOR_SUBSETS:
-            subset = registry.filter(
+            subset = habitual_locations.filter(
                 (pl.col("location_type") == loc_type.value) & (pl.col("source") == source.value)
             ).select("person_id", "lat", "lon")
             linked_trips = linked_trips.join(
@@ -300,7 +300,7 @@ def _min_distance_to_subset(
     end: str,
     name: str,
 ) -> pl.DataFrame:
-    """Minimum distance from a trip end to a registry subset (per linked_trip_id)."""
+    """Minimum distance from a trip end to a location subset (per linked_trip_id)."""
     ends = linked_trips.select(
         "linked_trip_id",
         "person_id",
@@ -314,7 +314,7 @@ def _min_distance_to_subset(
 
 
 # Anchor kinds: work and school can anchor tours. An anchor flag is distance-only
-# (physically at a registry location of that kind) plus the *primary* purpose
+# (physically at a habitual location of that kind) plus the *primary* purpose
 # (WORK/SCHOOL). Unlike classification it excludes the "_RELATED" purposes, so a
 # work/school-related errand away from a known location reads as away from the
 # anchor and can form a subtour instead of being absorbed into the anchor period.

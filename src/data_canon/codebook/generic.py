@@ -48,16 +48,16 @@ class LocationType(LabeledEnum):
     """Any other location (shopping, social, errands, etc.).
 
     Alternate/second worksites and campuses are not a distinct type: they are
-    observed WORK/SCHOOL locations in the person-location registry, so a trip end
-    at one is classified WORK or SCHOOL like any other work or school location.
+    observed WORK/SCHOOL habitual locations, so a trip end at one is classified
+    WORK or SCHOOL like any other work or school location.
     """
 
 
 class LocationSource(LabeledEnum):
-    """Provenance of a habitual location in the person-location registry.
+    """Provenance of a habitual location.
 
-    Records *how* a registry location was established, which the wide scalar
-    location columns cannot express. See ``PersonLocationModel``.
+    Records *how* a location was established, which the wide scalar location
+    columns cannot express. See ``HabitualLocationModel``.
     """
 
     REPORTED = (1, "Reported")
