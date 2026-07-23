@@ -14,22 +14,36 @@ steps to propagate household weights down through the canonical table hierarchy.
 |linked     |``linked_trip_weight``  |Mean of constituent ``unlinked_trip_weight``
 |tours      |``tour_weight``         |Mean of constituent ``linked_trip_weight``
 
-# Checksums (logged as warnings if violated)
+# Carry-forward rule
 
-* ``sum(person_weight) ≈ sum(hh_weight x persons_per_hh)``
-* ``sum(day_weight) ≈ sum(person_weight x complete_travel_days)``
-* ``sum(unlinked_trip_weight) ≈ sum(day_weight x trips_per_day)``
+A parent's population is represented by its **usable** children, so one rule
+covers the whole carry-forward chain:
 
-# Gate column
+    w_child = w_parent x n_children / n_usable   (usable child)
+    w_child = 0                                  (unusable child)
 
-Records excluded by the *gate column* receive a weight of **0** after the
-carry-forward join, so they never contribute to downstream aggregations (the
-aggregation step already excludes zeros).  The gate defaults to
-``model_usable`` -- the modelling gate stamped by the ``flag_model_usable``
-step (see [`processing.completeness`][processing.completeness]) -- so the
-weighted sample matches the tours CT-RAMP/DaySim actually keep.  Pass
-``complete`` instead to weight the whole valid survey, including partial and
-overnight tours.
+which makes the checksum true by construction, per parent and in total:
+
+    sum(child_weight) == parent_weight x n_children
+
+Usability is read from ``model_usable``, stamped once by the
+``flag_model_usable`` step (see [`processing.completeness`]
+[processing.completeness]), so the weighted sample matches the tours
+CT-RAMP/DaySim actually keep.  Pass ``complete`` instead to weight the whole
+valid survey, including partial and overnight tours.
+
+A parent with **no** usable child has no denominator and its weight cannot be
+carried anywhere.  That case is resolved before the cascade runs, not patched
+afterwards: a household with no usable person is dropped, while a person with
+no usable day is deliberately kept (they are a real person, they just
+contribute no travel), so ``sum(day_weight)`` falls short of
+``sum(person_weight x n_days)`` by exactly those persons.  The computed-weights
+path accepts and reports that shortfall; the existing-weights path, which
+cannot touch the vendor's anchor, rescales to preserve the supplied total.
+
+Aggregated tables need no rule of their own -- a linked trip, tour or joint
+entity is a *grouping* of already-weighted records, so it takes the mean weight
+of its usable members.
 """
 
 import logging
@@ -37,6 +51,9 @@ import logging
 import polars as pl
 
 logger = logging.getLogger(__name__)
+
+# Rescale factors within this distance of 1.0 are floating-point drift, not work.
+SCALE_TOL = 1e-9
 
 # Canonical mapping: config_key -> (table_name, id_column, weight_column)
 WEIGHT_CONFIG_MAPPING: dict[str, tuple[str, str, str]] = {
@@ -67,6 +84,18 @@ AGGREGATE = [
     ("linked_trips", "joint_trips", "joint_trip_id", "joint_trip_weight"),
     ("linked_trips", "tours", "tour_id", "tour_weight"),
 ]
+
+# Parent a record's weight is spread within when it is unusable. Households have
+# no parent, so a supplied household weight can only be rescaled table-wide.
+PARENT_KEY: dict[str, str | None] = {
+    "households": None,
+    "persons": "hh_id",
+    "days": "person_id",
+    "unlinked_trips": "day_id",
+    "linked_trips": "day_id",
+    "joint_trips": "day_id",
+    "tours": "day_id",
+}
 
 # All canonical table names in hierarchy order
 TABLE_NAMES = [
@@ -118,12 +147,86 @@ def safe_join_weight(
     return df.join(weight_df, on=on, how="left")
 
 
+def is_usable(usable_column: str) -> pl.Expr:
+    """True when a record may carry weight; a null flag counts as unusable."""
+    return pl.col(usable_column).fill_null(value=False)
+
+
+def distribute_to_usable(
+    df: pl.DataFrame,
+    *,
+    join_key: str,
+    weight_col: str,
+    usable_column: str,
+    table: str,
+) -> pl.DataFrame:
+    """Spread each parent's weight across its usable children, returning a new frame.
+
+    Applies the carry-forward rule ``w_child = w_parent x n_children / n_usable``
+    to usable children and 0 to the rest, so ``sum(child_weight)`` equals
+    ``parent_weight x n_children`` for every parent that kept at least one child.
+    Parents that kept none are counted and logged: their weight has no
+    denominator to spread over and is left behind, which is the shortfall the
+    checksum reports.
+
+    Args:
+        df: Child table already carrying the parent weight in *weight_col*.
+        join_key: Foreign key identifying the parent (e.g. ``person_id``).
+        weight_col: Weight column, adjusted in place of itself.
+        usable_column: Boolean column deciding which records may carry weight.
+        table: Table name, for logging.
+
+    Returns:
+        *df* with *weight_col* distributed across the usable children.
+    """
+    if usable_column not in df.columns or weight_col not in df.columns:
+        return df
+
+    usable = is_usable(usable_column)
+    before = df.select(pl.col(weight_col).sum()).item() or 0.0
+    n_unusable = df.filter(~usable).height
+    if n_unusable == 0:
+        return df
+
+    counts = df.group_by(join_key).agg(
+        pl.len().alias("_n_children"),
+        usable.sum().alias("_n_usable"),
+    )
+    share = (
+        pl.when(pl.col("_n_usable") > 0)
+        .then(pl.col("_n_children") / pl.col("_n_usable"))
+        .otherwise(0.0)
+    )
+    n_emptied = counts.filter(pl.col("_n_usable") == 0).height
+    df = (
+        df.join(counts, on=join_key, how="left")
+        .with_columns(
+            pl.when(usable).then(pl.col(weight_col) * share).otherwise(0.0).alias(weight_col)
+        )
+        .drop("_n_children", "_n_usable")
+    )
+
+    after = df.select(pl.col(weight_col).sum()).item() or 0.0
+    logger.info(
+        "%s: %d/%d records unusable by %s; total %s %.1f -> %.1f%s",
+        table,
+        n_unusable,
+        df.height,
+        usable_column,
+        weight_col,
+        before,
+        after,
+        f" ({n_emptied} parent(s) kept no usable child)" if n_emptied else "",
+    )
+    return df
+
+
 def propagate_weights(  # noqa: C901, PLR0912
     tables: dict[str, pl.DataFrame | None],
     has_weight: dict[str, str],
     *,
     skip: set[str] | None = None,
-    gate_column: str | None = "model_usable",
+    usable_column: str | None = "model_usable",
 ) -> None:
     """Carry forward and aggregate weights through the hierarchy.
 
@@ -136,11 +239,11 @@ def propagate_weights(  # noqa: C901, PLR0912
             E.g. ``{"households": "hh_weight"}``.
         skip: Table names to skip (e.g. tables that already have
             externally provided weights).
-        gate_column: Boolean column deciding which records may carry weight.
-            Records where it is False get a weight of 0 after each
-            carry-forward join. Defaults to ``model_usable`` (the modelling
-            gate); pass ``complete`` to weight the whole valid survey including
-            partial/overnight tours, or None to skip zeroing entirely.
+        usable_column: Boolean column deciding which records may carry weight.
+            Each parent's weight is spread across its usable children only.
+            Defaults to ``model_usable``; pass ``complete`` to weight the whole
+            valid survey including partial/overnight tours, or None to give
+            every record the parent weight regardless of usability.
     """
     skip = skip or set()
 
@@ -172,17 +275,19 @@ def propagate_weights(  # noqa: C901, PLR0912
         logger.info("Deriving %s from %s via %s", weight_col, parent_weight, join_key)
 
         w = parent_df.select(join_key, parent_weight).rename({parent_weight: weight_col})
-        tables[child] = safe_join_weight(child_df, w, join_key)
+        child_df = safe_join_weight(child_df, w, join_key)
 
-        # Zero out weight for records the gate excludes
-        if gate_column and gate_column in tables[child].columns:
-            tables[child] = tables[child].with_columns(
-                pl.when(pl.col(gate_column).fill_null(value=False))
-                .then(pl.col(weight_col))
-                .otherwise(0.0)
-                .alias(weight_col)
+        # Spread each parent's weight across its usable children only.
+        if usable_column:
+            child_df = distribute_to_usable(
+                child_df,
+                join_key=join_key,
+                weight_col=weight_col,
+                usable_column=usable_column,
+                table=child,
             )
 
+        tables[child] = child_df
         has_weight[child] = weight_col
 
     # Aggregate: mean weight from source grouped by key
@@ -219,7 +324,19 @@ def propagate_weights(  # noqa: C901, PLR0912
             .fill_null(0)
             .alias(weight_col),
         )
-        tables[target] = safe_join_weight(target_df, agg, group_key)
+        target_df = safe_join_weight(target_df, agg, group_key)
+
+        # A grouping is never more usable than its members: an unusable record
+        # carries no weight even if the mean came out positive.
+        if usable_column and usable_column in target_df.columns:
+            target_df = target_df.with_columns(
+                pl.when(is_usable(usable_column))
+                .then(pl.col(weight_col))
+                .otherwise(0.0)
+                .alias(weight_col)
+            )
+
+        tables[target] = target_df
         has_weight[target] = weight_col
 
 

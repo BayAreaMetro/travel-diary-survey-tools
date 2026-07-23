@@ -172,9 +172,30 @@ _HIERARCHY_PAIRS = [
     ("days", "unlinked_trips", "day_id", "day_weight", "unlinked_trip_weight"),
 ]
 
+# Rows of a failing parent to name in the error before summarising the rest.
+_MAX_REPORTED = 5
 
-def _check_hierarchy(tables: dict[str, pl.DataFrame]) -> None:
-    """Verify that child weight sums equal parent_weight * n_children."""
+
+def _check_hierarchy(tables: dict[str, pl.DataFrame], usable_column: str = "model_usable") -> None:
+    """Verify ``sum(child_weight) == parent_weight * n_children``, or raise.
+
+    This is the cascade's defining identity: a parent's population is carried by
+    the children it kept, so the sum over a parent's children must equal what
+    that parent represents. It is arithmetic we control, so any deviation past
+    floating-point tolerance is a bug and fails loudly.
+
+    The one legitimate exception is a parent that kept **no** usable child --
+    there is no denominator to spread over, so its weight is knowingly left
+    behind. Those parents are excluded from the check and reported as a
+    shortfall instead.
+
+    Args:
+        tables: Weighted canonical tables.
+        usable_column: Flag marking which records may carry weight.
+
+    Raises:
+        ValueError: If any parent's children do not sum to what it represents.
+    """
     for parent_name, child_name, join_key, parent_wt, child_wt in _HIERARCHY_PAIRS:
         parent = tables.get(parent_name)
         child = tables.get(child_name)
@@ -183,12 +204,18 @@ def _check_hierarchy(tables: dict[str, pl.DataFrame]) -> None:
         if parent_wt not in parent.columns or child_wt not in child.columns:
             continue
 
+        usable = (
+            pl.col(usable_column).fill_null(value=False)
+            if usable_column in child.columns
+            else pl.lit(value=True)
+        )
         child_agg = (
             child.filter(pl.col(child_wt).is_not_null())
             .group_by(join_key)
             .agg(
                 pl.col(child_wt).sum().alias("child_sum"),
                 pl.len().alias("n_children"),
+                usable.sum().alias("n_usable"),
             )
         )
         merged = (
@@ -201,13 +228,47 @@ def _check_hierarchy(tables: dict[str, pl.DataFrame]) -> None:
             logger.info("  Hierarchy %s → %s: OK", parent_name, child_name)
             continue
 
-        max_abs = float((merged["child_sum"] - merged["expected"]).abs().max())  # type: ignore[arg-type]
-        if max_abs <= _HIERARCHY_ABS_TOL:
-            logger.info("  Hierarchy %s → %s: OK", parent_name, child_name)
-        else:
-            logger.warning(
-                "  Hierarchy %s → %s: MISMATCH max|diff|=%.4f",
+        # Parents that kept nothing have no denominator; report, do not fail.
+        emptied = merged.filter(pl.col("n_usable") == 0)
+        checked = merged.filter(pl.col("n_usable") > 0)
+        if emptied.height:
+            logger.info(
+                "  Hierarchy %s → %s: %d %s kept no usable %s, leaving %.1f unrepresented",
                 parent_name,
                 child_name,
-                max_abs,
+                emptied.height,
+                parent_name,
+                child_name,
+                float(emptied["expected"].sum()),
             )
+
+        failures = checked.filter(
+            (pl.col("child_sum") - pl.col("expected")).abs() > _HIERARCHY_ABS_TOL
+        )
+        if failures.is_empty():
+            logger.info("  Hierarchy %s → %s: OK", parent_name, child_name)
+            continue
+
+        rows = "\n".join(
+            f"  {row[join_key]:<16} {row['child_sum']:>14.4f} {row['expected']:>14.4f}"
+            for row in failures.head(_MAX_REPORTED).iter_rows(named=True)
+        )
+        more = (
+            f"\n  ... and {failures.height - _MAX_REPORTED} more"
+            if failures.height > _MAX_REPORTED
+            else ""
+        )
+        msg = (
+            f"Weight cascade broken between {parent_name} and {child_name}: "
+            f"{failures.height} {parent_name} whose {child_weight_label(child_wt)} do not sum "
+            f"to {parent_wt} x n_{child_name}.\n"
+            f"  {join_key:<16} {'child_sum':>14} {'expected':>14}\n"
+            f"{rows}{more}"
+        )
+        logger.error(msg)
+        raise ValueError(msg)
+
+
+def child_weight_label(child_wt: str) -> str:
+    """Readable plural for a weight column, for error messages."""
+    return child_wt.replace("_", " ") + "s"

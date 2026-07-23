@@ -418,29 +418,64 @@ def _make_tables_with_complete():
     }
 
 
-class TestPropagateGateColumn:
-    """Tests for zeroing out weights on records the gate column excludes.
+def _make_tables_partial_usability():
+    """One household whose parents each keep only some of their children.
 
-    The gate defaults to ``model_usable``; these exercise it against the
-    ``complete`` column, which is the other supported gate.
+    Person 1 reports 4 days of which 2 are usable; day 10 holds 4 trips of which
+    1 is usable. Every parent keeps at least one child, so the carry-forward
+    checksum must hold exactly at every level.
+    """
+    households = pl.DataFrame({"hh_id": [1], "hh_weight": [10.0], "complete": [True]})
+    persons = pl.DataFrame({"person_id": [1], "hh_id": [1], "complete": [True]})
+    days = pl.DataFrame(
+        {
+            "day_id": [10, 20, 30, 40],
+            "person_id": [1, 1, 1, 1],
+            "complete": [True, True, False, False],
+        }
+    )
+    unlinked_trips = pl.DataFrame(
+        {
+            "unlinked_trip_id": [100, 200, 300, 400],
+            "day_id": [10, 10, 10, 10],
+            "linked_trip_id": [1, 1, 2, 2],
+            "complete": [True, False, False, False],
+        }
+    )
+    return {
+        "households": households,
+        "persons": persons,
+        "days": days,
+        "unlinked_trips": unlinked_trips,
+        "linked_trips": pl.DataFrame({"linked_trip_id": [1, 2], "tour_id": [1, 1]}),
+        "joint_trips": None,
+        "tours": pl.DataFrame({"tour_id": [1]}),
+    }
+
+
+class TestPropagateUsableColumn:
+    """Tests for spreading each parent's weight across its usable children.
+
+    Usability defaults to ``model_usable``; these exercise it against
+    ``complete``, the other supported column.
     """
 
-    def test_gated_out_persons_get_zero_weight(self):
+    def test_unusable_persons_get_zero_weight(self):
         """Persons with complete=False get weight 0 even if parent HH has weight."""
         tables = _make_tables_with_complete()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        propagate_weights(tables, has_weight, gate_column="complete")
+        propagate_weights(tables, has_weight, usable_column="complete")
 
         persons = tables["persons"].sort("person_id")
         assert persons["person_weight"].to_list() == [10.0, 10.0, 0.0]
 
-    def test_no_gate_keeps_carried_weights(self):
-        """With gate_column=None, excluded children keep the parent weight."""
+    def test_no_usable_column_keeps_carried_weights(self):
+        """With usable_column=None, unusable children keep the parent weight."""
         tables = _make_tables_with_complete()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        propagate_weights(tables, has_weight, gate_column=None)
+        propagate_weights(tables, has_weight, usable_column=None)
 
         # Person 3 (complete=False, in HH 2 with weight 20) keeps 20 instead of 0
         persons = tables["persons"].sort("person_id")
@@ -448,50 +483,64 @@ class TestPropagateGateColumn:
         days = tables["days"].sort("day_id")
         assert days["day_weight"].to_list() == [10.0, 10.0, 20.0]
 
-    def test_gated_out_days_get_zero_weight(self):
+    def test_unusable_days_get_zero_weight(self):
         """Days with complete=False get weight 0."""
         tables = _make_tables_with_complete()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        propagate_weights(tables, has_weight, gate_column="complete")
+        propagate_weights(tables, has_weight, usable_column="complete")
 
         days = tables["days"].sort("day_id")
         assert days["day_weight"].to_list() == [10.0, 0.0, 0.0]
 
-    def test_gated_out_unlinked_trips_get_zero_weight(self):
+    def test_unusable_unlinked_trips_get_zero_weight(self):
         """Unlinked trips with complete=False get weight 0."""
         tables = _make_tables_with_complete()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        propagate_weights(tables, has_weight, gate_column="complete")
+        propagate_weights(tables, has_weight, usable_column="complete")
 
         ut = tables["unlinked_trips"].sort("unlinked_trip_id")
         assert ut["unlinked_trip_weight"].to_list() == [10.0, 10.0, 0.0, 0.0]
 
-    def test_aggregate_excludes_zero_from_gated_out(self):
-        """Aggregated weights exclude zeros from gated-out records."""
+    def test_aggregate_excludes_zero_from_unusable(self):
+        """Aggregated weights exclude zeros from unusable records."""
         tables = _make_tables_with_complete()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        propagate_weights(tables, has_weight, gate_column="complete")
+        propagate_weights(tables, has_weight, usable_column="complete")
 
         lt = tables["linked_trips"].sort("linked_trip_id")
         # linked_trip 1: unlinked 100 (wt=10, complete) + 200 (wt=10, complete) -> mean=10
         # linked_trip 2: unlinked 300 (wt=0, incomplete) + 400 (wt=0, incomplete) -> 0 (all zero)
         assert lt["linked_trip_weight"].to_list() == [10.0, 0.0]
 
-    def test_missing_gate_column_propagates_normally(self):
-        """Without the gate column present, weights propagate as before."""
+    def test_missing_usable_column_propagates_normally(self):
+        """Without the usability column present, weights propagate as before."""
         tables = _make_tables()  # no complete/model_usable column
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        propagate_weights(tables, has_weight, gate_column="complete")
+        propagate_weights(tables, has_weight, usable_column="complete")
 
         persons = tables["persons"].sort("person_id")
         assert persons["person_weight"].to_list() == [10.0, 10.0, 20.0]
 
-    def test_all_admitted_propagates_normally(self):
-        """When every record passes the gate, weights propagate normally."""
+    def test_unusable_aggregate_target_carries_no_weight(self):
+        """A tour flagged unusable gets 0, even if a member trip has weight."""
+        tables = _make_tables_with_complete()
+        tables["linked_trips"] = tables["linked_trips"].with_columns(
+            pl.lit(value=True).alias("complete")
+        )
+        tables["tours"] = tables["tours"].with_columns(pl.lit(value=False).alias("complete"))
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight, usable_column="complete")
+
+        assert tables["linked_trips"]["linked_trip_weight"].to_list() == [10.0, 0.0]
+        assert tables["tours"]["tour_weight"].to_list() == [0.0]
+
+    def test_all_usable_propagates_normally(self):
+        """When every record is usable, weights propagate normally."""
         tables = _make_tables_with_complete()
         # Override all to complete
         tables["persons"] = tables["persons"].with_columns(pl.lit(value=True).alias("complete"))
@@ -501,7 +550,57 @@ class TestPropagateGateColumn:
         )
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
-        propagate_weights(tables, has_weight, gate_column="complete")
+        propagate_weights(tables, has_weight, usable_column="complete")
 
         persons = tables["persons"].sort("person_id")
         assert persons["person_weight"].to_list() == [10.0, 10.0, 20.0]
+
+
+class TestPropagateRedistribution:
+    """The parent's weight is spread across the children it kept, not shrunk."""
+
+    def test_usable_days_absorb_the_unusable_ones(self):
+        """A person keeping 2 of 4 days doubles the weight of each survivor."""
+        tables = _make_tables_partial_usability()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight, usable_column="complete")
+
+        days = tables["days"].sort("day_id")
+        assert days["day_weight"].to_list() == [20.0, 20.0, 0.0, 0.0]
+
+    def test_usable_trips_absorb_the_unusable_ones(self):
+        """A day keeping 1 of 4 trips gives that trip four times the day weight."""
+        tables = _make_tables_partial_usability()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight, usable_column="complete")
+
+        ut = tables["unlinked_trips"].sort("unlinked_trip_id")
+        # day 10 carries 20.0 and kept 1 of its 4 trips -> 20 * 4/1
+        assert ut["unlinked_trip_weight"].to_list() == [80.0, 0.0, 0.0, 0.0]
+
+    def test_checksum_holds_at_every_level(self):
+        """sum(child) == parent_weight * n_children wherever a child survived."""
+        tables = _make_tables_partial_usability()
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight, usable_column="complete")
+
+        # 1 household at 10.0 with 1 person
+        assert tables["persons"]["person_weight"].sum() == pytest.approx(10.0)
+        # 1 person at 10.0 with 4 days
+        assert tables["days"]["day_weight"].sum() == pytest.approx(40.0)
+        # day 10 carries 20.0 and holds all 4 trips
+        assert tables["unlinked_trips"]["unlinked_trip_weight"].sum() == pytest.approx(80.0)
+
+    def test_parent_with_no_usable_child_leaves_a_shortfall(self):
+        """A person keeping no day has nowhere to spread, so their days stay 0."""
+        tables = _make_tables_partial_usability()
+        tables["days"] = tables["days"].with_columns(pl.lit(value=False).alias("complete"))
+        has_weight: dict[str, str] = {"households": "hh_weight"}
+
+        propagate_weights(tables, has_weight, usable_column="complete")
+
+        # The shortfall is real and deliberate: it is not silently rescaled away.
+        assert tables["days"]["day_weight"].to_list() == [0.0, 0.0, 0.0, 0.0]

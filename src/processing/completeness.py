@@ -100,6 +100,36 @@ def _tour_model_usable_expr(
     return usable
 
 
+def _flag_households(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Stamp ``model_usable`` on households, in place.
+
+    A household whose every person is unusable has nothing left to weight, so it
+    is dropped rather than left carrying weight it cannot pass down. Requires
+    persons to be flagged first.
+    """
+    households = tables.get("households")
+    if households is None or "complete" not in households.columns:
+        return
+
+    base = pl.col("complete").fill_null(value=False)
+    persons = tables.get("persons")
+    if persons is None or "model_usable" not in persons.columns:
+        tables["households"] = households.with_columns(base.alias("model_usable"))
+        return
+
+    hh_has_usable = persons.group_by("hh_id").agg(
+        pl.col("model_usable").any().alias("_hh_has_usable_person")
+    )
+    # null == the household has no persons at all -> nothing to weight.
+    tables["households"] = (
+        households.join(hh_has_usable, on="hh_id", how="left")
+        .with_columns(
+            (base & pl.col("_hh_has_usable_person").fill_null(value=False)).alias("model_usable")
+        )
+        .drop("_hh_has_usable_person")
+    )
+
+
 def compute_model_usable(
     tables: dict[str, pl.DataFrame | None],
     *,
@@ -117,8 +147,12 @@ def compute_model_usable(
       inadmissible is not (its travel could not be turned into a usable tour).
     * unlinked/linked trips: ``complete AND the tour they belong to is usable``
       (a trip with no tour is not model-usable, matching the CT-RAMP drop).
-    * households / persons / joint trips: ``complete`` (no tour structure of
-      their own; joint-trip weight follows its member linked trips).
+    * persons / joint trips: ``complete`` (no tour structure of their own). A
+      person with no usable day is kept -- they are a real person contributing
+      no travel -- so only their days fall out of the weighted sample.
+    * households: ``complete AND at least one model_usable person`` -- a
+      household with nothing left to weight is dropped rather than left holding
+      weight it cannot pass down.
 
     Args:
         tables: Mutable dict of table_name -> DataFrame (or None).
@@ -156,13 +190,19 @@ def compute_model_usable(
         else:
             tables["days"] = days.with_columns(base.alias("model_usable"))
 
-    # -- Households / persons / joint trips: model_usable == complete ---------
-    for name in ("households", "persons", "joint_trips"):
+    # -- Persons / joint trips: model_usable == complete ----------------------
+    # A person with no usable day is deliberately kept: they are a real person
+    # who happens to contribute no travel, and person weights stay calibrated to
+    # the person controls. Only their days fall out.
+    for name in ("persons", "joint_trips"):
         df = tables.get(name)
         if df is not None and "complete" in df.columns:
             tables[name] = df.with_columns(
                 pl.col("complete").fill_null(value=False).alias("model_usable")
             )
+
+    # -- Households (upward rule: needs a usable person) ----------------------
+    _flag_households(tables)
 
     # -- Member trips follow their tour --------------------------------------
     tour_usable = None
