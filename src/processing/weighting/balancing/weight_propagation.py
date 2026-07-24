@@ -32,14 +32,15 @@ Usability is read from ``model_usable``, stamped once by the
 CT-RAMP/DaySim actually keep.  Pass ``complete`` instead to weight the whole
 valid survey, including partial and overnight tours.
 
-A parent with **no** usable child has no denominator and its weight cannot be
-carried anywhere.  That case is resolved before the cascade runs, not patched
-afterwards: a household with no usable person is dropped, while a person with
-no usable day is deliberately kept (they are a real person, they just
-contribute no travel), so ``sum(day_weight)`` falls short of
-``sum(person_weight x n_days)`` by exactly those persons.  The computed-weights
-path accepts and reports that shortfall; the existing-weights path, which
-cannot touch the vendor's anchor, rescales to preserve the supplied total.
+A parent with **no** usable child has no denominator of its own.  A household
+with no usable person is simply dropped -- there is nothing left to weight.  A
+person with no usable day is deliberately *kept*: an unrelated person who
+reported no travel is still a real person, and their person weight stays
+calibrated to the person controls.  Their day-weight is stood in for by the
+household's remaining usable days (``FALLBACK_KEY``), so the identity holds one
+scope wider:
+
+    sum(day_weight over a household) == sum(person_weight x n_days) over its persons
 
 Aggregated tables need no rule of their own -- a linked trip, tour or joint
 entity is a *grouping* of already-weighted records, so it takes the mean weight
@@ -84,6 +85,12 @@ AGGREGATE = [
     ("linked_trips", "joint_trips", "joint_trip_id", "joint_trip_weight"),
     ("linked_trips", "tours", "tour_id", "tour_weight"),
 ]
+
+# Wider scope that absorbs the weight of a parent which kept no usable child.
+# A person who reported no usable day (an unrelated person, say) keeps their own
+# weight, but their days are stood in for by the household's remaining days --
+# so sum(day_weight) over a household still equals what its persons represent.
+FALLBACK_KEY: dict[str, str] = {"days": "hh_id"}
 
 # Parent a record's weight is spread within when it is unusable. Households have
 # no parent, so a supplied household weight can only be rescaled table-wide.
@@ -147,9 +154,9 @@ def safe_join_weight(
     return df.join(weight_df, on=on, how="left")
 
 
-def is_usable(usable_column: str) -> pl.Expr:
+def is_usable(usability_flag_col: str) -> pl.Expr:
     """True when a record may carry weight; a null flag counts as unusable."""
-    return pl.col(usable_column).fill_null(value=False)
+    return pl.col(usability_flag_col).fill_null(value=False)
 
 
 def distribute_to_usable(
@@ -157,32 +164,39 @@ def distribute_to_usable(
     *,
     join_key: str,
     weight_col: str,
-    usable_column: str,
+    usability_flag_col: str,
     table: str,
+    fallback_key: str | None = None,
 ) -> pl.DataFrame:
     """Spread each parent's weight across its usable children, returning a new frame.
 
     Applies the carry-forward rule ``w_child = w_parent x n_children / n_usable``
     to usable children and 0 to the rest, so ``sum(child_weight)`` equals
     ``parent_weight x n_children`` for every parent that kept at least one child.
-    Parents that kept none are counted and logged: their weight has no
-    denominator to spread over and is left behind, which is the shortfall the
-    checksum reports.
+
+    A parent that kept **no** usable child has no denominator of its own. When
+    *fallback_key* names a wider scope, that stranded weight is spread evenly
+    over the usable children in that scope instead of being left behind -- this
+    is what keeps an unrelated person who reported no usable day from silently
+    shrinking their household's travel. Without a fallback the weight is left
+    behind and reported as a shortfall by the checksum.
 
     Args:
         df: Child table already carrying the parent weight in *weight_col*.
         join_key: Foreign key identifying the parent (e.g. ``person_id``).
         weight_col: Weight column, adjusted in place of itself.
-        usable_column: Boolean column deciding which records may carry weight.
+        usability_flag_col: Boolean column deciding which records may carry weight.
         table: Table name, for logging.
+        fallback_key: Wider grouping (e.g. ``hh_id``) that absorbs the weight of
+            parents which kept no usable child. None leaves it behind.
 
     Returns:
         *df* with *weight_col* distributed across the usable children.
     """
-    if usable_column not in df.columns or weight_col not in df.columns:
+    if usability_flag_col not in df.columns or weight_col not in df.columns:
         return df
 
-    usable = is_usable(usable_column)
+    usable = is_usable(usability_flag_col)
     before = df.select(pl.col(weight_col).sum()).item() or 0.0
     n_unusable = df.filter(~usable).height
     if n_unusable == 0:
@@ -191,6 +205,7 @@ def distribute_to_usable(
     counts = df.group_by(join_key).agg(
         pl.len().alias("_n_children"),
         usable.sum().alias("_n_usable"),
+        pl.col(weight_col).first().alias("_parent_weight"),
     )
     share = (
         pl.when(pl.col("_n_usable") > 0)
@@ -198,12 +213,46 @@ def distribute_to_usable(
         .otherwise(0.0)
     )
     n_emptied = counts.filter(pl.col("_n_usable") == 0).height
-    df = (
-        df.join(counts, on=join_key, how="left")
-        .with_columns(
-            pl.when(usable).then(pl.col(weight_col) * share).otherwise(0.0).alias(weight_col)
+    df = df.join(counts, on=join_key, how="left")
+
+    # Weight the parent could not place: it kept no usable child at all.
+    stranded = pl.when(pl.col("_n_usable") == 0).then(
+        pl.col("_parent_weight") * pl.col("_n_children")
+    )
+
+    if fallback_key is not None and fallback_key in df.columns and n_emptied:
+        # Escalate to the wider scope: an unrelated person who reported no usable
+        # day is still part of the household, so the household's remaining usable
+        # days stand in for theirs.
+        rescue = (
+            df.group_by(fallback_key, join_key)
+            .agg(
+                stranded.otherwise(0.0).first().alias("_stranded"),
+                usable.sum().alias("_usable_here"),
+            )
+            .group_by(fallback_key)
+            .agg(
+                pl.col("_stranded").sum().alias("_stranded"),
+                pl.col("_usable_here").sum().alias("_usable_in_scope"),
+            )
         )
-        .drop("_n_children", "_n_usable")
+        df = df.join(rescue, on=fallback_key, how="left")
+        top_up = (
+            pl.when(pl.col("_usable_in_scope") > 0)
+            .then(pl.col("_stranded").fill_null(0.0) / pl.col("_usable_in_scope"))
+            .otherwise(0.0)
+        )
+    else:
+        top_up = pl.lit(0.0)
+
+    df = df.with_columns(
+        pl.when(usable).then(pl.col(weight_col) * share + top_up).otherwise(0.0).alias(weight_col)
+    ).drop(
+        [
+            c
+            for c in ("_n_children", "_n_usable", "_parent_weight", "_stranded", "_usable_in_scope")
+            if c in df.columns
+        ]
     )
 
     after = df.select(pl.col(weight_col).sum()).item() or 0.0
@@ -212,7 +261,7 @@ def distribute_to_usable(
         table,
         n_unusable,
         df.height,
-        usable_column,
+        usability_flag_col,
         weight_col,
         before,
         after,
@@ -226,7 +275,7 @@ def propagate_weights(  # noqa: C901, PLR0912
     has_weight: dict[str, str],
     *,
     skip: set[str] | None = None,
-    usable_column: str | None = "model_usable",
+    usability_flag_col: str | None = "model_usable",
 ) -> None:
     """Carry forward and aggregate weights through the hierarchy.
 
@@ -239,7 +288,7 @@ def propagate_weights(  # noqa: C901, PLR0912
             E.g. ``{"households": "hh_weight"}``.
         skip: Table names to skip (e.g. tables that already have
             externally provided weights).
-        usable_column: Boolean column deciding which records may carry weight.
+        usability_flag_col: Boolean column deciding which records may carry weight.
             Each parent's weight is spread across its usable children only.
             Defaults to ``model_usable``; pass ``complete`` to weight the whole
             valid survey including partial/overnight tours, or None to give
@@ -278,13 +327,14 @@ def propagate_weights(  # noqa: C901, PLR0912
         child_df = safe_join_weight(child_df, w, join_key)
 
         # Spread each parent's weight across its usable children only.
-        if usable_column:
+        if usability_flag_col:
             child_df = distribute_to_usable(
                 child_df,
                 join_key=join_key,
                 weight_col=weight_col,
-                usable_column=usable_column,
+                usability_flag_col=usability_flag_col,
                 table=child,
+                fallback_key=FALLBACK_KEY.get(child),
             )
 
         tables[child] = child_df
@@ -328,9 +378,9 @@ def propagate_weights(  # noqa: C901, PLR0912
 
         # A grouping is never more usable than its members: an unusable record
         # carries no weight even if the mean came out positive.
-        if usable_column and usable_column in target_df.columns:
+        if usability_flag_col and usability_flag_col in target_df.columns:
             target_df = target_df.with_columns(
-                pl.when(is_usable(usable_column))
+                pl.when(is_usable(usability_flag_col))
                 .then(pl.col(weight_col))
                 .otherwise(0.0)
                 .alias(weight_col)

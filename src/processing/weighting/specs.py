@@ -249,7 +249,7 @@ class WeightingConfig:
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
     exclude_incompletes: bool = True
-    usable_column: str = "model_usable"
+    usability_flag_col: str = "model_usable"
 
 
 @dataclass

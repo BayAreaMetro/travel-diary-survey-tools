@@ -560,7 +560,7 @@ class TestSuppliedTotalPreserved:
         result = add_existing_weights(
             weights=self._weights_config(tmp_path),
             households=self._households(),
-            usable_column="complete",
+            usability_flag_col="complete",
         )
         weights = result["households"].sort("hh_id")["hh_weight"].to_list()
         # hh 3 (incomplete) stays 0; the supplied total of 100 is retained
@@ -589,7 +589,7 @@ class TestSuppliedTotalPreserved:
         result = add_existing_weights(
             weights={"day_weights": {"weight_path": str(weight_file)}},
             days=days,
-            usable_column="complete",
+            usability_flag_col="complete",
         )
         weights = result["days"].sort("day_id")["day_weight"].to_list()
         # Person 1 kept 1 of 2 days, so day 10 absorbs day 20; person 2 is untouched
@@ -604,6 +604,6 @@ class TestSuppliedTotalPreserved:
         result = add_existing_weights(
             weights={"household_weights": {"weight_path": str(weight_file)}},
             households=households,
-            usable_column="complete",
+            usability_flag_col="complete",
         )
         assert result["households"]["hh_weight"].to_list() == [0.0, 0.0]

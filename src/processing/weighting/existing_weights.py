@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pipeline.decoration import step
 from processing.weighting.balancing.weight_propagation import (
+    FALLBACK_KEY,
     PARENT_KEY,
     SCALE_TOL,
     WEIGHT_COLUMNS,
@@ -175,7 +176,7 @@ def _apply_usability(
     tables: dict[str, pl.DataFrame | None],
     has_weight: dict[str, str],
     *,
-    usable_column: str,
+    usability_flag_col: str,
 ) -> None:
     """Redistribute supplied weights onto usable records, preserving each total.
 
@@ -190,13 +191,13 @@ def _apply_usability(
     Args:
         tables: Mutable dict of table_name → DataFrame (or None).
         has_weight: Dict of table_name → weight column name.
-        usable_column: Boolean column deciding which records may carry weight
+        usability_flag_col: Boolean column deciding which records may carry weight
             (``model_usable`` by default; ``complete`` to weight the whole
             valid survey).
     """
     for table_name, weight_col in has_weight.items():
         df = tables.get(table_name)
-        if df is None or usable_column not in df.columns:
+        if df is None or usability_flag_col not in df.columns:
             continue
 
         supplied_total = df.select(pl.col(weight_col).sum()).item() or 0.0
@@ -207,13 +208,14 @@ def _apply_usability(
                 df,
                 join_key=parent_key,
                 weight_col=weight_col,
-                usable_column=usable_column,
+                usability_flag_col=usability_flag_col,
                 table=table_name,
+                fallback_key=FALLBACK_KEY.get(table_name),
             )
         else:
             # No parent to spread within (households); zero and rescale below.
             df = df.with_columns(
-                pl.when(is_usable(usable_column))
+                pl.when(is_usable(usability_flag_col))
                 .then(pl.col(weight_col))
                 .otherwise(0.0)
                 .alias(weight_col)
@@ -247,7 +249,7 @@ def _apply_usability(
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, ExistingWeightConfig | dict],
     derive_missing_weights: bool = False,
-    usable_column: str = "model_usable",
+    usability_flag_col: str = "model_usable",
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
     days: pl.DataFrame | None = None,
@@ -311,7 +313,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
         derive_missing_weights: Whether to derive weights for tables
             without provided weight files (default: False).
-        usable_column: Boolean column deciding which records may carry weight,
+        usability_flag_col: Boolean column deciding which records may carry weight,
             stamped upstream by the ``flag_model_usable`` step. Defaults to
             ``model_usable`` (matching the tours CT-RAMP and DaySim keep); pass
             ``complete`` to weight the whole valid survey including partial and
@@ -427,11 +429,13 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
     # Redistribute each supplied weight onto the usable records, preserving the
     # supplied total. Usability is stamped upstream by ``flag_model_usable``.
-    _apply_usability(tables, has_weight, usable_column=usable_column)
+    _apply_usability(tables, has_weight, usability_flag_col=usability_flag_col)
 
     # Derive missing weights if requested
     if derive_missing_weights:
-        propagate_weights(tables, has_weight, skip=provided_weights, usable_column=usable_column)
+        propagate_weights(
+            tables, has_weight, skip=provided_weights, usability_flag_col=usability_flag_col
+        )
 
     # Build results dict, excluding None values and internal tables
     # Do a quick check for any NULL weight values in any of the tables

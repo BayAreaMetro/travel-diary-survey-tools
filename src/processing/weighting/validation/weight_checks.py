@@ -8,6 +8,7 @@ import logging
 
 import polars as pl
 
+from processing.weighting.balancing.weight_propagation import FALLBACK_KEY
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.specs import ControlSpec, ControlTotals
@@ -176,25 +177,30 @@ _HIERARCHY_PAIRS = [
 _MAX_REPORTED = 5
 
 
-def _check_hierarchy(tables: dict[str, pl.DataFrame], usable_column: str = "model_usable") -> None:
-    """Verify ``sum(child_weight) == parent_weight * n_children``, or raise.
+def _check_hierarchy(
+    tables: dict[str, pl.DataFrame], usability_flag_col: str = "model_usable"
+) -> None:
+    """Verify that children sum to what their parents represent, or raise.
 
     This is the cascade's defining identity: a parent's population is carried by
-    the children it kept, so the sum over a parent's children must equal what
-    that parent represents. It is arithmetic we control, so any deviation past
-    floating-point tolerance is a bug and fails loudly.
+    the children it kept, so ``sum(child_weight) == parent_weight * n_children``.
+    It is arithmetic we control, so any deviation past floating-point tolerance
+    is a bug and fails loudly.
 
-    The one legitimate exception is a parent that kept **no** usable child --
-    there is no denominator to spread over, so its weight is knowingly left
-    behind. Those parents are excluded from the check and reported as a
-    shortfall instead.
+    The identity is checked at the scope the weight was actually spread over.
+    Days use ``FALLBACK_KEY`` (the household), because a person who kept no
+    usable day has their day-weight covered by the household's remaining days --
+    so the identity holds per household, not per person. Scopes where *nothing*
+    was usable have no denominator anywhere; they are reported as a shortfall
+    rather than failed.
 
     Args:
         tables: Weighted canonical tables.
-        usable_column: Flag marking which records may carry weight.
+        usability_flag_col: Flag marking which records may carry weight.
 
     Raises:
-        ValueError: If any parent's children do not sum to what it represents.
+        ValueError: If any scope's children do not sum to what its parents
+            represent.
     """
     for parent_name, child_name, join_key, parent_wt, child_wt in _HIERARCHY_PAIRS:
         parent = tables.get(parent_name)
@@ -204,15 +210,22 @@ def _check_hierarchy(tables: dict[str, pl.DataFrame], usable_column: str = "mode
         if parent_wt not in parent.columns or child_wt not in child.columns:
             continue
 
+        # Weight is spread within the parent, escalating to a wider scope when
+        # the parent kept nothing; check the identity at that same scope.
+        scope = FALLBACK_KEY.get(child_name, join_key)
+        if scope not in child.columns:
+            scope = join_key
+
         usable = (
-            pl.col(usable_column).fill_null(value=False)
-            if usable_column in child.columns
+            pl.col(usability_flag_col).fill_null(value=False)
+            if usability_flag_col in child.columns
             else pl.lit(value=True)
         )
-        child_agg = (
+        per_parent = (
             child.filter(pl.col(child_wt).is_not_null())
             .group_by(join_key)
             .agg(
+                pl.col(scope).first().alias("_scope"),
                 pl.col(child_wt).sum().alias("child_sum"),
                 pl.len().alias("n_children"),
                 usable.sum().alias("n_usable"),
@@ -221,23 +234,29 @@ def _check_hierarchy(tables: dict[str, pl.DataFrame], usable_column: str = "mode
         merged = (
             parent.filter(pl.col(parent_wt).is_not_null())
             .select(join_key, parent_wt)
-            .join(child_agg, on=join_key, how="inner")
+            .join(per_parent, on=join_key, how="inner")
             .with_columns((pl.col(parent_wt) * pl.col("n_children")).alias("expected"))
         )
         if merged.is_empty():
             logger.info("  Hierarchy %s → %s: OK", parent_name, child_name)
             continue
 
-        # Parents that kept nothing have no denominator; report, do not fail.
-        emptied = merged.filter(pl.col("n_usable") == 0)
-        checked = merged.filter(pl.col("n_usable") > 0)
+        by_scope = merged.group_by("_scope").agg(
+            pl.col("child_sum").sum(),
+            pl.col("expected").sum(),
+            pl.col("n_usable").sum(),
+        )
+
+        # Scopes that kept nothing have no denominator; report, do not fail.
+        emptied = by_scope.filter(pl.col("n_usable") == 0)
+        checked = by_scope.filter(pl.col("n_usable") > 0)
         if emptied.height:
             logger.info(
                 "  Hierarchy %s → %s: %d %s kept no usable %s, leaving %.1f unrepresented",
                 parent_name,
                 child_name,
                 emptied.height,
-                parent_name,
+                scope,
                 child_name,
                 float(emptied["expected"].sum()),
             )
@@ -246,11 +265,11 @@ def _check_hierarchy(tables: dict[str, pl.DataFrame], usable_column: str = "mode
             (pl.col("child_sum") - pl.col("expected")).abs() > _HIERARCHY_ABS_TOL
         )
         if failures.is_empty():
-            logger.info("  Hierarchy %s → %s: OK", parent_name, child_name)
+            logger.info("  Hierarchy %s → %s: OK (per %s)", parent_name, child_name, scope)
             continue
 
         rows = "\n".join(
-            f"  {row[join_key]:<16} {row['child_sum']:>14.4f} {row['expected']:>14.4f}"
+            f"  {row['_scope']:<16} {row['child_sum']:>14.4f} {row['expected']:>14.4f}"
             for row in failures.head(_MAX_REPORTED).iter_rows(named=True)
         )
         more = (
@@ -260,15 +279,10 @@ def _check_hierarchy(tables: dict[str, pl.DataFrame], usable_column: str = "mode
         )
         msg = (
             f"Weight cascade broken between {parent_name} and {child_name}: "
-            f"{failures.height} {parent_name} whose {child_weight_label(child_wt)} do not sum "
-            f"to {parent_wt} x n_{child_name}.\n"
-            f"  {join_key:<16} {'child_sum':>14} {'expected':>14}\n"
+            f"{failures.height} {scope}(s) whose {child_wt} does not sum to "
+            f"{parent_wt} x n_{child_name}.\n"
+            f"  {scope:<16} {'child_sum':>14} {'expected':>14}\n"
             f"{rows}{more}"
         )
         logger.error(msg)
         raise ValueError(msg)
-
-
-def child_weight_label(child_wt: str) -> str:
-    """Readable plural for a weight column, for error messages."""
-    return child_wt.replace("_", " ") + "s"

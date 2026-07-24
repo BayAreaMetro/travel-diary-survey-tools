@@ -211,7 +211,7 @@ steps:
       #                   tours (survey-analysis weights).
       # Each parent's weight is spread across its usable children, so dropping a
       # record does not shrink the expansion.
-      usable_column: model_usable
+      usability_flag_col: model_usable
 
       # -- EF grid search (optional) -----------------------------------
       # Re-run balancing across a grid of max_expansion_factor values and
@@ -332,7 +332,7 @@ steps:
   #   cache: false
   #   params:
   #     derive_missing_weights: true
-  #     usable_column: model_usable  # supplied weights are redistributed onto usable records, preserving each supplied total
+  #     usability_flag_col: model_usable  # supplied weights are redistributed onto usable records, preserving each supplied total
   #     weights:
   #       household_weights:
   #         weight_path: "{{ weights_dir }}/hh_weights.csv"

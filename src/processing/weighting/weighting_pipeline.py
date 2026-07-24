@@ -590,14 +590,14 @@ class WeightingPipeline:
         # Usability is a single flag stamped upstream by the ``flag_model_usable``
         # step (default ``model_usable``: cascaded survey completeness AND an
         # admissible tour structure). Nothing is re-derived here.
-        usable_column = self.config.usable_column
+        usability_flag_col = self.config.usability_flag_col
 
         # Unusable households were held out of the seed, so they never received a
         # balanced weight; zero them so the join leaves nothing behind.
         hh = tables["households"]
-        if self.config.exclude_incompletes and hh is not None and usable_column in hh.columns:
+        if self.config.exclude_incompletes and hh is not None and usability_flag_col in hh.columns:
             tables["households"] = hh.with_columns(
-                pl.when(pl.col(usable_column).fill_null(value=False))
+                pl.when(pl.col(usability_flag_col).fill_null(value=False))
                 .then(pl.col("hh_weight"))
                 .otherwise(0.0)
                 .alias("hh_weight")
@@ -607,7 +607,7 @@ class WeightingPipeline:
         propagate_weights(
             tables,
             has_weight,
-            usable_column=usable_column if self.config.exclude_incompletes else None,
+            usability_flag_col=usability_flag_col if self.config.exclude_incompletes else None,
         )
 
         # Write propagated tables back to self.data
