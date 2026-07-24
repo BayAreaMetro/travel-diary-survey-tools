@@ -1,46 +1,57 @@
 """Canonical completeness and model-usability logic.
 
-Three flags live on the canonical tables. Each answers a different question, and
-each is derived by a cascade in a definite direction:
+Two flags roll **up** from two atomic facts -- whether each **trip** was
+surveyed, and each tour's structural validity:
 
-* ``complete`` -- **was it reported?** Survey reporting completeness. Flows
-  **down**: an incomplete parent forces its descendants incomplete. Partials and
-  overnights are valid survey data, so they stay ``complete``. A descriptor;
-  nothing gates on it directly.
-* ``hh_day_complete`` -- **was the household coordinated that day?** ALL members
-  reported a complete day on this ``travel_date``. Flows **up** from member-days
-  to the shared date. This is the unit of a coordinated observation -- joint
-  tours, escorting, CDAP are only clean when no member is missing.
-* ``model_usable`` -- **can the model consume it?** The single gate both the
+* ``complete`` -- was it reported? Rolls up from surveyed trips.
+* ``model_usable`` -- can the model consume it? Fuses each tour's structure with
+  its household-day coherence, then gates the rest. This is the single gate the
   CT-RAMP/DaySim drop and the weighting read.
 
-# Derivation order
+Each flag comes from one place in the tree -- its **direction** -- via a counting
+**operation** (the ``op`` column below). Naming the direction makes it clear that
+``household-day`` and the joint entities are the same kind of thing: cross-person
+groupings, not parent/child.
 
-Each flag is built from the ones to its left, so the order is load-bearing:
-``complete`` (down) → ``hh_day_complete`` (up) → tours → days → households, with
-trips and joint groupings hanging off tours. Getting it wrong fails loudly (an
-unflagged member table raises), never silently.
+| direction | value comes from               | example                               |
+|-----------|--------------------------------|---------------------------------------|
+| self      | measured on the record         | a trip never filled out               |
+| up        | aggregate your own children    | person with zero complete days        |
+| down      | inherit your parent's verdict  | good trip on a dropped tour           |
+| lateral   | aggregate a cross-person group | one member skips a day, whole date fails |
 
-```mermaid
-flowchart LR
-    C["complete<br/>(cascades down)"] --> H["hh_day_complete<br/>(ALL members / date)"]
-    H --> T["tours<br/>+ valid structure"]
-    T --> D["days<br/>+ any usable tour"]
-    D --> HH["households<br/>&ge;1 coherent day"]
-    T --> TR["trips<br/>follow their tour"]
-    T --> J["joint trips / tours<br/>&ge;2 usable members"]
+
+The flow, and the rule on each line:
+
+```text
+COMPLETE -- rolls up from surveyed trips     op        rule
+------------------------------------------------------------------------
+trip .................................   direct    the trip was surveyed
+ └ person-day ........................   ALL       all its trips complete, or no-travel
+    ├ person .........................   >=1       has >=1 complete day
+    └ household-day ..................   ALL       all members complete that date
+       └ household ...................   >=1       has >=1 complete household-day
+
+USABLE -- rolls down from the tour fuse      op        rule
+------------------------------------------------------------------------
+household ...........................   >=1       has >=1 usable household-day
+ ├ household-day ....................   ALL       all members' days usable that date
+ └ person ...........................   >=1       has >=1 usable day
+    └ day ...........................   >=1       >=1 usable tour (or a no-travel day)
+       └ tour .......................   fuse      complete AND VALID AND hh-day complete
+          ├ linked trip .............   inherit   takes its tour's verdict
+          |  └ unlinked trip ........   inherit   takes its linked trip's verdict
+          ├ joint tour ..............   >=2       >=2 usable member tours
+          └ joint trip ..............   >=2       >=2 usable member linked trips
+
+VALID feeds the fuse: trips -> linked trips -> tour, home-to-home, no missing legs.
+persons: >=1 complete day; unrelated / unsurveyable persons are counted but have none.
+op: ALL / >=1 / >=2 = quantity gate (count members vs threshold);
+    direct = measured; inherit = take a neighbour's verdict; fuse = AND of conditions
 ```
 
-# ``model_usable`` per level
-
-| level                 | ``model_usable`` =                                    |
-|-----------------------|-------------------------------------------------------|
-| households            | ``complete AND >=1 complete household-day``           |
-| persons               | ``complete`` (kept even with no usable day)           |
-| days                  | ``hh_day_complete AND (no tours OR >=1 usable tour)`` |
-| tours                 | ``complete AND valid structure AND hh_day_complete``  |
-| unlinked/linked trips | ``complete AND their tour is usable``                 |
-| joint trips / tours   | ``complete AND >=2 usable member records``            |
+Because each level reads its neighbours, the derivation order is load-bearing;
+getting it wrong fails loudly (an unflagged member table raises), never silently.
 
 This module is the one place the logic lives. :func:`compute_model_usable` is
 applied once by the ``flag_model_usable`` pipeline step; every downstream
