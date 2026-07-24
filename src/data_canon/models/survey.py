@@ -147,13 +147,22 @@ class PersonDayModel(BaseModel):
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
     complete: bool | None = schema_field(default=False)
+    hh_day_complete: bool | None = schema_field(
+        default=None,
+        description=(
+            "Household-day coherence: every member of the household reported a "
+            "complete day on this travel_date. Stamped by the flag_model_usable "
+            "step as an ALL reduction over member-days. A day is only "
+            "model_usable within a complete household-day."
+        ),
+    )
     model_usable: bool | None = schema_field(
         default=None,
         description=(
-            "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
-            "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
-            "verdict - see `complete`."
+            "Admissible to the tour-based model: survey-complete AND a coherent "
+            "household-day AND part of a well-formed tour structure. Stamped by "
+            "the flag_model_usable step; gates the CT-RAMP/DaySim drop and the "
+            "weighting. Not a data-quality verdict - see `complete`."
         ),
     )
     day_weight: float | None = schema_field(default=None, ge=0)

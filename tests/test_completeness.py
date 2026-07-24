@@ -261,6 +261,121 @@ class TestJointGroupingsNeedTwoMembers:
         assert tables["joint_trips"]["model_usable"].to_list() == [False]
 
 
+def _hh_day_tables(*, day_complete, dates, hh_ids, persons=None):
+    """Days for a household-day coherence scenario, with matching tours per day.
+
+    Each day gets one VALID home-to-home tour so the day gate turns on purely on
+    household-day coherence, not tour structure.
+    """
+    n = len(day_complete)
+    day_ids = list(range(1, n + 1))
+    people = persons or [1] * n
+    return {
+        "households": pl.DataFrame(
+            {"hh_id": sorted(set(hh_ids)), "complete": [True] * len(set(hh_ids))}
+        ),
+        "persons": pl.DataFrame(
+            {
+                "person_id": sorted(set(people)),
+                "hh_id": [hh_ids[people.index(p)] for p in sorted(set(people))],
+                "complete": [True] * len(set(people)),
+            }
+        ),
+        "days": pl.DataFrame(
+            {
+                "day_id": day_ids,
+                "person_id": people,
+                "hh_id": hh_ids,
+                "travel_date": dates,
+                "complete": day_complete,
+            }
+        ),
+        "tours": pl.DataFrame(
+            {
+                "tour_id": day_ids,
+                "day_id": day_ids,
+                "complete": day_complete,
+                "tour_data_quality": [TourDataQuality.VALID.value] * n,
+                "tour_category": [TourCategory.COMPLETE.value] * n,
+            }
+        ),
+        "linked_trips": pl.DataFrame(
+            {
+                "linked_trip_id": day_ids,
+                "day_id": day_ids,
+                "tour_id": day_ids,
+                "complete": day_complete,
+            }
+        ),
+    }
+
+
+class TestHouseholdDayCoherence:
+    """hh_day_complete: a date is coherent only if ALL members reported it."""
+
+    def test_all_members_complete_makes_the_household_day_complete(self):
+        """One date, two members, both complete -> the household-day is coherent."""
+        t = _hh_day_tables(
+            day_complete=[True, True],
+            dates=["2023-05-01", "2023-05-01"],
+            hh_ids=[1, 1],
+            persons=[1, 2],
+        )
+        compute_model_usable(t)
+        assert t["days"]["hh_day_complete"].to_list() == [True, True]
+        assert t["days"]["model_usable"].to_list() == [True, True]
+
+    def test_one_incomplete_member_breaks_the_whole_household_day(self):
+        """Strict: if any member's day is incomplete, no member's day is usable."""
+        t = _hh_day_tables(
+            day_complete=[True, False],
+            dates=["2023-05-01", "2023-05-01"],
+            hh_ids=[1, 1],
+            persons=[1, 2],
+        )
+        compute_model_usable(t)
+        # member 1 reported a complete day, but member 2 did not, so the whole
+        # household-date is incoherent and neither day is usable
+        assert t["days"]["hh_day_complete"].to_list() == [False, False]
+        assert t["days"]["model_usable"].to_list() == [False, False]
+
+    def test_each_date_is_independent(self):
+        """A household is complete on the dates where all members reported."""
+        # person 1 complete both dates; person 2 complete only on date A
+        t = _hh_day_tables(
+            day_complete=[True, True, True, False],
+            dates=["2023-05-01", "2023-05-02", "2023-05-01", "2023-05-02"],
+            hh_ids=[1, 1, 1, 1],
+            persons=[1, 1, 2, 2],
+        )
+        compute_model_usable(t)
+        d = t["days"].sort("day_id")
+        # date A (days 1,3) coherent; date B (days 2,4) not
+        assert d["hh_day_complete"].to_list() == [True, False, True, False]
+
+    def test_household_needs_one_complete_household_day(self):
+        """One coherent date is enough to admit the household."""
+        t = _hh_day_tables(
+            day_complete=[True, True, True, False],
+            dates=["2023-05-01", "2023-05-02", "2023-05-01", "2023-05-02"],
+            hh_ids=[1, 1, 1, 1],
+            persons=[1, 1, 2, 2],
+        )
+        compute_model_usable(t)
+        assert t["households"]["model_usable"].to_list() == [True]
+
+    def test_household_with_no_complete_day_is_dropped(self):
+        """No date where all members reported -> household is not admissible."""
+        t = _hh_day_tables(
+            day_complete=[True, False],
+            dates=["2023-05-01", "2023-05-01"],
+            hh_ids=[1, 1],
+            persons=[1, 2],
+        )
+        compute_model_usable(t)
+        assert t["households"]["model_usable"].to_list() == [False]
+
+
 class TestUnflaggedMemberTablesRaise:
     """An unflagged member table must fail loudly, never silently pass.
 
@@ -278,10 +393,12 @@ class TestUnflaggedMemberTablesRaise:
         with pytest.raises(ValueError, match="no model_usable column yet"):
             _flag_joint_groupings(tables)
 
-    def test_households_with_unflagged_persons_raise(self):
-        """Same for the household rule, which reads persons.model_usable."""
+    def test_households_with_uncohered_days_raise(self):
+        """The household rule reads days.hh_day_complete; unflagged days must raise."""
         tables = _joint_tables(tour_usable=[True, True])
-        with pytest.raises(ValueError, match="no model_usable column yet"):
+        # days present but flag_household_day_complete not run yet
+        assert "hh_day_complete" not in tables["days"].columns
+        with pytest.raises(ValueError, match="no hh_day_complete column yet"):
             _flag_households(tables)
 
     def test_partial_call_without_the_member_table_is_still_allowed(self):

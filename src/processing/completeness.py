@@ -1,19 +1,29 @@
 """Canonical completeness and model-usability logic.
 
-Two distinct, complementary flags live on the canonical tables:
+Three flags live on the canonical tables, each answering a different question,
+and each derived by a cascade in a definite direction:
 
 * ``complete`` -- **survey reporting completeness**: did the respondent fully
-  report this record (and its ancestors)? Overnight and partial tours are still
-  *valid survey data*, so they keep ``complete = True``. This is the descriptor.
+  report this record? Incompleteness flows **down** (household -> person -> day
+  -> trips/tours): an incomplete parent forces its descendants incomplete.
+  Overnight and partial tours are still *valid survey data*, so they keep
+  ``complete = True``. This is the descriptor.
+
+* ``hh_day_complete`` -- **household-day coherence**: on this calendar date, did
+  *every* member of the household report a complete day? This flows **up** from
+  the member-days to the household-day (an ALL reduction), then applies to every
+  day on that date. It is the unit of a coordinated observation: a diary date is
+  only coherent for household-level behaviour (joint tours, escorting, CDAP) when
+  no member is missing. A household needs at least one complete household-day to
+  be admissible at all.
 
 * ``model_usable`` -- **admissibility to the tour-based (activity-based) model**:
-  is this record part of a well-formed tour structure the model can consume? It
-  is derived as ``complete AND valid-tour-structure AND day-rule`` and is the
-  single gate that both the CT-RAMP/DaySim drop and the weighting zeroing read.
-  Nothing gates on ``complete`` directly.
+  ``complete AND hh_day_complete AND a well-formed tour structure``. This is the
+  single gate that both the CT-RAMP/DaySim drop and the weighting read. Nothing
+  gates on ``complete`` directly.
 
-This module is the one place that logic lives, so the two concepts never
-compete. :func:`compute_model_usable` is applied once by the ``flag_model_usable``
+This module is the one place that logic lives, so the concepts never compete.
+:func:`compute_model_usable` is applied once by the ``flag_model_usable``
 pipeline step; downstream consumers only read the resulting flags.
 """
 
@@ -92,6 +102,72 @@ def cascade_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
         ).drop("_parent_complete")
 
 
+def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Stamp ``hh_day_complete`` on the days table, in place (reverse cascade).
+
+    A **household-day** -- the set of person-days sharing one ``hh_id`` and
+    ``travel_date`` -- is complete only when *every* member's day is complete
+    (an ALL reduction over member-days). The result is written back onto each day
+    on that date, so ``hh_day_complete`` marks whether the day belongs to a
+    coherently observed household-date.
+
+    This runs after :func:`cascade_completeness`, so ``complete`` already
+    reflects ancestry; the reduction then flows the other way, up from members to
+    the shared date. Idempotent. Days without ``hh_id`` / ``travel_date`` (e.g.
+    schema-only fixtures) fall back to each day's own ``complete``.
+    """
+    days = tables.get("days")
+    if days is None or "complete" not in days.columns:
+        return
+
+    own = pl.col("complete").fill_null(value=False)
+    if "hh_id" not in days.columns or "travel_date" not in days.columns:
+        tables["days"] = days.with_columns(own.alias("hh_day_complete"))
+        return
+
+    household_day = days.group_by("hh_id", "travel_date").agg(own.all().alias("_hh_day_complete"))
+    tables["days"] = (
+        days.join(household_day, on=["hh_id", "travel_date"], how="left")
+        .with_columns(pl.col("_hh_day_complete").fill_null(value=False).alias("hh_day_complete"))
+        .drop("_hh_day_complete")
+    )
+
+
+def _flag_tours(tables: dict[str, pl.DataFrame | None], *, require_valid_tours: bool) -> None:
+    """Stamp ``model_usable`` on tours, in place.
+
+    A tour is usable when its structure is admissible *and* it sits on a coherent
+    household-date, so it agrees with its own day. Without the coherence term
+    CT-RAMP (which reads ``tour.model_usable``) would keep a tour the weighting
+    has zeroed. ``hh_day_complete`` is available because the reverse cascade runs
+    before this.
+    """
+    tours = tables.get("tours")
+    if tours is None or "complete" not in tours.columns:
+        return
+
+    usable = _tour_model_usable_expr(
+        require_valid_tours=require_valid_tours,
+        has_quality="tour_data_quality" in tours.columns,
+        has_category="tour_category" in tours.columns,
+    )
+    days = tables.get("days")
+    if days is None or "hh_day_complete" not in days.columns or "day_id" not in tours.columns:
+        tables["tours"] = tours.with_columns(usable.alias("model_usable"))
+        return
+
+    coherence = days.select("day_id", pl.col("hh_day_complete").alias("_hh_day_complete")).unique(
+        subset="day_id"
+    )
+    tables["tours"] = (
+        tours.join(coherence, on="day_id", how="left")
+        .with_columns(
+            (usable & pl.col("_hh_day_complete").fill_null(value=False)).alias("model_usable")
+        )
+        .drop("_hh_day_complete")
+    )
+
+
 def _tour_model_usable_expr(
     *, require_valid_tours: bool, has_quality: bool, has_category: bool
 ) -> pl.Expr:
@@ -168,40 +244,46 @@ def _flag_joint_groupings(tables: dict[str, pl.DataFrame | None]) -> None:
 def _flag_households(tables: dict[str, pl.DataFrame | None]) -> None:
     """Stamp ``model_usable`` on households, in place.
 
-    A household whose every person is unusable has nothing left to weight, so it
-    is dropped rather than left carrying weight it cannot pass down. Requires
-    persons to be flagged first; a persons table present but unflagged raises
-    rather than silently passing every household.
+    A household is admissible only if it has at least one **complete
+    household-day** -- a date on which every member reported a complete day.
+    Without one there is no coherently observed household pattern to weight, so
+    the household is dropped rather than left holding weight it cannot pass down.
+
+    Requires days to carry ``hh_day_complete`` (from
+    :func:`flag_household_day_complete`); a days table present but unflagged
+    raises rather than silently passing every household.
 
     Raises:
-        ValueError: If persons is present but has not been flagged yet.
+        ValueError: If days is present but has no ``hh_day_complete`` column.
     """
     households = tables.get("households")
     if households is None or "complete" not in households.columns:
         return
 
     base = pl.col("complete").fill_null(value=False)
-    persons = tables.get("persons")
-    if persons is not None and "model_usable" not in persons.columns:
+    days = tables.get("days")
+    if days is not None and "hh_day_complete" not in days.columns:
         msg = (
-            "Cannot flag households: persons has no model_usable column yet. "
-            "Flag persons first, otherwise every household silently passes."
+            "Cannot flag households: days has no hh_day_complete column yet. Run "
+            "flag_household_day_complete first, otherwise every household silently passes."
         )
         raise ValueError(msg)
-    if persons is None:
+    if days is None or "hh_id" not in days.columns:
         tables["households"] = households.with_columns(base.alias("model_usable"))
         return
 
-    hh_has_usable = persons.group_by("hh_id").agg(
-        pl.col("model_usable").any().alias("_hh_has_usable_person")
+    hh_has_complete_day = (
+        days.filter(pl.col("hh_day_complete").fill_null(value=False))
+        .select("hh_id")
+        .unique()
+        .with_columns(pl.lit(value=True).alias("_hh_has_complete_day"))
     )
-    # null == the household has no persons at all -> nothing to weight.
     tables["households"] = (
-        households.join(hh_has_usable, on="hh_id", how="left")
+        households.join(hh_has_complete_day, on="hh_id", how="left")
         .with_columns(
-            (base & pl.col("_hh_has_usable_person").fill_null(value=False)).alias("model_usable")
+            (base & pl.col("_hh_has_complete_day").fill_null(value=False)).alias("model_usable")
         )
-        .drop("_hh_has_usable_person")
+        .drop("_hh_has_complete_day")
     )
 
 
@@ -212,14 +294,16 @@ def compute_model_usable(
 ) -> None:
     """Stamp the ``model_usable`` gate on every table, in place.
 
-    Runs :func:`cascade_completeness` first (idempotent) so ``complete`` reflects
-    ancestry, then derives ``model_usable`` per level:
+    Runs :func:`cascade_completeness` (down) then
+    :func:`flag_household_day_complete` (up) so both ``complete`` and
+    ``hh_day_complete`` are set, then derives ``model_usable`` per level:
 
     * tours: ``complete AND VALID quality AND COMPLETE category`` (when
       ``require_valid_tours``; otherwise just ``complete``).
-    * days: ``complete AND (no tours OR at least one model_usable tour)`` -- a
-      genuine no-travel day stays usable, but a day whose only tours are all
-      inadmissible is not (its travel could not be turned into a usable tour).
+    * days: ``hh_day_complete AND (no tours OR at least one model_usable tour)``
+      -- a day is usable only within a coherently observed household-date; a
+      genuine no-travel day on such a date stays usable, but a day whose only
+      tours are all inadmissible does not.
     * unlinked/linked trips: ``complete AND the tour they belong to is usable``
       (a trip with no tour is not model-usable, matching the CT-RAMP drop).
     * persons: ``complete`` (no tour structure of their own). A person with no
@@ -227,9 +311,9 @@ def compute_model_usable(
       only their days fall out of the weighted sample.
     * joint trips / joint tours: ``complete AND 2+ usable member records``. A
       grouping stops being joint once it is down to one participant.
-    * households: ``complete AND at least one model_usable person`` -- a
-      household with nothing left to weight is dropped rather than left holding
-      weight it cannot pass down.
+    * households: ``complete AND at least one complete household-day`` -- a
+      household with no coherently observed date has nothing to weight and is
+      dropped rather than left holding weight it cannot pass down.
 
     Args:
         tables: Mutable dict of table_name -> DataFrame (or None).
@@ -239,22 +323,21 @@ def compute_model_usable(
     """
     cascade_completeness(tables)
 
-    # -- Tours ---------------------------------------------------------------
-    tours = tables.get("tours")
-    if tours is not None and "complete" in tours.columns:
-        tables["tours"] = tours.with_columns(
-            _tour_model_usable_expr(
-                require_valid_tours=require_valid_tours,
-                has_quality="tour_data_quality" in tours.columns,
-                has_category="tour_category" in tours.columns,
-            ).alias("model_usable")
-        )
-        tours = tables["tours"]
+    # -- Household-day coherence (reverse cascade: member-days -> the date) ---
+    flag_household_day_complete(tables)
 
-    # -- Days (upward rule: needs a usable tour, unless it is a no-travel day) -
+    # -- Tours ---------------------------------------------------------------
+    _flag_tours(tables, require_valid_tours=require_valid_tours)
+    tours = tables.get("tours")
+
+    # -- Days (needs a coherent household-date AND a usable tour) -------------
+    # A day is usable only within a complete household-day: even a genuine
+    # no-travel day is only a clean observation when the whole household was
+    # observed that date. ``hh_day_complete`` already implies the day's own
+    # ``complete`` (it is an ALL over the members, which includes this one).
     days = tables.get("days")
     if days is not None and "complete" in days.columns:
-        base = pl.col("complete").fill_null(value=False)
+        base = pl.col("hh_day_complete").fill_null(value=False)
         if tours is not None and "model_usable" not in tours.columns:
             msg = (
                 "Cannot flag days: tours has no model_usable column yet. Flag tours "
@@ -331,7 +414,7 @@ def _log_gate_summary(tables: dict[str, pl.DataFrame | None]) -> None:
 
 @step(
     requires={
-        "days": {"day_id", "complete"},
+        "days": {"day_id", "hh_id", "travel_date", "complete"},
         "tours": {"tour_id", "day_id", "complete"},
     },
 )
