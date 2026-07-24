@@ -36,18 +36,19 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pipeline.decoration import step
 from processing.weighting.balancing.weight_propagation import (
-    FALLBACK_KEY,
-    PARENT_KEY,
-    SCALE_TOL,
+    LEVELS,
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
     collect_tables,
-    distribute_to_usable,
+    distribute_within_scope,
     is_usable,
     propagate_weights,
 )
 
 logger = logging.getLogger(__name__)
+
+# Rescale factors within this distance of 1.0 are floating-point drift, not work.
+SCALE_TOL = 1e-9
 
 
 class ExistingWeightConfig(BaseModel):
@@ -182,11 +183,11 @@ def _apply_usability(
 
     Unlike the computed path, the vendor's anchor cannot be re-balanced: their
     weights already sum to their population estimate, so dropping records must
-    not shrink that total. For every supplied weight column, the weight is first
-    spread across the usable children of each parent
-    ([`distribute_to_usable`][processing.weighting.balancing.weight_propagation.distribute_to_usable]),
-    then whatever that could not place — parents that kept no usable child at
-    all — is closed with one table-wide factor. Modifies *tables* in place.
+    not shrink that total. Each supplied weight is first conserved within its
+    declared scope ([`distribute_within_scope`]
+    [processing.weighting.balancing.weight_propagation.distribute_within_scope]);
+    whatever that leaves stranded — scopes with no usable record at all — is
+    then closed with one table-wide factor. Modifies *tables* in place.
 
     Args:
         tables: Mutable dict of table_name → DataFrame (or None).
@@ -201,24 +202,25 @@ def _apply_usability(
             continue
 
         supplied_total = df.select(pl.col(weight_col).sum()).item() or 0.0
-        parent_key = PARENT_KEY.get(table_name)
+        scope = LEVELS[table_name].scope
 
-        if parent_key is not None and parent_key in df.columns:
-            df = distribute_to_usable(
-                df,
-                join_key=parent_key,
-                weight_col=weight_col,
-                usability_flag_col=usability_flag_col,
-                table=table_name,
-                fallback_key=FALLBACK_KEY.get(table_name),
-            )
-        else:
-            # No parent to spread within (households); zero and rescale below.
+        if scope is None:
+            # The anchor has no scope to spread within; zero and rescale below.
             df = df.with_columns(
                 pl.when(is_usable(usability_flag_col))
                 .then(pl.col(weight_col))
                 .otherwise(0.0)
                 .alias(weight_col)
+            )
+        else:
+            # Raises when the scope column is absent -- quietly conserving the
+            # weight over some other grouping would change the numbers silently.
+            df = distribute_within_scope(
+                df,
+                weight_col=weight_col,
+                scope=scope,
+                usability_flag_col=usability_flag_col,
+                table=table_name,
             )
 
         placed_total = df.select(pl.col(weight_col).sum()).item() or 0.0

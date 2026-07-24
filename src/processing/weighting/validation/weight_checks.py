@@ -8,7 +8,7 @@ import logging
 
 import polars as pl
 
-from processing.weighting.balancing.weight_propagation import FALLBACK_KEY
+from processing.weighting.balancing.weight_propagation import LEVELS, Flow, levels_with_flow
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.specs import ControlSpec, ControlTotals
@@ -166,14 +166,7 @@ def _compare_and_log(
         logger.info("  %s", line)
 
 
-# Hierarchy pairs: (parent, child, join_key, parent_weight, child_weight)
-_HIERARCHY_PAIRS = [
-    ("households", "persons", "hh_id", "hh_weight", "person_weight"),
-    ("persons", "days", "person_id", "person_weight", "day_weight"),
-    ("days", "unlinked_trips", "day_id", "day_weight", "unlinked_trip_weight"),
-]
-
-# Rows of a failing parent to name in the error before summarising the rest.
+# Rows of a failing scope to name in the error before summarising the rest.
 _MAX_REPORTED = 5
 
 
@@ -182,17 +175,19 @@ def _check_hierarchy(
 ) -> None:
     """Verify that children sum to what their parents represent, or raise.
 
-    This is the cascade's defining identity: a parent's population is carried by
-    the children it kept, so ``sum(child_weight) == parent_weight * n_children``.
-    It is arithmetic we control, so any deviation past floating-point tolerance
-    is a bug and fails loudly.
+    This is the cascade's defining identity: a scope's population is carried by
+    the records it kept, so ``sum(child_weight) == sum(parent_weight *
+    n_children)`` over each scope. It is arithmetic we control, so any deviation
+    past floating-point tolerance is a bug and fails loudly.
 
-    The identity is checked at the scope the weight was actually spread over.
-    Days use ``FALLBACK_KEY`` (the household), because a person who kept no
-    usable day has their day-weight covered by the household's remaining days --
-    so the identity holds per household, not per person. Scopes where *nothing*
-    was usable have no denominator anywhere; they are reported as a shortfall
-    rather than failed.
+    The identity is checked at the scope the weight was actually conserved
+    within, read from the same [`HIERARCHY`]
+    [processing.weighting.balancing.weight_propagation.HIERARCHY] the
+    propagation walks -- so the check cannot drift from the rule. Days are
+    conserved over the household, for instance, because a person who kept no
+    usable day has their day-weight covered by the household's remaining days.
+    Scopes where *nothing* was usable have no denominator anywhere; they are
+    reported as a shortfall rather than failed.
 
     Args:
         tables: Weighted canonical tables.
@@ -202,19 +197,19 @@ def _check_hierarchy(
         ValueError: If any scope's children do not sum to what its parents
             represent.
     """
-    for parent_name, child_name, join_key, parent_wt, child_wt in _HIERARCHY_PAIRS:
-        parent = tables.get(parent_name)
+    for level in levels_with_flow(Flow.DOWN):
+        parent_name, child_name = level.parent, level.table
+        join_key, child_wt = level.key, level.weight_col
+        parent = tables.get(parent_name)  # type: ignore[arg-type]
         child = tables.get(child_name)
         if parent is None or child is None:
             continue
+        parent_wt = LEVELS[parent_name].weight_col  # type: ignore[index]
         if parent_wt not in parent.columns or child_wt not in child.columns:
             continue
 
-        # Weight is spread within the parent, escalating to a wider scope when
-        # the parent kept nothing; check the identity at that same scope.
-        scope = FALLBACK_KEY.get(child_name, join_key)
-        if scope not in child.columns:
-            scope = join_key
+        # Check the identity at the scope the weight was conserved within.
+        scope = level.scope if level.scope in child.columns else join_key
 
         usable = (
             pl.col(usability_flag_col).fill_null(value=False)

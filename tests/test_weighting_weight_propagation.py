@@ -389,6 +389,7 @@ def _make_tables_with_complete():
         {
             "day_id": [10, 20, 30],
             "person_id": [1, 2, 3],
+            "hh_id": [1, 1, 2],
             "complete": [True, False, False],
         }
     )
@@ -431,6 +432,7 @@ def _make_tables_partial_usability():
         {
             "day_id": [10, 20, 30, 40],
             "person_id": [1, 1, 1, 1],
+            "hh_id": [1, 1, 1, 1],
             "complete": [True, True, False, False],
         }
     )
@@ -484,14 +486,20 @@ class TestPropagateUsableColumn:
         assert days["day_weight"].to_list() == [10.0, 10.0, 20.0]
 
     def test_unusable_days_get_zero_weight(self):
-        """Days with complete=False get weight 0."""
+        """Days with complete=False get weight 0; the household keeps their claim.
+
+        Person 2's only day is unusable, so within household 1 its claim moves to
+        day 10 -- the household's day-weight is conserved, not shrunk.
+        """
         tables = _make_tables_with_complete()
         has_weight: dict[str, str] = {"households": "hh_weight"}
 
         propagate_weights(tables, has_weight, usability_flag_col="complete")
 
         days = tables["days"].sort("day_id")
-        assert days["day_weight"].to_list() == [10.0, 0.0, 0.0]
+        assert days["day_weight"].to_list() == [20.0, 0.0, 0.0]
+        # Household 1 claimed 2 days at a person weight of 10 apiece.
+        assert days["day_weight"].sum() == pytest.approx(20.0)
 
     def test_unusable_unlinked_trips_get_zero_weight(self):
         """Unlinked trips with complete=False get weight 0."""
@@ -501,7 +509,8 @@ class TestPropagateUsableColumn:
         propagate_weights(tables, has_weight, usability_flag_col="complete")
 
         ut = tables["unlinked_trips"].sort("unlinked_trip_id")
-        assert ut["unlinked_trip_weight"].to_list() == [10.0, 10.0, 0.0, 0.0]
+        # Day 10 carries 20.0 and both its trips are usable, so each keeps 20.0.
+        assert ut["unlinked_trip_weight"].to_list() == [20.0, 20.0, 0.0, 0.0]
 
     def test_aggregate_excludes_zero_from_unusable(self):
         """Aggregated weights exclude zeros from unusable records."""
@@ -511,9 +520,9 @@ class TestPropagateUsableColumn:
         propagate_weights(tables, has_weight, usability_flag_col="complete")
 
         lt = tables["linked_trips"].sort("linked_trip_id")
-        # linked_trip 1: unlinked 100 (wt=10, complete) + 200 (wt=10, complete) -> mean=10
+        # linked_trip 1: unlinked 100 (wt=20) + 200 (wt=20) -> mean=20
         # linked_trip 2: unlinked 300 (wt=0, incomplete) + 400 (wt=0, incomplete) -> 0 (all zero)
-        assert lt["linked_trip_weight"].to_list() == [10.0, 0.0]
+        assert lt["linked_trip_weight"].to_list() == [20.0, 0.0]
 
     def test_missing_usable_column_propagates_normally(self):
         """Without the usability column present, weights propagate as before."""
@@ -536,7 +545,7 @@ class TestPropagateUsableColumn:
 
         propagate_weights(tables, has_weight, usability_flag_col="complete")
 
-        assert tables["linked_trips"]["linked_trip_weight"].to_list() == [10.0, 0.0]
+        assert tables["linked_trips"]["linked_trip_weight"].to_list() == [20.0, 0.0]
         assert tables["tours"]["tour_weight"].to_list() == [0.0]
 
     def test_all_usable_propagates_normally(self):

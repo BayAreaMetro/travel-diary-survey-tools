@@ -572,12 +572,19 @@ class TestSuppliedTotalPreserved:
         assert weights[1] == pytest.approx(20.0 * scale)
         assert weights[3] == pytest.approx(40.0 * scale)
 
-    def test_supplied_day_weight_spreads_within_the_person(self, tmp_path):
-        """A supplied day weight goes to that person's usable days, not the table."""
+    def test_supplied_day_weight_is_conserved_within_the_household(self, tmp_path):
+        """A supplied day weight moves to the household's usable days.
+
+        Day weights are conserved over the household, so the unusable day's claim
+        is shared out in proportion to what the survivors already carry -- every
+        day in household 1 scales by the same 30/20, leaving the relative weights
+        of its two persons untouched.
+        """
         days = pl.DataFrame(
             {
                 "day_id": [10, 20, 30, 40],
                 "person_id": [1, 1, 2, 2],
+                "hh_id": [1, 1, 1, 1],
                 "complete": [True, False, True, True],
             }
         )
@@ -592,9 +599,22 @@ class TestSuppliedTotalPreserved:
             usability_flag_col="complete",
         )
         weights = result["days"].sort("day_id")["day_weight"].to_list()
-        # Person 1 kept 1 of 2 days, so day 10 absorbs day 20; person 2 is untouched
-        assert weights == pytest.approx([20.0, 0.0, 5.0, 5.0])
+        scale = 30.0 / 20.0
+        assert weights == pytest.approx([10.0 * scale, 0.0, 5.0 * scale, 5.0 * scale])
         assert sum(weights) == pytest.approx(30.0)
+
+    def test_missing_scope_column_raises(self, tmp_path):
+        """Days without hh_id cannot be conserved as declared, so this fails loudly."""
+        days = pl.DataFrame({"day_id": [10, 20], "person_id": [1, 1], "complete": [True, False]})
+        weight_file = tmp_path / "day_weights.csv"
+        pl.DataFrame({"day_id": [10, 20], "day_weight": [10.0, 10.0]}).write_csv(weight_file)
+
+        with pytest.raises(ValueError, match="missing its scope column"):
+            add_existing_weights(
+                weights={"day_weights": {"weight_path": str(weight_file)}},
+                days=days,
+                usability_flag_col="complete",
+            )
 
     def test_no_usable_record_is_safe(self, tmp_path):
         """If nothing is usable there is nowhere to put the weight; no error."""
