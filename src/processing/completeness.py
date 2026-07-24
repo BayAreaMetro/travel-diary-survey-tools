@@ -120,7 +120,14 @@ def _flag_joint_groupings(tables: dict[str, pl.DataFrame | None]) -> None:
     belonged to was dropped, and what stops a joint tour reduced to a single
     participant reaching CT-RAMP, where it would violate ``num_participants >= 2``.
 
-    Requires the member tables to be flagged first.
+    A member table that was never supplied is a legitimate partial call and the
+    grouping falls back to its own ``complete``. A member table that *is* present
+    but carries no ``model_usable`` is a caller ordering error and raises: the
+    fallback would silently pass every grouping, which is exactly the behaviour
+    this rule exists to replace.
+
+    Raises:
+        ValueError: If a member table is present but has not been flagged yet.
     """
     for joint_table, member_table, key in _JOINT_GROUPINGS:
         df = tables.get(joint_table)
@@ -129,12 +136,16 @@ def _flag_joint_groupings(tables: dict[str, pl.DataFrame | None]) -> None:
 
         base = pl.col("complete").fill_null(value=False)
         members = tables.get(member_table)
-        if (
-            members is None
-            or "model_usable" not in members.columns
-            or key not in members.columns
-            or key not in df.columns
-        ):
+
+        if members is not None and "model_usable" not in members.columns:
+            msg = (
+                f"Cannot flag {joint_table}: {member_table} has no model_usable column yet. "
+                f"Flag the member table before the groupings that count it, otherwise "
+                f"every {joint_table} record silently passes."
+            )
+            raise ValueError(msg)
+
+        if members is None or key not in members.columns or key not in df.columns:
             tables[joint_table] = df.with_columns(base.alias("model_usable"))
             continue
 
@@ -159,7 +170,11 @@ def _flag_households(tables: dict[str, pl.DataFrame | None]) -> None:
 
     A household whose every person is unusable has nothing left to weight, so it
     is dropped rather than left carrying weight it cannot pass down. Requires
-    persons to be flagged first.
+    persons to be flagged first; a persons table present but unflagged raises
+    rather than silently passing every household.
+
+    Raises:
+        ValueError: If persons is present but has not been flagged yet.
     """
     households = tables.get("households")
     if households is None or "complete" not in households.columns:
@@ -167,7 +182,13 @@ def _flag_households(tables: dict[str, pl.DataFrame | None]) -> None:
 
     base = pl.col("complete").fill_null(value=False)
     persons = tables.get("persons")
-    if persons is None or "model_usable" not in persons.columns:
+    if persons is not None and "model_usable" not in persons.columns:
+        msg = (
+            "Cannot flag households: persons has no model_usable column yet. "
+            "Flag persons first, otherwise every household silently passes."
+        )
+        raise ValueError(msg)
+    if persons is None:
         tables["households"] = households.with_columns(base.alias("model_usable"))
         return
 
@@ -234,7 +255,13 @@ def compute_model_usable(
     days = tables.get("days")
     if days is not None and "complete" in days.columns:
         base = pl.col("complete").fill_null(value=False)
-        if tours is not None and "model_usable" in tours.columns and "day_id" in tours.columns:
+        if tours is not None and "model_usable" not in tours.columns:
+            msg = (
+                "Cannot flag days: tours has no model_usable column yet. Flag tours "
+                "first, otherwise every day silently passes on completeness alone."
+            )
+            raise ValueError(msg)
+        if tours is not None and "day_id" in tours.columns:
             day_has_usable = tours.group_by("day_id").agg(
                 pl.col("model_usable").any().alias("_day_has_usable_tour")
             )

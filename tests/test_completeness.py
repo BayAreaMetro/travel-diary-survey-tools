@@ -1,9 +1,12 @@
 """Tests for the canonical completeness / model-usability gates."""
 
 import polars as pl
+import pytest
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
+    _flag_households,
+    _flag_joint_groupings,
     cascade_completeness,
     compute_model_usable,
     flag_model_usable,
@@ -256,6 +259,39 @@ class TestJointGroupingsNeedTwoMembers:
         compute_model_usable(tables)
         assert tables["joint_trips"]["complete"].to_list() == [True]
         assert tables["joint_trips"]["model_usable"].to_list() == [False]
+
+
+class TestUnflaggedMemberTablesRaise:
+    """An unflagged member table must fail loudly, never silently pass.
+
+    Each of these rules reads a child's ``model_usable``. If that column has not
+    been stamped yet the old guards fell back to bare ``complete``, which passes
+    every record -- the exact behaviour the rules exist to replace, with no error
+    to notice. They now raise instead.
+    """
+
+    def test_joint_grouping_with_unflagged_members_raises(self):
+        """Counting usable members before they are flagged must not pass silently."""
+        tables = _joint_tables(tour_usable=[True, False, False])
+        # linked_trips present but never flagged: calling the rule directly is
+        # the ordering mistake this guards against.
+        with pytest.raises(ValueError, match="no model_usable column yet"):
+            _flag_joint_groupings(tables)
+
+    def test_households_with_unflagged_persons_raise(self):
+        """Same for the household rule, which reads persons.model_usable."""
+        tables = _joint_tables(tour_usable=[True, True])
+        with pytest.raises(ValueError, match="no model_usable column yet"):
+            _flag_households(tables)
+
+    def test_partial_call_without_the_member_table_is_still_allowed(self):
+        """Omitting the member table entirely is a legitimate partial call."""
+        tables = _joint_tables(tour_usable=[True, True])
+        # No linked_trips at all -> joint_trips falls back to its own `complete`.
+        del tables["linked_trips"]
+        del tables["joint_tours"]
+        _flag_joint_groupings(tables)
+        assert tables["joint_trips"]["model_usable"].to_list() == [True]
 
 
 class TestFlagModelUsableStep:
