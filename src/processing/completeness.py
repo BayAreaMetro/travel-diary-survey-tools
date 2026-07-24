@@ -36,10 +36,21 @@ COMPLETENESS_CASCADE = [
     ("days", "linked_trips", "day_id"),
     ("days", "joint_trips", "day_id"),
     ("days", "tours", "day_id"),
+    ("days", "joint_tours", "day_id"),
 ]
 
 # Trip tables whose model-usability follows the tour they belong to (tour_id).
 _TOUR_MEMBER_TABLES = ("unlinked_trips", "linked_trips")
+
+# A joint entity is only joint while two of its members survive.
+MIN_JOINT_PARTICIPANTS = 2
+
+# Joint groupings and the member table they are formed from:
+# (joint_table, member_table, shared key).
+_JOINT_GROUPINGS = (
+    ("joint_trips", "linked_trips", "joint_trip_id"),
+    ("joint_tours", "tours", "joint_tour_id"),
+)
 
 
 def cascade_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
@@ -100,6 +111,49 @@ def _tour_model_usable_expr(
     return usable
 
 
+def _flag_joint_groupings(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Stamp ``model_usable`` on the joint trip / joint tour tables, in place.
+
+    A joint entity is a grouping, so it is usable only while it is still *joint*:
+    at least :data:`MIN_JOINT_PARTICIPANTS` of its member records must themselves
+    be model-usable. This is what stops a joint trip surviving after the tour it
+    belonged to was dropped, and what stops a joint tour reduced to a single
+    participant reaching CT-RAMP, where it would violate ``num_participants >= 2``.
+
+    Requires the member tables to be flagged first.
+    """
+    for joint_table, member_table, key in _JOINT_GROUPINGS:
+        df = tables.get(joint_table)
+        if df is None or "complete" not in df.columns:
+            continue
+
+        base = pl.col("complete").fill_null(value=False)
+        members = tables.get(member_table)
+        if (
+            members is None
+            or "model_usable" not in members.columns
+            or key not in members.columns
+            or key not in df.columns
+        ):
+            tables[joint_table] = df.with_columns(base.alias("model_usable"))
+            continue
+
+        usable_members = (
+            members.filter(pl.col(key).is_not_null() & pl.col("model_usable"))
+            .group_by(key)
+            .agg(pl.len().alias("_n_usable_members"))
+        )
+        tables[joint_table] = (
+            df.join(usable_members, on=key, how="left")
+            .with_columns(
+                (base & (pl.col("_n_usable_members").fill_null(0) >= MIN_JOINT_PARTICIPANTS)).alias(
+                    "model_usable"
+                )
+            )
+            .drop("_n_usable_members")
+        )
+
+
 def _flag_households(tables: dict[str, pl.DataFrame | None]) -> None:
     """Stamp ``model_usable`` on households, in place.
 
@@ -147,9 +201,11 @@ def compute_model_usable(
       inadmissible is not (its travel could not be turned into a usable tour).
     * unlinked/linked trips: ``complete AND the tour they belong to is usable``
       (a trip with no tour is not model-usable, matching the CT-RAMP drop).
-    * persons / joint trips: ``complete`` (no tour structure of their own). A
-      person with no usable day is kept -- they are a real person contributing
-      no travel -- so only their days fall out of the weighted sample.
+    * persons: ``complete`` (no tour structure of their own). A person with no
+      usable day is kept -- they are a real person contributing no travel -- so
+      only their days fall out of the weighted sample.
+    * joint trips / joint tours: ``complete AND 2+ usable member records``. A
+      grouping stops being joint once it is down to one participant.
     * households: ``complete AND at least one model_usable person`` -- a
       household with nothing left to weight is dropped rather than left holding
       weight it cannot pass down.
@@ -190,16 +246,15 @@ def compute_model_usable(
         else:
             tables["days"] = days.with_columns(base.alias("model_usable"))
 
-    # -- Persons / joint trips: model_usable == complete ----------------------
+    # -- Persons: model_usable == complete ------------------------------------
     # A person with no usable day is deliberately kept: they are a real person
     # who happens to contribute no travel, and person weights stay calibrated to
     # the person controls. Only their days fall out.
-    for name in ("persons", "joint_trips"):
-        df = tables.get(name)
-        if df is not None and "complete" in df.columns:
-            tables[name] = df.with_columns(
-                pl.col("complete").fill_null(value=False).alias("model_usable")
-            )
+    persons = tables.get("persons")
+    if persons is not None and "complete" in persons.columns:
+        tables["persons"] = persons.with_columns(
+            pl.col("complete").fill_null(value=False).alias("model_usable")
+        )
 
     # -- Households (upward rule: needs a usable person) ----------------------
     _flag_households(tables)
@@ -220,6 +275,10 @@ def compute_model_usable(
             ).drop("_tour_usable")
         else:
             tables[name] = df.with_columns(base.alias("model_usable"))
+
+    # -- Joint groupings (need two surviving members to still be joint) -------
+    # Last: they read the member tables flagged above.
+    _flag_joint_groupings(tables)
 
 
 def _log_gate_summary(tables: dict[str, pl.DataFrame | None]) -> None:
@@ -257,6 +316,7 @@ def flag_model_usable(
     linked_trips: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
+    joint_tours: pl.DataFrame | None = None,
     require_valid_tours: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """Stamp the canonical ``model_usable`` gate on every table.
@@ -277,6 +337,7 @@ def flag_model_usable(
         linked_trips: Canonical linked trips.
         joint_trips: Aggregated joint trips.
         tours: Canonical tours (with ``tour_data_quality`` / ``tour_category``).
+        joint_tours: Aggregated joint tours.
         require_valid_tours: If True (default), fold strict tour structure into
             the gate. If False, ``model_usable`` reduces to reporting
             completeness, so partial/invalid tours stay model-usable.
@@ -292,6 +353,7 @@ def flag_model_usable(
         "linked_trips": linked_trips,
         "joint_trips": joint_trips,
         "tours": tours,
+        "joint_tours": joint_tours,
     }
 
     compute_model_usable(tables, require_valid_tours=require_valid_tours)

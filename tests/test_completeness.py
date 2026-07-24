@@ -191,6 +191,73 @@ class TestComputeModelUsable:
         assert tables["tours"].sort("tour_id")["model_usable"].to_list() == [True, True, True]
 
 
+def _joint_tables(*, tour_usable: list[bool]):
+    """A household on one day whose three tours form a single joint group."""
+    n = len(tour_usable)
+    return {
+        "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+        "persons": pl.DataFrame(
+            {"person_id": list(range(1, n + 1)), "hh_id": [1] * n, "complete": [True] * n}
+        ),
+        "days": pl.DataFrame({"day_id": [1], "person_id": [1], "complete": [True]}),
+        "tours": pl.DataFrame(
+            {
+                "tour_id": list(range(1, n + 1)),
+                "person_id": list(range(1, n + 1)),
+                "day_id": [1] * n,
+                "joint_tour_id": [10] * n,
+                "complete": [True] * n,
+                # Quality/category decide usability; drive them from tour_usable.
+                "tour_data_quality": [
+                    TourDataQuality.VALID.value if u else TourDataQuality.LOOP_TRIP.value
+                    for u in tour_usable
+                ],
+                "tour_category": [TourCategory.COMPLETE.value] * n,
+            }
+        ),
+        "linked_trips": pl.DataFrame(
+            {
+                "linked_trip_id": list(range(1, n + 1)),
+                "day_id": [1] * n,
+                "tour_id": list(range(1, n + 1)),
+                "joint_trip_id": [20] * n,
+                "complete": [True] * n,
+            }
+        ),
+        "joint_trips": pl.DataFrame({"joint_trip_id": [20], "day_id": [1], "complete": [True]}),
+        "joint_tours": pl.DataFrame({"joint_tour_id": [10], "day_id": [1], "complete": [True]}),
+    }
+
+
+class TestJointGroupingsNeedTwoMembers:
+    """A joint entity is only usable while it is still joint."""
+
+    def test_joint_group_with_two_usable_members_survives(self):
+        """Two surviving participants still make a joint group."""
+        tables = _joint_tables(tour_usable=[True, True, False])
+        compute_model_usable(tables)
+        assert tables["joint_tours"]["model_usable"].to_list() == [True]
+        assert tables["joint_trips"]["model_usable"].to_list() == [True]
+
+    def test_joint_group_down_to_one_member_is_not_joint(self):
+        """One surviving participant is not a joint tour, so it is not usable."""
+        tables = _joint_tables(tour_usable=[True, False, False])
+        compute_model_usable(tables)
+        assert tables["joint_tours"]["model_usable"].to_list() == [False]
+        assert tables["joint_trips"]["model_usable"].to_list() == [False]
+
+    def test_joint_trip_follows_its_member_trips(self):
+        """A joint trip whose tours were all dropped cannot stay usable.
+
+        Before this rule joint_trips gated on `complete` alone, so a joint trip
+        survived its own members being dropped.
+        """
+        tables = _joint_tables(tour_usable=[False, False, False])
+        compute_model_usable(tables)
+        assert tables["joint_trips"]["complete"].to_list() == [True]
+        assert tables["joint_trips"]["model_usable"].to_list() == [False]
+
+
 class TestFlagModelUsableStep:
     """Tests for the flag_model_usable pipeline step.
 

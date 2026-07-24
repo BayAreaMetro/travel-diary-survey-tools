@@ -259,6 +259,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     linked_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
+    joint_tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Attach existing weights to the data.
 
@@ -285,17 +286,24 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
                       ├─ linked_trip_weight   (mean agg via linked_trip_id)
                       ├─ joint_trip_weight    (mean agg via joint_trip_id)
                       └─ tour_weight          (mean agg via tour_id)
+                          └─ joint_tour_weight (mean agg via joint_tour_id)
+
+    The shape is declared once in
+    [`HIERARCHY`][processing.weighting.balancing.weight_propagation.HIERARCHY]; this
+    step only supplies the weights it is given and derives the rest from it.
 
     Note that if there are no "adjustments" made to sub-table weights (e.g., person or trip), then
     all weights should actually be exactly same from household through tour.
 
-    If sub-table weights do vary, a checksum can validate integrity:
+    Carry-forward levels are checked against what their parents represent:
 
     - ``sum(person_weight) ≈ sum(hh_weight x num_persons)``
-    - ``sum(day_weight) ≈ sum(person_weight x num_complete_days)``
+    - ``sum(day_weight) ≈ sum(person_weight x num_days)`` (per household)
     - ``sum(unlinked_trip_weight) ≈ sum(day_weight x num_trips)``
-    - ``sum(linked_trip_weight) ≈ sum(unlinked_trip_weight)``
-    - ``sum(tour_weight) ≈ sum(linked_trip_weight)``
+
+    The aggregate levels have no such identity: a mean over members does **not**
+    sum to the members' total, so ``sum(linked_trip_weight)`` is unrelated to
+    ``sum(unlinked_trip_weight)`` and is not checked.
 
     Args:
         weights: A dict mapping config keys to weight file paths.
@@ -329,6 +337,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         linked_trips: Linked trips DataFrame.
         tours: Tours DataFrame.
         joint_trips: Joint trips DataFrame.
+        joint_tours: Joint tours DataFrame.
 
     Returns:
         Dict of tables with attached weights.
@@ -359,6 +368,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         unlinked_trips=unlinked_trips,
         linked_trips=linked_trips,
         joint_trips=joint_trips,
+        joint_tours=joint_tours,
         tours=tours,
     )
 

@@ -181,6 +181,18 @@ HIERARCHY: tuple[Level, ...] = (
         flow=Flow.UP,
         scope="day_id",
     ),
+    Level(
+        "joint_tours",
+        "joint_tour_id",
+        "joint_tour_weight",
+        "joint_tour_weights",
+        # Mean of the member tours, keeping every UP edge a mean over the level
+        # directly below it -- as a tour is the mean of its linked trips.
+        parent="tours",
+        key="joint_tour_id",
+        flow=Flow.UP,
+        scope="day_id",
+    ),
 )
 
 

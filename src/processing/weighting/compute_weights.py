@@ -112,6 +112,7 @@ def compute_weights(  # noqa: PLR0913
     linked_trips: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
+    joint_tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
@@ -135,6 +136,7 @@ def compute_weights(  # noqa: PLR0913
         linked_trips=linked_trips,
         tours=tours,
         joint_trips=joint_trips,
+        joint_tours=joint_tours,
     )
     # Prepare the pipeline configuration objects
     wt_config = WeightingConfig(

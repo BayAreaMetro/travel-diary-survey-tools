@@ -4,6 +4,7 @@ import polars as pl
 import pytest
 
 from processing.weighting.balancing.weight_propagation import (
+    HIERARCHY,
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
     collect_tables,
@@ -21,10 +22,11 @@ class TestConstants:
     """Verify the shared constant dictionaries are consistent."""
 
     def test_weight_config_mapping_keys(self):
-        """All seven canonical weight types are present."""
-        assert len(WEIGHT_CONFIG_MAPPING) == 7
+        """Every hierarchy level exposes a config key for supplying its weight."""
+        assert len(WEIGHT_CONFIG_MAPPING) == len(HIERARCHY)
         assert "household_weights" in WEIGHT_CONFIG_MAPPING
         assert "tour_weights" in WEIGHT_CONFIG_MAPPING
+        assert "joint_tour_weights" in WEIGHT_CONFIG_MAPPING
 
     def test_weight_columns_derived_from_mapping(self):
         """WEIGHT_COLUMNS should have one entry per table in the mapping."""
@@ -44,7 +46,7 @@ class TestCollectTables:
         """If all tables are None, collect_tables returns a dict of all None."""
         tables = collect_tables()
         assert all(v is None for v in tables.values())
-        assert len(tables) == 7
+        assert len(tables) == len(HIERARCHY)
 
     def test_collect_partial(self):
         """collect_tables correctly collects provided tables and fills in None."""
