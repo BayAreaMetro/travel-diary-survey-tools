@@ -17,7 +17,7 @@ Core behavior:
 Unlike the computed path, the anchor cannot be re-balanced here: the supplied weights already sum
 to whoever produced them's population estimate, so dropping unusable records must not shrink that
 total. Each weight is first conserved within its declared scope (see
-[Balancing](balancing.md#the-distribution-rule)); whatever that leaves stranded — scopes with no
+[Balancing](balancing.md)); whatever that leaves stranded — scopes with no
 usable record at all — is closed with a single table-wide factor, which is logged.
 
 ::: processing.weighting.existing_weights

@@ -1,30 +1,50 @@
 """Canonical completeness and model-usability logic.
 
-Three flags live on the canonical tables, each answering a different question,
-and each derived by a cascade in a definite direction:
+Three flags live on the canonical tables. Each answers a different question, and
+each is derived by a cascade in a definite direction:
 
-* ``complete`` -- **survey reporting completeness**: did the respondent fully
-  report this record? Incompleteness flows **down** (household -> person -> day
-  -> trips/tours): an incomplete parent forces its descendants incomplete.
-  Overnight and partial tours are still *valid survey data*, so they keep
-  ``complete = True``. This is the descriptor.
+* ``complete`` -- **was it reported?** Survey reporting completeness. Flows
+  **down**: an incomplete parent forces its descendants incomplete. Partials and
+  overnights are valid survey data, so they stay ``complete``. A descriptor;
+  nothing gates on it directly.
+* ``hh_day_complete`` -- **was the household coordinated that day?** ALL members
+  reported a complete day on this ``travel_date``. Flows **up** from member-days
+  to the shared date. This is the unit of a coordinated observation -- joint
+  tours, escorting, CDAP are only clean when no member is missing.
+* ``model_usable`` -- **can the model consume it?** The single gate both the
+  CT-RAMP/DaySim drop and the weighting read.
 
-* ``hh_day_complete`` -- **household-day coherence**: on this calendar date, did
-  *every* member of the household report a complete day? This flows **up** from
-  the member-days to the household-day (an ALL reduction), then applies to every
-  day on that date. It is the unit of a coordinated observation: a diary date is
-  only coherent for household-level behaviour (joint tours, escorting, CDAP) when
-  no member is missing. A household needs at least one complete household-day to
-  be admissible at all.
+# Derivation order
 
-* ``model_usable`` -- **admissibility to the tour-based (activity-based) model**:
-  ``complete AND hh_day_complete AND a well-formed tour structure``. This is the
-  single gate that both the CT-RAMP/DaySim drop and the weighting read. Nothing
-  gates on ``complete`` directly.
+Each flag is built from the ones to its left, so the order is load-bearing:
+``complete`` (down) → ``hh_day_complete`` (up) → tours → days → households, with
+trips and joint groupings hanging off tours. Getting it wrong fails loudly (an
+unflagged member table raises), never silently.
 
-This module is the one place that logic lives, so the concepts never compete.
-:func:`compute_model_usable` is applied once by the ``flag_model_usable``
-pipeline step; downstream consumers only read the resulting flags.
+```mermaid
+flowchart LR
+    C["complete<br/>(cascades down)"] --> H["hh_day_complete<br/>(ALL members / date)"]
+    H --> T["tours<br/>+ valid structure"]
+    T --> D["days<br/>+ any usable tour"]
+    D --> HH["households<br/>&ge;1 coherent day"]
+    T --> TR["trips<br/>follow their tour"]
+    T --> J["joint trips / tours<br/>&ge;2 usable members"]
+```
+
+# ``model_usable`` per level
+
+| level                 | ``model_usable`` =                                    |
+|-----------------------|-------------------------------------------------------|
+| households            | ``complete AND >=1 complete household-day``           |
+| persons               | ``complete`` (kept even with no usable day)           |
+| days                  | ``hh_day_complete AND (no tours OR >=1 usable tour)`` |
+| tours                 | ``complete AND valid structure AND hh_day_complete``  |
+| unlinked/linked trips | ``complete AND their tour is usable``                 |
+| joint trips / tours   | ``complete AND >=2 usable member records``            |
+
+This module is the one place the logic lives. :func:`compute_model_usable` is
+applied once by the ``flag_model_usable`` pipeline step; every downstream
+consumer only *reads* the resulting flags.
 """
 
 import logging
@@ -294,32 +314,16 @@ def compute_model_usable(
 ) -> None:
     """Stamp the ``model_usable`` gate on every table, in place.
 
-    Runs :func:`cascade_completeness` (down) then
-    :func:`flag_household_day_complete` (up) so both ``complete`` and
-    ``hh_day_complete`` are set, then derives ``model_usable`` per level:
-
-    * tours: ``complete AND VALID quality AND COMPLETE category`` (when
-      ``require_valid_tours``; otherwise just ``complete``).
-    * days: ``hh_day_complete AND (no tours OR at least one model_usable tour)``
-      -- a day is usable only within a coherently observed household-date; a
-      genuine no-travel day on such a date stays usable, but a day whose only
-      tours are all inadmissible does not.
-    * unlinked/linked trips: ``complete AND the tour they belong to is usable``
-      (a trip with no tour is not model-usable, matching the CT-RAMP drop).
-    * persons: ``complete`` (no tour structure of their own). A person with no
-      usable day is kept -- they are a real person contributing no travel -- so
-      only their days fall out of the weighted sample.
-    * joint trips / joint tours: ``complete AND 2+ usable member records``. A
-      grouping stops being joint once it is down to one participant.
-    * households: ``complete AND at least one complete household-day`` -- a
-      household with no coherently observed date has nothing to weight and is
-      dropped rather than left holding weight it cannot pass down.
+    Runs the two completeness cascades then derives ``model_usable`` per level.
+    See the module docstring for the flag definitions, the derivation-order
+    diagram, and the per-level rule table.
 
     Args:
         tables: Mutable dict of table_name -> DataFrame (or None).
         require_valid_tours: If True (default), fold tour structural validity
             into the gate. If False, ``model_usable`` reduces to reporting
-            completeness (invalid tours stay usable).
+            completeness plus household-day coherence (invalid tours stay
+            usable).
     """
     cascade_completeness(tables)
 
