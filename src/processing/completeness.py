@@ -26,8 +26,8 @@ The flow, and the rule on each line:
 ```text
 COMPLETE -- rolls up from surveyed trips     op        rule
 ------------------------------------------------------------------------
-trip .................................   direct    the trip was surveyed
- └ person-day ........................   ALL       all its trips complete, or no-travel
+trip .................................   direct    trip_survey_complete (measured leaf)
+ └ person-day ........................   ALL       all trips surveyed, else declared no-travel
     ├ person .........................   >=1       has >=1 complete day
     └ household-day ..................   ALL       all members complete that date
        └ household ...................   >=1       has >=1 complete household-day
@@ -44,8 +44,9 @@ household ...........................   >=1       has >=1 usable household-day
           ├ joint tour ..............   >=2       >=2 usable member tours
           └ joint trip ..............   >=2       >=2 usable member linked trips
 
+declared no-travel: num_reasons_no_travel >= 1, OR proxy_complete (a proxy filled the day in --
+  this is how unrelated / unsurveyable persons, who file no trips, still get a complete day).
 VALID feeds the fuse: trips -> linked trips -> tour, home-to-home, no missing legs.
-persons: >=1 complete day; unrelated / unsurveyable persons are counted but have none.
 op: ALL / >=1 / >=2 = quantity gate (count members vs threshold);
     direct = measured; inherit = take a neighbour's verdict; fuse = AND of conditions
 ```
@@ -67,18 +68,9 @@ from pipeline.decoration import step
 
 logger = logging.getLogger(__name__)
 
-# Completeness cascade: (parent_table, child_table, join_key). A child is
-# effectively complete only if it and its parent are complete; incompleteness
-# flows household -> person -> day -> trips/tours.
-COMPLETENESS_CASCADE = [
-    ("households", "persons", "hh_id"),
-    ("persons", "days", "person_id"),
-    ("days", "unlinked_trips", "day_id"),
-    ("days", "linked_trips", "day_id"),
-    ("days", "joint_trips", "day_id"),
-    ("days", "tours", "day_id"),
-    ("days", "joint_tours", "day_id"),
-]
+# Records that sit on a day: their ``complete`` is their own AND their day's
+# (a trip or tour is no more complete than the day it belongs to).
+_DAY_RECORDS = ("unlinked_trips", "linked_trips", "joint_trips", "tours", "joint_tours")
 
 # Trip tables whose model-usability follows the tour they belong to (tour_id).
 _TOUR_MEMBER_TABLES = ("unlinked_trips", "linked_trips")
@@ -94,43 +86,83 @@ _JOINT_GROUPINGS = (
 )
 
 
-def cascade_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
-    """Flag reporting completeness from households down through the hierarchy, in place.
+def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Roll ``complete`` UP from days, then broadcast each day's value down, in place.
 
-    A record is effectively complete only if it *and* every ancestor is
-    complete. Incompleteness flows downward: an incomplete household forces all
-    its persons, days, trips and tours incomplete; an incomplete person forces
-    its days/trips/tours; an incomplete day forces its trips/tours.
+    Completeness is measured at the person-day (``day.complete`` is set upstream
+    by the project cleaner from surveyed trips / a declared no-travel day). This
+    derives the rest:
 
-    Each child table's ``complete`` column is overwritten with
-    ``own_complete AND parent_complete``. A null own flag is treated as
-    incomplete; a missing parent (orphan) does not force incompleteness. Tables
-    missing the ``complete`` column or the join key are left unchanged. Because
-    the cascade runs parent-before-child, each parent is already effective when
-    its children are processed. Idempotent: re-running never changes a result.
+    * ``person.complete`` = it has at least one complete day (an ANY rollup).
+    * every day-record (trip, tour, joint entity) = its own reporting AND its
+      day complete -- broadcast down, since a trip is no more complete than the
+      day it sits in.
+
+    ``household.complete`` is a household-day rollup and is set separately by
+    :func:`rollup_household_complete` (it needs ``hh_day_complete`` first). Tables
+    lacking ``complete`` or the join key are left unchanged. Idempotent.
     """
-    for parent, child, key in COMPLETENESS_CASCADE:
-        parent_df = tables.get(parent)
-        child_df = tables.get(child)
-        if parent_df is None or child_df is None:
-            continue
-        if (
-            "complete" not in parent_df.columns
-            or "complete" not in child_df.columns
-            or key not in child_df.columns
-        ):
-            continue
+    days = tables.get("days")
+    if days is None or "complete" not in days.columns:
+        return
+    day_complete = pl.col("complete").fill_null(value=False)
 
-        parent_flag = parent_df.select(
-            key, pl.col("complete").fill_null(value=False).alias("_parent_complete")
+    persons = tables.get("persons")
+    if persons is not None and "person_id" in days.columns:
+        per_flag = days.group_by("person_id").agg(day_complete.any().alias("_c"))
+        tables["persons"] = (
+            persons.drop("complete", strict=False)
+            .join(per_flag, on="person_id", how="left")
+            .with_columns(pl.col("_c").fill_null(value=False).alias("complete"))
+            .drop("_c")
         )
-        child_df = child_df.join(parent_flag, on=key, how="left")
-        tables[child] = child_df.with_columns(
-            (
-                pl.col("complete").fill_null(value=False)
-                & pl.col("_parent_complete").fill_null(value=True)
-            ).alias("complete")
-        ).drop("_parent_complete")
+
+    day_flag = days.select("day_id", day_complete.alias("_day_complete"))
+    for name in _DAY_RECORDS:
+        df = tables.get(name)
+        if df is None or "complete" not in df.columns or "day_id" not in df.columns:
+            continue
+        tables[name] = (
+            df.join(day_flag, on="day_id", how="left")
+            .with_columns(
+                (
+                    pl.col("complete").fill_null(value=False)
+                    & pl.col("_day_complete").fill_null(value=True)
+                ).alias("complete")
+            )
+            .drop("_day_complete")
+        )
+
+
+def rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Set ``household.complete`` = has at least one complete household-day, in place.
+
+    A household is complete when at least one date was coherently observed (every
+    member complete). Requires ``hh_day_complete`` on days (from
+    :func:`flag_household_day_complete`). Left unchanged if days or the flag is
+    absent.
+    """
+    households = tables.get("households")
+    days = tables.get("days")
+    if (
+        households is None
+        or days is None
+        or "hh_day_complete" not in days.columns
+        or "hh_id" not in days.columns
+    ):
+        return
+    has_complete_day = (
+        days.filter(pl.col("hh_day_complete").fill_null(value=False))
+        .select("hh_id")
+        .unique()
+        .with_columns(pl.lit(value=True).alias("_h"))
+    )
+    tables["households"] = (
+        households.drop("complete", strict=False)
+        .join(has_complete_day, on="hh_id", how="left")
+        .with_columns(pl.col("_h").fill_null(value=False).alias("complete"))
+        .drop("_h")
+    )
 
 
 def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
@@ -161,6 +193,66 @@ def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
         days.join(household_day, on=["hh_id", "travel_date"], how="left")
         .with_columns(pl.col("_hh_day_complete").fill_null(value=False).alias("hh_day_complete"))
         .drop("_hh_day_complete")
+    )
+
+
+def flag_household_day_usable(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Stamp ``hh_day_usable`` on days: ALL member-days usable that date, in place.
+
+    The usable-side mirror of :func:`flag_household_day_complete`: a household-day
+    is *usable* only when every member's day is model-usable, not merely complete.
+    ``household.model_usable`` then needs at least one such date. Requires
+    ``model_usable`` on days; days without ``hh_id`` / ``travel_date`` fall back to
+    each day's own ``model_usable``.
+    """
+    days = tables.get("days")
+    if days is None or "model_usable" not in days.columns:
+        return
+
+    own = pl.col("model_usable").fill_null(value=False)
+    if "hh_id" not in days.columns or "travel_date" not in days.columns:
+        tables["days"] = days.with_columns(own.alias("hh_day_usable"))
+        return
+
+    household_day = days.group_by("hh_id", "travel_date").agg(own.all().alias("_hh_day_usable"))
+    tables["days"] = (
+        days.join(household_day, on=["hh_id", "travel_date"], how="left")
+        .with_columns(pl.col("_hh_day_usable").fill_null(value=False).alias("hh_day_usable"))
+        .drop("_hh_day_usable")
+    )
+
+
+def _flag_person_usable(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Set ``person.model_usable`` = has at least one usable day, in place.
+
+    Requires ``model_usable`` on days; a days table present but unflagged raises
+    rather than silently passing every person.
+    """
+    persons = tables.get("persons")
+    if persons is None or "complete" not in persons.columns:
+        return
+    days = tables.get("days")
+    if days is not None and "model_usable" not in days.columns:
+        msg = (
+            "Cannot flag persons: days has no model_usable column yet. Flag days first, "
+            "otherwise every person silently passes on completeness alone."
+        )
+        raise ValueError(msg)
+    if days is None or "person_id" not in days.columns:
+        tables["persons"] = persons.with_columns(
+            pl.col("complete").fill_null(value=False).alias("model_usable")
+        )
+        return
+    has_usable_day = (
+        days.filter(pl.col("model_usable").fill_null(value=False))
+        .select("person_id")
+        .unique()
+        .with_columns(pl.lit(value=True).alias("_u"))
+    )
+    tables["persons"] = (
+        persons.join(has_usable_day, on="person_id", how="left")
+        .with_columns(pl.col("_u").fill_null(value=False).alias("model_usable"))
+        .drop("_u")
     )
 
 
@@ -275,17 +367,18 @@ def _flag_joint_groupings(tables: dict[str, pl.DataFrame | None]) -> None:
 def _flag_households(tables: dict[str, pl.DataFrame | None]) -> None:
     """Stamp ``model_usable`` on households, in place.
 
-    A household is admissible only if it has at least one **complete
-    household-day** -- a date on which every member reported a complete day.
-    Without one there is no coherently observed household pattern to weight, so
-    the household is dropped rather than left holding weight it cannot pass down.
+    A household is admissible only if it has at least one **usable
+    household-day** -- a date on which every member's day is model-usable (the
+    usable-side mirror of the complete-day rule). Without one there is no
+    coherently usable household pattern to weight, so the household is dropped
+    rather than left holding weight it cannot pass down.
 
-    Requires days to carry ``hh_day_complete`` (from
-    :func:`flag_household_day_complete`); a days table present but unflagged
-    raises rather than silently passing every household.
+    Requires days to carry ``hh_day_usable`` (from
+    :func:`flag_household_day_usable`); a days table present but unflagged raises
+    rather than silently passing every household.
 
     Raises:
-        ValueError: If days is present but has no ``hh_day_complete`` column.
+        ValueError: If days is present but has no ``hh_day_usable`` column.
     """
     households = tables.get("households")
     if households is None or "complete" not in households.columns:
@@ -293,28 +386,28 @@ def _flag_households(tables: dict[str, pl.DataFrame | None]) -> None:
 
     base = pl.col("complete").fill_null(value=False)
     days = tables.get("days")
-    if days is not None and "hh_day_complete" not in days.columns:
+    if days is not None and "hh_day_usable" not in days.columns:
         msg = (
-            "Cannot flag households: days has no hh_day_complete column yet. Run "
-            "flag_household_day_complete first, otherwise every household silently passes."
+            "Cannot flag households: days has no hh_day_usable column yet. Run "
+            "flag_household_day_usable first, otherwise every household silently passes."
         )
         raise ValueError(msg)
     if days is None or "hh_id" not in days.columns:
         tables["households"] = households.with_columns(base.alias("model_usable"))
         return
 
-    hh_has_complete_day = (
-        days.filter(pl.col("hh_day_complete").fill_null(value=False))
+    hh_has_usable_day = (
+        days.filter(pl.col("hh_day_usable").fill_null(value=False))
         .select("hh_id")
         .unique()
-        .with_columns(pl.lit(value=True).alias("_hh_has_complete_day"))
+        .with_columns(pl.lit(value=True).alias("_hh_has_usable_day"))
     )
     tables["households"] = (
-        households.join(hh_has_complete_day, on="hh_id", how="left")
+        households.join(hh_has_usable_day, on="hh_id", how="left")
         .with_columns(
-            (base & pl.col("_hh_has_complete_day").fill_null(value=False)).alias("model_usable")
+            (base & pl.col("_hh_has_usable_day").fill_null(value=False)).alias("model_usable")
         )
-        .drop("_hh_has_complete_day")
+        .drop("_hh_has_usable_day")
     )
 
 
@@ -336,10 +429,15 @@ def compute_model_usable(
             completeness plus household-day coherence (invalid tours stay
             usable).
     """
-    cascade_completeness(tables)
+    # -- Completeness rolls UP from days (person = >=1 complete day) and each
+    #    day-record inherits its day's complete.
+    rollup_completeness(tables)
 
-    # -- Household-day coherence (reverse cascade: member-days -> the date) ---
+    # -- Household-day coherence (lateral: ALL member-days complete that date) -
     flag_household_day_complete(tables)
+
+    # -- household.complete = >=1 complete household-day ----------------------
+    rollup_household_complete(tables)
 
     # -- Tours ---------------------------------------------------------------
     _flag_tours(tables, require_valid_tours=require_valid_tours)
@@ -371,17 +469,14 @@ def compute_model_usable(
         else:
             tables["days"] = days.with_columns(base.alias("model_usable"))
 
-    # -- Persons: model_usable == complete ------------------------------------
-    # A person with no usable day is deliberately kept: they are a real person
-    # who happens to contribute no travel, and person weights stay calibrated to
-    # the person controls. Only their days fall out.
-    persons = tables.get("persons")
-    if persons is not None and "complete" in persons.columns:
-        tables["persons"] = persons.with_columns(
-            pl.col("complete").fill_null(value=False).alias("model_usable")
-        )
+    # -- Persons: model_usable = has >=1 usable day (mirror of complete) ------
+    # A person kept with no usable day contributes no travel but stays a real
+    # person; their days simply fall out.
+    _flag_person_usable(tables)
 
-    # -- Households (upward rule: needs a usable person) ----------------------
+    # -- Household-day usability (lateral: ALL member-days usable) then
+    #    household = >=1 usable household-day.
+    flag_household_day_usable(tables)
     _flag_households(tables)
 
     # -- Member trips follow their tour --------------------------------------

@@ -7,23 +7,32 @@ from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
     _flag_households,
     _flag_joint_groupings,
-    cascade_completeness,
     compute_model_usable,
+    flag_household_day_complete,
     flag_model_usable,
+    rollup_completeness,
+    rollup_household_complete,
 )
 
 
-class TestCascadeCompleteness:
-    """Tests for cascade_completeness (household-down reporting completeness)."""
+class TestRollupCompleteness:
+    """Completeness rolls UP from days; day-records inherit their day's complete."""
 
     def _tables(self) -> dict:
+        # person 1 (hh 1): day 1 complete, day 2 not. person 2 (hh 2): day 3 not.
         return {
-            "households": pl.DataFrame({"hh_id": [1, 2], "complete": [True, False]}),
+            "households": pl.DataFrame({"hh_id": [1, 2], "complete": [True, True]}),
             "persons": pl.DataFrame(
                 {"person_id": [1, 2], "hh_id": [1, 2], "complete": [True, True]}
             ),
             "days": pl.DataFrame(
-                {"day_id": [1, 2, 3], "person_id": [1, 1, 2], "complete": [True, False, True]}
+                {
+                    "day_id": [1, 2, 3],
+                    "person_id": [1, 1, 2],
+                    "hh_id": [1, 1, 2],
+                    "travel_date": ["d1", "d2", "d1"],
+                    "complete": [True, False, False],
+                }
             ),
             "tours": pl.DataFrame(
                 {"tour_id": [1, 2, 3], "day_id": [1, 2, 3], "complete": [True, True, True]}
@@ -33,18 +42,16 @@ class TestCascadeCompleteness:
             ),
         }
 
-    def test_incomplete_household_cascades_to_person(self):
-        """Person 2 is in incomplete household 2 -> becomes incomplete."""
+    def test_person_complete_is_any_complete_day(self):
+        """Person 1 has a complete day -> complete; person 2 has none -> incomplete."""
         tables = self._tables()
-        cascade_completeness(tables)
+        rollup_completeness(tables)
         assert tables["persons"].sort("person_id")["complete"].to_list() == [True, False]
 
-    def test_incomplete_day_and_ancestors_cascade_to_tours(self):
-        """Tours inherit incompleteness from their day (and its ancestors)."""
+    def test_day_records_inherit_their_day(self):
+        """A tour/trip is complete only if its day is (own AND day)."""
         tables = self._tables()
-        cascade_completeness(tables)
-        # day 1: complete; day 2: own incomplete; day 3: complete but person 2's HH incomplete
-        assert tables["days"].sort("day_id")["complete"].to_list() == [True, False, False]
+        rollup_completeness(tables)
         assert tables["tours"].sort("tour_id")["complete"].to_list() == [True, False, False]
         assert tables["linked_trips"].sort("linked_trip_id")["complete"].to_list() == [
             True,
@@ -52,25 +59,33 @@ class TestCascadeCompleteness:
             False,
         ]
 
-    def test_own_incomplete_respected_under_complete_ancestors(self):
-        """A record flagged incomplete stays incomplete even if all ancestors are complete."""
+    def test_own_incomplete_survives_a_complete_day(self):
+        """A record flagged incomplete stays incomplete even on a complete day."""
         tables = self._tables()
         tables["tours"] = pl.DataFrame({"tour_id": [1], "day_id": [1], "complete": [False]})
-        cascade_completeness(tables)
+        rollup_completeness(tables)
         assert tables["tours"]["complete"].to_list() == [False]
 
-    def test_idempotent(self):
-        """Re-running the cascade never changes an already-cascaded result."""
+    def test_household_needs_a_complete_household_day(self):
+        """Hh 1 has a complete household-day (d1); hh 2 has none."""
         tables = self._tables()
-        cascade_completeness(tables)
+        rollup_completeness(tables)
+        flag_household_day_complete(tables)
+        rollup_household_complete(tables)
+        assert tables["households"].sort("hh_id")["complete"].to_list() == [True, False]
+
+    def test_idempotent(self):
+        """Re-running the rollup never changes an already-rolled result."""
+        tables = self._tables()
+        rollup_completeness(tables)
         once = tables["tours"].sort("tour_id")["complete"].to_list()
-        cascade_completeness(tables)
+        rollup_completeness(tables)
         assert tables["tours"].sort("tour_id")["complete"].to_list() == once
 
     def test_missing_tables_are_skipped(self):
-        """Cascade tolerates missing child tables (e.g. only households present)."""
+        """Rollup tolerates a bare tables dict (no days)."""
         tables = {"households": pl.DataFrame({"hh_id": [1], "complete": [False]})}
-        cascade_completeness(tables)  # must not raise
+        rollup_completeness(tables)  # must not raise
         assert tables["households"]["complete"].to_list() == [False]
 
 
@@ -171,10 +186,15 @@ class TestComputeModelUsable:
         compute_model_usable(tables)
         assert tables["days"]["model_usable"].to_list() == [True]
 
-    def test_incomplete_ancestor_gates_everything_out(self):
-        """Reporting incompleteness cascades into the gate."""
+    def test_incomplete_day_rolls_up_and_down(self):
+        """An incomplete day makes its records unusable and its person incomplete.
+
+        Completeness rolls *up* now: an incomplete day is not forced by an
+        ancestor, it makes the person incomplete (no complete day) and its own
+        tours/trips inherit the incompleteness downward.
+        """
         tables = _gate_tables()
-        tables["households"] = pl.DataFrame({"hh_id": [1], "complete": [False]})
+        tables["days"] = pl.DataFrame({"day_id": [1], "person_id": [1], "complete": [False]})
         compute_model_usable(tables)
         assert tables["persons"]["model_usable"].to_list() == [False]
         assert tables["days"]["model_usable"].to_list() == [False]
@@ -394,11 +414,11 @@ class TestUnflaggedMemberTablesRaise:
             _flag_joint_groupings(tables)
 
     def test_households_with_uncohered_days_raise(self):
-        """The household rule reads days.hh_day_complete; unflagged days must raise."""
+        """The household rule reads days.hh_day_usable; unflagged days must raise."""
         tables = _joint_tables(tour_usable=[True, True])
-        # days present but flag_household_day_complete not run yet
-        assert "hh_day_complete" not in tables["days"].columns
-        with pytest.raises(ValueError, match="no hh_day_complete column yet"):
+        # days present but flag_household_day_usable not run yet
+        assert "hh_day_usable" not in tables["days"].columns
+        with pytest.raises(ValueError, match="no hh_day_usable column yet"):
             _flag_households(tables)
 
     def test_partial_call_without_the_member_table_is_still_allowed(self):

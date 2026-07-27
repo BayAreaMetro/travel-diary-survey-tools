@@ -156,6 +156,14 @@ class PersonDayModel(BaseModel):
             "model_usable within a complete household-day."
         ),
     )
+    hh_day_usable: bool | None = schema_field(
+        default=None,
+        description=(
+            "Usable-side mirror of hh_day_complete: every member's day on this "
+            "travel_date is model_usable. Stamped by flag_model_usable; a "
+            "household is admissible only with >=1 usable household-day."
+        ),
+    )
     model_usable: bool | None = schema_field(
         default=None,
         description=(
