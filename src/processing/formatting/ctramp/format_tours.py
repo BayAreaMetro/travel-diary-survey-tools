@@ -12,7 +12,7 @@ import polars as pl
 
 from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPTourCategory, TourComposition
 from data_canon.codebook.persons import SchoolType
-from data_canon.codebook.tours import TourDirection
+from data_canon.codebook.tours import TourDirection, TourType
 from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.mappings import (
     EMPLOYMENT_TO_CTRAMP,
@@ -151,8 +151,10 @@ def format_individual_tour(
         PurposeCategory.SCHOOL.value,
     ]
 
+    # Any subtour is AT_WORK to CT-RAMP, which has no at-school subtour concept;
+    # school-anchored subtours ride along in that category as they always have.
     individual_tours = individual_tours.with_columns(
-        pl.when(pl.col("parent_tour_id") != pl.col("tour_id"))
+        pl.when(pl.col("tour_type") != TourType.HOME_BASED.value)
         .then(pl.lit(CTRAMPTourCategory.AT_WORK.value))
         .when(pl.col("tour_purpose").is_in(mandatory_purposes))
         .then(pl.lit(CTRAMPTourCategory.MANDATORY.value))
@@ -249,10 +251,20 @@ def format_individual_tour(
         )
         raise ValueError(msg)
 
+    # CT-RAMP's tour_id must be unique within the person. tour_num does not
+    # qualify: it restarts each day, and a subtour carries its parent's tour_num
+    # (subtour_num is what separates them), so a work tour and its at-work
+    # subtour would collide. The canonical tour_id already packs
+    # day / tour_num / subtour_num in travel order, so ranking it per person
+    # numbers the tours 1..n with each parent ahead of its own subtours.
+    individual_tours = individual_tours.with_columns(
+        pl.col("tour_id").rank("dense").over("person_id").cast(pl.Int64).alias("_ctramp_tour_id")
+    )
+
     # Format columns to CTRAMP specifications
     individual_tours = individual_tours.with_columns(
         [
-            pl.col("tour_num").alias("tour_id"),  # CTRAMP tour_id is tour_num
+            pl.col("_ctramp_tour_id").alias("tour_id"),
             pl.col("tour_id").alias("_tour_id_canonical"),  # Temp column for joining with trips
             pl.col("tour_category_ctramp").alias("tour_category"),
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
