@@ -208,6 +208,7 @@ from data_canon.models.ctramp import (
 from pipeline.decoration import step
 
 from .ctramp_config import CTRAMPConfig
+from .filters import _drop_invalid_tours, _drop_missing_taz, _drop_zero_weight
 from .format_ao import format_ao_results
 from .format_cdap import format_cdap_results
 from .format_households import format_households
@@ -233,207 +234,6 @@ MODEL_MAP = {
 }
 
 
-def _drop_missing_taz(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    tours: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    joint_trips: pl.DataFrame,
-    config: CTRAMPConfig,
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    """Remove records with missing TAZ fields and ensure referential integrity.
-
-    Performs cascading deletions to maintain data consistency:
-    1. Remove households without valid home TAZ
-    2. Remove persons from dropped households
-    3. Remove tours/trips with missing origin or destination TAZ
-    4. Remove tours that have no trips remaining
-    5. Remove joint trips that have no linked trips remaining
-
-    Args:
-        households: Canonical household data
-        persons: Canonical person data
-        tours: Canonical tour data
-        linked_trips: Canonical linked trip data
-        joint_trips: Canonical joint trip data
-        config: CTRAMP configuration with taz_field name
-
-    Returns:
-        Tuple of filtered DataFrames maintaining referential integrity
-    """
-    # Track original counts for logging
-    counts = {
-        "households": len(households),
-        "persons": len(persons),
-        "tours": max(0, len(tours)),
-        "linked_trips": max(0, len(linked_trips)),
-        "joint_trips": max(0, len(joint_trips)),
-    }
-
-    # Step 1: Filter households by home TAZ
-    households = households.filter(
-        pl.col(f"home_{config.taz_field}").is_not_null()
-        & (pl.col(f"home_{config.taz_field}") != -1)
-    )
-    valid_hh_ids = households["hh_id"]
-
-    # Step 2: Remove orphaned persons
-    persons = persons.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
-
-    logger.info(
-        "Dropped %d households without valid home TAZ (keeping %d households, %d persons)",
-        counts["households"] - len(households),
-        len(households),
-        len(persons),
-    )
-
-    # Step 3: Filter tours by household and TAZ fields
-    if len(tours) > 0:
-        tours = tours.filter(
-            pl.col("hh_id").is_in(valid_hh_ids.implode())
-            & pl.col(f"o_{config.taz_field}").is_not_null()
-            & (pl.col(f"o_{config.taz_field}") != -1)
-            & pl.col(f"d_{config.taz_field}").is_not_null()
-            & (pl.col(f"d_{config.taz_field}") != -1)
-        )
-        valid_tour_ids = tours["tour_id"]
-    else:
-        valid_tour_ids = pl.Series("tour_id", [], dtype=pl.Int64)
-
-    # Step 4: Filter linked trips by tour and TAZ fields
-    if len(linked_trips) > 0:
-        linked_trips = linked_trips.filter(
-            pl.col("tour_id").is_in(valid_tour_ids.implode())
-            & pl.col(f"o_{config.taz_field}").is_not_null()
-            & (pl.col(f"o_{config.taz_field}") != -1)
-            & pl.col(f"d_{config.taz_field}").is_not_null()
-            & (pl.col(f"d_{config.taz_field}") != -1)
-        )
-        # Get tours that still have trips
-        tours_with_trips = linked_trips["tour_id"].unique()
-
-        # Remove tours that lost all their trips
-        if len(tours) > 0:
-            tours_before = len(tours)
-            tours = tours.filter(pl.col("tour_id").is_in(tours_with_trips.implode()))
-            if tours_before != len(tours):
-                logger.info(
-                    "Removed %d tours that had no valid trips remaining",
-                    tours_before - len(tours),
-                )
-    # No trips means no tours should remain
-    elif len(tours) > 0:
-        logger.info("Removed all %d tours because no valid trips exist", len(tours))
-        tours = tours.head(0)
-
-    # Step 5: Filter joint trips by linked trips and TAZ fields
-    if len(joint_trips) > 0:
-        # First filter by household
-        joint_trips = joint_trips.filter(pl.col("hh_id").is_in(valid_hh_ids))
-
-        # Filter by TAZ fields if they exist in joint_trips
-        taz_cols = [f"o_{config.taz_field}", f"d_{config.taz_field}"]
-        has_taz = all(col in joint_trips.columns for col in taz_cols)
-        if has_taz:
-            joint_trips = joint_trips.filter(
-                pl.col(f"o_{config.taz_field}").is_not_null()
-                & (pl.col(f"o_{config.taz_field}") != -1)
-                & pl.col(f"d_{config.taz_field}").is_not_null()
-                & (pl.col(f"d_{config.taz_field}") != -1)
-            )
-
-        # Keep only joint trips that have corresponding linked trips
-        if len(linked_trips) > 0 and "joint_trip_id" in linked_trips.columns:
-            valid_joint_trip_ids = linked_trips.filter(pl.col("joint_trip_id").is_not_null())[
-                "joint_trip_id"
-            ].unique()
-            joint_trips = joint_trips.filter(pl.col("joint_trip_id").is_in(valid_joint_trip_ids))
-        else:
-            # No linked trips with joint_trip_id means no joint trips should remain
-            logger.info(
-                "Removed all %d joint trips because no valid linked trips exist", len(joint_trips)
-            )
-            joint_trips = joint_trips.head(0)
-
-    # Final logging
-    logger.info(
-        "TAZ filtering complete:\n"
-        "  Tours: %d → %d (dropped %d)\n"
-        "  Linked trips: %d → %d (dropped %d)\n"
-        "  Joint trips: %d → %d (dropped %d)",
-        counts["tours"],
-        len(tours),
-        counts["tours"] - len(tours),
-        counts["linked_trips"],
-        len(linked_trips),
-        counts["linked_trips"] - len(linked_trips),
-        counts["joint_trips"],
-        len(joint_trips),
-        counts["joint_trips"] - len(joint_trips),
-    )
-
-    return households, persons, tours, linked_trips, joint_trips
-
-
-def _drop_zero_weight(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    tours: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    joint_trips: pl.DataFrame,
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    """Remove records with null or zero household weight and cascade.
-
-    Households with null or zero hh_weight are excluded from CT-RAMP output
-    (they have no representation in the travel model). Removal cascades to
-    persons, tours, and trips to maintain referential integrity.
-
-    Args:
-        households: Canonical household data with hh_weight column
-        persons: Canonical person data
-        tours: Canonical tour data
-        linked_trips: Canonical linked trip data
-        joint_trips: Canonical joint trip data
-
-    Returns:
-        Tuple of filtered DataFrames maintaining referential integrity
-    """
-    if "hh_weight" not in households.columns:
-        logger.warning("hh_weight column not found; skipping zero-weight filter.")
-        return households, persons, tours, linked_trips, joint_trips
-
-    n_before = len(households)
-    households = households.filter(pl.col("hh_weight").is_not_null() & (pl.col("hh_weight") > 0))
-    n_dropped = n_before - len(households)
-    if n_dropped == 0:
-        return households, persons, tours, linked_trips, joint_trips
-
-    logger.info(
-        "Dropped %d household(s) with null or zero hh_weight (keeping %d)",
-        n_dropped,
-        len(households),
-    )
-
-    valid_hh_ids = households["hh_id"]
-    persons = persons.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
-    if len(tours) > 0:
-        tours = tours.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
-    if len(linked_trips) > 0:
-        linked_trips = linked_trips.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
-    if len(joint_trips) > 0:
-        joint_trips = joint_trips.filter(pl.col("hh_id").is_in(valid_hh_ids.implode()))
-
-    logger.info(
-        "After zero-weight filter: %d persons, %d tours, %d linked trips, %d joint trips",
-        len(persons),
-        len(tours),
-        len(linked_trips),
-        len(joint_trips),
-    )
-
-    return households, persons, tours, linked_trips, joint_trips
-
-
 def _drop_excess_fields(
     df: pl.DataFrame,
     model_cls: type,
@@ -443,11 +243,9 @@ def _drop_excess_fields(
     Args:
         df: Input DataFrame
         model_cls: Data model class with defined fields
+
     Returns:
         DataFrame with only columns defined in the model class
-    valid_fields = set(model_cls.model_fields.keys())
-    cols_to_drop = [col for col in df.columns if col not in valid_fields]
-    return df.drop(cols_to_drop)
     """
     valid_fields = set(model_cls.model_fields.keys())
     cols_to_drop = set(df.columns) - valid_fields
@@ -615,9 +413,11 @@ def _incorporate_day_into_ids(
 def format_ctramp(  # noqa: PLR0913
     persons: pl.DataFrame,
     households: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
     joint_trips: pl.DataFrame,
+    joint_tours: pl.DataFrame,
     days: pl.DataFrame,
     income_low_threshold: int,
     income_med_threshold: int,
@@ -625,8 +425,8 @@ def format_ctramp(  # noqa: PLR0913
     income_survey_year_to_ctramp_year: float,
     taz_field: str = "taz",
     drop_missing_taz: bool = True,
+    drop_invalid_tours: bool = True,
     filter_zero_weight: bool = True,
-    unlinked_trips: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -647,6 +447,10 @@ def format_ctramp(  # noqa: PLR0913
         tours: Canonical tour data. Required columns: tour_id, hh_id, person_id,
             person_num, tour_category, tour_purpose, o_taz, d_taz, times,
             tour_mode, joint_tour_id, parent_tour_id.
+        joint_tours: Aggregated joint tour data carrying ``joint_tour_weight``.
+            May be empty but must be provided.
+        unlinked_trips: Canonical unlinked trips used to derive detailed transit
+            submodes for formatted tours and trips. May be empty but must be provided.
         joint_trips: Aggregated joint trip data. Required columns: joint_trip_id,
             hh_id, num_joint_travelers.
         days: Canonical person-days data. Required columns: person_id, hh_id,
@@ -670,6 +474,10 @@ def format_ctramp(  # noqa: PLR0913
         filter_zero_weight: If True, remove households with null or zero
             hh_weight before formatting, cascading to persons, tours, and
             trips (default: True).
+        drop_invalid_tours: If True, remove tours that are not VALID (single-trip,
+            loop, missing-anchor, change-mode, indeterminate) or not COMPLETE (do
+            not start and end at home), mirroring the DaySim formatter (which drops
+            both). Cascades to linked and joint trips (default: True).
 
     Returns:
         Dictionary with keys:
@@ -696,9 +504,12 @@ def format_ctramp(  # noqa: PLR0913
         result = format_ctramp(
             persons=canonical_persons,
             households=canonical_households,
+            unlinked_trips=canonical_unlinked_trips,
             linked_trips=canonical_linked_trips,
             tours=canonical_tours,
             joint_trips=canonical_joint_trips,
+            joint_tours=canonical_joint_tours,
+            days=canonical_days,
             income_low_threshold=30000,          # $30k divides low from medium ($2000)
             income_med_threshold=60000,          # $60k divides medium from high ($2000)
             income_high_threshold=100000,        # $100k divides high from very high ($2000)
@@ -724,9 +535,15 @@ def format_ctramp(  # noqa: PLR0913
         income_survey_year_to_ctramp_year=income_survey_year_to_ctramp_year,
         drop_missing_taz=drop_missing_taz,
         filter_zero_weight=filter_zero_weight,
+        drop_invalid_tours=drop_invalid_tours,
         taz_field=taz_field,
     )
     logger.info("Starting CT-RAMP formatting")
+
+    # Drop invalid/partial tours before anything else so CT-RAMP and DaySim
+    # outputs contain the same set of tours (and no null-purpose leakage).
+    if config.drop_invalid_tours:
+        tours, linked_trips, joint_trips = _drop_invalid_tours(tours, linked_trips, joint_trips)
 
     # Ensure TAZ columns are Int64 for filtering
     households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))
@@ -854,6 +671,7 @@ def format_ctramp(  # noqa: PLR0913
         households_ctramp=households_ctramp,
         config=config,
         unlinked_trips_canonical=unlinked_trips,
+        joint_tours_canonical=joint_tours,
     )
 
     individual_trips_ctramp = format_individual_trip(
@@ -866,12 +684,12 @@ def format_ctramp(  # noqa: PLR0913
     )
 
     joint_trips_ctramp = format_joint_trip(
+        unlinked_trips_canonical=unlinked_trips,
         joint_trips_canonical=joint_trips,
         linked_trips_canonical=linked_trips,
         tours_canonical=tours,
         households_ctramp=households_ctramp,
         config=config,
-        unlinked_trips_canonical=unlinked_trips,
     )
 
     # Prepare result dictionary and clean up temporary columns

@@ -10,7 +10,11 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPPersonType
+from data_canon.codebook.ctramp import (
+    CTRAMPEmploymentCategory,
+    CTRAMPPersonType,
+    CTRAMPTourCategory,
+)
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import Purpose, TNCType
@@ -66,7 +70,7 @@ def format_individual_trip(
     persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
-    unlinked_trips_canonical: pl.DataFrame | None = None,
+    unlinked_trips_canonical: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format individual trips to CT-RAMP specification.
 
@@ -85,6 +89,9 @@ def format_individual_trip(
         persons_canonical: Canonical persons DataFrame with person_id, person_num, school_type
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds
+        unlinked_trips_canonical: Canonical unlinked trips DataFrame with
+            linked_trip_id, mode_type, access_mode, egress_mode, transit_submode,
+            tnc_type; may be empty but must be provided
 
     Returns:
         DataFrame with CT-RAMP individual trip fields
@@ -186,10 +193,7 @@ def format_individual_trip(
             # Single-trip leg (max 0-based sequence is 0) has no intermediate stop
             # and is assigned -1; otherwise keep the 0-based sequence.
             pl.when(
-                pl.col("_stop_seq")
-                .max()
-                .over(["_canonical_tour_id", "tour_direction_str"])
-                == 0
+                pl.col("_stop_seq").max().over(["_canonical_tour_id", "tour_direction_str"]) == 0
             )
             .then(pl.lit(-1))
             .otherwise(pl.col("_stop_seq"))
@@ -240,11 +244,9 @@ def format_individual_trip(
 
     # Map trip mode (tour_mode already formatted from join)
     # Derive the transit submode per linked trip from detailed unlinked-trip modes
-    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
+    if not unlinked_trips_canonical.is_empty():
         submode_by_trip = aggregate_transit_submode(unlinked_trips_canonical, "linked_trip_id")
-        individual_trips = individual_trips.join(
-            submode_by_trip, on="linked_trip_id", how="left"
-        )
+        individual_trips = individual_trips.join(submode_by_trip, on="linked_trip_id", how="left")
         trip_submode_expr = pl.col("transit_submode")
         tnc_type = pl.col("tnc_type")
     else:
@@ -258,7 +260,7 @@ def format_individual_trip(
             pl.col("access_mode"),
             pl.col("egress_mode"),
             trip_submode_expr,
-            tnc_type
+            tnc_type,
         ).alias("trip_mode")
     )
 
@@ -314,7 +316,7 @@ def format_joint_trip(
     tours_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
-    unlinked_trips_canonical: pl.DataFrame | None = None,
+    unlinked_trips_canonical: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format joint trips to CT-RAMP specification.
 
@@ -333,6 +335,9 @@ def format_joint_trip(
             tour_purpose, tour_category, tour_mode
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds
+        unlinked_trips_canonical: Canonical unlinked trips DataFrame with
+            linked_trip_id, mode_type, access_mode, egress_mode, transit_submode,
+            tnc_type; may be empty but must be provided
 
     Returns:
         DataFrame with CT-RAMP joint trip fields
@@ -380,10 +385,8 @@ def format_joint_trip(
 
     # Derive the transit submode per joint trip from detailed unlinked-trip modes,
     # bridging unlinked segments to joint_trip_id via linked_trip_id.
-    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
-        submode_by_linked = aggregate_transit_submode(
-            unlinked_trips_canonical, "linked_trip_id"
-        )
+    if not unlinked_trips_canonical.is_empty():
+        submode_by_linked = aggregate_transit_submode(unlinked_trips_canonical, "linked_trip_id")
         submode_by_joint = (
             joint_linked_trips.select(["joint_trip_id", "linked_trip_id"])
             .join(submode_by_linked, on="linked_trip_id", how="left")
@@ -425,17 +428,13 @@ def format_joint_trip(
         .first()
         .alias("tour_egress_mode"),
     )
-    joint_trips_formatted = joint_trips_formatted.join(
-        tour_access_egress, on="tour_id", how="left"
-    )
+    joint_trips_formatted = joint_trips_formatted.join(tour_access_egress, on="tour_id", how="left")
 
     # Derive tour-level transit submode / TNC type per joint tour, mirroring
     # format_joint_tour so the joint tour mode uses the tour's highest submode
     # rather than a single trip leg's submode.
-    if unlinked_trips_canonical is not None and len(unlinked_trips_canonical) > 0:
-        tour_submode = aggregate_transit_submode(
-            unlinked_trips_canonical, "joint_tour_id"
-        ).rename(
+    if not unlinked_trips_canonical.is_empty():
+        tour_submode = aggregate_transit_submode(unlinked_trips_canonical, "joint_tour_id").rename(
             {"transit_submode": "tour_transit_submode", "tnc_type": "tour_tnc_type"}
         )
         joint_trips_formatted = joint_trips_formatted.join(
@@ -445,7 +444,7 @@ def format_joint_trip(
         tour_tnc_type = pl.col("tour_tnc_type")
     else:
         tour_submode_expr = None
-        tour_tnc_type = None# Derive tour-level transit submode / TNC type per joint tour,
+        tour_tnc_type = None  # Derive tour-level transit submode / TNC type per joint tour,
 
     # Filter to only trips on joint tours
     joint_trips_formatted = joint_trips_formatted.filter(pl.col("joint_tour_id").is_not_null())
@@ -546,9 +545,7 @@ def format_joint_trip(
         .sort(["joint_tour_id", "tour_direction_str", "depart_time", "arrive_time"])
         .with_columns(
             (
-                pl.col("depart_time")
-                .rank("ordinal")
-                .over(["joint_tour_id", "tour_direction_str"])
+                pl.col("depart_time").rank("ordinal").over(["joint_tour_id", "tour_direction_str"])
                 - 1
             )
             .cast(pl.Int64)
@@ -557,9 +554,7 @@ def format_joint_trip(
         .with_columns(
             # Single-trip leg (max 0-based sequence is 0) has no intermediate stop
             # and is assigned -1; otherwise keep the 0-based sequence.
-            pl.when(
-                pl.col("_stop_seq").max().over(["joint_tour_id", "tour_direction_str"]) == 0
-            )
+            pl.when(pl.col("_stop_seq").max().over(["joint_tour_id", "tour_direction_str"]) == 0)
             .then(pl.lit(-1))
             .otherwise(pl.col("_stop_seq"))
             .cast(pl.Int64)
@@ -575,9 +570,24 @@ def format_joint_trip(
         .alias("_ctramp_joint_tour_id")
     )
 
+    # The joint trip weight comes from the cascade on joint_trips_canonical; carry
+    # it through and express it as a sample rate, as individual trips do.
+    weight_cols: list[pl.Expr] = []
+    if "joint_trip_weight" in joint_trips_formatted.columns:
+        weight_cols = [
+            pl.col("joint_trip_weight"),
+            pl.when(pl.col("joint_trip_weight") > 0)
+            .then(pl.col("joint_trip_weight").pow(-1))
+            .otherwise(None)
+            .alias("sampleRate"),
+        ]
+
     # Select final columns with snake_case names
     select_cols = [
         pl.col("hh_id"),
+        # WARNING: Canonical processing uses joint_tour_id. CT-RAMP's legacy
+        # joint-trip schema calls this household-scoped joint-tour number tour_id.
+        # Rename only at the output boundary to avoid conflating the identifiers.
         pl.col("_ctramp_joint_tour_id").alias("tour_id"),
         pl.col("stop_id"),
         pl.col("inbound"),
@@ -589,14 +599,13 @@ def format_joint_trip(
         pl.lit(0).cast(pl.Int64).alias("parking_taz"),  # Default 0 (no parking)
         pl.col("trip_mode"),
         pl.col("tour_mode_ctramp").alias("tour_mode"),
-        # All joint tours are just "JOINT_NON_MANDATORY" category
-        pl.lit("JOINT_NON_MANDATORY").alias("tour_category"),
+        # All joint tours are JOINT_NON_MANDATORY.
+        pl.lit(CTRAMPTourCategory.JOINT_NON_MANDATORY.value).alias("tour_category"),
         pl.col("num_joint_travelers").cast(pl.Int64).alias("num_participants"),
         pl.col("depart_hour").cast(pl.Int64),
         pl.col("trip_time"),
+        *weight_cols,
     ]
-    if "hh_weight" in joint_trips_formatted.columns:
-        select_cols.append(pl.col("hh_weight").alias("trip_weight"))
     joint_trips_ctramp = joint_trips_formatted.select(select_cols)
 
     logger.info("Formatted %d joint trip records", len(joint_trips_ctramp))

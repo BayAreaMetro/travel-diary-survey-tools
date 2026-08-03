@@ -40,6 +40,7 @@ from data_canon.codebook.generic import LocationType
 from data_canon.codebook.persons import AgeCategory, Employment, SchoolType, Student
 from data_canon.codebook.tours import PersonCategory
 from data_canon.codebook.trips import ModeType, PurposeCategory
+from processing.tours.habitual_locations import HabitualLocationConfig
 
 
 class TourConfig(BaseModel):
@@ -164,6 +165,26 @@ class TourConfig(BaseModel):
         description=(
             "If True, only detect work-based subtours from 'usual workplace' "
             "(coordinate match to work_lat/work_lon)."
+        ),
+    )
+
+    spatial_gap_threshold_meters: float = Field(
+        default=1000.0,
+        description=(
+            "A tour is flagged SPATIAL_GAP when any internal junction has a "
+            "gap greater than this (meters) between one trip's destination and "
+            "the next trip's origin - i.e. a missing leg the tour extractor "
+            "would otherwise silently weld into one 'complete' tour. Default "
+            "1 km catches genuine teleports while ignoring same-place geocoding "
+            "jitter."
+        ),
+    )
+
+    habitual_locations: HabitualLocationConfig = Field(
+        default_factory=HabitualLocationConfig,
+        description=(
+            "Rules for promoting observed places into habitual locations, and "
+            "the radius within which two points are treated as the same place."
         ),
     )
 

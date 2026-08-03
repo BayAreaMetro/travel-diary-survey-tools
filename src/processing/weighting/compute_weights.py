@@ -101,6 +101,9 @@ def compute_weights(  # noqa: PLR0913
     diagnostics: dict | None = None,
     # -- Validation ------------------------------------------------------
     strict_survey_nulls: bool = False,
+    # -- Completeness handling ------------------------------------------
+    exclude_incompletes: bool = True,
+    usability_flag_col: str = "model_usable",
     # -- Canonical tables (auto-injected by pipeline) -------------------
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -109,6 +112,7 @@ def compute_weights(  # noqa: PLR0913
     linked_trips: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
+    joint_tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
@@ -132,6 +136,7 @@ def compute_weights(  # noqa: PLR0913
         linked_trips=linked_trips,
         tours=tours,
         joint_trips=joint_trips,
+        joint_tours=joint_tours,
     )
     # Prepare the pipeline configuration objects
     wt_config = WeightingConfig(
@@ -144,6 +149,8 @@ def compute_weights(  # noqa: PLR0913
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
         expansion_factor_grid=expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
+        exclude_incompletes=exclude_incompletes,
+        usability_flag_col=usability_flag_col,
     )
     # Prepare the balancing configs (max expansion factor, weight bounds, max iterations, etc.)
     balance_cfg = BalancingConfig(

@@ -36,13 +36,19 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pipeline.decoration import step
 from processing.weighting.balancing.weight_propagation import (
+    LEVELS,
     WEIGHT_COLUMNS,
     WEIGHT_CONFIG_MAPPING,
     collect_tables,
+    distribute_within_scope,
+    is_usable,
     propagate_weights,
 )
 
 logger = logging.getLogger(__name__)
+
+# Rescale factors within this distance of 1.0 are floating-point drift, not work.
+SCALE_TOL = 1e-9
 
 
 class ExistingWeightConfig(BaseModel):
@@ -167,10 +173,85 @@ class ExistingWeightConfig(BaseModel):
             raise ValueError(msg)
 
 
+def _apply_usability(
+    tables: dict[str, pl.DataFrame | None],
+    has_weight: dict[str, str],
+    *,
+    usability_flag_col: str,
+) -> None:
+    """Redistribute supplied weights onto usable records, preserving each total.
+
+    Unlike the computed path, the vendor's anchor cannot be re-balanced: their
+    weights already sum to their population estimate, so dropping records must
+    not shrink that total. Each supplied weight is first conserved within its
+    declared scope ([`distribute_within_scope`]
+    [processing.weighting.balancing.weight_propagation.distribute_within_scope]);
+    whatever that leaves stranded — scopes with no usable record at all — is
+    then closed with one table-wide factor. Modifies *tables* in place.
+
+    Args:
+        tables: Mutable dict of table_name → DataFrame (or None).
+        has_weight: Dict of table_name → weight column name.
+        usability_flag_col: Boolean column deciding which records may carry weight
+            (``model_usable`` by default; ``complete`` to weight the whole
+            valid survey).
+    """
+    for table_name, weight_col in has_weight.items():
+        df = tables.get(table_name)
+        if df is None or usability_flag_col not in df.columns:
+            continue
+
+        supplied_total = df.select(pl.col(weight_col).sum()).item() or 0.0
+        scope = LEVELS[table_name].scope
+
+        if scope is None:
+            # The anchor has no scope to spread within; zero and rescale below.
+            df = df.with_columns(
+                pl.when(is_usable(usability_flag_col))
+                .then(pl.col(weight_col))
+                .otherwise(0.0)
+                .alias(weight_col)
+            )
+        else:
+            # Raises when the scope column is absent -- quietly conserving the
+            # weight over some other grouping would change the numbers silently.
+            df = distribute_within_scope(
+                df,
+                weight_col=weight_col,
+                scope=scope,
+                usability_flag_col=usability_flag_col,
+                table=table_name,
+            )
+
+        placed_total = df.select(pl.col(weight_col).sum()).item() or 0.0
+        if placed_total > 0 and supplied_total > 0:
+            scale = supplied_total / placed_total
+            if abs(scale - 1.0) > SCALE_TOL:
+                df = df.with_columns((pl.col(weight_col) * scale).alias(weight_col))
+                logger.info(
+                    "%s: scaled %s by %.4f to preserve the supplied total (%.1f). This covers "
+                    "the weight of parents that kept no usable record, which has no sibling "
+                    "to receive it.",
+                    table_name,
+                    weight_col,
+                    scale,
+                    supplied_total,
+                )
+        elif supplied_total > 0:
+            logger.warning(
+                "%s: no usable record carries weight; the supplied total (%.1f) is lost",
+                table_name,
+                supplied_total,
+            )
+
+        tables[table_name] = df
+
+
 @step()
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, ExistingWeightConfig | dict],
     derive_missing_weights: bool = False,
+    usability_flag_col: str = "model_usable",
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
     days: pl.DataFrame | None = None,
@@ -178,6 +259,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     linked_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
+    joint_tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Attach existing weights to the data.
 
@@ -199,22 +281,31 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
         hh_weight
           └─ person_weight        (carry forward via hh_id)
-              └─ day_weight        (carry forward via person_id)
+              └─ day_weight        (split: person_weight / n_usable_days)
                   └─ unlinked_trip_weight  (carry forward via day_id)
                       ├─ linked_trip_weight   (mean agg via linked_trip_id)
                       ├─ joint_trip_weight    (mean agg via joint_trip_id)
                       └─ tour_weight          (mean agg via tour_id)
+                          └─ joint_tour_weight (mean agg via joint_tour_id)
 
-    Note that if there are no "adjustments" made to sub-table weights (e.g., person or trip), then
-    all weights should actually be exactly same from household through tour.
+    The shape is declared once in
+    [`HIERARCHY`][processing.weighting.balancing.weight_propagation.HIERARCHY]; this
+    step only supplies the weights it is given and derives the rest from it.
 
-    If sub-table weights do vary, a checksum can validate integrity:
+    Days are the *average-day* split: a person's usable days share their person
+    weight equally, so day totals read as persons on an average day (the
+    vendor's own convention). Supplied day weights are redistributed within
+    each person the same way.
+
+    Carry-forward levels are checked against what their parents represent:
 
     - ``sum(person_weight) ≈ sum(hh_weight x num_persons)``
-    - ``sum(day_weight) ≈ sum(person_weight x num_complete_days)``
+    - ``sum(day_weight) ≈ person_weight`` (per person, usable days)
     - ``sum(unlinked_trip_weight) ≈ sum(day_weight x num_trips)``
-    - ``sum(linked_trip_weight) ≈ sum(unlinked_trip_weight)``
-    - ``sum(tour_weight) ≈ sum(linked_trip_weight)``
+
+    The aggregate levels have no such identity: a mean over members does **not**
+    sum to the members' total, so ``sum(linked_trip_weight)`` is unrelated to
+    ``sum(unlinked_trip_weight)`` and is not checked.
 
     Args:
         weights: A dict mapping config keys to weight file paths.
@@ -234,6 +325,13 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
         derive_missing_weights: Whether to derive weights for tables
             without provided weight files (default: False).
+        usability_flag_col: Boolean column deciding which records may carry weight,
+            stamped upstream by the ``flag_model_usable`` step. Defaults to
+            ``model_usable`` (matching the tours CT-RAMP and DaySim keep); pass
+            ``complete`` to weight the whole valid survey including partial and
+            overnight tours. Supplied weights are redistributed onto the usable
+            records rather than simply zeroed, so each table's supplied total is
+            preserved — the vendor's anchor cannot be re-balanced from here.
         households: Households DataFrame.
         persons: Persons DataFrame.
         days: Days DataFrame.
@@ -241,6 +339,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         linked_trips: Linked trips DataFrame.
         tours: Tours DataFrame.
         joint_trips: Joint trips DataFrame.
+        joint_tours: Joint tours DataFrame.
 
     Returns:
         Dict of tables with attached weights.
@@ -271,6 +370,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         unlinked_trips=unlinked_trips,
         linked_trips=linked_trips,
         joint_trips=joint_trips,
+        joint_tours=joint_tours,
         tours=tours,
     )
 
@@ -341,20 +441,15 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         tables[table_name] = df.join(weight_df, on=cfg.table_id_col, how="left")
         has_weight[table_name] = cfg.canonical_weight_col
 
-    # Zero out weights for incomplete records on tables that already have weights
-    for table_name, weight_col in has_weight.items():
-        df = tables.get(table_name)
-        if df is not None and "complete" in df.columns:
-            tables[table_name] = df.with_columns(
-                pl.when(pl.col("complete"))
-                .then(pl.col(weight_col))
-                .otherwise(0.0)
-                .alias(weight_col)
-            )
+    # Redistribute each supplied weight onto the usable records, preserving the
+    # supplied total. Usability is stamped upstream by ``flag_model_usable``.
+    _apply_usability(tables, has_weight, usability_flag_col=usability_flag_col)
 
     # Derive missing weights if requested
     if derive_missing_weights:
-        propagate_weights(tables, has_weight, skip=provided_weights)
+        propagate_weights(
+            tables, has_weight, skip=provided_weights, usability_flag_col=usability_flag_col
+        )
 
     # Build results dict, excluding None values and internal tables
     # Do a quick check for any NULL weight values in any of the tables

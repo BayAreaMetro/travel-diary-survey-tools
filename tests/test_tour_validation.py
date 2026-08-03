@@ -38,6 +38,9 @@ class TestValidateAndCorrectTours:
                 "tour_num": [1, 1],
                 "_o_is_home": [True, False],
                 "_d_is_home": [False, True],
+                # Home-based tours: the anchor is home, so these mirror the flags above
+                "_o_at_anchor": [True, False],
+                "_d_at_anchor": [False, True],
             }
         )
 
@@ -71,6 +74,9 @@ class TestValidateAndCorrectTours:
                 "tour_num": [0],
                 "_o_is_home": [True],
                 "_d_is_home": [False],
+                # Home-based tours: the anchor is home, so these mirror the flags above
+                "_o_at_anchor": [True],
+                "_d_at_anchor": [False],
             }
         )
 
@@ -80,8 +86,8 @@ class TestValidateAndCorrectTours:
         assert "invalid tours" in caplog.text.lower()
         assert "tour_data_quality" in result.columns
 
-    def test_tour_without_home_anchor(self):
-        """Test tours missing home anchors."""
+    def test_tour_without_anchor(self):
+        """A tour that never touches its anchor at either end is not VALID."""
         tours = pl.DataFrame(
             {
                 "tour_id": ["tour_1"],
@@ -103,6 +109,9 @@ class TestValidateAndCorrectTours:
                 "tour_num": [1, 1],
                 "_o_is_home": [False, False],  # No home
                 "_d_is_home": [False, False],  # No home
+                # Home-based tour, so the anchor is home -- never reached
+                "_o_at_anchor": [False, False],
+                "_d_at_anchor": [False, False],
             }
         )
 
@@ -112,6 +121,91 @@ class TestValidateAndCorrectTours:
         # Should flag as problematic
         quality = result["tour_data_quality"][0]
         assert quality != TourDataQuality.VALID.value
+
+
+class TestSpatialGapDetection:
+    """Test SPATIAL_GAP flagging for tours that teleport across a missing leg."""
+
+    def _tour(self, points, *, purpose=PurposeCategory.WORK.value):
+        """Build a single multi-trip tour + linked_trips from o/d coordinates.
+
+        points: list of (depart, o_home, d_home, o(lat,lon), d(lat,lon)).
+        """
+        n = len(points)
+        tours = pl.DataFrame(
+            {
+                "tour_id": ["tour_1"],
+                "person_id": [1],
+                "day_id": [1],
+                "trip_count": [n],
+                "tour_num": [1],
+                "tour_category": [TourCategory.COMPLETE.value],
+                "tour_purpose": [purpose],
+            }
+        )
+        linked_trips = pl.DataFrame(
+            {
+                "tour_id": ["tour_1"] * n,
+                "person_id": [1] * n,
+                "hh_id": [1] * n,
+                "day_id": [1] * n,
+                "tour_num": [1] * n,
+                "depart_time": [p[0] for p in points],
+                "_o_is_home": [p[1] for p in points],
+                "_d_is_home": [p[2] for p in points],
+                # Home-based tours: the anchor is home
+                "_o_at_anchor": [p[1] for p in points],
+                "_d_at_anchor": [p[2] for p in points],
+                "o_lat": [p[3][0] for p in points],
+                "o_lon": [p[3][1] for p in points],
+                "d_lat": [p[4][0] for p in points],
+                "d_lon": [p[4][1] for p in points],
+            }
+        )
+        return tours, linked_trips
+
+    def test_internal_gap_flags_spatial_gap(self):
+        """A tour whose trips jump across a hole is flagged SPATIAL_GAP."""
+        home, a, b = (37.70, -122.40), (37.75, -122.42), (37.76, -122.43)
+        far = (38.30, -123.00)  # >1km from b -> the connecting leg is missing
+        tours, linked_trips = self._tour(
+            [
+                (8.0, True, False, home, a),
+                (10.0, False, False, a, b),  # continuous: resumes at a
+                (17.0, False, True, far, home),  # jumps: origin far from b
+            ]
+        )
+        result = validate_and_correct_tours(tours, linked_trips)
+        assert result["tour_data_quality"][0] == TourDataQuality.SPATIAL_GAP.value
+
+    def test_continuous_tour_stays_valid(self):
+        """A spatially continuous multi-trip tour remains VALID."""
+        home, a = (37.70, -122.40), (37.75, -122.42)
+        tours, linked_trips = self._tour(
+            [
+                (8.0, True, False, home, a),
+                (17.0, False, True, a, home),  # resumes at a -> continuous
+            ]
+        )
+        result = validate_and_correct_tours(tours, linked_trips)
+        assert result["tour_data_quality"][0] == TourDataQuality.VALID.value
+
+    def test_threshold_is_configurable(self):
+        """A jump below the configured threshold is not flagged."""
+        home, a, b = (37.70, -122.40), (37.75, -122.42), (37.76, -122.43)
+        far = (38.30, -123.00)
+        tours, linked_trips = self._tour(
+            [
+                (8.0, True, False, home, a),
+                (10.0, False, False, a, b),
+                (17.0, False, True, far, home),
+            ]
+        )
+        # A very large threshold tolerates the jump -> tour stays VALID.
+        result = validate_and_correct_tours(
+            tours, linked_trips, spatial_gap_threshold_meters=1_000_000.0
+        )
+        assert result["tour_data_quality"][0] == TourDataQuality.VALID.value
 
 
 class TestDiagnoseProblemTours:
@@ -132,8 +226,8 @@ class TestDiagnoseProblemTours:
                     TourDataQuality.INDETERMINATE.value,
                     TourDataQuality.INDETERMINATE.value,
                 ],
-                "_has_home_origin": [True, False],
-                "_has_home_dest": [False, False],
+                "_has_anchor_origin": [True, False],
+                "_has_anchor_dest": [False, False],
             }
         )
 
@@ -144,6 +238,9 @@ class TestDiagnoseProblemTours:
                 "depart_time": ["08:00", "09:00"],
                 "_o_is_home": [True, False],
                 "_d_is_home": [False, False],
+                # Home-based tours: the anchor is home, so these mirror the flags above
+                "_o_at_anchor": [True, False],
+                "_d_at_anchor": [False, False],
             }
         )
 
@@ -151,7 +248,7 @@ class TestDiagnoseProblemTours:
 
         # Should have logged diagnostics
         assert "INDETERMINATE tours" in caplog.text
-        assert "home anchor pattern" in caplog.text
+        assert "anchor pattern" in caplog.text
 
     def test_diagnose_with_no_problems(self, caplog):
         """Test diagnostic function with no problematic tours."""
@@ -165,8 +262,8 @@ class TestDiagnoseProblemTours:
                 "trip_count": [2],
                 "tour_category": [TourCategory.COMPLETE.value],
                 "tour_data_quality": [TourDataQuality.VALID.value],
-                "_has_home_origin": [True],
-                "_has_home_dest": [True],
+                "_has_anchor_origin": [True],
+                "_has_anchor_dest": [True],
             }
         )
 
@@ -177,6 +274,9 @@ class TestDiagnoseProblemTours:
                 "depart_time": [],
                 "_o_is_home": [],
                 "_d_is_home": [],
+                # Home-based tours: the anchor is home, so these mirror the flags above
+                "_o_at_anchor": [],
+                "_d_at_anchor": [],
             }
         )
 
@@ -220,6 +320,9 @@ class TestTourValidationIntegration:
                 "tour_num": [1, 1, 0, 1, 1, 1],
                 "_o_is_home": [True, False, True, False, False, False],
                 "_d_is_home": [False, True, False, False, False, False],
+                # Home-based tours: the anchor is home, so these mirror the flags above
+                "_o_at_anchor": [True, False, True, False, False, False],
+                "_d_at_anchor": [False, True, False, False, False, False],
             }
         )
 
@@ -251,6 +354,9 @@ class TestTourValidationIntegration:
                 "tour_num": [1, 1, 1, 0],
                 "_o_is_home": [True, False, False, True],
                 "_d_is_home": [False, False, True, False],
+                # Home-based tours: the anchor is home, so these mirror the flags above
+                "_o_at_anchor": [True, False, False, True],
+                "_d_at_anchor": [False, False, True, False],
             }
         )
 

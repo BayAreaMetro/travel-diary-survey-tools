@@ -527,3 +527,102 @@ class TestAddExistingWeights:
 
         assert "person_weight" in result["persons"].columns
         assert result["persons"]["person_weight"].to_list() == [1.2, 1.5, 1.8]
+
+
+class TestSuppliedTotalPreserved:
+    """Supplied weights are redistributed onto usable records, never shrunk.
+
+    The vendor's anchor cannot be re-balanced from here -- their weights already
+    sum to their population estimate -- so dropping records must leave each
+    table's supplied total intact. These use ``complete`` rather than the
+    default ``model_usable``, since the fixtures carry no tour structure.
+    """
+
+    def _households(self) -> pl.DataFrame:
+        """Four households, one incomplete (hh 3)."""
+        return pl.DataFrame(
+            {
+                "hh_id": [1, 2, 3, 4],
+                "hh_size": [2, 3, 1, 2],
+                "complete": [True, True, False, True],
+            }
+        )
+
+    def _weights_config(self, tmp_path) -> dict:
+        weight_file = tmp_path / "hh_weights.csv"
+        pl.DataFrame({"hh_id": [1, 2, 3, 4], "hh_weight": [10.0, 20.0, 30.0, 40.0]}).write_csv(
+            weight_file
+        )
+        return {"household_weights": {"weight_path": str(weight_file)}}
+
+    def test_supplied_household_total_is_preserved(self, tmp_path):
+        """Households have no parent, so the supplied total is held by rescaling."""
+        result = add_existing_weights(
+            weights=self._weights_config(tmp_path),
+            households=self._households(),
+            usability_flag_col="complete",
+        )
+        weights = result["households"].sort("hh_id")["hh_weight"].to_list()
+        # hh 3 (incomplete) stays 0; the supplied total of 100 is retained
+        assert weights[2] == 0.0
+        assert sum(weights) == pytest.approx(100.0)
+        # Survivors scaled by 100/70, keeping their relative proportions
+        scale = 100.0 / 70.0
+        assert weights[0] == pytest.approx(10.0 * scale)
+        assert weights[1] == pytest.approx(20.0 * scale)
+        assert weights[3] == pytest.approx(40.0 * scale)
+
+    def test_supplied_day_weight_is_conserved_within_the_person(self, tmp_path):
+        """A supplied day weight moves to the *same person's* usable days.
+
+        Day weights are conserved within the person -- never pooled across a
+        household. Person 1's unusable day moves onto their own remaining day;
+        person 2's days are untouched even though they share the household.
+        """
+        days = pl.DataFrame(
+            {
+                "day_id": [10, 20, 30, 40],
+                "person_id": [1, 1, 2, 2],
+                "hh_id": [1, 1, 1, 1],
+                "complete": [True, False, True, True],
+            }
+        )
+        weight_file = tmp_path / "day_weights.csv"
+        pl.DataFrame({"day_id": [10, 20, 30, 40], "day_weight": [10.0, 10.0, 5.0, 5.0]}).write_csv(
+            weight_file
+        )
+
+        result = add_existing_weights(
+            weights={"day_weights": {"weight_path": str(weight_file)}},
+            days=days,
+            usability_flag_col="complete",
+        )
+        weights = result["days"].sort("day_id")["day_weight"].to_list()
+        # Person 1: 20 supplied over one usable day; person 2: unchanged.
+        assert weights == pytest.approx([20.0, 0.0, 5.0, 5.0])
+        assert sum(weights) == pytest.approx(30.0)
+
+    def test_missing_scope_column_raises(self, tmp_path):
+        """Days without person_id cannot be conserved as declared, so this fails loudly."""
+        days = pl.DataFrame({"day_id": [10, 20], "hh_id": [1, 1], "complete": [True, False]})
+        weight_file = tmp_path / "day_weights.csv"
+        pl.DataFrame({"day_id": [10, 20], "day_weight": [10.0, 10.0]}).write_csv(weight_file)
+
+        with pytest.raises(ValueError, match="missing its scope column"):
+            add_existing_weights(
+                weights={"day_weights": {"weight_path": str(weight_file)}},
+                days=days,
+                usability_flag_col="complete",
+            )
+
+    def test_no_usable_record_is_safe(self, tmp_path):
+        """If nothing is usable there is nowhere to put the weight; no error."""
+        households = pl.DataFrame({"hh_id": [1, 2], "hh_size": [2, 3], "complete": [False, False]})
+        weight_file = tmp_path / "hh_weights.csv"
+        pl.DataFrame({"hh_id": [1, 2], "hh_weight": [10.0, 20.0]}).write_csv(weight_file)
+        result = add_existing_weights(
+            weights={"household_weights": {"weight_path": str(weight_file)}},
+            households=households,
+            usability_flag_col="complete",
+        )
+        assert result["households"]["hh_weight"].to_list() == [0.0, 0.0]

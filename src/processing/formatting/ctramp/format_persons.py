@@ -27,6 +27,7 @@ import polars as pl
 from data_canon.codebook.ctramp import (
     _INMF_MAXES,
     _INMF_REVERSE_LOOKUP,
+    CTRAMPActivityPattern,
     CTRAMPEmploymentCategory,
     CTRAMPPersonType,
     CTRAMPStudentCategory,
@@ -270,10 +271,10 @@ def aggregate_tour_statistics(
     # Determine activity pattern based on presence of mandatory/non-mandatory tours
     person_stats = person_stats.with_columns(
         pl.when(pl.col("imf_choice") > 0)
-        .then(pl.lit("M"))  # Mandatory
+        .then(pl.lit(CTRAMPActivityPattern.MANDATORY.value))
         .when(pl.col("inmf_choice") > 0)
-        .then(pl.lit("N"))  # Non-mandatory
-        .otherwise(pl.lit("H"))  # Home (no tours)
+        .then(pl.lit(CTRAMPActivityPattern.NON_MANDATORY.value))
+        .otherwise(pl.lit(CTRAMPActivityPattern.HOME.value))
         .alias("activity_pattern")
     )
 
@@ -417,7 +418,8 @@ def format_persons(
         - activity_pattern: M=mandatory tours, N=non-mandatory only, H=no tours
         - imf_choice: Count of mandatory tours (work/school)
         - inmf_choice: Count of non-mandatory tours
-        - wfh_choice: 1 if employed, job_type=WFH, and no work tours (binary: WFH or commute, not both)
+        - wfh_choice: 1 if employed, job_type=WFH, and no work tours
+            (binary: WFH or commute, not both)
         - employment_category: derived from the BATS `employment` field via
           [`EMPLOYMENT_TO_CTRAMP`][processing.formatting.ctramp.mappings.EMPLOYMENT_TO_CTRAMP]:
 
