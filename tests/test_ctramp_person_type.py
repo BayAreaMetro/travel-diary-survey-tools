@@ -17,7 +17,7 @@ from data_canon.codebook.persons import (
     SchoolType,
     Student,
 )
-from processing.formatting.ctramp.mappings import ctramp_person_type_expression
+from processing.formatting.ctramp.person_mappings import ctramp_person_type_expression
 
 
 class TestPersonTypeClassification:

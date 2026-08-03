@@ -212,11 +212,13 @@ from .filters import _drop_invalid_tours, _drop_missing_taz, _drop_zero_weight
 from .format_ao import format_ao_results
 from .format_cdap import format_cdap_results
 from .format_households import format_households
+from .format_joint_trips import format_joint_trip
 from .format_mandatory_location import format_mandatory_location
 from .format_persons import enrich_persons_with_person_type, format_persons
 from .format_tours import format_individual_tour, format_joint_tour
-from .format_trips import format_individual_trip, format_joint_trip
-from .mappings import EMPLOYMENT_TO_CTRAMP, ctramp_student_category_expression
+from .format_trips import format_individual_trip
+from .person_mappings import EMPLOYMENT_TO_CTRAMP
+from .student_mappings import ctramp_student_category_expression
 
 logger = logging.getLogger(__name__)
 

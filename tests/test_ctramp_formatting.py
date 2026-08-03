@@ -38,6 +38,7 @@ from data_canon.models.ctramp import (
 from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.format_ctramp import format_ctramp
 from processing.formatting.ctramp.format_households import format_households
+from processing.formatting.ctramp.format_joint_trips import format_joint_trip
 from processing.formatting.ctramp.format_persons import format_persons
 from processing.formatting.ctramp.format_tours import (
     format_individual_tour,
@@ -45,7 +46,6 @@ from processing.formatting.ctramp.format_tours import (
 )
 from processing.formatting.ctramp.format_trips import (
     format_individual_trip,
-    format_joint_trip,
 )
 from tests.fixtures import (
     create_family_household,
@@ -636,7 +636,12 @@ class TestColumnPresence:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_trip(
-            joint_trips, trips, tours, households_formatted, config=standard_config
+            joint_trips,
+            trips,
+            tours,
+            households_formatted,
+            config=standard_config,
+            unlinked_trips_canonical=pl.DataFrame(),
         )
 
         required_columns = get_required_non_null_fields(JointTripCTRAMPModel)
@@ -1619,7 +1624,7 @@ class TestWeightsAndSampleRateFormatting:
         assert "sampleRate" not in result.columns
 
     def test_joint_trips_weight_fields(self, standard_config):
-        """Test joint trips include trip_weight from hh_weight but not sampleRate."""
+        """Test joint trips preserve their explicit weight and derive sampleRate."""
         households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
             [
@@ -1683,11 +1688,18 @@ class TestWeightsAndSampleRateFormatting:
                     pl.col("num_travelers").max().alias("num_joint_travelers"),
                 ]
             )
+            .with_columns(pl.lit(2.0).alias("joint_trip_weight"))
         )
 
         households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_joint_trip(joint_trips, trips, tours, households_formatted, standard_config)
+        result = format_joint_trip(
+            joint_trips,
+            trips,
+            tours,
+            households_formatted,
+            standard_config,
+            pl.DataFrame(),
+        )
 
-        # Joint trips should have trip_weight (from hh_weight) but NOT sampleRate
-        assert "trip_weight" in result.columns
-        assert "sampleRate" not in result.columns
+        assert result["joint_trip_weight"][0] == 2.0
+        assert result["sampleRate"][0] == 0.5

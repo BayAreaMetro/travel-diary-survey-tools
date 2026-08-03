@@ -25,7 +25,7 @@ import polars as pl
 from data_canon.codebook.ctramp import JTFChoice
 from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import Employment
-from processing.formatting.ctramp.mappings import PURPOSECATEGORY_TO_JTF_GROUP
+from processing.formatting.ctramp.purpose_mappings import PURPOSECATEGORY_TO_JTF_GROUP
 from utils.helpers import get_income_midpoint
 
 from .ctramp_config import CTRAMPConfig
