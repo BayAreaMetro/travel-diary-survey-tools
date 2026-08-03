@@ -362,13 +362,17 @@ class TestSubtourReachesCtramp:
 
         ``tour_num`` is not: it restarts each day and a subtour shares its
         parent's value, so emitting it directly collided a work tour with its
-        own at-work subtour.
+        own at-work subtour. Base tours are numbered 0-based per person and
+        subtours as <1-based parent tour #><subtour #>, so the person's first
+        tour is 0 and its first subtour is 11.
         """
         result = self._formatted(standard_config)
         assert result["tour_id"].n_unique() == len(result), (
             "a work tour and its at-work subtour must not share a CT-RAMP tour_id"
         )
-        assert sorted(result["tour_id"].to_list()) == [1, 2]
+        by_id = dict(zip(*result.select("_tour_id_canonical", "tour_id"), strict=True))
+        assert by_id[11000] == 0, "the person's first base tour is 0"
+        assert by_id[11010] == 11, "its first subtour is <parent 1><subtour 1>"
 
     def test_subtour_maps_to_the_at_work_category(self, standard_config):
         """A subtour is AT_WORK to CT-RAMP; its home-based parent is MANDATORY."""
