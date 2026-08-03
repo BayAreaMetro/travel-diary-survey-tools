@@ -281,13 +281,15 @@ def _flag_tours(tables: dict[str, pl.DataFrame | None], *, require_valid_tours: 
     )
     days = tables.get("days")
     if days is None or "hh_day_complete" not in days.columns or "day_id" not in tours.columns:
-        tables["tours"] = _apply_parent_tour_gate(tours.with_columns(usable.alias("model_usable")))
+        tables["tours"] = _flag_subtours_from_parent(
+            tours.with_columns(usable.alias("model_usable"))
+        )
         return
 
     coherence = days.select("day_id", pl.col("hh_day_complete").alias("_hh_day_complete")).unique(
         subset="day_id"
     )
-    tables["tours"] = _apply_parent_tour_gate(
+    tables["tours"] = _flag_subtours_from_parent(
         tours.join(coherence, on="day_id", how="left")
         .with_columns(
             (usable & pl.col("_hh_day_complete").fill_null(value=False)).alias("model_usable")
@@ -296,7 +298,7 @@ def _flag_tours(tables: dict[str, pl.DataFrame | None], *, require_valid_tours: 
     )
 
 
-def _apply_parent_tour_gate(tours: pl.DataFrame) -> pl.DataFrame:
+def _flag_subtours_from_parent(tours: pl.DataFrame) -> pl.DataFrame:
     """Reduce each subtour's ``model_usable`` by its parent tour's verdict.
 
     Primary tours self-reference (``parent_tour_id == tour_id``) and so are
