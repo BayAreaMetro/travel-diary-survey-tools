@@ -17,7 +17,7 @@ Two flags answer two different questions and must not be conflated:
   are valid survey data, useful for survey analysis.
 * ``model_usable`` -- *do the travel models take this record?* Reporting
   completeness AND an admissible tour structure. Stamped once by the
-  ``flag_model_usable`` step and read by the CT-RAMP/DaySim drop and the
+  ``cascade_completeness`` step and read by the CT-RAMP/DaySim drop and the
   weighting.
 
 Gate on ``model_usable``; ``complete`` is the descriptor it derives from. See
@@ -76,7 +76,7 @@ class HouseholdModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -151,7 +151,7 @@ class PersonModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -181,7 +181,7 @@ class PersonDayModel(BaseModel):
         default=None,
         description=(
             "Household-day coherence: every member of the household reported a "
-            "complete day on this travel_date. Stamped by the flag_model_usable "
+            "complete day on this travel_date. Stamped by the cascade_completeness "
             "step as an ALL reduction over member-days. A day is only "
             "model_usable within a complete household-day."
         ),
@@ -190,7 +190,7 @@ class PersonDayModel(BaseModel):
         default=None,
         description=(
             "Usable-side mirror of hh_day_complete: every member's day on this "
-            "travel_date is model_usable. Stamped by flag_model_usable; a "
+            "travel_date is model_usable. Stamped by cascade_completeness; a "
             "household is admissible only with >=1 usable household-day."
         ),
     )
@@ -199,7 +199,7 @@ class PersonDayModel(BaseModel):
         description=(
             "Admissible to the tour-based model: survey-complete AND a coherent "
             "household-day AND part of a well-formed tour structure. Stamped by "
-            "the flag_model_usable step; gates the CT-RAMP/DaySim drop and the "
+            "the cascade_completeness step; gates the CT-RAMP/DaySim drop and the "
             "weighting. Not a data-quality verdict - see `complete`."
         ),
     )
@@ -239,7 +239,7 @@ class UnlinkedTripModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -324,7 +324,7 @@ class LinkedTripModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -390,7 +390,7 @@ class TourModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -460,7 +460,7 @@ class JointTripModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -493,7 +493,7 @@ class JointTourModel(BaseModel):
         description=(
             "Admissible to the tour-based model: at least two member tours are "
             "themselves model-usable, so the group is still joint. Stamped by the "
-            "flag_model_usable step; gates the CT-RAMP/DaySim drop and the "
+            "cascade_completeness step; gates the CT-RAMP/DaySim drop and the "
             "weighting. Not a data-quality verdict - see `complete`."
         ),
     )
