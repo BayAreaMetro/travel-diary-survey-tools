@@ -28,12 +28,12 @@ def schema_field(
         required_child: If True, marks this FK as requiring the parent
                        record to have at least one child record (bidirectional
                        FK constraint). Only valid when fk_to is specified.
-        required_child_when: Name of a boolean column on the *parent* table
-                       that scopes the constraint: only parent rows where it is
-                       true need a child. Parent rows where it is false are
-                       legitimately childless. Missing column or null value is
-                       treated as true, so the constraint never weakens
-                       silently. Only valid with required_child=True.
+        required_child_when: Name of a boolean column on the *parent* table.
+                       Only parent rows where it is true need a child; rows
+                       where it is false are legitimately childless. A missing
+                       column or a null value still needs a child, so the
+                       constraint never weakens silently. Only valid with
+                       required_child=True.
         **field_kwargs: All other Field parameters (ge, le, default, etc.)
 
     Returns:

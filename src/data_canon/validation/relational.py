@@ -65,8 +65,8 @@ def get_required_children_fields(
         Dict mapping child field name to (parent_table, parent_column,
         required_child_when) for fields that require bidirectional FK
         constraint. ``required_child_when`` is the name of a boolean column on
-        the parent table scoping the constraint, or None when it applies to
-        every parent row.
+        the parent table -- only rows where it is true need a child -- or None
+        when every parent row needs one.
     """
     required_children = {}
 
@@ -86,14 +86,14 @@ def get_required_children_fields(
                 raise TypeError(msg)
 
             parent_table, parent_column = fk_to.split(".", 1)
-            scope = extra.get("required_child_when")
-            if scope is not None and not isinstance(scope, str):
+            when_col = extra.get("required_child_when")
+            if when_col is not None and not isinstance(when_col, str):
                 msg = (
                     f"Invalid required_child_when type for {field_name}: "
-                    f"{type(scope).__name__}. Expected string"
+                    f"{type(when_col).__name__}. Expected string"
                 )
                 raise TypeError(msg)
-            required_children[field_name] = (parent_table, parent_column, scope)
+            required_children[field_name] = (parent_table, parent_column, when_col)
 
     return required_children
 

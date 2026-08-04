@@ -277,8 +277,8 @@ class TestRequiredChildren:
         assert exc.value.rule == "required_children"
 
 
-class TestScopedRequiredChildren:
-    """persons -> days is scoped by ``surveyable`` (required_child_when).
+class TestRequiredChildrenWhen:
+    """Only surveyable persons need a day (``required_child_when``).
 
     Unrelated household members are enumerated for household composition and
     weighting, but the survey never asks for their travel and the vendor gives
@@ -333,7 +333,7 @@ class TestScopedRequiredChildren:
             data.validate("persons", step="write_data")
         assert exc.value.rule == "required_children"
 
-    def test_missing_scope_column_requires_children_for_all(self):
+    def test_missing_when_column_requires_children_for_all(self):
         """Without the column the constraint applies to every row, not none."""
         data = self._data(surveyable_values=[True, True], with_days=[101])
         data.persons = data.persons.drop("surveyable")
