@@ -264,7 +264,6 @@ class CanonicalData:
             return
 
         parent_col = unique_fields[0]
-        parent_ids = set(df[parent_col].to_list())
 
         # Find all child tables that have required_child FK to this table
         for child_table_name, child_model in self.models.items():
@@ -273,10 +272,28 @@ class CanonicalData:
             for child_fk_col, (
                 parent_table,
                 _,
+                scope_col,
             ) in required_child_fields.items():
                 # Check if this FK references current table
                 if parent_table != table_name:
                     continue
+
+                # A scoped constraint only binds parent rows the scope column
+                # marks true -- e.g. only *surveyable* persons must have days;
+                # unrelated household members are enumerated but file no travel.
+                # A missing column or null value counts as in-scope, so the
+                # constraint can never weaken by accident.
+                scoped = df
+                if scope_col and scope_col in df.columns:
+                    scoped = df.filter(pl.col(scope_col).cast(pl.Boolean).fill_null(value=True))
+                elif scope_col:
+                    logger.warning(
+                        "required_child_when column '%s' not in '%s'; "
+                        "requiring children for every row",
+                        scope_col,
+                        table_name,
+                    )
+                parent_ids = set(scoped[parent_col].to_list())
 
                 child_table = child_table_name
                 child_df = getattr(self, child_table)
@@ -306,10 +323,11 @@ class CanonicalData:
                     sample_str = ", ".join(str(v) for v in sample)
                     has_more = len(parents_without_children) > max_display
                     ellipsis = " ..." if has_more else ""
+                    scope_note = f" (only rows where {scope_col} is true)" if scope_col else ""
                     msg = (
                         f"Found {len(parents_without_children)} "
                         f"'{table_name}' records with no '{child_table}' "
-                        f"children. Sample: {sample_str}{ellipsis}"
+                        f"children{scope_note}. Sample: {sample_str}{ellipsis}"
                     )
                     raise DataValidationError(
                         table=table_name,
