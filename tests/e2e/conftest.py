@@ -62,13 +62,24 @@ PROFILES = {
 }
 
 # Canonical step order (mandatory + optional interleaved correctly).
-_MANDATORY = {"load_data", "link_trips", "extract_tours", "add_zone_ids", "write_data"}
+# cascade_completeness is mandatory: it mirrors the shipping bats_2023 pipeline,
+# where the formatters and weighting read the flags it stamps rather than
+# re-deriving them per row.
+_MANDATORY = {
+    "load_data",
+    "link_trips",
+    "extract_tours",
+    "cascade_completeness",
+    "add_zone_ids",
+    "write_data",
+}
 _STEP_ORDER = (
     "load_data",
     "link_trips",
     "detect_joint_trips",
     "imputation",
     "extract_tours",
+    "cascade_completeness",
     "add_zone_ids",
     "format_ctramp",
     "format_daysim",
@@ -173,6 +184,11 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             },
         },
         "extract_tours": {"name": "extract_tours", "validate_input": False, "cache": False},
+        "cascade_completeness": {
+            "name": "cascade_completeness",
+            "validate_input": False,
+            "cache": False,
+        },
         "add_zone_ids": {
             "name": "add_zone_ids",
             "validate_input": False,
@@ -200,14 +216,23 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 "income_low_threshold": 60000,
                 "income_med_threshold": 150000,
                 "income_high_threshold": 240000,
-                "income_base_year_dollars": 2023,
+                "income_survey_year_to_ctramp_year": 0.5319148936,  # 1/1.88: $2023 -> $2000
                 "age_adult": 4,
                 "gender_default_for_missing": "f",
                 "taz_field": "taz",
                 "drop_missing_taz": True,
             },
         },
-        "format_daysim": {"name": "format_daysim", "validate_input": False, "cache": False},
+        # validate_output mirrors the shipping bats_2023 config. The DaySim row
+        # models pin the output schema (e.g. half must be 1 or 2), so a trip
+        # carrying an internal sentinel instead of a real value fails here
+        # rather than in a production run.
+        "format_daysim": {
+            "name": "format_daysim",
+            "validate_input": False,
+            "validate_output": True,
+            "cache": False,
+        },
         "write_data": {
             "name": "write_data",
             "validate_input": False,
@@ -228,6 +253,7 @@ def _run_pipeline(enabled: frozenset):
     from pipeline.pipeline import Pipeline
     from processing import (
         add_zone_ids,
+        cascade_completeness,
         detect_joint_trips,
         extract_tours,
         format_ctramp,
@@ -253,6 +279,7 @@ def _run_pipeline(enabled: frozenset):
         detect_joint_trips,
         imputation,
         extract_tours,
+        cascade_completeness,
         add_zone_ids,
         format_ctramp,
         format_daysim,

@@ -175,6 +175,9 @@ def clean_2023_bats(
     # Move residence type and residence rent/own from persons to households
     # Extract household-level attributes from persons table
     # Only one person reports residence_rent_own and residence_type
+    # For each column: filter out missing/PNTA values, then take the mode.
+    # On ties, pick the smallest code (sort ascending before first()) so the
+    # result is deterministic regardless of Polars internal hash ordering.
     hh_attributes = persons.group_by("hh_id").agg(
         pl.col("residence_rent_own")
         .filter(
@@ -306,10 +309,20 @@ def clean_2023_bats(
         .alias("ethnicity")
     )
 
+    # Rename commute subsidy columns to canonical field names
+    persons = persons.rename(
+        {
+            "commute_subsidy_3": "commute_subsidy_provide_free_parking",
+            "commute_subsidy_4": "commute_subsidy_provide_discounted_parking",
+            "commute_subsidy_use_3": "commute_subsidy_use_free_parking",
+            "commute_subsidy_use_4": "commute_subsidy_use_discounted_parking",
+        }
+    )
+
     # ASSIGN COMPLETION STATUS =========================================
     # Completeness rolls up from the surveyed trip (see processing.completeness).
     # This project measures two leaf facts directly; person and household
-    # completeness are derived *upward* later by the flag_model_usable step, so
+    # completeness are derived *upward* later by the cascade_completeness step, so
     # the vendor's person/household is_complete here is only a placeholder the
     # rollup overwrites.
     #

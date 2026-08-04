@@ -17,7 +17,7 @@ Two flags answer two different questions and must not be conflated:
   are valid survey data, useful for survey analysis.
 * ``model_usable`` -- *do the travel models take this record?* Reporting
   completeness AND an admissible tour structure. Stamped once by the
-  ``flag_model_usable`` step and read by the CT-RAMP/DaySim drop and the
+  ``cascade_completeness`` step and read by the CT-RAMP/DaySim drop and the
   weighting.
 
 Gate on ``model_usable``; ``complete`` is the descriptor it derives from. See
@@ -53,6 +53,7 @@ from data_canon.codebook.trips import (
     ModeType,
     Purpose,
     PurposeCategory,
+    TNCType,
 )
 from data_canon.core.schema_field import schema_field
 
@@ -75,7 +76,7 @@ class HouseholdModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -111,22 +112,46 @@ class PersonModel(BaseModel):
     ethnicity: Ethnicity | None = schema_field(default=None)
     telework_freq: CommuteFreq | None = schema_field(default=None)
     commute_freq: CommuteFreq | None = schema_field(default=None)
-    # NOTE: These commute subsidy fields are only used in CTRAMP format
-    # But might be useful elsewhere, consider standardizing to be less vague
-    # and/or moved into a data model extension.
-    commute_subsidy_use_3: BooleanYesNo | None = schema_field(default=None)
-    commute_subsidy_use_4: BooleanYesNo | None = schema_field(default=None)
+    # Employer *provides* commute subsidy: Free (fully subsidized) parking at work
+    commute_subsidy_provide_free_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
+    # Employer *provides* commute subsidy: Discounted (partially subsidized) parking at work
+    commute_subsidy_provide_discounted_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
+    # Uses commute subsidy: Free (fully subsidized) parking at work
+    commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
+    # Uses commute subsidy: Discounted (partially subsidized) parking at work
+    commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(
+        default=None, required_in_steps=["format_ctramp"]
+    )
     # NOTE: is proxy is vague.
     # Better and more flexible would be to have proxy_person_id on the proxied person
     # This allows for multiple proxy reporters and is more explicit.
     is_proxy: bool | None = schema_field(default=None)
+    surveyable: bool | None = schema_field(
+        default=None,
+        description=(
+            "The survey could collect this person's travel at all. Unrelated "
+            "household members (e.g. roommates) are enumerated for household "
+            "composition and weighting but file no travel, and the vendor gives "
+            "them no day rows whatsoever. Read by the completeness cascade, "
+            "which excludes them from the household-day reductions so they "
+            "cannot veto a date they were never asked about, and by the "
+            "persons->days required-child constraint. Null counts as "
+            "surveyable."
+        ),
+    )
     num_days_complete: int = schema_field(ge=0, default=0)
     complete: bool | None = schema_field(default=None)
     model_usable: bool | None = schema_field(
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -141,6 +166,11 @@ class PersonDayModel(BaseModel):
         ge=1,
         fk_to="persons.person_id",
         required_child=True,
+        # Only surveyable persons must have a day. Unrelated household members
+        # file no travel and the vendor gives them no day rows, so requiring
+        # one of them can only be satisfied by fabricating a day that reads as
+        # a genuine no-travel day.
+        required_child_when="surveyable",
     )
     day_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
@@ -151,7 +181,7 @@ class PersonDayModel(BaseModel):
         default=None,
         description=(
             "Household-day coherence: every member of the household reported a "
-            "complete day on this travel_date. Stamped by the flag_model_usable "
+            "complete day on this travel_date. Stamped by the cascade_completeness "
             "step as an ALL reduction over member-days. A day is only "
             "model_usable within a complete household-day."
         ),
@@ -160,7 +190,7 @@ class PersonDayModel(BaseModel):
         default=None,
         description=(
             "Usable-side mirror of hh_day_complete: every member's day on this "
-            "travel_date is model_usable. Stamped by flag_model_usable; a "
+            "travel_date is model_usable. Stamped by cascade_completeness; a "
             "household is admissible only with >=1 usable household-day."
         ),
     )
@@ -169,7 +199,7 @@ class PersonDayModel(BaseModel):
         description=(
             "Admissible to the tour-based model: survey-complete AND a coherent "
             "household-day AND part of a well-formed tour structure. Stamped by "
-            "the flag_model_usable step; gates the CT-RAMP/DaySim drop and the "
+            "the cascade_completeness step; gates the CT-RAMP/DaySim drop and the "
             "weighting. Not a data-quality verdict - see `complete`."
         ),
     )
@@ -198,6 +228,7 @@ class UnlinkedTripModel(BaseModel):
     mode_2: Mode | None
     mode_3: Mode | None
     mode_4: Mode | None
+    tnc_type: TNCType | None
     duration_minutes: float = schema_field(ge=0)
     distance_meters: float = schema_field(ge=0)
     depart_time: datetime | None = schema_field()
@@ -208,7 +239,7 @@ class UnlinkedTripModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -293,7 +324,7 @@ class LinkedTripModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -359,7 +390,7 @@ class TourModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -429,7 +460,7 @@ class JointTripModel(BaseModel):
         default=None,
         description=(
             "Admissible to the tour-based model: survey-complete AND part of a "
-            "well-formed tour structure. Stamped by the flag_model_usable step; "
+            "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the CT-RAMP/DaySim drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
         ),
@@ -462,7 +493,7 @@ class JointTourModel(BaseModel):
         description=(
             "Admissible to the tour-based model: at least two member tours are "
             "themselves model-usable, so the group is still joint. Stamped by the "
-            "flag_model_usable step; gates the CT-RAMP/DaySim drop and the "
+            "cascade_completeness step; gates the CT-RAMP/DaySim drop and the "
             "weighting. Not a data-quality verdict - see `complete`."
         ),
     )
