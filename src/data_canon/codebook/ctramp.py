@@ -238,7 +238,7 @@ class CTRAMPTripPurpose(LabeledEnum):
 
 
 class AtWorkFreq(LabeledEnum):
-    """Enumeration for at-work subtours"""
+    """Enumeration for at-work subtours."""
 
     NONE_NOT_WORK = 0, "No subtour since tour is not at work"
     NO_SUBTOUR = 1, "No at-work subtour"
