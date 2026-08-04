@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 def format_joint_tour(
     tours_canonical: pl.DataFrame,
     linked_trips_canonical: pl.DataFrame,
+    unlinked_trips_canonical: pl.DataFrame,
+    joint_tours_canonical: pl.DataFrame,
     persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
-    unlinked_trips_canonical: pl.DataFrame,
-    joint_tours_canonical: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format canonical joint tours to CT-RAMP's household-level schema."""
     logger.info("Formatting joint tour data for CT-RAMP")

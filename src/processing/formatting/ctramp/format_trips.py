@@ -66,11 +66,11 @@ def _log_purpose_mapping_counts(
 
 def format_individual_trip(
     linked_trips_canonical: pl.DataFrame,
+    unlinked_trips_canonical: pl.DataFrame,
     tours_ctramp: pl.DataFrame,
     persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
-    unlinked_trips_canonical: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format individual trips to CT-RAMP specification.
 

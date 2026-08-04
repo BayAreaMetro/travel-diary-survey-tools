@@ -356,12 +356,12 @@ class TestSubtourReachesCtramp:
         )
         households_ctramp = format_households(households, persons, tours, config)
         return format_individual_tour(
-            tours,
-            trips,
-            persons,
-            households_ctramp,
-            config,
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
             unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_ctramp,
+            config=config,
         )
 
     def test_subtour_gets_its_own_ctramp_tour_id(self, standard_config):

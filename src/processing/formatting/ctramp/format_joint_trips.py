@@ -19,10 +19,10 @@ logger = logging.getLogger(__name__)
 def format_joint_trip(
     joint_trips_canonical: pl.DataFrame,
     linked_trips_canonical: pl.DataFrame,
+    unlinked_trips_canonical: pl.DataFrame,
     tours_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
-    unlinked_trips_canonical: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format joint trips to CT-RAMP specification.
 

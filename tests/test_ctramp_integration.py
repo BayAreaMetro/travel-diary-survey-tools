@@ -49,9 +49,12 @@ from tests.fixtures import (
     create_single_adult_household,
     create_tour,
     create_university_student_household,
+    days_for_persons,
+    empty_joint_tours,
     empty_joint_trips,
     empty_linked_trips,
     empty_tours,
+    empty_unlinked_trips,
     get_tour_schema,
 )
 
@@ -105,6 +108,9 @@ class TestEndToEndFormatting:
             linked_trips=empty_linked_trips(),
             tours=empty_tours(),
             joint_trips=empty_joint_trips(),
+            unlinked_trips=empty_unlinked_trips(),
+            joint_tours=empty_joint_tours(),
+            days=days_for_persons(persons),
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
@@ -116,7 +122,8 @@ class TestEndToEndFormatting:
 
         assert len(households_ctramp) == 1
         assert len(persons_ctramp) == 1
-        assert households_ctramp["hh_id"][0] == 1
+        # CT-RAMP ids are person-day encoded: hh_id * 100 + day_num.
+        assert households_ctramp["hh_id"][0] == 101
         assert persons_ctramp["type"][0] == CTRAMPPersonType.FULL_TIME_WORKER.label
 
     def test_family_household(self, standard_config):
@@ -129,6 +136,9 @@ class TestEndToEndFormatting:
             linked_trips=empty_linked_trips(),
             tours=empty_tours(),
             joint_trips=empty_joint_trips(),
+            unlinked_trips=empty_unlinked_trips(),
+            joint_tours=empty_joint_tours(),
+            days=days_for_persons(persons),
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
@@ -158,6 +168,9 @@ class TestEndToEndFormatting:
             linked_trips=empty_linked_trips(),
             tours=empty_tours(),
             joint_trips=empty_joint_trips(),
+            unlinked_trips=empty_unlinked_trips(),
+            joint_tours=empty_joint_tours(),
+            days=days_for_persons(persons),
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
@@ -182,6 +195,9 @@ class TestEndToEndFormatting:
             linked_trips=empty_linked_trips(),
             tours=empty_tours(),
             joint_trips=empty_joint_trips(),
+            unlinked_trips=empty_unlinked_trips(),
+            joint_tours=empty_joint_tours(),
+            days=days_for_persons(persons),
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
@@ -217,6 +233,9 @@ class TestEndToEndFormatting:
             linked_trips=empty_linked_trips(),
             tours=empty_tours(),
             joint_trips=empty_joint_trips(),
+            unlinked_trips=empty_unlinked_trips(),
+            joint_tours=empty_joint_tours(),
+            days=days_for_persons(persons),
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
@@ -227,11 +246,11 @@ class TestEndToEndFormatting:
         households_ctramp = result["households_ctramp"]
         persons_ctramp = result["persons_ctramp"]
 
-        # Only household 1 should remain
+        # Only household 1 should remain (CT-RAMP id = hh_id * 100 + day_num).
         assert len(households_ctramp) == 1
         assert len(persons_ctramp) == 1
-        assert households_ctramp["hh_id"][0] == 1
-        assert persons_ctramp["hh_id"][0] == 1
+        assert households_ctramp["hh_id"][0] == 101
+        assert persons_ctramp["hh_id"][0] == 101
 
     def test_keep_missing_taz_when_disabled(self, standard_config):
         """Test keeping households without TAZ when filtering is disabled."""
@@ -255,6 +274,9 @@ class TestEndToEndFormatting:
             linked_trips=empty_linked_trips(),
             tours=empty_tours(),
             joint_trips=empty_joint_trips(),
+            unlinked_trips=empty_unlinked_trips(),
+            joint_tours=empty_joint_tours(),
+            days=days_for_persons(persons),
             income_low_threshold=standard_config.income_low_threshold,
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
@@ -438,7 +460,12 @@ class TestColumnPresence:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
-            tours, trips, persons, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         required_columns = get_required_non_null_fields(IndividualTourCTRAMPModel)
@@ -467,10 +494,20 @@ class TestColumnPresence:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         tours_formatted = format_individual_tour(
-            tours, trips, persons, households_formatted, config=standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
         result = format_individual_trip(
-            trips, tours_formatted, persons, households_formatted, config=standard_config
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_ctramp=tours_formatted,
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         required_columns = get_required_non_null_fields(IndividualTripCTRAMPModel)
@@ -490,10 +527,20 @@ class TestColumnPresence:
         tours = pl.DataFrame(
             [
                 create_tour(
-                    tour_id=1001, person_id=101, hh_id=1, joint_tour_id=9001, num_travelers=2
+                    tour_id=1001,
+                    person_id=101,
+                    hh_id=1,
+                    joint_tour_id=9001,
+                    num_travelers=2,
+                    tour_purpose=PurposeCategory.SHOP,
                 ),
                 create_tour(
-                    tour_id=1002, person_id=102, hh_id=1, joint_tour_id=9001, num_travelers=2
+                    tour_id=1002,
+                    person_id=102,
+                    hh_id=1,
+                    joint_tour_id=9001,
+                    num_travelers=2,
+                    tour_purpose=PurposeCategory.SHOP,
                 ),
             ],
             schema=get_tour_schema(),
@@ -520,7 +567,13 @@ class TestColumnPresence:
         households_formatted = format_households(households, persons, tours, standard_config)
         persons_formatted = format_persons(persons, pl.DataFrame(), standard_config)
         result = format_joint_tour(
-            tours, trips, persons_formatted, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            joint_tours_canonical=pl.DataFrame(),
+            persons_canonical=persons_formatted,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         required_columns = get_required_non_null_fields(JointTourCTRAMPModel)
@@ -533,7 +586,13 @@ class TestColumnPresence:
         persons = pl.DataFrame([create_person(person_id=101, hh_id=1, person_num=1)])
         tours = pl.DataFrame(
             [
-                create_tour(tour_id=1001, person_id=101, hh_id=1, joint_tour_id=9001),
+                create_tour(
+                    tour_id=1001,
+                    person_id=101,
+                    hh_id=1,
+                    joint_tour_id=9001,
+                    tour_purpose=PurposeCategory.SHOP,
+                ),
             ],
             schema=get_tour_schema(),
         )
@@ -563,12 +622,12 @@ class TestColumnPresence:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_trip(
-            joint_trips,
-            trips,
-            tours,
-            households_formatted,
-            config=standard_config,
+            joint_trips_canonical=joint_trips,
+            linked_trips_canonical=trips,
             unlinked_trips_canonical=pl.DataFrame(),
+            tours_canonical=tours,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         required_columns = get_required_non_null_fields(JointTripCTRAMPModel)
@@ -774,7 +833,12 @@ class TestWeightsAndSampleRateIntegration:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
-            tours, trips, persons, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         # Verify weight column present
@@ -821,7 +885,12 @@ class TestWeightsAndSampleRateIntegration:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
-            tours, trips, persons, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         # CTRAMP tour_id is 0-based: 0, 1
@@ -849,7 +918,12 @@ class TestWeightsAndSampleRateIntegration:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_individual_tour(
-            tours, trips, persons, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         # Weight columns should not be present
@@ -883,10 +957,20 @@ class TestWeightsAndSampleRateIntegration:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         tours_formatted = format_individual_tour(
-            tours, trips, persons, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
         result = format_individual_trip(
-            trips, tours_formatted, persons, households_formatted, standard_config
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_ctramp=tours_formatted,
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         # Verify trip_weight column present (renamed from linked_trip_weight)
@@ -928,10 +1012,20 @@ class TestWeightsAndSampleRateIntegration:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         tours_formatted = format_individual_tour(
-            tours, trips, persons, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
         result = format_individual_trip(
-            trips, tours_formatted, persons, households_formatted, standard_config
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_ctramp=tours_formatted,
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         # Sort by trip_weight to ensure predictable order (0 first, then 3.5)
@@ -962,10 +1056,20 @@ class TestWeightsAndSampleRateIntegration:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         tours_formatted = format_individual_tour(
-            tours, trips, persons, households_formatted, standard_config
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
         result = format_individual_trip(
-            trips, tours_formatted, persons, households_formatted, standard_config
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_ctramp=tours_formatted,
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         # Weight columns should not be present
@@ -973,7 +1077,12 @@ class TestWeightsAndSampleRateIntegration:
         assert "sampleRate" not in result.columns
 
     def test_joint_tours_weight_fields(self, standard_config):
-        """Test joint tours include tour_weight from hh_weight but not sampleRate."""
+        """Test joint tours carry joint_tour_weight and derive sampleRate from it.
+
+        Joint tours are their own entity, so their weight comes from the canonical
+        joint-tours table as ``joint_tour_weight`` rather than being relabelled from
+        ``hh_weight``; ``sampleRate`` is 1/weight.
+        """
         households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
             [
@@ -1011,12 +1120,23 @@ class TestWeightsAndSampleRateIntegration:
             ]
         )
 
-        households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_joint_tour(tours, trips, persons, households_formatted, standard_config)
+        joint_tours_canonical = pl.DataFrame({"joint_tour_id": [5001], "joint_tour_weight": [2.5]})
 
-        # Joint tours should have tour_weight (from hh_weight) but NOT sampleRate
-        assert "tour_weight" in result.columns
-        assert "sampleRate" not in result.columns
+        households_formatted = format_households(households, persons, tours, standard_config)
+        result = format_joint_tour(
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            joint_tours_canonical=joint_tours_canonical,
+            persons_canonical=persons,
+            households_ctramp=households_formatted,
+            config=standard_config,
+        )
+
+        assert "joint_tour_weight" in result.columns
+        assert "sampleRate" in result.columns
+        assert result["joint_tour_weight"][0] == pytest.approx(2.5)
+        assert result["sampleRate"][0] == pytest.approx(1 / 2.5)
 
     def test_joint_trips_weight_fields(self, standard_config):
         """Test joint trips preserve their explicit weight and derive sampleRate."""
@@ -1088,12 +1208,12 @@ class TestWeightsAndSampleRateIntegration:
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_trip(
-            joint_trips,
-            trips,
-            tours,
-            households_formatted,
-            standard_config,
-            pl.DataFrame(),
+            joint_trips_canonical=joint_trips,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_canonical=tours,
+            households_ctramp=households_formatted,
+            config=standard_config,
         )
 
         assert result["joint_trip_weight"][0] == 2.0

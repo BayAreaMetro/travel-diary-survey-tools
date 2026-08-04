@@ -106,6 +106,7 @@ class TestWorkRelatedMapping:
         result = format_individual_tour(
             tours_canonical=tours,
             linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
             persons_canonical=persons_canonical,
             households_ctramp=households,
             config=standard_config,
@@ -188,6 +189,7 @@ class TestWorkRelatedMapping:
         result = format_individual_tour(
             tours_canonical=tours,
             linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
             persons_canonical=persons_canonical,
             households_ctramp=households,
             config=standard_config,
@@ -303,6 +305,7 @@ class TestWorkRelatedMapping:
         result = format_individual_tour(
             tours_canonical=tours,
             linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
             persons_canonical=persons_canonical,
             households_ctramp=households,
             config=standard_config,

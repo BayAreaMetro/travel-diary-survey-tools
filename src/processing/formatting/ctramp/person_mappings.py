@@ -267,8 +267,8 @@ def ctramp_person_type_expression(
 
     Classification Precedence Rules (highest to lowest):
         1. Age < 5 → CHILD_UNDER_5 (Type 8) - overrides all other attributes
-        2. Age 5-15 → STUDENT_NON_DRIVING_AGE (Type 6) - cannot be workers
-        3. Grade/high school student (16-17) → STUDENT_DRIVING_AGE (Type 7)
+        2. Age 5-15 → STUDENT_NON_DRIVING_AGE (Type 7) - cannot be workers
+        3. Grade/high school student (16-17) → STUDENT_DRIVING_AGE (Type 6)
            - Children stay children regardless of employment
         4. Full-time employment → FULL_TIME_WORKER (Type 1)
            - Beats student status even for full-time college students
@@ -414,10 +414,10 @@ def ctramp_person_type_expression(
     # FULL_TIME_WORKER = 1, "Full-time worker"
     # PART_TIME_WORKER = 2, "Part-time worker"
     # UNIVERSITY_STUDENT = 3, "University student"
-    # NON_WORKER = 4, "Nonworker"
+    # NON_WORKER = 4, "Non-worker"
     # RETIRED = 5, "Retired"
-    # STUDENT_NON_DRIVING_AGE = 6, "Student of non-driving age"
-    # STUDENT_DRIVING_AGE = 7, "Student of driving age"
+    # STUDENT_DRIVING_AGE = 6, "Student of driving age"
+    # STUDENT_NON_DRIVING_AGE = 7, "Student of non-driving age"
     # CHILD_UNDER_5 = 8, "Child too young for school"
 
     # Build classification expression

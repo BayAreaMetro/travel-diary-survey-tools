@@ -644,10 +644,10 @@ def format_ctramp(  # noqa: PLR0913
         individual_tours_ctramp = format_individual_tour(
             tours_canonical=tours,
             linked_trips_canonical=linked_trips,
+            unlinked_trips_canonical=unlinked_trips,
             persons_canonical=persons_with_type,
             households_ctramp=households_ctramp,
             config=config,
-            unlinked_trips_canonical=unlinked_trips,
         )
 
     # Format persons with tour statistics (works with empty or populated tours)
@@ -669,26 +669,26 @@ def format_ctramp(  # noqa: PLR0913
     joint_tours_ctramp = format_joint_tour(
         tours_canonical=tours,
         linked_trips_canonical=linked_trips,
+        unlinked_trips_canonical=unlinked_trips,
+        joint_tours_canonical=joint_tours,
         persons_canonical=persons,
         households_ctramp=households_ctramp,
         config=config,
-        unlinked_trips_canonical=unlinked_trips,
-        joint_tours_canonical=joint_tours,
     )
 
     individual_trips_ctramp = format_individual_trip(
         linked_trips_canonical=linked_trips,
+        unlinked_trips_canonical=unlinked_trips,
         tours_ctramp=individual_tours_ctramp,
         persons_canonical=persons,
         households_ctramp=households_ctramp,
         config=config,
-        unlinked_trips_canonical=unlinked_trips,
     )
 
     joint_trips_ctramp = format_joint_trip(
-        unlinked_trips_canonical=unlinked_trips,
         joint_trips_canonical=joint_trips,
         linked_trips_canonical=linked_trips,
+        unlinked_trips_canonical=unlinked_trips,
         tours_canonical=tours,
         households_ctramp=households_ctramp,
         config=config,

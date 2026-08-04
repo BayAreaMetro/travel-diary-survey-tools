@@ -317,10 +317,10 @@ def _assign_ctramp_tour_ids(individual_tours: pl.DataFrame) -> pl.DataFrame:
 def format_individual_tour(
     tours_canonical: pl.DataFrame,
     linked_trips_canonical: pl.DataFrame,
+    unlinked_trips_canonical: pl.DataFrame,
     persons_canonical: pl.DataFrame,
     households_ctramp: pl.DataFrame,
     config: CTRAMPConfig,
-    unlinked_trips_canonical: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format individual tours to CT-RAMP specification.
 
@@ -345,13 +345,13 @@ def format_individual_tour(
             (for subtour counting)
         linked_trips_canonical: Canonical trips DataFrame with tour_id, tour_direction
             (1=outbound, 2=inbound, 3=subtour)
+        unlinked_trips_canonical: Unlinked canonical trips used to derive transit
+            submode; may be empty but must be provided
         persons_canonical: Canonical persons DataFrame with person_id, person_num,
             person_type (for mode mapping), school_type (for purpose mapping) are optional
             but re-derived if missing or invalid
         households_ctramp: Formatted CT-RAMP households DataFrame with hh_id, income
         config: CT-RAMP configuration with income thresholds
-        unlinked_trips_canonical: Unlinked canonical trips used to derive transit
-            submode; may be empty but must be provided
 
     Returns:
         DataFrame with CT-RAMP individual tour fields:
