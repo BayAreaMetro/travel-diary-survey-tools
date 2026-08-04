@@ -140,7 +140,7 @@ steps:
   # honour (weighting: usability_flag_col; formatters: drop_invalid_tours).
   - name: cascade_completeness
     validate_input: false
-    cache: true
+    cache: false
 
   - name: compute_weights
     validate_input: false
