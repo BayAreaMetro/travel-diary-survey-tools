@@ -171,11 +171,9 @@ def format_individual_trip(
     # persons/days are never combined.
     individual_trips = (
         individual_trips.with_columns(
-            pl.when(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
-            .then(pl.lit("outbound"))
-            .when(pl.col("tour_direction") == TourDirection.INBOUND.value)
+            pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
             .then(pl.lit("inbound"))
-            .otherwise(pl.lit("subtour"))
+            .otherwise(pl.lit("outbound"))
             .alias("tour_direction_str")
         )
         .sort(["_canonical_tour_id", "tour_direction_str", "depart_time", "arrive_time"])
