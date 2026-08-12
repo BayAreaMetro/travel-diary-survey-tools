@@ -600,6 +600,54 @@ class JointTripCTRAMPModel(BaseModel):
     )
 
 
+class AllTourCTRAMPModel(IndividualTourCTRAMPModel):
+    """Every tour in one table, individual and joint alike.
+
+    Not part of the CT-RAMP spec. CT-RAMP splits tours into an individual file
+    and a joint file, which forces anyone wanting a total to reconcile two
+    different weight conventions -- the individual file is one row per person,
+    the joint file one row per group carrying the whole party's weight.
+
+    This table sidesteps that: it is one row per *person-tour* throughout, so a
+    joint tour appears as the participants' own tours, each with its own
+    ``tour_weight``. Summing this table is simply the tour total, and it
+    reconciles with the canonical ``tours`` table by construction. The
+    individual and joint files are unchanged, for backwards compatibility.
+    """
+
+    joint_tour_id: int | None = Field(
+        default=None,
+        description=(
+            "Groups the participants of one joint tour; null for individual tours. "
+            "An index into shared travel, not a weight: divide by nothing and sum "
+            "nothing here, the per-row tour_weight is already correct."
+        ),
+    )
+
+
+class AllTripCTRAMPModel(IndividualTripCTRAMPModel):
+    """Every trip in one table, individual and joint alike.
+
+    The trip-level counterpart of [`AllTourCTRAMPModel`]
+    [data_canon.models.ctramp.AllTourCTRAMPModel]: one row per person-trip
+    throughout, each carrying its own ``trip_weight``, so a total needs no
+    reconciliation between the two CT-RAMP trip files.
+    """
+
+    joint_trip_id: int | None = Field(
+        default=None,
+        description=(
+            "Groups the member trips detected as travelling together; null when the "
+            "trip was not shared. Present on trips of individual tours too: sharing "
+            "a trip does not require sharing the tour."
+        ),
+    )
+    joint_tour_id: int | None = Field(
+        default=None,
+        description="Joint tour this trip belongs to; null when the tour is individual.",
+    )
+
+
 class CDAPResultsCTRAMPModel(BaseModel):
     """CDAP (Coordinated Daily Activity Pattern) results in CT-RAMP format.
 
