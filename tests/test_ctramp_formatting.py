@@ -29,6 +29,7 @@ from data_canon.codebook.persons import (
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
 from data_canon.models.ctramp import (
+    AllTripCTRAMPModel,
     HouseholdCTRAMPModel,
     IndividualTourCTRAMPModel,
     IndividualTripCTRAMPModel,
@@ -37,7 +38,7 @@ from data_canon.models.ctramp import (
     PersonCTRAMPModel,
 )
 from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
-from processing.formatting.ctramp.format_ctramp import format_ctramp
+from processing.formatting.ctramp.format_ctramp import _drop_excess_fields, format_ctramp
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_joint_trips import format_joint_trip
 from processing.formatting.ctramp.format_persons import format_persons
@@ -1991,3 +1992,166 @@ class TestWeightsAndSampleRateFormatting:
         )
 
         assert len(result) == 0
+
+
+class TestAllTables:
+    """The unified All* tables: one row per person-record, joint travel included.
+
+    CT-RAMP splits tours and trips across an individual file and a joint file with
+    different weight conventions. These tables keep every record in the per-person
+    form the canonical data already holds, so a total needs no reconciliation
+    between the two.
+    """
+
+    @staticmethod
+    def _household_with_one_joint_and_one_individual_tour():
+        """Person 101 takes a solo tour; 101 and 102 share a joint tour."""
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame(
+            [
+                create_person(person_id=101, hh_id=1, person_num=1),
+                create_person(person_id=102, hh_id=1, person_num=2),
+            ]
+        )
+        tours = pl.DataFrame(
+            [
+                create_tour(
+                    tour_id=1001,
+                    person_id=101,
+                    tour_num=1,
+                    tour_purpose=PurposeCategory.WORK,
+                    tour_weight=10.0,
+                ),
+                create_tour(
+                    tour_id=1002,
+                    person_id=101,
+                    tour_num=2,
+                    joint_tour_id=5001,
+                    tour_purpose=PurposeCategory.SOCIALREC,
+                    num_travelers=2,
+                    tour_weight=20.0,
+                ),
+                create_tour(
+                    tour_id=1003,
+                    person_id=102,
+                    person_num=2,
+                    tour_num=1,
+                    joint_tour_id=5001,
+                    tour_purpose=PurposeCategory.SOCIALREC,
+                    num_travelers=2,
+                    tour_weight=30.0,
+                ),
+            ],
+            schema=get_tour_schema(),
+        )
+        trips = pl.DataFrame(
+            [
+                create_linked_trip(
+                    linked_trip_id=t,
+                    person_id=pid,
+                    person_num=pnum,
+                    tour_id=tid,
+                    joint_tour_id=jid,
+                    tour_direction=direction,
+                    linked_trip_weight=w,
+                )
+                for t, pid, pnum, tid, jid, direction, w in [
+                    (1, 101, 1, 1001, None, TourDirection.OUTBOUND, 10.0),
+                    (2, 101, 1, 1001, None, TourDirection.INBOUND, 10.0),
+                    (3, 101, 1, 1002, 5001, TourDirection.OUTBOUND, 20.0),
+                    (4, 101, 1, 1002, 5001, TourDirection.INBOUND, 20.0),
+                    (5, 102, 2, 1003, 5001, TourDirection.OUTBOUND, 30.0),
+                    (6, 102, 2, 1003, 5001, TourDirection.INBOUND, 30.0),
+                ]
+            ]
+        )
+        return households, persons, tours, trips
+
+    def _format(self, tours, trips, persons, households, standard_config, *, include_joint):
+        households_ctramp = format_households(households, persons, tours, standard_config)
+        tours_ctramp = format_individual_tour(
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_ctramp,
+            config=standard_config,
+            include_joint=include_joint,
+        )
+        trips_ctramp = format_individual_trip(
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_ctramp=tours_ctramp,
+            persons_canonical=persons,
+            households_ctramp=households_ctramp,
+            config=standard_config,
+        )
+        return tours_ctramp, trips_ctramp
+
+    def test_joint_members_appear_as_their_own_person_tours(self, standard_config):
+        """A joint tour contributes one row per participant, not one row per group."""
+        households, persons, tours, trips = self._household_with_one_joint_and_one_individual_tour()
+
+        individual, _ = self._format(
+            tours, trips, persons, households, standard_config, include_joint=False
+        )
+        all_tours, _ = self._format(
+            tours, trips, persons, households, standard_config, include_joint=True
+        )
+
+        # The individual table sees only the solo tour; All* sees all three.
+        assert len(individual) == 1
+        assert len(all_tours) == 3
+        assert all_tours["joint_tour_id"].null_count() == 1
+
+    def test_tour_weights_are_carried_through_unchanged(self, standard_config):
+        """No summing or rescaling: each row keeps the weight it already had."""
+        households, persons, tours, trips = self._household_with_one_joint_and_one_individual_tour()
+
+        all_tours, _ = self._format(
+            tours, trips, persons, households, standard_config, include_joint=True
+        )
+
+        assert sorted(all_tours["tour_weight"].to_list()) == [10.0, 20.0, 30.0]
+        assert all_tours["tour_weight"].sum() == pytest.approx(tours["tour_weight"].sum())
+
+    def test_all_trips_reconcile_with_the_canonical_trips(self, standard_config):
+        """sum(all_trips) == sum(linked_trips): the whole point of the table."""
+        households, persons, tours, trips = self._household_with_one_joint_and_one_individual_tour()
+
+        _, all_trips = self._format(
+            tours, trips, persons, households, standard_config, include_joint=True
+        )
+
+        assert len(all_trips) == len(trips)
+        assert all_trips["trip_weight"].sum() == pytest.approx(trips["linked_trip_weight"].sum())
+
+    def test_joint_trips_are_identifiable_within_the_unified_table(self, standard_config):
+        """joint_trip_id / joint_tour_id survive, so shared travel stays findable."""
+        households, persons, tours, trips = self._household_with_one_joint_and_one_individual_tour()
+
+        _, all_trips = self._format(
+            tours, trips, persons, households, standard_config, include_joint=True
+        )
+
+        shared = all_trips.filter(pl.col("joint_tour_id").is_not_null())
+        assert len(shared) == 4
+
+    def test_joint_columns_survive_the_model_trim(self):
+        """The All* models declare the joint ids, so _drop_excess_fields keeps them.
+
+        Output tables are trimmed to their model before being written. Without the
+        joint ids on the model, they would be silently dropped on the way to disk
+        and the unified tables would lose the only handle on shared travel.
+        """
+        frame = pl.DataFrame(
+            {"hh_id": [1], "joint_trip_id": [500], "joint_tour_id": [900], "spurious": [1]}
+        )
+
+        kept = _drop_excess_fields(frame, AllTripCTRAMPModel)
+        assert "joint_trip_id" in kept.columns
+        assert "joint_tour_id" in kept.columns
+        assert "spurious" not in kept.columns
+
+        # The individual model has no such fields, so the same frame loses them.
+        assert "joint_trip_id" not in _drop_excess_fields(frame, IndividualTripCTRAMPModel).columns
