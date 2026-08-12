@@ -484,12 +484,21 @@ class JointTourCTRAMPModel(BaseModel):
     sampleRate: float | None = Field(
         default=None,
         gt=0,
-        description="This tour represents 1/sampleRate joint tours, calculate from weights as 1/weight",
+        description=(
+            "Per-tour sampling rate. NOT 1/joint_tour_weight: that weight is the sum "
+            "over participants, and CT-RAMP re-applies the party multiplier itself. "
+            "Derived as num_represented_members/joint_tour_weight (the inverse of the "
+            "member mean)."
+        ),
     )
     joint_tour_weight: float | None = Field(
         default=None,
         ge=0,
-        description="Survey weight for the joint tour (not part of CT-RAMP spec)",
+        description=(
+            "Survey weight for the joint tour, as person-tours: the SUM over its "
+            "participants, so it expands to the travel the individual tour file "
+            "omits. Not part of the CT-RAMP spec."
+        ),
     )
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(
@@ -545,7 +554,16 @@ class JointTripCTRAMPModel(BaseModel):
     trip_mode: CTRAMPModeType = Field(
         description="Travel mode for the trip (see TravelModes#tour-and-trip-modes)"
     )
-    num_participants: int = Field(ge=2, description="Number of participants on the tour")
+    num_participants: int = Field(
+        ge=2,
+        description=(
+            "Number of participants on the tour. CT-RAMP multiplies the record by this "
+            "to recover person-trips, so from survey data it is the number of "
+            "participants carrying weight, not the reported party size -- an unsampled "
+            "traveller would expand population that was never surveyed. Occupancy is "
+            "carried by trip_mode (SHARED2 vs SHARED3+), not by this field."
+        ),
+    )
     tour_mode: CTRAMPModeType = Field(
         description="Primary travel mode for the tour (see TravelModes#tour-and-trip-modes)"
     )
@@ -554,12 +572,22 @@ class JointTripCTRAMPModel(BaseModel):
     sampleRate: float | None = Field(
         default=None,
         gt=0,
-        description="This trip represents 1/sampleRate joint trips, calculate from weights as 1/weight",
+        description=(
+            "Per-person sampling rate. NOT 1/joint_trip_weight: that weight is the sum "
+            "over participants, and CT-RAMP re-applies the party multiplier itself "
+            "(num_participants/sampleRate in TM1 PrepAssign.job), so inverting the sum "
+            "would count the party twice. Derived as "
+            "num_represented_members/joint_trip_weight (the inverse of the member mean)."
+        ),
     )
     joint_trip_weight: float | None = Field(
         default=None,
         ge=0,
-        description="Survey weight for the joint trip (not part of CT-RAMP spec)",
+        description=(
+            "Survey weight for the joint trip, as person-trips: the SUM over its "
+            "participants, so it expands to the travel the individual trip file "
+            "omits. Not part of the CT-RAMP spec."
+        ),
     )
     # NOTE: Model output only, not derivable from survey data.
     orig_walk_segment: WalkToTransitSubZone | None = Field(

@@ -1080,8 +1080,9 @@ class TestWeightsAndSampleRateIntegration:
         """Test joint tours carry joint_tour_weight and derive sampleRate from it.
 
         Joint tours are their own entity, so their weight comes from the canonical
-        joint-tours table as ``joint_tour_weight`` rather than being relabelled from
-        ``hh_weight``; ``sampleRate`` is 1/weight.
+        joint-tours table as ``joint_tour_weight``. That weight is the SUM over
+        participants, so ``sampleRate`` is the inverse of the member *mean* --
+        ``num_represented_members / weight`` -- not 1/weight.
         """
         households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
@@ -1120,7 +1121,13 @@ class TestWeightsAndSampleRateIntegration:
             ]
         )
 
-        joint_tours_canonical = pl.DataFrame({"joint_tour_id": [5001], "joint_tour_weight": [2.5]})
+        joint_tours_canonical = pl.DataFrame(
+            {
+                "joint_tour_id": [5001],
+                "joint_tour_weight": [5.0],
+                "num_represented_members": [2],
+            }
+        )
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_tour(
@@ -1135,8 +1142,8 @@ class TestWeightsAndSampleRateIntegration:
 
         assert "joint_tour_weight" in result.columns
         assert "sampleRate" in result.columns
-        assert result["joint_tour_weight"][0] == pytest.approx(2.5)
-        assert result["sampleRate"][0] == pytest.approx(1 / 2.5)
+        assert result["joint_tour_weight"][0] == pytest.approx(5.0)
+        assert result["sampleRate"][0] == pytest.approx(2 / 5.0)
 
     def test_joint_trips_weight_fields(self, standard_config):
         """Test joint trips preserve their explicit weight and derive sampleRate."""
@@ -1203,7 +1210,10 @@ class TestWeightsAndSampleRateIntegration:
                     pl.col("num_travelers").max().alias("num_joint_travelers"),
                 ]
             )
-            .with_columns(pl.lit(2.0).alias("joint_trip_weight"))
+            .with_columns(
+                pl.lit(4.0).alias("joint_trip_weight"),
+                pl.lit(2).alias("num_represented_members"),
+            )
         )
 
         households_formatted = format_households(households, persons, tours, standard_config)
@@ -1216,5 +1226,7 @@ class TestWeightsAndSampleRateIntegration:
             config=standard_config,
         )
 
-        assert result["joint_trip_weight"][0] == 2.0
-        assert result["sampleRate"][0] == 0.5
+        assert result["joint_trip_weight"][0] == 4.0
+        assert result["sampleRate"][0] == pytest.approx(0.5)
+        # CT-RAMP's own expansion must reproduce the weight.
+        assert result["num_participants"][0] / result["sampleRate"][0] == pytest.approx(4.0)

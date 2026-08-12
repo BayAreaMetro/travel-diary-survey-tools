@@ -8,9 +8,10 @@ from data_canon.codebook.ctramp import CTRAMPPersonType, CTRAMPTourCategory
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import TNCType
+from processing.weighting.core.hierarchy import MEMBER_COUNT_COL
 
 from .ctramp_config import CTRAMPConfig
-from .format_joint_tours import identify_misclassified_joint_tours
+from .format_joint_tours import identify_misclassified_joint_tours, joint_weight_columns
 from .mode_mappings import aggregate_transit_submode, ctramp_mode_expression
 from .purpose_mappings import ctramp_purpose_category_expression
 
@@ -160,12 +161,10 @@ def format_joint_trip(
     # Filter to only trips on joint tours
     joint_trips_formatted = joint_trips_formatted.filter(pl.col("joint_tour_id").is_not_null())
 
-    # Join with households
-    hh_cols = ["hh_id", "income"]
-    if "hh_weight" in households_ctramp.columns:
-        hh_cols.append("hh_weight")
+    # Income only: a joint record's weight and rate come from its own columns, never
+    # from hh_weight, which the cascade has since split and redistributed.
     joint_trips_formatted = joint_trips_formatted.join(
-        households_ctramp.select(hh_cols),
+        households_ctramp.select(["hh_id", "income"]),
         on="hh_id",
         how="left",
     )
@@ -281,17 +280,17 @@ def format_joint_trip(
         .alias("_ctramp_joint_tour_id")
     )
 
-    # The joint trip weight comes from the cascade on joint_trips_canonical; carry
-    # it through and express it as a sample rate, as individual trips do.
-    weight_cols: list[pl.Expr] = []
-    if "joint_trip_weight" in joint_trips_formatted.columns:
-        weight_cols = [
-            pl.col("joint_trip_weight"),
-            pl.when(pl.col("joint_trip_weight") > 0)
-            .then(pl.col("joint_trip_weight").pow(-1))
-            .otherwise(None)
-            .alias("sampleRate"),
-        ]
+    # The joint trip weight is the SUM of its member trips, so its inverse is not a
+    # sample rate. CT-RAMP re-applies the party multiplier itself (num_participants
+    # / sampleRate), so sampleRate must be the per-person rate: the inverse of the
+    # member mean, recovered exactly as num_represented_members / weight. Derived
+    # from this record's own columns -- weights do not copy down the hierarchy
+    # unchanged, so an ancestor's weight would not invert correctly here.
+    have = joint_trips_formatted.columns
+    weight_cols = joint_weight_columns(have, "joint_trip_weight")
+    participant_count = (
+        pl.col(MEMBER_COUNT_COL) if MEMBER_COUNT_COL in have else pl.col("num_joint_travelers")
+    )
 
     # Select final columns with snake_case names
     select_cols = [
@@ -312,7 +311,11 @@ def format_joint_trip(
         pl.col("tour_mode_ctramp").alias("tour_mode"),
         # All joint tours are JOINT_NON_MANDATORY.
         pl.lit(CTRAMPTourCategory.JOINT_NON_MANDATORY.value).alias("tour_category"),
-        pl.col("num_joint_travelers").cast(pl.Int64).alias("num_participants"),
+        # CT-RAMP multiplies this record by num_participants to recover person-trips,
+        # so it must be the count that carries weight, not the party size -- an
+        # unsampled traveller would expand population that was never surveyed.
+        # Occupancy is unaffected: trip_mode already encodes SHARED2 vs SHARED3+.
+        participant_count.cast(pl.Int64).alias("num_participants"),
         pl.col("depart_hour").cast(pl.Int64),
         pl.col("trip_time"),
         *weight_cols,

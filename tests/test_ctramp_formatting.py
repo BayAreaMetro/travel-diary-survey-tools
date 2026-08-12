@@ -1704,8 +1704,10 @@ class TestWeightsAndSampleRateFormatting:
         """Test joint tours carry joint_tour_weight and derive sampleRate from it.
 
         Joint tours are their own entity, so their weight comes from the canonical
-        joint-tours table as ``joint_tour_weight`` rather than being relabelled from
-        ``hh_weight``; ``sampleRate`` is 1/weight.
+        joint-tours table as ``joint_tour_weight``. That weight is the SUM over
+        participants, so ``sampleRate`` is the inverse of the member *mean* --
+        ``num_represented_members / weight`` -- not 1/weight, which would let
+        CT-RAMP apply the party multiplier twice.
         """
         households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
@@ -1744,7 +1746,13 @@ class TestWeightsAndSampleRateFormatting:
             ]
         )
 
-        joint_tours_canonical = pl.DataFrame({"joint_tour_id": [5001], "joint_tour_weight": [2.5]})
+        joint_tours_canonical = pl.DataFrame(
+            {
+                "joint_tour_id": [5001],
+                "joint_tour_weight": [5.0],
+                "num_represented_members": [2],
+            }
+        )
 
         households_formatted = format_households(households, persons, tours, standard_config)
         result = format_joint_tour(
@@ -1759,8 +1767,9 @@ class TestWeightsAndSampleRateFormatting:
 
         assert "joint_tour_weight" in result.columns
         assert "sampleRate" in result.columns
-        assert result["joint_tour_weight"][0] == pytest.approx(2.5)
-        assert result["sampleRate"][0] == pytest.approx(1 / 2.5)
+        assert result["joint_tour_weight"][0] == pytest.approx(5.0)
+        # 2 participants sharing a summed weight of 5.0 -> mean 2.5 -> rate 1/2.5
+        assert result["sampleRate"][0] == pytest.approx(2 / 5.0)
 
     def test_joint_trips_weight_fields(self, standard_config):
         """Test joint trips preserve their explicit weight and derive sampleRate."""
@@ -1827,7 +1836,10 @@ class TestWeightsAndSampleRateFormatting:
                     pl.col("num_travelers").max().alias("num_joint_travelers"),
                 ]
             )
-            .with_columns(pl.lit(2.0).alias("joint_trip_weight"))
+            .with_columns(
+                pl.lit(4.0).alias("joint_trip_weight"),
+                pl.lit(2).alias("num_represented_members"),
+            )
         )
 
         households_formatted = format_households(households, persons, tours, standard_config)
@@ -1840,8 +1852,14 @@ class TestWeightsAndSampleRateFormatting:
             config=standard_config,
         )
 
-        assert result["joint_trip_weight"][0] == 2.0
-        assert result["sampleRate"][0] == 0.5
+        assert result["joint_trip_weight"][0] == 4.0
+        # Summed over 2 participants -> per-person mean 2.0 -> rate 0.5. CT-RAMP's
+        # num_participants/sampleRate then returns the 4.0 person-trips.
+        assert result["sampleRate"][0] == pytest.approx(0.5)
+        assert result["num_participants"][0] == 2
+        # The invariant that matters: CT-RAMP's own expansion reproduces the weight.
+        expanded = result["num_participants"][0] / result["sampleRate"][0]
+        assert expanded == pytest.approx(result["joint_trip_weight"][0])
 
     def test_joint_trips_excluded_when_tour_is_inadmissible(self, standard_config):
         """Escort groups are not joint in CT-RAMP, so they yield no joint trip rows.

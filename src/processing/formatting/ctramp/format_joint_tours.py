@@ -1,6 +1,7 @@
 """Format canonical joint tours for CT-RAMP."""
 
 import logging
+from collections.abc import Collection
 
 import polars as pl
 
@@ -12,6 +13,7 @@ from data_canon.codebook.ctramp import (
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
+from processing.weighting.core.hierarchy import MEMBER_COUNT_COL
 
 from .ctramp_config import CTRAMPConfig
 from .mode_mappings import (
@@ -93,11 +95,10 @@ def format_joint_tour(
         how="left",
     )
 
-    hh_cols = ["hh_id", "income"]
-    if "hh_weight" in households_ctramp.columns:
-        hh_cols.append("hh_weight")
+    # Income only: a joint record's weight and rate come from its own columns, never
+    # from hh_weight, which the cascade has since split and redistributed.
     joint_tours_formatted = joint_tours_formatted.join(
-        households_ctramp.select(hh_cols),
+        households_ctramp.select(["hh_id", "income"]),
         on="hh_id",
         how="left",
     )
@@ -203,20 +204,20 @@ def format_joint_tour(
         .alias("_ctramp_joint_tour_id")
     )
 
+    # The joint tour weight is the SUM of its member tours, so its inverse is not a
+    # sample rate; the per-tour rate is the inverse of the member mean, recovered
+    # exactly as num_represented_members / weight. Derived from this record's own
+    # columns -- weights do not copy down the hierarchy unchanged.
     weight_cols: list[pl.Expr] = []
     if "joint_tour_weight" in joint_tours_canonical.columns:
+        has_count = MEMBER_COUNT_COL in joint_tours_canonical.columns
+        carried = ["joint_tour_id", "joint_tour_weight", *([MEMBER_COUNT_COL] if has_count else [])]
         joint_tours_formatted = joint_tours_formatted.join(
-            joint_tours_canonical.select("joint_tour_id", "joint_tour_weight"),
+            joint_tours_canonical.select(carried),
             on="joint_tour_id",
             how="left",
         )
-        weight_cols = [
-            pl.col("joint_tour_weight"),
-            pl.when(pl.col("joint_tour_weight") > 0)
-            .then(pl.col("joint_tour_weight").pow(-1))
-            .otherwise(None)
-            .alias("sampleRate"),
-        ]
+        weight_cols = joint_weight_columns(joint_tours_canonical.columns, "joint_tour_weight")
 
     return joint_tours_formatted.select(
         [
@@ -239,6 +240,43 @@ def format_joint_tour(
             *weight_cols,
         ]
     )
+
+
+def joint_weight_columns(available: Collection[str], weight_col: str) -> list[pl.Expr]:
+    """Carry a joint weight through, with its sample rate where recoverable.
+
+    A joint weight is the SUM over its participants, so its inverse is *not* a
+    sample rate: CT-RAMP re-applies the party multiplier itself
+    (``num_participants/sampleRate``), and inverting the sum would count the party
+    twice. The per-member rate is the inverse of the member mean, recovered exactly
+    as ``MEMBER_COUNT_COL / weight`` -- from the record's own columns, since weights
+    do not copy down the hierarchy unchanged.
+
+    Args:
+        available: Columns present on the frame the expressions will run against.
+        weight_col: The joint weight column to carry through.
+
+    Returns:
+        The weight expression, plus ``sampleRate`` when the member count is
+        available; empty when there is no weight to carry.
+    """
+    if weight_col not in available:
+        return []
+    cols = [pl.col(weight_col)]
+    if MEMBER_COUNT_COL in available:
+        cols.append(
+            pl.when(pl.col(weight_col) > 0)
+            .then(pl.col(MEMBER_COUNT_COL) / pl.col(weight_col))
+            .otherwise(None)
+            .alias("sampleRate")
+        )
+    else:
+        # Supplied joint weights skip the cascade that publishes the count, so the
+        # member mean cannot be recovered. Emit no rate rather than a wrong one.
+        logger.warning(
+            "%s has no %s: emitting the weight without sampleRate", weight_col, MEMBER_COUNT_COL
+        )
+    return cols
 
 
 def identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.DataFrame:
