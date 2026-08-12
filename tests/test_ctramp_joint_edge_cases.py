@@ -126,16 +126,13 @@ def _trips_for(
     tours: pl.DataFrame,
     *,
     joint_trip_ids: tuple[int | None, int | None] | None = None,
-    shared_directions: Sequence[TourDirection] = BOTH_LEGS,
-    unshared_joint_tours: Sequence[int] = (),
 ):
     """One outbound and one inbound trip per tour, carrying the tour's weight.
 
-    A leg becomes a joint trip when its tour is joint, its direction is in
-    *shared_directions*, and its joint tour is not in *unshared_joint_tours*.
-    Ids are derived from the joint tour so two joint tours never collide; pass
-    *joint_trip_ids* to set them directly, which is the only way to model
-    trip-level sharing with no joint tour behind it.
+    Every leg of a joint tour is itself a joint trip -- a tour only becomes
+    joint when all of its trips are -- so ids are derived from the joint tour,
+    unique to it. Pass *joint_trip_ids* to set them directly, which is the only
+    way to model trip-level sharing with no joint tour behind it.
     """
     rows = []
     trip_id = 1
@@ -144,11 +141,7 @@ def _trips_for(
         for leg, direction in enumerate(BOTH_LEGS):
             if joint_trip_ids is not None:
                 joint_trip_id = joint_trip_ids[leg]
-            elif (
-                joint_tour_id is not None
-                and direction in shared_directions
-                and joint_tour_id not in unshared_joint_tours
-            ):
+            elif joint_tour_id is not None:
                 joint_trip_id = joint_tour_id * 10 + leg
             else:
                 joint_trip_id = None
@@ -207,7 +200,16 @@ def _joint_tours_table(tours: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _format_all(tours, trips, persons, households, config, *, joint_tours_canonical=None):
+def _format_all(
+    tours,
+    trips,
+    persons,
+    households,
+    config,
+    *,
+    joint_tours_canonical=None,
+    joint_trips_canonical=None,
+):
     """Run the four tour/trip formatters over one scenario."""
     hh_ctramp = format_households(households, persons, tours, config)
     indiv_tours = format_individual_tour(
@@ -238,7 +240,9 @@ def _format_all(tours, trips, persons, households, config, *, joint_tours_canoni
         config=config,
     )
     joint_trips = format_joint_trip(
-        joint_trips_canonical=_joint_trips_table(trips),
+        joint_trips_canonical=(
+            _joint_trips_table(trips) if joint_trips_canonical is None else joint_trips_canonical
+        ),
         linked_trips_canonical=trips,
         unlinked_trips_canonical=pl.DataFrame(),
         tours_canonical=tours,
@@ -474,38 +478,57 @@ class TestJointTourNumbering:
         strict=True,
         reason=(
             "Known defect: format_joint_trip ranks joint_tour_id over only the joint "
-            "tours that have joint trips, while format_joint_tour ranks over all of "
-            "them. A joint tour whose legs were never matched as joint trips shifts "
-            "the numbering, silently re-pointing the surviving joint trips at the "
-            "wrong joint tour. The anti-join orphan check cannot see it because the "
-            "id it lands on does exist."
+            "tours still present in joint_trips, while format_joint_tour ranks over "
+            "every admitted joint tour. When the two sets differ the numbering "
+            "shifts, silently re-pointing the surviving joint trips at the wrong "
+            "joint tour. The anti-join orphan check cannot see it, because the id "
+            "landed on does exist."
         ),
     )
-    def test_joint_trips_point_at_the_joint_tour_they_belong_to(self, standard_config):
-        """A joint tour with no joint trips must not renumber the ones that have them.
+    def test_a_joint_tour_missing_from_the_trip_table_does_not_renumber_the_rest(
+        self, standard_config
+    ):
+        """A joint tour the trip table lost must not shift the tours that remain.
 
-        Both files carry ``tour_purpose``, so the purposes are made to differ
-        and the reference is checked by content rather than by mere existence.
+        The canonical ``joint_trips`` table carries its own *mean* coordinates,
+        so ``_drop_missing_taz`` can reject a joint trip whose member trips all
+        pass -- and it runs after the last check on joint integrity. The tour
+        keeps its ``joint_tour_id`` and the member trips survive; only the
+        joint-trip rows are gone.
+
+        Both files carry ``tour_purpose``, so the two joint tours are given
+        different ones and the reference is checked by content rather than by
+        mere existence.
         """
         households, persons = _two_person_household()
         tours = _two_joint_tours(
             first_purpose=PurposeCategory.SOCIALREC,
             second_purpose=PurposeCategory.SHOP,
         )
-        # The first joint tour is genuinely shared, but its legs never matched
-        # as joint trips -- so it appears in the tour file and not the trip file.
-        trips = _trips_for(tours, unshared_joint_tours=(5001,))
+        trips = _trips_for(tours)
+        # As the TAZ filter would leave it: joint tour 5001's joint trips are
+        # gone, its tours and member trips are not.
+        surviving = _joint_trips_table(trips).filter(pl.col("joint_trip_id") // 10 != 5001)
 
         _, _, joint_tours, joint_trips = _format_all(
-            tours, trips, persons, households, standard_config
+            tours,
+            trips,
+            persons,
+            households,
+            standard_config,
+            joint_trips_canonical=surviving,
         )
 
-        resolved = joint_trips.select("hh_id", "tour_id", "tour_purpose").unique().join(
-            joint_tours.select("hh_id", "tour_id", "tour_purpose").rename(
-                {"tour_purpose": "_tour_file_purpose"}
-            ),
-            on=["hh_id", "tour_id"],
-            how="left",
+        resolved = (
+            joint_trips.select("hh_id", "tour_id", "tour_purpose")
+            .unique()
+            .join(
+                joint_tours.select("hh_id", "tour_id", "tour_purpose").rename(
+                    {"tour_purpose": "_tour_file_purpose"}
+                ),
+                on=["hh_id", "tour_id"],
+                how="left",
+            )
         )
         assert resolved["_tour_file_purpose"].to_list() == resolved["tour_purpose"].to_list()
 
@@ -582,45 +605,6 @@ class TestPartySize:
         _, _, _, joint_trips = _format_all(tours, trips, persons, households, standard_config)
 
         assert joint_trips["trip_mode"].unique().to_list() == [CTRAMPModeType.SR2.value]
-
-
-class TestPartialLegSharing:
-    """A joint tour whose members only travelled together on one leg."""
-
-    def test_only_the_shared_leg_becomes_a_joint_trip(self, standard_config):
-        """The unshared leg is not a joint trip, so the joint file omits it."""
-        households, persons = _two_person_household()
-        tours = _shared_tour(PurposeCategory.SOCIALREC)
-        trips = _trips_for(tours, shared_directions=(TourDirection.OUTBOUND,))
-
-        _, _, joint_tours, joint_trips = _format_all(
-            tours, trips, persons, households, standard_config
-        )
-
-        assert len(joint_tours) == 1
-        assert len(joint_trips) == 1
-        assert joint_trips["inbound"].to_list() == [0]
-
-    def test_the_unshared_leg_of_a_joint_tour_is_written_nowhere(self, standard_config):
-        """Documents a real gap: that travel reaches neither output file.
-
-        The individual trip file takes only trips whose tour is in the
-        individual tour file, and a joint tour is not; the joint trip file takes
-        only legs carrying a ``joint_trip_id``. An inbound leg that was never
-        matched as a joint trip therefore falls between them.
-        """
-        households, persons = _two_person_household()
-        tours = _shared_tour(PurposeCategory.SOCIALREC)
-        trips = _trips_for(tours, shared_directions=(TourDirection.OUTBOUND,))
-
-        _, indiv_trips, _, joint_trips = _format_all(
-            tours, trips, persons, households, standard_config
-        )
-
-        inbound = trips.filter(pl.col("tour_direction") == TourDirection.INBOUND.value)
-        assert len(inbound) == MIN_JOINT  # one per member
-        assert indiv_trips.is_empty()
-        assert len(joint_trips) == 1  # the outbound leg only
 
 
 class TestJointWeightExpansion:

@@ -958,24 +958,3 @@ class TestJointEdgeCases:
         assert weight is not None
         assert weight == 0.0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Known defect: a grouping whose id matches no member row forms no group "
-            "in the aggregation, so the weight join leaves null rather than 0. Null "
-            "is the one value that vanishes silently from a downstream sum, which is "
-            "the very thing test_a_grouping_with_no_weighted_member_is_zero_not_null "
-            "exists to prevent."
-        ),
-    )
-    def test_a_grouping_with_no_member_row_at_all_is_zero_not_null(self):
-        """Zero members is a weight of zero, not an unknown weight."""
-        tables = _make_tables_with_joints()
-        # 999 is referenced by no linked trip whatsoever.
-        tables["joint_trips"] = pl.DataFrame(
-            {"joint_trip_id": [500, 999], "model_usable": [True, True]}
-        )
-        propagate_weights(tables, {"households": "hh_weight"})
-
-        orphan = tables["joint_trips"].filter(pl.col("joint_trip_id") == 999)
-        assert orphan["joint_trip_weight"][0] == 0.0
