@@ -13,7 +13,6 @@ from data_canon.codebook.ctramp import (
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
-from processing.weighting.core.hierarchy import MEMBER_COUNT_COL
 
 from .ctramp_config import CTRAMPConfig
 from .mode_mappings import (
@@ -56,6 +55,8 @@ def format_joint_tour(
         [
             pl.col("hh_id").first(),
             pl.col("person_num").sort().cast(pl.Utf8).str.join(" ").alias("Participants"),
+            # Member tours behind the weight -- the divisor back to a per-tour rate.
+            pl.len().cast(pl.Int64).alias("_n_members"),
             pl.col("tour_category").first(),
             pl.col("tour_purpose").first(),
             pl.col(f"o_{config.taz_field}").first(),
@@ -204,20 +205,16 @@ def format_joint_tour(
         .alias("_ctramp_joint_tour_id")
     )
 
-    # The joint tour weight is the SUM of its member tours, so its inverse is not a
-    # sample rate; the per-tour rate is the inverse of the member mean, recovered
-    # exactly as num_represented_members / weight. Derived from this record's own
-    # columns -- weights do not copy down the hierarchy unchanged.
     weight_cols: list[pl.Expr] = []
     if "joint_tour_weight" in joint_tours_canonical.columns:
-        has_count = MEMBER_COUNT_COL in joint_tours_canonical.columns
-        carried = ["joint_tour_id", "joint_tour_weight", *([MEMBER_COUNT_COL] if has_count else [])]
         joint_tours_formatted = joint_tours_formatted.join(
-            joint_tours_canonical.select(carried),
+            joint_tours_canonical.select("joint_tour_id", "joint_tour_weight"),
             on="joint_tour_id",
             how="left",
         )
-        weight_cols = joint_weight_columns(joint_tours_canonical.columns, "joint_tour_weight")
+        weight_cols = joint_weight_columns(
+            joint_tours_formatted.columns, "joint_tour_weight", pl.col("_n_members")
+        )
 
     return joint_tours_formatted.select(
         [
@@ -242,41 +239,40 @@ def format_joint_tour(
     )
 
 
-def joint_weight_columns(available: Collection[str], weight_col: str) -> list[pl.Expr]:
-    """Carry a joint weight through, with its sample rate where recoverable.
+def joint_weight_columns(
+    available: Collection[str], weight_col: str, member_count: pl.Expr
+) -> list[pl.Expr]:
+    """Carry a joint weight through, expressed as a per-member sample rate.
 
-    A joint weight is the SUM over its participants, so its inverse is *not* a
-    sample rate: CT-RAMP re-applies the party multiplier itself
+    A joint weight is the SUM over its members, so its inverse is *not* a sample
+    rate: CT-RAMP re-applies the party multiplier itself
     (``num_participants/sampleRate``), and inverting the sum would count the party
-    twice. The per-member rate is the inverse of the member mean, recovered exactly
-    as ``MEMBER_COUNT_COL / weight`` -- from the record's own columns, since weights
-    do not copy down the hierarchy unchanged.
+    twice. The per-member rate is the inverse of the member *mean*, i.e.
+    ``n_members / weight``.
+
+    The count comes from the member table the caller already grouped, not from the
+    joint record: the members reaching the formatter are exactly those the
+    ``model_usable`` gate admitted, which is the same gate the weighting summed
+    over, so the two agree by construction.
 
     Args:
         available: Columns present on the frame the expressions will run against.
         weight_col: The joint weight column to carry through.
+        member_count: Expression giving the number of members behind the weight.
 
     Returns:
-        The weight expression, plus ``sampleRate`` when the member count is
-        available; empty when there is no weight to carry.
+        The weight and ``sampleRate`` expressions, or empty when there is no
+        weight to carry.
     """
     if weight_col not in available:
         return []
-    cols = [pl.col(weight_col)]
-    if MEMBER_COUNT_COL in available:
-        cols.append(
-            pl.when(pl.col(weight_col) > 0)
-            .then(pl.col(MEMBER_COUNT_COL) / pl.col(weight_col))
-            .otherwise(None)
-            .alias("sampleRate")
-        )
-    else:
-        # Supplied joint weights skip the cascade that publishes the count, so the
-        # member mean cannot be recovered. Emit no rate rather than a wrong one.
-        logger.warning(
-            "%s has no %s: emitting the weight without sampleRate", weight_col, MEMBER_COUNT_COL
-        )
-    return cols
+    return [
+        pl.col(weight_col),
+        pl.when(pl.col(weight_col) > 0)
+        .then(member_count / pl.col(weight_col))
+        .otherwise(None)
+        .alias("sampleRate"),
+    ]
 
 
 def identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.DataFrame:

@@ -779,23 +779,21 @@ class TestJointLevelsSum:
         members = tables["tours"]["tour_weight"].sum()
         assert tables["joint_tours"]["joint_tour_weight"][0] == pytest.approx(members)
 
-    def test_represented_count_excludes_unweighted_members(self):
-        """The published divisor counts members that carried weight, not the party."""
+    def test_no_member_count_is_published(self):
+        """The weight is the only column an UP level adds; counts stay derivable."""
         tables = _make_tables_with_joints()
         propagate_weights(tables, {"households": "hh_weight"})
 
-        # Two travellers, one of them represented.
-        assert tables["joint_trips"]["num_represented_members"][0] == 1
-        assert tables["joint_tours"]["num_represented_members"][0] == 1
+        assert "num_represented_members" not in tables["joint_trips"].columns
+        assert "num_represented_members" not in tables["joint_tours"].columns
 
-    def test_dividing_by_the_count_recovers_the_event_weight(self):
-        """Sum / count == mean, so either convention is one operation away."""
+    def test_dividing_by_the_member_count_recovers_the_event_weight(self):
+        """Sum / count == mean, with the count taken from the member table."""
         tables = _make_tables_with_joints()
         propagate_weights(tables, {"households": "hh_weight"})
 
-        joint = tables["joint_trips"]
         weighted_members = tables["linked_trips"].filter(pl.col("linked_trip_weight") != 0)
-        events = joint["joint_trip_weight"][0] / joint["num_represented_members"][0]
+        events = tables["joint_trips"]["joint_trip_weight"][0] / len(weighted_members)
         assert events == pytest.approx(weighted_members["linked_trip_weight"].mean())
 
     def test_mean_levels_are_untouched(self):

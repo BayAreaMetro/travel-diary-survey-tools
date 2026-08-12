@@ -27,13 +27,13 @@ their members, so they count **person-trips** -- the travel of the whole party,
 not the joint occasion -- and are therefore an *overlay* on the member table,
 never a partition of it: ``sum(linked) + sum(joint)`` double counts.
 
-Both readings are one operation apart, using the member count published beside
-the weight::
+To count occasions instead, divide by the number of members that carried weight
+-- counted from the member table, not read off the grouping::
 
-    events = joint_trip_weight / num_represented_members
+    events = joint_trip_weight / n_member_trips_with_weight
 
-Never divide by a party-size column: that counts travellers, including any who
-were never sampled and so carry no weight.
+A party-size column is not that divisor: it counts travellers, including any the
+weighting excluded.
 """
 
 from dataclasses import dataclass
@@ -60,16 +60,7 @@ class Agg(Enum):
     SUM = auto()
     """The grouping carries the combined weight of its members -- person-trips,
     not occasions. This puts it in the member table's unit while overlapping it,
-    so summing both double counts. Levels using this publish [`MEMBER_COUNT_COL`]
-    [processing.weighting.core.hierarchy.MEMBER_COUNT_COL] as the exact divisor back
-    to the mean."""
-
-
-MEMBER_COUNT_COL = "num_represented_members"
-"""Column published beside every [`Agg.SUM`][processing.weighting.core.hierarchy.Agg]
-weight, holding how many members carried weight into it. The exact divisor
-between the two conventions (``sum == mean x count``); a party-size column is
-not, as it counts travellers rather than weighted records."""
+    so summing both double counts."""
 
 
 @dataclass(frozen=True, kw_only=True)

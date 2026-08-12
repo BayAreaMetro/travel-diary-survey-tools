@@ -487,8 +487,8 @@ class JointTourCTRAMPModel(BaseModel):
         description=(
             "Per-tour sampling rate. NOT 1/joint_tour_weight: that weight is the sum "
             "over participants, and CT-RAMP re-applies the party multiplier itself. "
-            "Derived as num_represented_members/joint_tour_weight (the inverse of the "
-            "member mean)."
+            "Derived as n_member_tours/joint_tour_weight (the inverse of the member "
+            "mean)."
         ),
     )
     joint_tour_weight: float | None = Field(
@@ -559,8 +559,8 @@ class JointTripCTRAMPModel(BaseModel):
         description=(
             "Number of participants on the tour. CT-RAMP multiplies the record by this "
             "to recover person-trips, so from survey data it is the number of "
-            "participants carrying weight, not the reported party size -- an unsampled "
-            "traveller would expand population that was never surveyed. Occupancy is "
+            "member trips behind the weight, not the reported party size, which may "
+            "include people outside the survey. Occupancy is "
             "carried by trip_mode (SHARED2 vs SHARED3+), not by this field."
         ),
     )
@@ -577,7 +577,7 @@ class JointTripCTRAMPModel(BaseModel):
             "over participants, and CT-RAMP re-applies the party multiplier itself "
             "(num_participants/sampleRate in TM1 PrepAssign.job), so inverting the sum "
             "would count the party twice. Derived as "
-            "num_represented_members/joint_trip_weight (the inverse of the member mean)."
+            "n_member_trips/joint_trip_weight (the inverse of the member mean)."
         ),
     )
     joint_trip_weight: float | None = Field(

@@ -8,7 +8,6 @@ from data_canon.codebook.ctramp import CTRAMPPersonType, CTRAMPTourCategory
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import TNCType
-from processing.weighting.core.hierarchy import MEMBER_COUNT_COL
 
 from .ctramp_config import CTRAMPConfig
 from .format_joint_tours import identify_misclassified_joint_tours, joint_weight_columns
@@ -73,6 +72,9 @@ def format_joint_trip(
 
     joint_trip_context = joint_linked_trips.group_by("joint_trip_id").agg(
         [
+            # Member trips behind the weight -- the divisor back to a per-person rate,
+            # and what CT-RAMP multiplies by to recover person-trips.
+            pl.len().cast(pl.Int64).alias("_n_members"),
             pl.col("tour_id").first(),
             pl.col("o_purpose_category").first(),
             pl.col("d_purpose_category").first(),
@@ -280,16 +282,8 @@ def format_joint_trip(
         .alias("_ctramp_joint_tour_id")
     )
 
-    # The joint trip weight is the SUM of its member trips, so its inverse is not a
-    # sample rate. CT-RAMP re-applies the party multiplier itself (num_participants
-    # / sampleRate), so sampleRate must be the per-person rate: the inverse of the
-    # member mean, recovered exactly as num_represented_members / weight. Derived
-    # from this record's own columns -- weights do not copy down the hierarchy
-    # unchanged, so an ancestor's weight would not invert correctly here.
-    have = joint_trips_formatted.columns
-    weight_cols = joint_weight_columns(have, "joint_trip_weight")
-    participant_count = (
-        pl.col(MEMBER_COUNT_COL) if MEMBER_COUNT_COL in have else pl.col("num_joint_travelers")
+    weight_cols = joint_weight_columns(
+        joint_trips_formatted.columns, "joint_trip_weight", pl.col("_n_members")
     )
 
     # Select final columns with snake_case names
@@ -312,10 +306,9 @@ def format_joint_trip(
         # All joint tours are JOINT_NON_MANDATORY.
         pl.lit(CTRAMPTourCategory.JOINT_NON_MANDATORY.value).alias("tour_category"),
         # CT-RAMP multiplies this record by num_participants to recover person-trips,
-        # so it must be the count that carries weight, not the party size -- an
-        # unsampled traveller would expand population that was never surveyed.
+        # so it is the count of weighted member trips, not the reported party size.
         # Occupancy is unaffected: trip_mode already encodes SHARED2 vs SHARED3+.
-        participant_count.cast(pl.Int64).alias("num_participants"),
+        pl.col("_n_members").alias("num_participants"),
         pl.col("depart_hour").cast(pl.Int64),
         pl.col("trip_time"),
         *weight_cols,

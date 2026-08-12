@@ -57,7 +57,6 @@ import polars as pl
 from processing.weighting.core.hierarchy import (
     HIERARCHY,
     LEVELS,
-    MEMBER_COUNT_COL,
     TABLE_NAMES,
     Agg,
     Flow,
@@ -341,11 +340,7 @@ def _aggregate_up(
     )
     combine = carried.sum() if level.agg is Agg.SUM else carried.mean()
 
-    agg_exprs = [combine.fill_null(0).alias(level.weight_col)]
-    if level.agg is Agg.SUM:
-        agg_exprs.append(carried.len().cast(pl.Int64).alias(MEMBER_COUNT_COL))
-
-    agg = source_df.group_by(level.key).agg(agg_exprs)
+    agg = source_df.group_by(level.key).agg(combine.fill_null(0).alias(level.weight_col))
     target_df = safe_join_weight(target_df, agg, level.key)  # type: ignore[arg-type]
 
     # A grouping is never more usable than its members: an unusable record

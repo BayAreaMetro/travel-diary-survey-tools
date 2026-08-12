@@ -1706,8 +1706,8 @@ class TestWeightsAndSampleRateFormatting:
         Joint tours are their own entity, so their weight comes from the canonical
         joint-tours table as ``joint_tour_weight``. That weight is the SUM over
         participants, so ``sampleRate`` is the inverse of the member *mean* --
-        ``num_represented_members / weight`` -- not 1/weight, which would let
-        CT-RAMP apply the party multiplier twice.
+        ``n_member_tours / weight`` -- not 1/weight, which would let CT-RAMP apply
+        the party multiplier twice.
         """
         households = pl.DataFrame([create_household(hh_id=1)])
         persons = pl.DataFrame(
@@ -1716,11 +1716,21 @@ class TestWeightsAndSampleRateFormatting:
                 create_person(person_id=102, hh_id=1, person_num=2),
             ]
         )
+        # Two participants, so the joint tour has two member tours and its summed
+        # weight divides back to a per-tour rate by that count.
         tours = pl.DataFrame(
             [
                 create_tour(
                     tour_id=1001,
                     person_id=101,
+                    hh_id=1,
+                    joint_tour_id=5001,
+                    tour_purpose=PurposeCategory.SOCIALREC,
+                    num_travelers=2,
+                ),
+                create_tour(
+                    tour_id=1002,
+                    person_id=102,
                     hh_id=1,
                     joint_tour_id=5001,
                     tour_purpose=PurposeCategory.SOCIALREC,
@@ -1733,13 +1743,31 @@ class TestWeightsAndSampleRateFormatting:
             [
                 create_linked_trip(
                     trip_id=10001,
+                    person_id=101,
                     tour_id=1001,
                     joint_tour_id=5001,
                     tour_direction=TourDirection.OUTBOUND,
                 ),
                 create_linked_trip(
                     trip_id=10002,
+                    person_id=101,
                     tour_id=1001,
+                    joint_tour_id=5001,
+                    tour_direction=TourDirection.INBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10003,
+                    person_id=102,
+                    person_num=2,
+                    tour_id=1002,
+                    joint_tour_id=5001,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10004,
+                    person_id=102,
+                    person_num=2,
+                    tour_id=1002,
                     joint_tour_id=5001,
                     tour_direction=TourDirection.INBOUND,
                 ),
@@ -1750,7 +1778,6 @@ class TestWeightsAndSampleRateFormatting:
             {
                 "joint_tour_id": [5001],
                 "joint_tour_weight": [5.0],
-                "num_represented_members": [2],
             }
         )
 
@@ -1793,10 +1820,13 @@ class TestWeightsAndSampleRateFormatting:
             ],
             schema=get_tour_schema(),
         )
+        # Two people travelling together: each joint trip has two member trips, so
+        # the summed weight divides back to a per-person rate by that count.
         trips = pl.DataFrame(
             [
                 create_linked_trip(
                     trip_id=10001,
+                    person_id=101,
                     tour_id=1001,
                     joint_tour_id=5001,
                     joint_trip_id=8001,
@@ -1804,7 +1834,26 @@ class TestWeightsAndSampleRateFormatting:
                 ),
                 create_linked_trip(
                     trip_id=10002,
+                    person_id=101,
                     tour_id=1001,
+                    joint_tour_id=5001,
+                    joint_trip_id=8002,
+                    tour_direction=TourDirection.INBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10003,
+                    person_id=102,
+                    person_num=2,
+                    tour_id=1002,
+                    joint_tour_id=5001,
+                    joint_trip_id=8001,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10004,
+                    person_id=102,
+                    person_num=2,
+                    tour_id=1002,
                     joint_tour_id=5001,
                     joint_trip_id=8002,
                     tour_direction=TourDirection.INBOUND,
@@ -1838,7 +1887,6 @@ class TestWeightsAndSampleRateFormatting:
             )
             .with_columns(
                 pl.lit(4.0).alias("joint_trip_weight"),
-                pl.lit(2).alias("num_represented_members"),
             )
         )
 

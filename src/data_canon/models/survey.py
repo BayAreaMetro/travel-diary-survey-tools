@@ -440,10 +440,11 @@ class JointTripModel(BaseModel):
     num_joint_travelers: int = schema_field(
         ge=2,
         description=(
-            "Party size: how many people travelled together, including any who "
-            "were never sampled and so carry no weight. Behavioural, not a "
-            "sampling quantity - it drives occupancy mode coding (SHARED2 vs "
-            "SHARED3+). Use `num_represented_members` to convert weights."
+            "Detected group size: how many member trips the clique detection put "
+            "in this joint trip. Surveyed household members only - the reported "
+            "travel party, which may include people outside the survey, is "
+            "`num_travelers` on the member trips. Not a weighting quantity: it "
+            "does not track which members the weighting later excluded."
         ),
     )
     o_lat_mean: float = schema_field(
@@ -472,17 +473,6 @@ class JointTripModel(BaseModel):
             "well-formed tour structure. Stamped by the cascade_completeness step; "
             "gates the travel-model drop and the weighting. Not a data-quality "
             "verdict - see `complete`."
-        ),
-    )
-    num_represented_members: int | None = schema_field(
-        default=None,
-        ge=0,
-        description=(
-            "How many member trips carried weight into `joint_trip_weight`. The "
-            "exact divisor back to joint-trip *events*: "
-            "`events = joint_trip_weight / num_represented_members`. Differs from "
-            "`num_joint_travelers` whenever a traveller was unsampled or not "
-            "model-usable, so never divide by the party size."
         ),
     )
     joint_trip_weight: float | None = schema_field(
@@ -516,9 +506,9 @@ class JointTourModel(BaseModel):
     num_participants: int = schema_field(
         ge=2,
         description=(
-            "Party size: household members on this joint tour, whether or not "
-            "each carries weight. Use `num_represented_members` to convert "
-            "weights."
+            "Group size: household members on this joint tour, whether or not "
+            "each carries weight. Not a weighting quantity - it does not track "
+            "which members the weighting excluded."
         ),
     )
     complete: bool | None = schema_field(default=None)
@@ -529,16 +519,6 @@ class JointTourModel(BaseModel):
             "themselves model-usable, so the group is still joint. Stamped by the "
             "cascade_completeness step; gates the travel-model drop and the "
             "weighting. Not a data-quality verdict - see `complete`."
-        ),
-    )
-    num_represented_members: int | None = schema_field(
-        default=None,
-        ge=0,
-        description=(
-            "How many member tours carried weight into `joint_tour_weight`. The "
-            "exact divisor back to joint-tour *events*: "
-            "`events = joint_tour_weight / num_represented_members`. Never divide "
-            "by `num_participants`, which is the party size."
         ),
     )
     joint_tour_weight: float | None = schema_field(
