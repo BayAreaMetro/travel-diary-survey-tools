@@ -1842,3 +1842,86 @@ class TestWeightsAndSampleRateFormatting:
 
         assert result["joint_trip_weight"][0] == 2.0
         assert result["sampleRate"][0] == 0.5
+
+    def test_joint_trips_excluded_when_tour_is_inadmissible(self, standard_config):
+        """Escort groups are not joint in CT-RAMP, so they yield no joint trip rows.
+
+        ``identify_misclassified_joint_tours`` reclassifies escort/work/school/mixed
+        groups to individual tours. If the joint trip formatter did not apply the
+        same rule, those trips would appear in both CT-RAMP trip tables and point at
+        a joint tour that was never written.
+        """
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame(
+            [
+                create_person(person_id=101, hh_id=1, person_num=1),
+                create_person(person_id=102, hh_id=1, person_num=2),
+            ]
+        )
+        tours = pl.DataFrame(
+            [
+                create_tour(
+                    tour_id=1001,
+                    person_id=101,
+                    hh_id=1,
+                    joint_tour_id=5001,
+                    tour_purpose=PurposeCategory.ESCORT,
+                    num_travelers=2,
+                ),
+            ],
+            schema=get_tour_schema(),
+        )
+        trips = pl.DataFrame(
+            [
+                create_linked_trip(
+                    trip_id=10001,
+                    tour_id=1001,
+                    joint_tour_id=5001,
+                    joint_trip_id=8001,
+                    tour_direction=TourDirection.OUTBOUND,
+                ),
+                create_linked_trip(
+                    trip_id=10002,
+                    tour_id=1001,
+                    joint_tour_id=5001,
+                    joint_trip_id=8002,
+                    tour_direction=TourDirection.INBOUND,
+                ),
+            ]
+        )
+        joint_trips = (
+            trips.filter(pl.col("joint_trip_id").is_not_null())
+            .group_by("joint_trip_id")
+            .agg(
+                [
+                    pl.col("hh_id").first(),
+                    pl.col("tour_id").first(),
+                    pl.col("joint_tour_id").first(),
+                    pl.col("o_purpose_category").first(),
+                    pl.col("d_purpose_category").first(),
+                    pl.col("o_lat").mean().alias("o_lat"),
+                    pl.col("o_lon").mean().alias("o_lon"),
+                    pl.col("d_lat").mean().alias("d_lat"),
+                    pl.col("d_lon").mean().alias("d_lon"),
+                    pl.col("o_taz").first().alias("o_taz"),
+                    pl.col("d_taz").first().alias("d_taz"),
+                    pl.col("mode_type").first(),
+                    pl.col("depart_time").first(),
+                    pl.col("arrive_time").first(),
+                    pl.col("tour_direction").first(),
+                    pl.col("num_travelers").max().alias("num_joint_travelers"),
+                ]
+            )
+        )
+
+        households_formatted = format_households(households, persons, tours, standard_config)
+        result = format_joint_trip(
+            joint_trips_canonical=joint_trips,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_canonical=tours,
+            households_ctramp=households_formatted,
+            config=standard_config,
+        )
+
+        assert len(result) == 0
