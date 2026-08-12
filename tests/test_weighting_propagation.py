@@ -697,3 +697,113 @@ class TestPropagateRedistribution:
 
         # The shortfall is real and deliberate: it is not silently rescaled away.
         assert tables["days"]["day_weight"].to_list() == [0.0, 0.0, 0.0, 0.0]
+
+
+# ---------------------------------------------------------------------------
+# Joint levels: SUM, not mean
+# ---------------------------------------------------------------------------
+
+
+def _make_tables_with_joints():
+    """One household, two members sharing a trip and the tour it sits on.
+
+    Both members' days are usable, but member 2's trip is not, so the joint
+    grouping has a party of two and only one *represented* member. That gap is
+    the whole point: it is what separates the party size from the divisor.
+    """
+    households = pl.DataFrame({"hh_id": [1], "hh_weight": [10.0], "model_usable": [True]})
+    persons = pl.DataFrame({"person_id": [1, 2], "hh_id": [1, 1], "model_usable": [True, True]})
+    days = pl.DataFrame(
+        {
+            "day_id": [10, 20],
+            "person_id": [1, 2],
+            "hh_id": [1, 1],
+            "model_usable": [True, True],
+        }
+    )
+    unlinked_trips = pl.DataFrame(
+        {
+            "unlinked_trip_id": [100, 200],
+            "day_id": [10, 20],
+            "linked_trip_id": [1, 2],
+            "model_usable": [True, False],
+        }
+    )
+    linked_trips = pl.DataFrame(
+        {
+            "linked_trip_id": [1, 2],
+            "day_id": [10, 20],
+            "tour_id": [1, 2],
+            "joint_trip_id": [500, 500],
+            "model_usable": [True, False],
+        }
+    )
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1, 2],
+            "day_id": [10, 20],
+            "joint_tour_id": [900, 900],
+            "model_usable": [True, False],
+        }
+    )
+    return {
+        "households": households,
+        "persons": persons,
+        "days": days,
+        "unlinked_trips": unlinked_trips,
+        "linked_trips": linked_trips,
+        "joint_trips": pl.DataFrame({"joint_trip_id": [500], "model_usable": [True]}),
+        "tours": tours,
+        "joint_tours": pl.DataFrame({"joint_tour_id": [900], "model_usable": [True]}),
+    }
+
+
+class TestJointLevelsSum:
+    """The joint levels carry person-trips, not events."""
+
+    def test_joint_weight_is_the_sum_of_its_members(self):
+        """joint_trip_weight equals the total of the member linked_trip_weights."""
+        tables = _make_tables_with_joints()
+        propagate_weights(tables, {"households": "hh_weight"})
+
+        members = tables["linked_trips"]["linked_trip_weight"].sum()
+        assert tables["joint_trips"]["joint_trip_weight"][0] == pytest.approx(members)
+        # Not the mean: with one represented member of two, they would differ.
+        assert tables["joint_trips"]["joint_trip_weight"][0] == pytest.approx(10.0)
+
+    def test_joint_tour_weight_is_the_sum_of_its_members(self):
+        """joint_tour_weight equals the total of the member tour_weights."""
+        tables = _make_tables_with_joints()
+        propagate_weights(tables, {"households": "hh_weight"})
+
+        members = tables["tours"]["tour_weight"].sum()
+        assert tables["joint_tours"]["joint_tour_weight"][0] == pytest.approx(members)
+
+    def test_represented_count_excludes_unweighted_members(self):
+        """The published divisor counts members that carried weight, not the party."""
+        tables = _make_tables_with_joints()
+        propagate_weights(tables, {"households": "hh_weight"})
+
+        # Two travellers, one of them represented.
+        assert tables["joint_trips"]["num_represented_members"][0] == 1
+        assert tables["joint_tours"]["num_represented_members"][0] == 1
+
+    def test_dividing_by_the_count_recovers_the_event_weight(self):
+        """Sum / count == mean, so either convention is one operation away."""
+        tables = _make_tables_with_joints()
+        propagate_weights(tables, {"households": "hh_weight"})
+
+        joint = tables["joint_trips"]
+        weighted_members = tables["linked_trips"].filter(pl.col("linked_trip_weight") != 0)
+        events = joint["joint_trip_weight"][0] / joint["num_represented_members"][0]
+        assert events == pytest.approx(weighted_members["linked_trip_weight"].mean())
+
+    def test_mean_levels_are_untouched(self):
+        """Only the joint levels sum; tours and linked trips still average."""
+        tables = _make_tables_with_joints()
+        propagate_weights(tables, {"households": "hh_weight"})
+
+        # Tour 1 holds a single linked trip, so its mean is that trip's weight.
+        tour = tables["tours"].filter(pl.col("tour_id") == 1)
+        trip = tables["linked_trips"].filter(pl.col("linked_trip_id") == 1)
+        assert tour["tour_weight"][0] == pytest.approx(trip["linked_trip_weight"][0])

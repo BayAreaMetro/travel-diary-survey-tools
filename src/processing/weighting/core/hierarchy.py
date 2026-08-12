@@ -17,9 +17,23 @@ groupings; both directions are edges of one tree.
 |unlinked   |``unlinked_trip_weight``|Down from ``day_weight`` via ``day_id``
 |linked     |``linked_trip_weight``  |Up: mean of member ``unlinked_trip_weight``
 |tours      |``tour_weight``         |Up: mean of member ``linked_trip_weight``
-|joint trips|``joint_trip_weight``   |Up: mean of member ``linked_trip_weight``
-|joint tours|``joint_tour_weight``   |Up: mean of member ``tour_weight``
+|joint trips|``joint_trip_weight``   |Up: **sum** of member ``linked_trip_weight``
+|joint tours|``joint_tour_weight``   |Up: **sum** of member ``tour_weight``
 
+# Two units
+
+Most weights count *one row of their own table*.  The joint levels instead sum
+their members, so they count **person-trips** -- the travel of the whole party,
+not the joint occasion -- and are therefore an *overlay* on the member table,
+never a partition of it: ``sum(linked) + sum(joint)`` double counts.
+
+Both readings are one operation apart, using the member count published beside
+the weight::
+
+    events = joint_trip_weight / num_represented_members
+
+Never divide by a party-size column: that counts travellers, including any who
+were never sampled and so carry no weight.
 """
 
 from dataclasses import dataclass
@@ -34,6 +48,28 @@ class Flow(Enum):
 
     UP = auto()
     """Aggregate: a grouping combines the weights of its usable members."""
+
+
+class Agg(Enum):
+    """How an ``UP`` edge combines its members' weights."""
+
+    MEAN = auto()
+    """The grouping counts *once*: one linked trip, one tour. Its weight is the
+    mean of its usable members, so the weight stays in the unit of its own row."""
+
+    SUM = auto()
+    """The grouping carries the combined weight of its members -- person-trips,
+    not occasions. This puts it in the member table's unit while overlapping it,
+    so summing both double counts. Levels using this publish [`MEMBER_COUNT_COL`]
+    [processing.weighting.core.hierarchy.MEMBER_COUNT_COL] as the exact divisor back
+    to the mean."""
+
+
+MEMBER_COUNT_COL = "num_represented_members"
+"""Column published beside every [`Agg.SUM`][processing.weighting.core.hierarchy.Agg]
+weight, holding how many members carried weight into it. The exact divisor
+between the two conventions (``sum == mean x count``); a party-size column is
+not, as it counts travellers rather than weighted records."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -56,6 +92,8 @@ class Level:
             children (``parent_weight / n_usable``) instead of copied to each.
             Days use this -- see [`processing.weighting.core.propagation`]
             [processing.weighting.core.propagation].
+        agg: How an ``UP`` edge combines its members. ``DOWN`` edges must leave
+            it at the default.
     """
 
     table: str
@@ -64,6 +102,7 @@ class Level:
     flow: Flow | None = None
     scope: str | None = None
     split: bool = False
+    agg: Agg = Agg.MEAN
 
     @property
     def id_col(self) -> str:
@@ -91,6 +130,10 @@ class Level:
                 raise ValueError(msg)
         elif any(part is None for part in edge):
             msg = f"{self.table}: derived level needs parent, flow and scope"
+            raise ValueError(msg)
+
+        if self.flow is not Flow.UP and self.agg is not Agg.MEAN:
+            msg = f"{self.table}: agg only applies to an UP edge"
             raise ValueError(msg)
 
 
@@ -133,6 +176,7 @@ HIERARCHY: tuple[Level, ...] = (
         parent="linked_trips",
         flow=Flow.UP,
         scope="day_id",
+        agg=Agg.SUM,
     ),
     Level(
         table="tours",
@@ -147,6 +191,7 @@ HIERARCHY: tuple[Level, ...] = (
         parent="tours",
         flow=Flow.UP,
         scope="day_id",
+        agg=Agg.SUM,
     ),
 )
 
