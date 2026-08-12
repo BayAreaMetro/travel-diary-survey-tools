@@ -251,9 +251,11 @@ def joint_weight_columns(
     ``n_members / weight``.
 
     The count comes from the member table the caller already grouped, not from the
-    joint record: the members reaching the formatter are exactly those the
-    ``model_usable`` gate admitted, which is the same gate the weighting summed
-    over, so the two agree by construction.
+    joint record. It matches what the weighting summed over because the CT-RAMP
+    filters drop an unusable member's tour and its trips upstream, then demote any
+    group left with fewer than two participants -- not because of the joint
+    record's own flag, and not because of the zero-weight filter, which only ever
+    removes whole households.
 
     Args:
         available: Columns present on the frame the expressions will run against.

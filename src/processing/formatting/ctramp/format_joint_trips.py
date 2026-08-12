@@ -158,7 +158,7 @@ def format_joint_trip(
         tour_tnc_type = pl.col("tour_tnc_type")
     else:
         tour_submode_expr = None
-        tour_tnc_type = None  # Derive tour-level transit submode / TNC type per joint tour,
+        tour_tnc_type = None
 
     # Filter to only trips on joint tours
     joint_trips_formatted = joint_trips_formatted.filter(pl.col("joint_tour_id").is_not_null())
