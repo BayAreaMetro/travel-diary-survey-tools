@@ -426,9 +426,16 @@ class TourModel(BaseModel):
 class JointTripModel(BaseModel):
     """Joint trip group containing multiple linked trips from same household.
 
-    Represents a detected shared trip where multiple household members traveled
-    together. Each joint trip has a unique ID and aggregated spatiotemporal
-    attributes from its member trips.
+    Represents a detected shared trip where several household members travelled
+    together. This is a *linking* table: it records which member trips form the
+    group, and nothing about where or when they went. Those facts stay on the
+    member trips, which hold them first-hand.
+
+    Collapsing the members into one place or time means choosing a rule -- an
+    average names a point none of them reported, a representative privileges one
+    of them -- and which rule is right depends on what the answer is for. That
+    choice belongs to whoever is asking, so it is made downstream rather than
+    frozen here. Mirrors ``JointTourModel``.
 
     This table is an *overlay* on ``linked_trips``, not a partition of it: every
     member trip is still a row there in its own right. See ``joint_trip_weight``.
@@ -447,24 +454,6 @@ class JointTripModel(BaseModel):
             "does not track which members the weighting later excluded."
         ),
     )
-    o_lat_mean: float = schema_field(
-        ge=-90, le=90, description="Mean origin latitude across member trips"
-    )
-    o_lon_mean: float = schema_field(
-        ge=-180, le=180, description="Mean origin longitude across member trips"
-    )
-    d_lat_mean: float = schema_field(
-        ge=-90,
-        le=90,
-        description="Mean destination latitude across member trips",
-    )
-    d_lon_mean: float = schema_field(
-        ge=-180,
-        le=180,
-        description="Mean destination longitude across member trips",
-    )
-    depart_time_mean: datetime = schema_field(description="Mean departure time across member trips")
-    depart_arrive_mean: datetime = schema_field(description="Mean arrival time across member trips")
     complete: bool | None = schema_field(default=None)
     model_usable: bool | None = schema_field(
         default=None,

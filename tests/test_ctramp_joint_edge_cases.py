@@ -474,17 +474,6 @@ class TestJointTourNumbering:
         assert joint_tours["tour_id"].to_list() == [0]
         assert joint_trips["tour_id"].unique().to_list() == [0]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Known defect: format_joint_trip ranks joint_tour_id over only the joint "
-            "tours still present in joint_trips, while format_joint_tour ranks over "
-            "every admitted joint tour. When the two sets differ the numbering "
-            "shifts, silently re-pointing the surviving joint trips at the wrong "
-            "joint tour. The anti-join orphan check cannot see it, because the id "
-            "landed on does exist."
-        ),
-    )
     def test_a_joint_tour_missing_from_the_trip_table_does_not_renumber_the_rest(
         self, standard_config
     ):

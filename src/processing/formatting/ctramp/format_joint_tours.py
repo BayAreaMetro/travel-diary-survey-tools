@@ -199,10 +199,8 @@ def format_joint_tour(
 
     _validate_joint_tours_have_trips(joint_tours_formatted, linked_trips_canonical)
 
-    joint_tours_formatted = joint_tours_formatted.with_columns(
-        (pl.col("joint_tour_id").rank("dense").over("hh_id") - 1)
-        .cast(pl.Int64)
-        .alias("_ctramp_joint_tour_id")
+    joint_tours_formatted = joint_tours_formatted.join(
+        ctramp_joint_tour_numbers(tours_canonical), on="joint_tour_id", how="left"
     )
 
     weight_cols: list[pl.Expr] = []
@@ -236,6 +234,38 @@ def format_joint_tour(
             pl.col("num_ib_stops").cast(pl.Int64),
             *weight_cols,
         ]
+    )
+
+
+def ctramp_joint_tour_numbers(tours_canonical: pl.DataFrame) -> pl.DataFrame:
+    """Number each household's joint tours from zero, as CT-RAMP identifies them.
+
+    Both joint files carry this number, so it is derived once from the tours --
+    the only table holding every admitted joint tour. Ranking it separately over
+    each file's own rows agrees only while the two files cover the same joint
+    tours; let one lose a tour and the rest silently shift down onto their
+    neighbours' numbers, which no referential check can see because the number
+    landed on does exist.
+
+    Args:
+        tours_canonical: Canonical tours, already passed through
+            [`identify_misclassified_joint_tours`]
+            [processing.formatting.ctramp.format_joint_tours.identify_misclassified_joint_tours].
+
+    Returns:
+        One row per joint tour: ``joint_tour_id`` and its 0-based
+        ``_ctramp_joint_tour_id`` within the household.
+    """
+    return (
+        tours_canonical.filter(pl.col("joint_tour_id").is_not_null())
+        .select("hh_id", "joint_tour_id")
+        .unique()
+        .with_columns(
+            (pl.col("joint_tour_id").rank("dense").over("hh_id") - 1)
+            .cast(pl.Int64)
+            .alias("_ctramp_joint_tour_id")
+        )
+        .select("joint_tour_id", "_ctramp_joint_tour_id")
     )
 
 

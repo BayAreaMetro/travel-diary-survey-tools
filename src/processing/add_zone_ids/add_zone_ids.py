@@ -245,8 +245,8 @@ def add_zone_ids(
             ("linked_trips", "linked_trip_id", "d_lon", "d_lat", "d"),
             ("tours", "tour_id", "o_lon", "o_lat", "o"),
             ("tours", "tour_id", "d_lon", "d_lat", "d"),
-            ("joint_trips", "joint_trip_id", "o_lon_mean", "o_lat_mean", "o"),
-            ("joint_trips", "joint_trip_id", "d_lon_mean", "d_lat_mean", "d"),
+            # joint_trips holds no coordinates of its own: it is a linking table,
+            # and its members are zoned above.
         ]
 
         # Apply this zone geography to all standard locations

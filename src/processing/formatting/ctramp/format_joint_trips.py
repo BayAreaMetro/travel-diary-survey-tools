@@ -10,7 +10,12 @@ from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import TNCType
 
 from .ctramp_config import CTRAMPConfig
-from .format_joint_tours import identify_misclassified_joint_tours, joint_weight_columns
+from .format_joint_tours import (
+    ctramp_joint_tour_numbers,
+    identify_misclassified_joint_tours,
+    joint_weight_columns,
+)
+from .joint_representative import log_members_spanning_zones, select_representative_members
 from .mode_mappings import aggregate_transit_submode, ctramp_mode_expression
 from .purpose_mappings import ctramp_purpose_category_expression
 
@@ -82,8 +87,6 @@ def format_joint_trip(
             pl.col("depart_time").first(),
             pl.col("arrive_time").first(),
             pl.col("num_travelers").first(),
-            pl.col(f"o_{config.taz_field}").first(),
-            pl.col(f"d_{config.taz_field}").first(),
             pl.col("tour_direction").first(),
             pl.col("access_mode").first(),
             pl.col("egress_mode").first(),
@@ -94,6 +97,16 @@ def format_joint_trip(
         joint_trip_context,
         on="joint_trip_id",
         how="left",
+    )
+
+    # A joint trip carries no location of its own, so one member stands for the
+    # group -- the same member across every leg of its joint tour.
+    log_members_spanning_zones(joint_linked_trips, config.taz_field)
+    representative = select_representative_members(joint_linked_trips).select(
+        "joint_trip_id", f"o_{config.taz_field}", f"d_{config.taz_field}"
+    )
+    joint_trips_formatted = joint_trips_formatted.join(
+        representative, on="joint_trip_id", how="left"
     )
 
     # Derive the transit submode per joint trip from detailed unlinked-trip modes,
@@ -275,11 +288,10 @@ def format_joint_trip(
         .drop("_stop_seq")
     )
 
-    # CT-RAMP joint tour_id is 0-based per household (0=first joint tour, ...).
-    joint_trips_formatted = joint_trips_formatted.with_columns(
-        (pl.col("joint_tour_id").rank("dense").over("hh_id") - 1)
-        .cast(pl.Int64)
-        .alias("_ctramp_joint_tour_id")
+    # Numbered from the tours, not from the joint trips present here: the two
+    # files must agree on it even when one of them has lost a joint tour.
+    joint_trips_formatted = joint_trips_formatted.join(
+        ctramp_joint_tour_numbers(tours_canonical), on="joint_tour_id", how="left"
     )
 
     weight_cols = joint_weight_columns(
