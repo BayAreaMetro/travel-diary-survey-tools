@@ -84,8 +84,6 @@ def format_joint_trip(
             pl.col("o_purpose_category").first(),
             pl.col("d_purpose_category").first(),
             pl.col("mode_type").first(),
-            pl.col("depart_time").first(),
-            pl.col("arrive_time").first(),
             pl.col("num_travelers").first(),
             pl.col("tour_direction").first(),
             pl.col("access_mode").first(),
@@ -99,11 +97,16 @@ def format_joint_trip(
         how="left",
     )
 
-    # A joint trip carries no location of its own, so one member stands for the
-    # group -- the same member across every leg of its joint tour.
+    # A joint trip carries no location or time of its own, so one member stands
+    # for the group -- the same member across every leg of its joint tour, and
+    # for both the zones and the clock, so the record describes one real trip.
     log_members_spanning_zones(joint_linked_trips, config.taz_field)
     representative = select_representative_members(joint_linked_trips).select(
-        "joint_trip_id", f"o_{config.taz_field}", f"d_{config.taz_field}"
+        "joint_trip_id",
+        f"o_{config.taz_field}",
+        f"d_{config.taz_field}",
+        "depart_time",
+        "arrive_time",
     )
     joint_trips_formatted = joint_trips_formatted.join(
         representative, on="joint_trip_id", how="left"
