@@ -333,13 +333,13 @@ steps:
   #     derive_missing_weights: true
   #     usability_flag_col: model_usable  # supplied weights are redistributed onto usable records, preserving each supplied total
   #     weights:
-  #       household_weights:
+  #       hh_weight:
   #         weight_path: "{{ weights_dir }}/hh_weights.csv"
-  #       person_weights:
+  #       person_weight:
   #         weight_path: "{{ weights_dir }}/person_weights.csv"
-  #       day_weights:
+  #       day_weight:
   #         weight_path: "{{ weights_dir }}/day_weights.csv"
-  #       unlinked_trip_weights:
+  #       unlinked_trip_weight:
   #         weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
   #         weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
   #         weight_path: "{{ weights_dir }}/trip_weights.csv"
@@ -436,3 +436,9 @@ steps:
         individual_trips_ctramp: "{{ output_dir }}/ctramp_2023/IndivTripData.csv"
         joint_tours_ctramp: "{{ output_dir }}/ctramp_2023/JointTourData.csv"
         joint_trips_ctramp: "{{ output_dir }}/ctramp_2023/JointTripData.csv"
+        cdap_results_ctramp: "{{ output_dir }}/ctramp_2023/cdapResults.csv"
+        ao_results_ctramp: "{{ output_dir }}/ctramp_2023/aoResults.csv"
+        # Not CT-RAMP files: individual and joint travel unified into one row per
+        # person-record, so a total needs no reconciling across the two files above.
+        all_tours_ctramp: "{{ output_dir }}/ctramp_2023/AllTourData.csv"
+        all_trips_ctramp: "{{ output_dir }}/ctramp_2023/AllTripData.csv"
