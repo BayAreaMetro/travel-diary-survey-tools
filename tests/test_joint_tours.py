@@ -25,7 +25,10 @@ from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.joint_trips import detect_joint_trips
 from processing.tours.extraction import extract_tours
-from processing.tours.joint_tour_helpers import identify_joint_tours
+from processing.tours.joint_tour_helpers import (
+    _validate_every_leg_is_joint,
+    identify_joint_tours,
+)
 
 
 @pytest.fixture
@@ -744,3 +747,73 @@ class TestNoJointTours:
         # No joint tours should be identified
         joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
         assert len(joint_tours) == 0, "No joint tours should be identified"
+
+
+class TestEveryLegOfAJointTourIsJoint:
+    """The invariant behind joint_tour_id: a tour is joint only if all its trips are.
+
+    ``_find_eligible_tours`` already enforces this, so the guard is a tripwire
+    for a future change that stops enforcing it -- which is why the violating
+    frame is handed to the validator directly. A leg keeping ``joint_tour_id``
+    while losing ``joint_trip_id`` reaches neither CT-RAMP trip file.
+    """
+
+    def test_a_solo_leg_stops_the_tour_being_joint(self):
+        """The enforcement: a tour with one non-joint leg is left individual."""
+        linked_trips, tours = _build_joint_tour_frames(
+            [
+                (1, P1, 101, 1001),
+                (2, P1, 101, None),  # solo leg
+                (3, P2, 201, 1001),
+                (4, P2, 201, 1002),
+            ]
+        )
+
+        _, tours_out = identify_joint_tours(linked_trips, tours)
+
+        assert tours_out.filter(pl.col("joint_tour_id").is_not_null()).is_empty()
+
+    def test_the_guard_rejects_a_joint_tour_with_a_non_joint_leg(self):
+        """The tripwire, on a frame the public path cannot currently produce."""
+        broken = pl.DataFrame(
+            {
+                "linked_trip_id": [1, 2],
+                "person_id": [P1, P1],
+                "tour_id": [101, 101],
+                "joint_trip_id": [1001, None],
+                "joint_tour_id": [9001, 9001],
+            },
+            schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
+        )
+
+        with pytest.raises(ValueError, match="no joint_trip_id"):
+            _validate_every_leg_is_joint(broken)
+
+    def test_the_guard_passes_when_every_leg_is_joint(self):
+        """The control: all legs joint raises nothing."""
+        fine = pl.DataFrame(
+            {
+                "linked_trip_id": [1, 2],
+                "person_id": [P1, P1],
+                "tour_id": [101, 101],
+                "joint_trip_id": [1001, 1002],
+                "joint_tour_id": [9001, 9001],
+            }
+        )
+
+        _validate_every_leg_is_joint(fine)
+
+    def test_a_trip_with_no_joint_tour_is_not_policed(self):
+        """An ordinary individual trip has neither id and is none of the guard's business."""
+        individual = pl.DataFrame(
+            {
+                "linked_trip_id": [1],
+                "person_id": [P1],
+                "tour_id": [101],
+                "joint_trip_id": [None],
+                "joint_tour_id": [None],
+            },
+            schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
+        )
+
+        _validate_every_leg_is_joint(individual)

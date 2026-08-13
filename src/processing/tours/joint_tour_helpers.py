@@ -119,6 +119,8 @@ def identify_joint_tours(
         how="left",
     )
 
+    _validate_every_leg_is_joint(linked_trips)
+
     joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
     logger.info(
         "Identified %d individual tours as joint (%d unique joint tour groups)",
@@ -127,6 +129,39 @@ def identify_joint_tours(
     )
 
     return linked_trips, tours
+
+
+def _validate_every_leg_is_joint(linked_trips: pl.DataFrame) -> None:
+    """Raise when a trip on a joint tour is not itself a joint trip.
+
+    Step 1 of the algorithm admits a tour only when *every* one of its trips is
+    joint, so the two ids are inseparable by construction. A leg that keeps
+    ``joint_tour_id`` while losing ``joint_trip_id`` is travel nothing can file:
+    downstream, the individual trip table excludes joint tours and the joint
+    trip table needs the id, so the leg would silently reach neither.
+
+    Raises:
+        ValueError: If any trip carries a joint tour but no joint trip.
+    """
+    required = {"joint_tour_id", "joint_trip_id"}
+    if not required.issubset(linked_trips.columns):
+        return
+
+    stray = linked_trips.filter(
+        pl.col("joint_tour_id").is_not_null() & pl.col("joint_trip_id").is_null()
+    )
+    if stray.is_empty():
+        return
+
+    tour_ids = stray["joint_tour_id"].unique().to_list()
+    preview = tour_ids[:10]
+    msg = (
+        f"{len(stray)} trip(s) across {len(tour_ids)} joint tour(s) carry a "
+        f"joint_tour_id but no joint_trip_id; a tour is only joint when all of its "
+        f"trips are. Joint tour IDs: {preview}"
+        f"{'...' if len(tour_ids) > len(preview) else ''}"
+    )
+    raise ValueError(msg)
 
 
 def build_joint_tours_table(tours: pl.DataFrame) -> pl.DataFrame:
