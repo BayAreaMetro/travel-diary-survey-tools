@@ -119,7 +119,7 @@ def identify_joint_tours(
         how="left",
     )
 
-    _validate_every_leg_is_joint(linked_trips)
+    _validate_joint_tours_have_joint_trips(linked_trips)
 
     joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
     logger.info(
@@ -131,35 +131,43 @@ def identify_joint_tours(
     return linked_trips, tours
 
 
-def _validate_every_leg_is_joint(linked_trips: pl.DataFrame) -> None:
-    """Raise when a trip on a joint tour is not itself a joint trip.
+def _validate_joint_tours_have_joint_trips(linked_trips: pl.DataFrame) -> None:
+    """Raise when a tour is marked joint but holds no joint trip at all.
 
-    This is the postcondition of step 1: a tour is admitted only when *every*
-    one of its trips is joint, so ``joint_tour_id`` cannot mark a trip that
-    ``joint_trip_id`` does not. The two record the same fact at different
-    grains -- this trip was shared, these trips were shared throughout -- and a
-    trip claiming the tour but not the occasion contradicts the rule the id was
-    assigned under.
+    ``joint_tour_id`` is only meaningful as a claim about shared travel, so a
+    tour carrying one while none of its trips was shared is self-contradictory
+    however the id is defined.
+
+    Deliberately weaker than the rule this module currently assigns ids under.
+    Step 1 admits a tour only when *every* trip is joint, which suits a model
+    that has no way to express a half-shared tour, but a survey does: a parent
+    who drops a child and drives on to work made one tour, part of it together.
+    Should ``joint_tour_id`` later be widened to cover those, this check still
+    holds -- so it does not have to be revisited to make that change, and
+    consumers needing the stricter reading enforce it themselves.
 
     Raises:
-        ValueError: If any trip carries a joint tour but no joint trip.
+        ValueError: If any joint tour has no joint trip among its trips.
     """
     required = {"joint_tour_id", "joint_trip_id"}
     if not required.issubset(linked_trips.columns):
         return
 
-    stray = linked_trips.filter(
-        pl.col("joint_tour_id").is_not_null() & pl.col("joint_trip_id").is_null()
+    empty_tours = (
+        linked_trips.filter(pl.col("joint_tour_id").is_not_null())
+        .group_by("joint_tour_id")
+        .agg(pl.col("joint_trip_id").is_not_null().any().alias("_has_joint_trip"))
+        .filter(~pl.col("_has_joint_trip"))
     )
-    if stray.is_empty():
+    if empty_tours.is_empty():
         return
 
-    tour_ids = stray["joint_tour_id"].unique().to_list()
+    tour_ids = empty_tours["joint_tour_id"].to_list()
     preview = tour_ids[:10]
     msg = (
-        f"{len(stray)} trip(s) across {len(tour_ids)} joint tour(s) carry a "
-        f"joint_tour_id but no joint_trip_id; a tour is only joint when all of its "
-        f"trips are. Joint tour IDs: {preview}"
+        f"{len(tour_ids)} tour(s) carry a joint_tour_id but hold no joint trip; "
+        f"a tour cannot be shared travel when none of its trips was shared. "
+        f"Joint tour IDs: {preview}"
         f"{'...' if len(tour_ids) > len(preview) else ''}"
     )
     raise ValueError(msg)

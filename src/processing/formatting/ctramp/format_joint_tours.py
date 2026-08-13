@@ -199,6 +199,7 @@ def format_joint_tour(
     )
 
     _validate_joint_tours_have_trips(joint_tours_formatted, linked_trips_canonical)
+    _validate_joint_tours_are_wholly_joint(linked_trips_canonical)
 
     joint_tours_formatted = joint_tours_formatted.join(
         ctramp_joint_tour_numbers(tours_canonical), on="joint_tour_id", how="left"
@@ -402,6 +403,49 @@ def identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.Data
         .otherwise(pl.col("joint_tour_id"))
         .alias("joint_tour_id")
     )
+
+
+def _validate_joint_tours_are_wholly_joint(linked_trips: pl.DataFrame) -> None:
+    """Raise when a joint tour has a leg that is not itself a joint trip.
+
+    CT-RAMP has no way to express a half-shared tour: a tour is joint or it is
+    not. The survey does -- a parent who drops a child and drives on to work
+    made one tour, part of it together -- so this is a constraint of the output
+    rather than of the data, and is enforced here rather than upstream.
+
+    Today the canonical rule is stricter than CT-RAMP needs and this cannot
+    fire. It exists so that widening ``joint_tour_id`` to cover partly-shared
+    tours fails loudly here, rather than silently dropping the unshared leg:
+    the individual trip file excludes joint tours and the joint trip file needs
+    a ``joint_trip_id``, so such a leg would reach neither.
+
+    Raises:
+        ValueError: If a trip on a joint tour carries no ``joint_trip_id``.
+    """
+    required = {"joint_tour_id", "joint_trip_id"}
+    if linked_trips.is_empty() or not required.issubset(linked_trips.columns):
+        return
+    # A frame carrying no joint trip at all is not asserting that these tours are
+    # partly shared -- it simply never recorded trip-level sharing. Judging it
+    # would fail every caller that supplies tours without the trips behind them.
+    if linked_trips["joint_trip_id"].null_count() == len(linked_trips):
+        return
+
+    stray = linked_trips.filter(
+        pl.col("joint_tour_id").is_not_null() & pl.col("joint_trip_id").is_null()
+    )
+    if stray.is_empty():
+        return
+
+    tour_ids = stray["joint_tour_id"].unique().to_list()
+    preview = tour_ids[:10]
+    msg = (
+        f"{len(stray)} trip(s) across {len(tour_ids)} joint tour(s) are not joint trips. "
+        f"CT-RAMP cannot represent a partly-shared tour, so such a tour must be split or "
+        f"reclassified before formatting. Joint tour IDs: {preview}"
+        f"{'...' if len(tour_ids) > len(preview) else ''}"
+    )
+    raise ValueError(msg)
 
 
 def _validate_joint_tours_have_trips(joint_tours: pl.DataFrame, linked_trips: pl.DataFrame) -> None:

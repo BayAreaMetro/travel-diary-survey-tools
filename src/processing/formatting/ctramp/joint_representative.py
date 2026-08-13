@@ -18,6 +18,13 @@ lets a household take its outbound leg from one member and its inbound from
 another; where those two reported home a few metres apart across a boundary, the
 tour then departs one zone and returns to a different one -- a tour that never
 gets home. One member for the whole tour cannot produce that.
+
+This lives under the CT-RAMP formatter because it is one consumer's convention,
+not a fact about the survey: another output may reasonably collapse a group a
+different way. Should a second consumer want the same rule, move the selection
+to a shared location rather than importing it from here -- and design it for
+that at the time, since the part worth sharing is the choice of member (the
+medoid, with its tie-break), not the columns each format happens to need.
 """
 
 import logging

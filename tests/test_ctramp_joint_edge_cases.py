@@ -646,3 +646,45 @@ class TestJointWeightExpansion:
 
         assert joint_trips["joint_trip_weight"].to_list() == [0.0, 0.0]
         assert joint_trips["sampleRate"].null_count() == len(joint_trips)
+
+
+class TestPartlySharedToursAreRejectedHere:
+    """CT-RAMP cannot express a half-shared tour, so it refuses one.
+
+    The survey can record it -- a parent drops a child, then drives on to work --
+    and canonical allows it. The all-or-nothing rule is this format's, so it is
+    enforced in this formatter rather than upstream.
+    """
+
+    def test_a_joint_tour_with_an_unshared_leg_is_rejected(self, standard_config):
+        """Silently dropping the leg is the failure this prevents.
+
+        The individual trip file excludes joint tours and the joint trip file
+        needs a ``joint_trip_id``, so an unshared leg of a joint tour would
+        reach neither.
+        """
+        households, persons = _two_person_household()
+        tours = _shared_tour(PurposeCategory.SOCIALREC)
+        trips = _trips_for(tours).with_columns(
+            # Outbound stays shared; the inbound leg was made alone.
+            pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
+            .then(None)
+            .otherwise(pl.col("joint_trip_id"))
+            .alias("joint_trip_id")
+        )
+
+        with pytest.raises(ValueError, match="partly-shared tour"):
+            _format_all(tours, trips, persons, households, standard_config)
+
+    def test_a_frame_with_no_joint_trips_at_all_is_not_judged(self, standard_config):
+        """Absent trip-level sharing is missing information, not a partial tour."""
+        households, persons = _two_person_household()
+        tours = _shared_tour(PurposeCategory.SOCIALREC)
+        trips = _trips_for(tours).with_columns(pl.lit(None, dtype=pl.Int64).alias("joint_trip_id"))
+
+        _, _, joint_tours, joint_trips = _format_all(
+            tours, trips, persons, households, standard_config
+        )
+
+        assert not joint_tours.is_empty()
+        assert joint_trips.is_empty()
