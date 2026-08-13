@@ -7,7 +7,10 @@ record, so the choice is made here, and these pin what it chooses.
 
 import polars as pl
 
-from processing.formatting.ctramp.joint_representative import select_representative_members
+from processing.formatting.ctramp.joint_representative import (
+    representative_person_per_tour,
+    select_representative_members,
+)
 
 TWO = 2
 
@@ -184,3 +187,37 @@ class TestOneMemberPerJointTour:
         # Both are pairs, so both fall to the tie-break rather than to each other.
         assert rep["person_id"].to_list() == [101, 101]
         assert rep["joint_tour_id"].to_list() == [900, 901]
+
+
+class TestTheTourAndItsTripsAgree:
+    """The joint tour and its joint trips are two views of one outing."""
+
+    def test_the_tour_takes_the_same_member_as_its_trips(self):
+        """Both files resolve to one member, so neither describes half of each.
+
+        The tour file used to take whichever member tour sorted first, which on
+        BATS 2023 disagreed with the trip file's representative for 148 joint
+        tours -- placing 10 of them in a different zone from their own trips.
+        """
+        members = _members(
+            [
+                (101, 500, 900, 37.0000, 38.0000),
+                (102, 500, 900, 37.0050, 38.0050),
+                (103, 500, 900, 37.0200, 38.0200),
+                (101, 501, 900, 38.0200, 37.0200),
+                (102, 501, 900, 38.0000, 37.0000),
+                (103, 501, 900, 38.0050, 37.0050),
+            ]
+        )
+
+        per_tour = representative_person_per_tour(members)
+        per_leg = select_representative_members(members)
+
+        assert len(per_tour) == 1
+        assert per_tour["person_id"].to_list() == per_leg["person_id"].unique().to_list()
+
+    def test_no_representative_without_joint_tours(self):
+        """Joint trips outside any joint tour contribute no tour-level choice."""
+        members = _members([(101, 500, None, 37.0, 38.0), (102, 500, None, 37.1, 38.1)])
+
+        assert representative_person_per_tour(members).is_empty()

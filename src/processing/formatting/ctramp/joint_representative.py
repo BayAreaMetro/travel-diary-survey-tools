@@ -106,6 +106,33 @@ def select_representative_members(joint_members: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def representative_person_per_tour(joint_members: pl.DataFrame) -> pl.DataFrame:
+    """The person standing for each joint tour.
+
+    The joint tour and its joint trips are two views of one outing, so both take
+    their location and clock from the same member. Without this the tour file
+    would describe whichever member happened to sort first, and could place the
+    tour in a different zone from its own outbound trip.
+
+    Args:
+        joint_members: Member linked trips, as for
+            :func:`select_representative_members`.
+
+    Returns:
+        One row per ``joint_tour_id`` with the representative's ``person_id``.
+    """
+    empty = pl.DataFrame(schema={"joint_tour_id": pl.Int64, "person_id": pl.Int64})
+    if joint_members.is_empty() or "joint_tour_id" not in joint_members.columns:
+        return empty
+
+    return (
+        select_representative_members(joint_members)
+        .filter(pl.col("joint_tour_id").is_not_null())
+        .select("joint_tour_id", "person_id")
+        .unique(subset="joint_tour_id", keep="first", maintain_order=True)
+    )
+
+
 def log_members_spanning_zones(joint_members: pl.DataFrame, taz_field: str) -> None:
     """Report joint trips whose members were not all in the same zone.
 

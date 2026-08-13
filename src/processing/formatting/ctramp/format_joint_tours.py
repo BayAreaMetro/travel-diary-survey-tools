@@ -15,6 +15,7 @@ from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
 
 from .ctramp_config import CTRAMPConfig
+from .joint_representative import representative_person_per_tour
 from .mode_mappings import (
     aggregate_transit_submode,
     ctramp_mode_expression,
@@ -51,21 +52,21 @@ def format_joint_tour(
         on="person_id",
         how="left",
     )
-    participants_agg = joint_tours.group_by("joint_tour_id").agg(
+    group_agg = joint_tours.group_by("joint_tour_id").agg(
         [
             pl.col("hh_id").first(),
             pl.col("person_num").sort().cast(pl.Utf8).str.join(" ").alias("Participants"),
             # Member tours behind the weight -- the divisor back to a per-tour rate.
             pl.len().cast(pl.Int64).alias("_n_members"),
-            pl.col("tour_category").first(),
-            pl.col("tour_purpose").first(),
-            pl.col(f"o_{config.taz_field}").first(),
-            pl.col(f"d_{config.taz_field}").first(),
-            pl.col("origin_depart_time").first(),
-            pl.col("origin_arrive_time").first(),
-            pl.col("tour_mode").first(),
-            pl.col("subtour_num").first(),
         ]
+    )
+
+    # Everything tour-shaped comes from the member the joint trip file also uses,
+    # so the two describe one member's outing rather than two members' halves.
+    participants_agg = group_agg.join(
+        _representative_tour(joint_tours, linked_trips_canonical, config),
+        on="joint_tour_id",
+        how="left",
     )
 
     participants_with_ages = joint_tours.join(
@@ -234,6 +235,54 @@ def format_joint_tour(
             pl.col("num_ib_stops").cast(pl.Int64),
             *weight_cols,
         ]
+    )
+
+
+def _representative_tour(
+    joint_tours: pl.DataFrame, linked_trips_canonical: pl.DataFrame, config: CTRAMPConfig
+) -> pl.DataFrame:
+    """Reduce each joint tour's member tours to the representative member's.
+
+    Falls back to the lowest person number when the member trips needed to choose
+    a representative are absent, so a caller passing tours alone still gets one
+    member's tour rather than whichever row happened to sort first.
+    """
+    columns = [
+        "tour_category",
+        "tour_purpose",
+        f"o_{config.taz_field}",
+        f"d_{config.taz_field}",
+        "origin_depart_time",
+        "origin_arrive_time",
+        "tour_mode",
+        "subtour_num",
+    ]
+
+    joint_members = (
+        linked_trips_canonical.filter(
+            pl.col("joint_trip_id").is_not_null() & pl.col("joint_tour_id").is_not_null()
+        )
+        if not linked_trips_canonical.is_empty()
+        and {"joint_trip_id", "joint_tour_id"}.issubset(linked_trips_canonical.columns)
+        else linked_trips_canonical.clear()
+    )
+
+    chosen = representative_person_per_tour(joint_members)
+    if chosen.is_empty():
+        return (
+            joint_tours.sort(["joint_tour_id", "person_id"])
+            .unique(subset="joint_tour_id", keep="first", maintain_order=True)
+            .select(["joint_tour_id", *columns])
+        )
+
+    representative = joint_tours.join(chosen, on=["joint_tour_id", "person_id"], how="semi")
+    # Any joint tour whose representative is missing here keeps a member anyway.
+    remainder = joint_tours.join(representative, on="joint_tour_id", how="anti")
+    return (
+        pl.concat([representative, remainder])
+        .sort(["joint_tour_id", "person_id"])
+        .unique(subset="joint_tour_id", keep="first", maintain_order=True)
+        .select(["joint_tour_id", *columns])
     )
 
 
