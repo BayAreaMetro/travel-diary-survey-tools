@@ -134,11 +134,12 @@ def identify_joint_tours(
 def _validate_every_leg_is_joint(linked_trips: pl.DataFrame) -> None:
     """Raise when a trip on a joint tour is not itself a joint trip.
 
-    Step 1 of the algorithm admits a tour only when *every* one of its trips is
-    joint, so the two ids are inseparable by construction. A leg that keeps
-    ``joint_tour_id`` while losing ``joint_trip_id`` is travel nothing can file:
-    downstream, the individual trip table excludes joint tours and the joint
-    trip table needs the id, so the leg would silently reach neither.
+    This is the postcondition of step 1: a tour is admitted only when *every*
+    one of its trips is joint, so ``joint_tour_id`` cannot mark a trip that
+    ``joint_trip_id`` does not. The two record the same fact at different
+    grains -- this trip was shared, these trips were shared throughout -- and a
+    trip claiming the tour but not the occasion contradicts the rule the id was
+    assigned under.
 
     Raises:
         ValueError: If any trip carries a joint tour but no joint trip.

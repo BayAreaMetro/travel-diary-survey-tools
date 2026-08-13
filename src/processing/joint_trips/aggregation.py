@@ -77,11 +77,11 @@ def build_joint_trips_table(
 def _validate_grouping_membership(joint_members: pl.DataFrame) -> None:
     """Raise when a joint grouping does not have two participants behind it.
 
-    A joint trip *is* its member trips: the weighting sums over them and CT-RAMP
-    multiplies by their count, so a grouping standing for fewer than
-    :data:`~processing.completeness.MIN_JOINT_PARTICIPANTS` distinct people is
-    not joint travel and would misstate both. Two trips by the same person are
-    not a group either, so the count is of people rather than rows.
+    A joint trip *is* its member trips, and travelling together takes at least
+    :data:`~processing.completeness.MIN_JOINT_PARTICIPANTS` people. A grouping
+    standing for fewer is not joint travel, and anything reading the group as a
+    party -- the weighting among them -- would overstate it. Two trips by the
+    same person are not a group either, so the count is of people, not rows.
 
     Raises:
         ValueError: If any grouping has fewer than two distinct participants.
