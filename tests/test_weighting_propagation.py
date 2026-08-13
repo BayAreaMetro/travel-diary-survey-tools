@@ -957,4 +957,3 @@ class TestJointEdgeCases:
         weight = tables["joint_trips"]["joint_trip_weight"][0]
         assert weight is not None
         assert weight == 0.0
-

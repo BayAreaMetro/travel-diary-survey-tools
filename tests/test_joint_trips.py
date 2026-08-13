@@ -494,4 +494,3 @@ class TestGroupingMembership:
 
         with pytest.raises(ValueError, match="fewer than 2 distinct participants"):
             build_joint_trips_table(linked_trips, assignments)
-
