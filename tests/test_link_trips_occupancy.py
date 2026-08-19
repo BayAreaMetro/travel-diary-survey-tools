@@ -6,13 +6,18 @@ somebody was picked up or dropped off, which makes the stop an activity rather
 than a transfer. ``split_on_occupancy`` refuses the link in that case.
 """
 
+import inspect
 import logging
 from datetime import datetime
 
 import polars as pl
 import pytest
 
-from processing.link_trips.link import _warn_on_occupancy_change, link_trip_ids
+from processing.link_trips.link import (
+    _warn_on_occupancy_change,
+    link_trip_ids,
+    link_trips,
+)
 
 CHANGE_MODE = 10
 
@@ -126,3 +131,18 @@ def test_splitting_removes_the_warning(caplog):
         _warn_on_occupancy_change(linked)
 
     assert "change party size" not in caplog.text
+
+
+def test_the_choice_has_no_default():
+    """No default, so a run cannot leave this decision unmade.
+
+    Either answer changes what a linked trip *is*, and a default would quietly
+    pick one on the configuration's behalf.
+    """
+    for func in (link_trips, link_trip_ids):
+        parameter = inspect.signature(func).parameters["split_on_occupancy"]
+        assert parameter.default is inspect.Parameter.empty, (
+            f"{func.__name__} gives split_on_occupancy a default, which decides "
+            f"trip linking semantics for every config that stays silent"
+        )
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY

@@ -65,7 +65,8 @@ def link_trips(
     transit_mode_enums: list[str],
     max_dwell_time: float = 120,
     dwell_buffer_distance: float = 100,
-    split_on_occupancy: bool = False,
+    *,
+    split_on_occupancy: bool,
 ) -> dict[str, pl.DataFrame]:
     """Link unlinked trip segments into complete journey records.
 
@@ -82,9 +83,12 @@ def link_trips(
         dwell_buffer_distance: Maximum spatial distance between trips to link,
             in meters (default: 100).
         split_on_occupancy: Refuse to link two segments whose reported party
-            size differs (default: False). A change of occupancy at a stop is
-            evidence that somebody was picked up or dropped off, which makes
-            the stop an activity rather than a transfer.
+            size differs. A change of occupancy at a stop is evidence that
+            somebody was picked up or dropped off, which makes the stop an
+            activity rather than a transfer. Required, and deliberately without
+            a default: either answer changes what a linked trip *is*, so the
+            choice belongs to whoever configured the run rather than to this
+            signature.
 
     Returns:
         Dictionary containing:
@@ -159,7 +163,7 @@ def link_trip_ids(
     max_dwell_time: float = 120,
     dwell_buffer_distance: float = 100,
     *,
-    split_on_occupancy: bool = False,
+    split_on_occupancy: bool,
 ) -> pl.DataFrame:
     """Link trips based on purpose and mode in time sequence.
 
@@ -178,7 +182,7 @@ def link_trip_ids(
         max_dwell_time: Maximum time gap between trips to link them (minutes)
         dwell_buffer_distance: Maximum distance between trips to link (meters)
         split_on_occupancy: Also break the link where the reported party size
-            changes between segments
+            changes between segments. Required; see ``link_trips``.
 
     Returns:
         DataFrame with linked_trip_id column added
