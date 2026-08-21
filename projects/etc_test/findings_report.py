@@ -26,6 +26,7 @@ does not re-run the checks.
 """
 
 import argparse
+import json
 import logging
 from collections import Counter
 from dataclasses import dataclass
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 ISSUES_FILENAME = "data_issues.csv"
+CODEBOOK_FILENAME = "codebook.csv"
 
 # --- Detection thresholds -----------------------------------------------------
 # Imported by conformity/check_vendor_data.py, so these values are both what
@@ -49,6 +51,9 @@ MIN_DRIVING_AGE = 16
 #: How far apart two people's arrivals at one place may be before we stop
 #: believing they travelled there together.
 COMPANION_TOLERANCE_MINUTES = 2
+# Past this gap the nearest companion visit is a different visit altogether, so
+# the claim is an unmatched companion rather than a quarrel about the clock.
+COMPANION_MATCH_WINDOW_MINUTES = 60
 #: Decimal places at which two coordinates count as the same place (~1 metre).
 PLACE_MATCH_DECIMALS = 5
 
@@ -147,16 +152,19 @@ CHECKS: dict[str, Check] = {
         ),
         source="check_diary_labelling",
     ),
-    "movement_without_displacement": Check(
-        summary="The trip arrives at the coordinates it departed from, so it has zero length.",
+    "movement_returns_to_origin": Check(
+        summary="The movement ends where it began, so it measures as zero distance.",
         detection=(
             "Within each person, sorted by `Trip Number`, compare each row's `Location "
             "Latitude` and `Location Longitude` against the previous row's and flag "
             "exact equality."
         ),
         cost=(
-            "Either an intermediate destination went unrecorded or this is not a trip; "
-            "as filed it contributes a zero-distance movement."
+            "Not necessarily an error: a walk or jog around the block legitimately "
+            "returns to its origin, and the vendor is right to record it. It is "
+            "reported so the reader knows any distance-based logic sees zero length "
+            "here, and so a genuinely missing intermediate destination is not hidden "
+            "among the loops. Check the mode and activity before treating one as a fault."
         ),
         source="check_geometry",
     ),
@@ -205,9 +213,13 @@ CHECKS: dict[str, Check] = {
             "arrival times at the same place."
         ),
         detection=(
-            f"Of the companion's matching visits to that place, keep the one closest in "
-            f"time, then flag when the two arrival timestamps differ by more than "
-            f"{COMPANION_TOLERANCE_MINUTES} minutes."
+            f"Of the companion's visits to that place, keep the one closest in time. If "
+            f"that visit is more than {COMPANION_MATCH_WINDOW_MINUTES} minutes away it "
+            f"is a different visit and the finding becomes "
+            f"`companion_filed_no_matching_trip` instead; within the window, flag when "
+            f"the two arrival timestamps differ by more than "
+            f"{COMPANION_TOLERANCE_MINUTES} minutes. Each pair is reported once, not "
+            f"once per traveller."
         ),
         cost=("Joint-trip detection matches on coincident timing and will not group them."),
         source="check_travel_party",
@@ -289,18 +301,60 @@ CHECKS: dict[str, Check] = {
 }
 
 
+def _cell(value: object) -> str:
+    """Render one value for a Markdown cell, keeping blanks visibly blank."""
+    if value is None or value == "":
+        return "_(blank)_"
+    return str(value).replace("|", "\\|")
+
+
+def _parse_evidence(row: dict) -> dict[str, str]:
+    """Decode one finding's evidence JSON, tolerating checks that carry none."""
+    raw = row.get("evidence")
+    if raw is None or raw == "":
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError) as exc:  # a malformed payload must never pass silently
+        msg = f"Finding for check {row.get('check')!r} has unreadable evidence: {raw!r}"
+        raise ValueError(msg) from exc
+    # Nulls are kept: for checks about a missing answer the empty field *is* the
+    # evidence, and dropping it would hide the point of the finding.
+    return parsed
+
+
 def _table(rows: pl.DataFrame) -> list[str]:
-    """Render the findings of one check as a Markdown table."""
-    lines = [
-        "| Household | Person | Trip | Evidence |",
-        "| --- | --- | --- | --- |",
+    """Render the findings of one check as a Markdown table.
+
+    The values that triggered each finding become their own columns, so the
+    reader sees the offending record rather than only a sentence about it.
+    Column names are the vendor's own, so they can be looked up in the codebook
+    appendix and in the vendor data dictionary.
+    """
+    evidence = [_parse_evidence(row) for row in rows.iter_rows(named=True)]
+    fields: list[str] = []
+    for item in evidence:
+        fields.extend(k for k in item if k not in fields)
+
+    header = ["Household", "Person", "Trip", *fields]
+    out = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
     ]
-    for row in rows.iter_rows(named=True):
-        person = row["person_num"] if row["person_num"] is not None else ""
-        trip = row["trip_num"] if row["trip_num"] is not None else ""
-        detail = str(row["detail"]).replace("|", "\\|")
-        lines.append(f"| {row['hh_id']} | {person} | {trip} | {detail} |")
-    return lines
+    for row, item in zip(rows.iter_rows(named=True), evidence, strict=True):
+        out.append(
+            "| "
+            + " | ".join(
+                [
+                    str(row["hh_id"]),
+                    "" if row["person_num"] is None else str(row["person_num"]),
+                    "" if row["trip_num"] is None else str(row["trip_num"]),
+                    *(_cell(item.get(f)) for f in fields),
+                ]
+            )
+            + " |"
+        )
+    return out
 
 
 def _validate(issues: pl.DataFrame) -> None:
@@ -334,12 +388,19 @@ def _validate(issues: pl.DataFrame) -> None:
         )
 
 
-def render_markdown(issues: pl.DataFrame, source: str | None = None) -> str:
+def render_markdown(
+    issues: pl.DataFrame,
+    source: str | None = None,
+    codebook_path: Path | None = None,
+) -> str:
     """Render the findings table as a Markdown report.
 
     Args:
         issues: The ``etc_data_issues`` frame from ``check_etc_data``.
         source: Optional description of the extract the findings came from.
+        codebook_path: The vendor `codebook.csv`, used to decode the coded
+            values the findings quote. When omitted the report says the
+            values are undecoded rather than quietly leaving them bare.
 
     Returns:
         The report as one Markdown string.
@@ -381,9 +442,10 @@ def render_markdown(issues: pl.DataFrame, source: str | None = None) -> str:
         .agg(pl.len().alias("n"), pl.col("hh_id").n_unique().alias("n_hh"))
         .sort(["severity", "n"], descending=[False, True])
     )
+    # Anchors are the heading text lowercased with spaces hyphenated; check names
+    # have no spaces, so the underscores carry through to the fragment unchanged.
     lines.extend(
-        f"| {row['severity']} | [`{row['check']}`](#{row['check'].replace('_', '-')}) "
-        f"| {row['n']} | {row['n_hh']} |"
+        f"| {row['severity']} | [`{row['check']}`](#{row['check']}) | {row['n']} | {row['n_hh']} |"
         for row in summary.iter_rows(named=True)
     )
 
@@ -392,7 +454,9 @@ def render_markdown(issues: pl.DataFrame, source: str | None = None) -> str:
         if subset.is_empty():
             continue
         lines += ["", f"## {severity.capitalize()}s", "", SEVERITY_BLURB[severity], ""]
-        for name in sorted(subset["check"].unique().to_list()):
+        # Follow the summary table's order so the two read as one document.
+        ordered = summary.filter(pl.col("severity") == severity)["check"].to_list()
+        for name in ordered:
             rows = subset.filter(pl.col("check") == name)
             check = CHECKS[name]
             lines += [
@@ -408,25 +472,85 @@ def render_markdown(issues: pl.DataFrame, source: str | None = None) -> str:
                 "",
             ]
 
+    lines += _codebook_section(issues, codebook_path)
+
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_markdown(issues: pl.DataFrame, path: str | Path, source: str | None = None) -> Path:
+def write_markdown(
+    issues: pl.DataFrame,
+    path: str | Path,
+    source: str | None = None,
+    codebook_path: Path | None = None,
+) -> Path:
     """Write the Markdown report, creating the parent directory if needed.
 
     Args:
         issues: The ``etc_data_issues`` frame from ``check_etc_data``.
         path: Destination for the report.
         source: Optional description of the extract the findings came from.
+        codebook_path: The vendor `codebook.csv`, used to decode the coded
+            values the findings quote. When omitted the report says the
+            values are undecoded rather than quietly leaving them bare.
 
     Returns:
         The path written.
     """
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_markdown(issues, source), encoding="utf-8")
+    out.write_text(render_markdown(issues, source, codebook_path), encoding="utf-8")
     logger.info("Wrote %d findings to %s", issues.height, out)
     return out
+
+
+def _codebook_section(issues: pl.DataFrame, codebook_path: Path | None) -> list[str]:
+    """Decode every coded field the findings quote, using the vendor's codebook.
+
+    The findings tables carry the vendor's raw numeric answers, which mean
+    nothing on their own -- ``Mode of Travel = 2`` is only intelligible next to
+    the vendor's own label for 2. Only the fields actually cited are listed, so
+    the appendix stays as short as the findings allow.
+
+    Args:
+        issues: The findings frame, read for the field names its evidence cites.
+        codebook_path: The vendor ``codebook.csv``. When absent the appendix is
+            replaced by a line saying so; it is never silently omitted.
+    """
+    cited: list[str] = []
+    for row in issues.iter_rows(named=True):
+        cited.extend(k for k in _parse_evidence(row) if k not in cited)
+    if not cited:
+        return []
+
+    lines = ["", "## Codebook", ""]
+    if codebook_path is None or not codebook_path.exists():
+        where = codebook_path or "an unknown location"
+        lines += [
+            f"The vendor codebook was not found at `{where}`, so the coded values above "
+            "are shown as filed and are not decoded here.",
+        ]
+        return lines
+
+    codebook = pl.read_csv(codebook_path, infer_schema_length=5000)
+    lines += [
+        "Values quoted in the tables above, decoded with the vendor's own "
+        f"`{codebook_path.name}`. Fields not listed here are free text, "
+        "coordinates, timestamps, or counts.",
+    ]
+    decoded = 0
+    for field in cited:
+        entries = codebook.filter(pl.col("Column Name") == field)
+        if entries.is_empty():
+            continue
+        decoded += 1
+        lines += ["", f"### {field}", "", "| Code | Meaning |", "| --- | --- |"]
+        lines += [
+            f"| {row['Option Key']} | {_cell(row['Value'])} |"
+            for row in entries.iter_rows(named=True)
+        ]
+    if not decoded:
+        lines += ["", "_None of the cited fields are coded; all are free values._"]
+    return lines
 
 
 def default_issues_path() -> Path:
@@ -482,7 +606,11 @@ def main() -> None:
         raise SystemExit(msg)
 
     logger.info("Reading findings from %s", issues_path)
-    write_markdown(pl.read_csv(issues_path), args.out or issues_path.with_suffix(".md"))
+    write_markdown(
+        pl.read_csv(issues_path),
+        args.out or issues_path.with_suffix(".md"),
+        codebook_path=issues_path.parent / CODEBOOK_FILENAME,
+    )
 
 
 if __name__ == "__main__":

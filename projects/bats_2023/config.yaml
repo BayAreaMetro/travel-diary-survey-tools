@@ -9,7 +9,7 @@ weights_dir: "X:/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_n
 pums_dir: "M:/Data/Census/PUMS/2023_1yr"
 output_dir: "E:/Box/Modeling and Surveys/Surveys/Travel Diary Survey/BATS_across_years/20260327"
 TM1_shapefile_dir: "E:/GitHub/travel-model-one/utilities/geographies"
-TM2_shapefile_dir: "E:/GitHub/TM2/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles"
+TM2_shapefile_dir: "E:/GitHub/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
 
 # Pipeline configuration
@@ -30,7 +30,7 @@ steps:
 
   - name: imputation
     validate_input: false
-    cache: false
+    cache: true
     params:
       impute_columns:
         # KNN/RF: impute single columns using similar records
@@ -371,7 +371,7 @@ steps:
   #   validate_input: true
 
   - name: format_ctramp
-    validate_input: false
+    validate_input: true
     cache: false
     params:
       # Income thresholds (in year 2000 dollars, per CT-RAMP convention).

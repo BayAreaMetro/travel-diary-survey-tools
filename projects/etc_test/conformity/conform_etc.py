@@ -73,7 +73,7 @@ from conformity.mappings import (
 from data_canon.codebook.days import MadeTravel
 from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import Education, Employment, Gender, SchoolType, Student
-from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
+from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from data_canon.models.survey import (
     HouseholdModel,
     PersonDayModel,
@@ -308,7 +308,11 @@ def conform_trips(etc_trips: pl.DataFrame) -> pl.DataFrame:
         pl.lit(None, dtype=pl.Int64).alias("mode_3"),
         pl.lit(None, dtype=pl.Int64).alias("mode_4"),
         recode_expr(trips, "Taxi Ride Service App Used", TNC_TYPE, None).alias("tnc_type"),
-        recode_expr(trips, "Person Was Driver", DRIVER, None).alias("driver"),
+        # Non-vehicle movements are never asked who drove, and canonical `driver`
+        # has no null: an unasked question is MISSING, not an absent value.
+        recode_expr(
+            trips, "Person Was Driver", DRIVER, Driver.MISSING.value, keep_null=False
+        ).alias("driver"),
         num_travelers.alias("num_travelers"),
         pl.lit(None, dtype=pl.Float64).alias("unlinked_trip_weight"),
     )
@@ -414,7 +418,9 @@ def conform_days(
         pl.col("num_trips").cast(pl.Int64),
         pl.col("made_travel"),
         pl.col("no_travel_reason"),
-        pl.lit(None, dtype=pl.Float64).alias("day_weight"),
+        # No day_weight column at all: this project runs no weighting, and an
+        # all-null weight column reads as "weighted, every day zero", which the
+        # CT-RAMP day filter takes literally and drops the whole extract.
         complete.alias("complete"),
     )
 

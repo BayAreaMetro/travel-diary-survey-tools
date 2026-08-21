@@ -28,6 +28,8 @@ from pathlib import Path
 import polars as pl
 from conformity.expressions import code_expr, timestamp_expr
 from findings_report import (
+    CODEBOOK_FILENAME,
+    COMPANION_MATCH_WINDOW_MINUTES,
     COMPANION_TOLERANCE_MINUTES,
     MIN_DRIVING_AGE,
     PLACE_MATCH_DECIMALS,
@@ -51,7 +53,15 @@ MODE_HOUSEHOLD_CARPOOL = 2
 # only from home").
 WORK_LOCATION_REMOTE_ONLY = 2
 
-FINDING_COLUMNS = ["check", "severity", "hh_id", "person_num", "trip_num", "detail"]
+FINDING_COLUMNS = [
+    "check",
+    "severity",
+    "hh_id",
+    "person_num",
+    "trip_num",
+    "detail",
+    "evidence",
+]
 
 
 def _finding(
@@ -61,8 +71,28 @@ def _finding(
     detail: pl.Expr,
     *,
     trip_num: bool = False,
+    evidence: dict[str, pl.Expr] | None = None,
 ) -> pl.DataFrame:
-    """Shape any filtered vendor frame into the common findings layout."""
+    """Shape any filtered vendor frame into the common findings layout.
+
+    Args:
+        df: Rows that failed the check, still in vendor column names.
+        check: Check name; must have a matching entry in ``findings_report.CHECKS``.
+        severity: ``"error"`` or ``"warning"``.
+        detail: Expression producing the one-line prose description.
+        trip_num: Whether the finding is about a specific trip row.
+        evidence: Field label to expression for the values that triggered the
+            finding. Serialised to JSON so the report can table the offending
+            records themselves rather than only describing them. Labels that are
+            vendor column names get decoded against the vendor codebook.
+    """
+    evidence_expr = (
+        pl.struct([e.cast(pl.String).alias(label) for label, e in evidence.items()])
+        .struct.json_encode()
+        .alias("evidence")
+        if evidence
+        else pl.lit(None, pl.String).alias("evidence")
+    )
     return df.select(
         pl.lit(check).alias("check"),
         pl.lit(severity).alias("severity"),
@@ -76,6 +106,7 @@ def _finding(
         .cast(pl.Int64)
         .alias("trip_num"),
         detail.cast(pl.String).alias("detail"),
+        evidence_expr,
     )
 
 
@@ -101,6 +132,12 @@ def check_drivers(persons: pl.DataFrame, trips: pl.DataFrame) -> list[pl.DataFra
                 pl.col("Licensed Driver").fill_null(pl.lit("not asked")),
             ),
             trip_num=True,
+            evidence={
+                "Age": pl.col("Age"),
+                "Person Was Driver": pl.col("Person Was Driver"),
+                "Licensed Driver": pl.col("Licensed Driver"),
+                "Mode of Travel": pl.col("Mode of Travel"),
+            },
         ),
         _finding(
             unlicensed,
@@ -108,6 +145,11 @@ def check_drivers(persons: pl.DataFrame, trips: pl.DataFrame) -> list[pl.DataFra
             "warning",
             pl.format("recorded as the driver but not reported as a licensed driver"),
             trip_num=True,
+            evidence={
+                "Age": pl.col("Age"),
+                "Person Was Driver": pl.col("Person Was Driver"),
+                "Licensed Driver": pl.col("Licensed Driver"),
+            },
         ),
     ]
 
@@ -140,12 +182,22 @@ def check_travel_flag(persons: pl.DataFrame, trips: pl.DataFrame) -> list[pl.Dat
                 pl.col("Travel"),
                 pl.col("_n_movements"),
             ),
+            evidence={
+                "Travel": pl.col("Travel"),
+                "movement rows filed": pl.col("_n_movements"),
+                "Why No Travel": pl.col("Why No Travel"),
+            },
         ),
         _finding(
             unexplained,
             "no_travel_without_reason",
             "warning",
             pl.lit("reported no travel but gave no reason, so the day cannot be certified"),
+            evidence={
+                "Travel": pl.col("Travel"),
+                "Why No Travel": pl.col("Why No Travel"),
+                "movement rows filed": pl.col("_n_movements"),
+            },
         ),
     ]
 
@@ -168,6 +220,13 @@ def check_diary_labelling(trips: pl.DataFrame) -> list[pl.DataFrame]:
                 pl.col("Mode of Travel").fill_null(pl.lit("null")),
             ),
             trip_num=True,
+            evidence={
+                "Activity Type Code": pl.col("Activity Type Code"),
+                "Mode of Travel": pl.col("Mode of Travel"),
+                "Location Address": pl.col("Location Address"),
+                "Arrival Time": pl.col("Arrival Time"),
+                "Departure Time": pl.col("Departure Time"),
+            },
         )
     ]
 
@@ -191,15 +250,23 @@ def check_geometry(trips: pl.DataFrame) -> list[pl.DataFrame]:
     return [
         _finding(
             stationary,
-            "movement_without_displacement",
-            "error",
+            "movement_returns_to_origin",
+            "warning",
             pl.format(
-                "arrives at the coordinates it departed from, so the trip has zero "
-                "length (departed {}, arrived {})",
+                "returns to the coordinates it departed from, so anything measuring "
+                "distance sees a zero-length trip (departed {}, arrived {})",
                 pl.col("_depart"),
                 pl.col("_arrive"),
             ),
             trip_num=True,
+            evidence={
+                "Mode of Travel": pl.col("Mode of Travel"),
+                "Activity Type Code": pl.col("Activity Type Code"),
+                "Departure Time": pl.col("_depart"),
+                "Arrival Time": pl.col("_arrive"),
+                "Location Latitude": pl.col("Location Latitude"),
+                "Location Longitude": pl.col("Location Longitude"),
+            },
         ),
         _finding(
             backwards,
@@ -207,6 +274,10 @@ def check_geometry(trips: pl.DataFrame) -> list[pl.DataFrame]:
             "error",
             pl.format("arrives {} having departed {}", pl.col("_arrive"), pl.col("_depart")),
             trip_num=True,
+            evidence={
+                "Departure Time": pl.col("_depart"),
+                "Arrival Time": pl.col("_arrive"),
+            },
         ),
     ]
 
@@ -265,23 +336,43 @@ def check_travel_party(trips: pl.DataFrame) -> list[pl.DataFrame]:
         .first()
     )
 
-    absent = matched.filter(pl.col("_c_arrive").is_null())
-    disagreeing_time = matched.filter(pl.col("_gap") > COMPANION_TOLERANCE_MINUTES)
-    disagreeing_mode = matched.filter(
-        pl.col("_c_mode").is_not_null()
-        & (code_expr("Mode of Travel") != pl.col("_c_mode").cast(pl.Int64))
+    # A visit further away than the match window is a different visit, so the
+    # companion filed nothing for *this* movement; only visits inside the window
+    # can disagree about the clock or the mode.
+    in_window = pl.col("_c_arrive").is_not_null() & (
+        pl.col("_gap") <= COMPANION_MATCH_WINDOW_MINUTES
     )
+    # Both travellers file the same disagreement about each other, so key each
+    # one on the unordered pair and keep a single row for it.
+    matched = matched.with_columns(
+        pl.min_horizontal(code_expr("Person Number"), pl.col("_companion")).alias("_pair_lo"),
+        pl.max_horizontal(code_expr("Person Number"), pl.col("_companion")).alias("_pair_hi"),
+    )
+    pair = ["Sample Number", "Date", "_lat", "_lon", "_pair_lo", "_pair_hi"]
+
+    absent = matched.filter(~in_window)
+    disagreeing_time = matched.filter(
+        in_window & (pl.col("_gap") > COMPANION_TOLERANCE_MINUTES)
+    ).unique(subset=pair, keep="first", maintain_order=True)
+    disagreeing_mode = matched.filter(
+        in_window & (code_expr("Mode of Travel") != pl.col("_c_mode").cast(pl.Int64))
+    ).unique(subset=pair, keep="first", maintain_order=True)
     return [
         _finding(
             outsiders_in_household_carpool,
             "carpool_mode_contradicts_party",
             "error",
             pl.format(
-                "mode is carpool with household members only, but {} non-household "
-                "companions are counted on the same trip",
+                "mode says the carpool held household members only, yet {} non-household "
+                "companion(s) are counted on the same row",
                 pl.col("Number of People"),
             ),
             trip_num=True,
+            evidence={
+                "Mode of Travel": pl.col("Mode of Travel"),
+                "Number of People": pl.col("Number of People"),
+                "HH Members": pl.col("HH Members"),
+            },
         ),
         _finding(
             absent,
@@ -289,10 +380,18 @@ def check_travel_party(trips: pl.DataFrame) -> list[pl.DataFrame]:
             "error",
             pl.format(
                 "names person {} as travelling along, but that person filed no arrival "
-                "at this destination",
+                "at this destination within {} minutes",
                 pl.col("_companion"),
+                pl.lit(COMPANION_MATCH_WINDOW_MINUTES),
             ),
             trip_num=True,
+            evidence={
+                "HH Members": pl.col("HH Members"),
+                "Location Address": pl.col("Location Address"),
+                "Arrival Time": pl.col("_arrive"),
+                "companion person": pl.col("_companion"),
+                "companion arrival": pl.col("_c_arrive"),
+            },
         ),
         _finding(
             disagreeing_time,
@@ -305,6 +404,13 @@ def check_travel_party(trips: pl.DataFrame) -> list[pl.DataFrame]:
                 pl.col("_c_arrive"),
             ),
             trip_num=True,
+            evidence={
+                "Location Address": pl.col("Location Address"),
+                "Arrival Time": pl.col("_arrive"),
+                "companion person": pl.col("_companion"),
+                "companion arrival": pl.col("_c_arrive"),
+                "gap (minutes)": pl.col("_gap"),
+            },
         ),
         _finding(
             disagreeing_mode,
@@ -317,6 +423,12 @@ def check_travel_party(trips: pl.DataFrame) -> list[pl.DataFrame]:
                 pl.col("_c_mode"),
             ),
             trip_num=True,
+            evidence={
+                "Location Address": pl.col("Location Address"),
+                "Mode of Travel": pl.col("Mode of Travel"),
+                "companion person": pl.col("_companion"),
+                "companion Mode of Travel": pl.col("_c_mode"),
+            },
         ),
     ]
 
@@ -336,6 +448,8 @@ def check_place_geocoding(trips: pl.DataFrame) -> list[pl.DataFrame]:
             pl.col("Location Latitude").n_unique().alias("_n_lat"),
             pl.col("Location Longitude").n_unique().alias("_n_lon"),
             pl.col("Location Latitude").round(PLACE_MATCH_DECIMALS).n_unique().alias("_n_rounded"),
+            pl.col("Location Latitude").unique().alias("_lats"),
+            pl.col("Location Longitude").unique().alias("_lons"),
         )
         # Only a precision difference: identical once rounded to ~1 metre.
         .filter((pl.col("_n_lat") > 1) & (pl.col("_n_rounded") == 1))
@@ -351,6 +465,15 @@ def check_place_geocoding(trips: pl.DataFrame) -> list[pl.DataFrame]:
                 pl.col("Location Address"),
                 pl.col("_n_lat"),
             ),
+            evidence={
+                "Location Address": pl.col("Location Address"),
+                "latitudes filed": pl.col("_lats")
+                .list.eval(pl.element().cast(pl.String))
+                .list.join(", "),
+                "longitudes filed": pl.col("_lons")
+                .list.eval(pl.element().cast(pl.String))
+                .list.join(", "),
+            },
         )
     ]
 
@@ -384,6 +507,10 @@ def check_rosters(
                 pl.col("Number Persons"),
                 pl.col("_person_rows"),
             ),
+            evidence={
+                "Number Persons": pl.col("Number Persons"),
+                "person rows filed": pl.col("_person_rows"),
+            },
         ),
         _finding(
             counts.filter(code_expr("Vehicles Available") != pl.col("_vehicle_rows")),
@@ -394,6 +521,10 @@ def check_rosters(
                 pl.col("Vehicles Available"),
                 pl.col("_vehicle_rows"),
             ),
+            evidence={
+                "Vehicles Available": pl.col("Vehicles Available"),
+                "vehicle rows filed": pl.col("_vehicle_rows"),
+            },
         ),
     ]
 
@@ -422,24 +553,43 @@ def check_person_blocks(persons: pl.DataFrame) -> list[pl.DataFrame]:
             "employed_without_workplace",
             "warning",
             pl.lit("reported as employed but has neither a workplace location nor a work pattern"),
+            evidence={
+                "Employment": pl.col("Employment"),
+                "Current Work Location": pl.col("Current Work Location"),
+                "Primary Workplace Latitude": pl.col("Primary Workplace Latitude"),
+            },
         ),
         _finding(
             student_nowhere,
             "student_without_school",
             "warning",
             pl.lit("reported as a student but has no school location, school type, or online flag"),
+            evidence={
+                "Student Status": pl.col("Student Status"),
+                "School Type": pl.col("School Type"),
+                "Online School": pl.col("Online School"),
+                "School Latitude": pl.col("School Latitude"),
+            },
         ),
         _finding(
             no_relationship,
             "missing_household_role",
             "warning",
             pl.lit("no relationship to the primary respondent, so household structure is unknown"),
+            evidence={
+                "Relationship": pl.col("Relationship"),
+                "Age": pl.col("Age"),
+            },
         ),
         _finding(
             no_age,
             "missing_age",
             "error",
             pl.lit("neither an age nor an age band; the canonical age band has no missing code"),
+            evidence={
+                "Age": pl.col("Age"),
+                "Age Category": pl.col("Age Category"),
+            },
         ),
     ]
 
@@ -501,7 +651,12 @@ def check_etc_data(
             f"{len(etc_households)} households, {len(etc_persons)} persons, "
             f"{len(etc_trips)} diary rows"
         )
-        write_markdown(issues, findings_report_path, source=source)
+        write_markdown(
+            issues,
+            findings_report_path,
+            source=source,
+            codebook_path=Path(findings_report_path).parent / CODEBOOK_FILENAME,
+        )
     else:
         logger.warning(
             "No findings_report_path configured, so no Markdown report was written. "
