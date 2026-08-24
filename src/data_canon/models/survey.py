@@ -248,8 +248,7 @@ class UnlinkedTripModel(BaseModel):
         ge=1,
         default=None,
         description=(
-            "Sequence number of the linked trip this segment belongs to, within "
-            "its person-day."
+            "Sequence number of the linked trip this segment belongs to, within its person-day."
         ),
     )
     tour_id: int | None = schema_field(ge=1, fk_to="tours.tour_id")
@@ -376,9 +375,7 @@ class LinkedTripModel(BaseModel):
         ge=1,
         fk_to="tours.tour_id",
         default=None,
-        description=(
-            "The containing tour for a subtour trip. Primary tours self-reference."
-        ),
+        description=("The containing tour for a subtour trip. Primary tours self-reference."),
     )
     tour_purpose: PurposeCategory | None = schema_field(
         default=None,
@@ -410,14 +407,15 @@ class LinkedTripModel(BaseModel):
         description="Minutes in motion, summed across the merged segments.",
     )
     dwell_duration_minutes: int | None = schema_field(
+        ge=0,
         default=None,
         description=(
-            "Minutes waiting between the merged segments (e.g. a transfer), as "
-            "elapsed time minus the summed segment durations. Deliberately "
-            "unconstrained: it is negative for ~43% of BATS-2023 linked trips "
-            "because reported segment durations are rounded independently of the "
-            "GPS timestamps they are differenced against, so the parts can "
-            "exceed the whole. Treat a negative value as 'no measurable dwell'."
+            "Minutes waiting between the merged segments (e.g. a transfer), "
+            "summed over each gap from one segment's arrival to the next "
+            "segment's departure. Zero for a single-segment trip, which has no "
+            "gap to wait in. Not exactly ``duration_minutes`` minus "
+            "``travel_duration_minutes``: those two round separately, so the "
+            "identity holds only to within a minute."
         ),
     )
     o_location_type: LocationType = schema_field(
