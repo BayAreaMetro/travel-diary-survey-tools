@@ -12,6 +12,7 @@ import polars as pl
 
 from data_canon.codebook.generic import LocationType
 from data_canon.codebook.tours import (
+    MIN_TRIPS_FOR_VALID_TOUR,
     TourCategory,
     TourDirection,
     TourType,
@@ -28,10 +29,6 @@ from .priority_utils import (
 from .tour_configs import TourConfig
 
 logger = logging.getLogger(__name__)
-
-# Constants
-# A tour requires at least some round-trip structure, even if not to/from home
-MIN_TRIPS_FOR_VALID_TOUR = 2
 
 
 def _calculate_tour_purp_and_dest(
@@ -399,13 +396,7 @@ def _aggregate_and_classify_tours(
         .join(dest_times, on="tour_id", how="left")
     )
 
-    # Flag single-trip tours (incomplete tours with only one trip)
-    # A valid tour must have at least 2 trips: one leaving and one returning
-    tours = tours.with_columns(
-        [(pl.col("trip_count") < MIN_TRIPS_FOR_VALID_TOUR).alias("single_trip_tour")]
-    )
-
-    single_trip_count = tours.filter(pl.col("single_trip_tour")).height
+    single_trip_count = tours.filter(pl.col("trip_count") < MIN_TRIPS_FOR_VALID_TOUR).height
     logger.info(
         "Tours: %d total, %d single-trip tours (<%d trips)",
         len(tours),
