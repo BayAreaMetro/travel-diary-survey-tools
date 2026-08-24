@@ -58,12 +58,36 @@ class TourDirection(LabeledEnum):
 
 
 class TourDataQuality(LabeledEnum):
-    """Tour data quality classification for validation and filtering."""
+    """What is structurally wrong with a tour, stated outright.
+
+    A diagnostic column: it says *why* a tour is malformed rather than leaving a
+    consumer to reconstruct it from ``tour_category`` and ``trip_count``. The
+    codes are deliberately derivable from those two -- being explicit is the
+    point -- but they are derived from nothing else. This is a **leaf** fact,
+    computed once from the tour's own trips, so the completeness cascade can
+    read it without the derivation ever pointing back at ``model_usable``.
+
+    That boundary is what keeps it honest: reporting completeness (``complete``),
+    household-date coherence (``hh_day_complete``) and the model gate
+    (``model_usable``) live in their own columns and never leak in here. A tour
+    can be structurally flawless and still be dropped because a housemate
+    skipped that date -- that is not a fact about this tour.
+
+    Values 2-4 mirror :class:`TourCategory` **value for value**, so a shape
+    reason carries the same integer in both columns and cross-enum confusion is
+    impossible by construction. Value 1 is deliberately unused: it is
+    ``TourCategory.COMPLETE``, which is necessary but not sufficient for a valid
+    tour -- a loop trip, a change-mode tour and a tour with a missing middle leg
+    are all COMPLETE in shape yet still defective. Assigning 1 here would make
+    the two columns disagree about what 1 means.
+    """
 
     VALID = (0, "Valid tour")
-    SINGLE_TRIP = (1, "Single-trip tour")
-    LOOP_TRIP = (2, "Home-based loop trip")
-    MISSING_ANCHOR = (3, "No anchor at either end of tour")
-    INDETERMINATE = (4, "Invalid tour, cause unknown")
-    CHANGE_MODE = (5, "Change mode as primary purpose (linking failure)")
-    SPATIAL_GAP = (6, "Spatial gap between consecutive trips (missing leg)")
+    # 1 reserved: TourCategory.COMPLETE is never itself a defect.
+    PARTIAL_END = (2, "Start at anchor, end away from anchor")
+    PARTIAL_START = (3, "Start away from anchor, end at anchor")
+    PARTIAL_BOTH = (4, "Start away from anchor, end away from anchor")
+    SINGLE_TRIP = (5, "Single-trip tour")
+    LOOP_TRIP = (6, "Anchor-to-anchor loop trip")
+    CHANGE_MODE = (7, "Change mode as primary purpose (linking failure)")
+    SPATIAL_GAP = (8, "Spatial gap between consecutive trips (missing leg)")

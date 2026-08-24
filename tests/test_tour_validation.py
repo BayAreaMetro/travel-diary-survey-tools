@@ -1,15 +1,11 @@
 """Tests for tour validation helper functions."""
 
-import logging
-
 import polars as pl
+import pytest
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.codebook.trips import PurposeCategory
-from processing.tours.validation_helpers import (
-    _diagnose_problem_tours,
-    validate_and_correct_tours,
-)
+from processing.tours.validation_helpers import validate_and_correct_tours
 
 
 class TestValidateAndCorrectTours:
@@ -49,22 +45,23 @@ class TestValidateAndCorrectTours:
         assert "tour_data_quality" in result.columns
         assert len(result) == 1
 
-    def test_tour_with_zero_tour_num(self, caplog):
-        """Test handling tours with tour_num=0."""
-        caplog.set_level(logging.WARNING)
+    def test_unassigned_trip_raises(self):
+        """A trip that boundary detection never placed in a tour is fatal.
 
+        Every first trip of a person-day starts a tour, so tour_num < 1 means
+        detection itself broke and the whole table is suspect.
+        """
         tours = pl.DataFrame(
             {
                 "tour_id": ["tour_1"],
                 "person_id": [1],
                 "day_id": [1],
                 "trip_count": [1],
-                "tour_num": [0],  # Invalid tour
+                "tour_num": [0],
                 "tour_category": [TourCategory.COMPLETE.value],
                 "tour_purpose": [PurposeCategory.WORK.value],
             }
         )
-
         linked_trips = pl.DataFrame(
             {
                 "tour_id": ["tour_1"],
@@ -72,22 +69,23 @@ class TestValidateAndCorrectTours:
                 "hh_id": [1],
                 "day_id": [1],
                 "tour_num": [0],
-                "_o_is_home": [True],
-                "_d_is_home": [False],
-                # Home-based tours: the anchor is home, so these mirror the flags above
-                "_o_at_anchor": [True],
-                "_d_at_anchor": [False],
             }
         )
 
-        result = validate_and_correct_tours(tours, linked_trips)
+        with pytest.raises(ValueError, match="never assigned to a tour"):
+            validate_and_correct_tours(tours, linked_trips)
 
-        # Should log warning about invalid tours
-        assert "invalid tours" in caplog.text.lower()
-        assert "tour_data_quality" in result.columns
-
-    def test_tour_without_anchor(self):
-        """A tour that never touches its anchor at either end is not VALID."""
+    @pytest.mark.parametrize(
+        ("category", "expected"),
+        [
+            (TourCategory.PARTIAL_BOTH, TourDataQuality.PARTIAL_BOTH),
+            (TourCategory.PARTIAL_START, TourDataQuality.PARTIAL_START),
+            (TourCategory.PARTIAL_END, TourDataQuality.PARTIAL_END),
+            (TourCategory.COMPLETE, TourDataQuality.VALID),
+        ],
+    )
+    def test_partial_quality_mirrors_category(self, category, expected):
+        """Each partial quality code carries its category's own integer value."""
         tours = pl.DataFrame(
             {
                 "tour_id": ["tour_1"],
@@ -95,11 +93,10 @@ class TestValidateAndCorrectTours:
                 "day_id": [1],
                 "trip_count": [2],
                 "tour_num": [1],
-                "tour_category": [TourCategory.COMPLETE.value],
+                "tour_category": [category.value],
                 "tour_purpose": [PurposeCategory.SHOP.value],
             }
         )
-
         linked_trips = pl.DataFrame(
             {
                 "tour_id": ["tour_1", "tour_1"],
@@ -107,20 +104,75 @@ class TestValidateAndCorrectTours:
                 "hh_id": [1, 1],
                 "day_id": [1, 1],
                 "tour_num": [1, 1],
-                "_o_is_home": [False, False],  # No home
-                "_d_is_home": [False, False],  # No home
-                # Home-based tour, so the anchor is home -- never reached
-                "_o_at_anchor": [False, False],
-                "_d_at_anchor": [False, False],
             }
         )
 
         result = validate_and_correct_tours(tours, linked_trips)
 
-        assert "tour_data_quality" in result.columns
-        # Should flag as problematic
-        quality = result["tour_data_quality"][0]
-        assert quality != TourDataQuality.VALID.value
+        assert result["tour_data_quality"][0] == expected.value
+        if expected is not TourDataQuality.VALID:
+            # The mirror: same name, same integer, in both columns.
+            assert expected.value == category.value
+
+    def test_category_is_not_rewritten(self):
+        """Quality is a verdict on the category; it never edits it.
+
+        A single-trip tour that left its anchor is PARTIAL_END -- it started at
+        home and stopped away. Overwriting that to PARTIAL_BOTH would make the
+        column disagree with where the trip actually ran.
+        """
+        tours = pl.DataFrame(
+            {
+                "tour_id": ["tour_1"],
+                "person_id": [1],
+                "day_id": [1],
+                "trip_count": [1],
+                "tour_num": [1],
+                "tour_category": [TourCategory.PARTIAL_END.value],
+                "tour_purpose": [PurposeCategory.SHOP.value],
+            }
+        )
+        linked_trips = pl.DataFrame(
+            {
+                "tour_id": ["tour_1"],
+                "person_id": [1],
+                "hh_id": [1],
+                "day_id": [1],
+                "tour_num": [1],
+            }
+        )
+
+        result = validate_and_correct_tours(tours, linked_trips)
+
+        assert result["tour_data_quality"][0] == TourDataQuality.SINGLE_TRIP.value
+        assert result["tour_category"][0] == TourCategory.PARTIAL_END.value
+
+    def test_single_anchor_to_anchor_trip_is_a_loop(self):
+        """One trip that departs and returns to the anchor is LOOP_TRIP."""
+        tours = pl.DataFrame(
+            {
+                "tour_id": ["tour_1"],
+                "person_id": [1],
+                "day_id": [1],
+                "trip_count": [1],
+                "tour_num": [1],
+                "tour_category": [TourCategory.COMPLETE.value],
+                "tour_purpose": [PurposeCategory.SHOP.value],
+            }
+        )
+        linked_trips = pl.DataFrame(
+            {
+                "tour_id": ["tour_1"],
+                "person_id": [1],
+                "hh_id": [1],
+                "day_id": [1],
+                "tour_num": [1],
+            }
+        )
+
+        result = validate_and_correct_tours(tours, linked_trips)
+
+        assert result["tour_data_quality"][0] == TourDataQuality.LOOP_TRIP.value
 
 
 class TestSpatialGapDetection:
@@ -208,139 +260,62 @@ class TestSpatialGapDetection:
         assert result["tour_data_quality"][0] == TourDataQuality.VALID.value
 
 
-class TestDiagnoseProblemTours:
-    """Test diagnostic logging for problem tours."""
-
-    def test_diagnose_logs_indeterminate_tours(self, caplog):
-        """Test that diagnostic function logs information about problematic tours."""
-        caplog.set_level(logging.WARNING)
-
-        tours = pl.DataFrame(
-            {
-                "tour_id": ["tour_1", "tour_2"],
-                "person_id": [1, 2],
-                "day_id": [1, 1],
-                "trip_count": [1, 2],
-                "tour_category": [TourCategory.COMPLETE.value, TourCategory.COMPLETE.value],
-                "tour_data_quality": [
-                    TourDataQuality.INDETERMINATE.value,
-                    TourDataQuality.INDETERMINATE.value,
-                ],
-                "_has_anchor_origin": [True, False],
-                "_has_anchor_dest": [False, False],
-            }
-        )
-
-        zero_tour_trips = pl.DataFrame(
-            {
-                "tour_id": ["tour_1", "tour_2"],
-                "linked_trip_id": [1, 2],
-                "depart_time": ["08:00", "09:00"],
-                "_o_is_home": [True, False],
-                "_d_is_home": [False, False],
-                # Home-based tours: the anchor is home, so these mirror the flags above
-                "_o_at_anchor": [True, False],
-                "_d_at_anchor": [False, False],
-            }
-        )
-
-        _diagnose_problem_tours(tours, zero_tour_trips)
-
-        # Should have logged diagnostics
-        assert "INDETERMINATE tours" in caplog.text
-        assert "anchor pattern" in caplog.text
-
-    def test_diagnose_with_no_problems(self, caplog):
-        """Test diagnostic function with no problematic tours."""
-        caplog.set_level(logging.WARNING)
-
-        tours = pl.DataFrame(
-            {
-                "tour_id": ["tour_1"],
-                "person_id": [1],
-                "day_id": [1],
-                "trip_count": [2],
-                "tour_category": [TourCategory.COMPLETE.value],
-                "tour_data_quality": [TourDataQuality.VALID.value],
-                "_has_anchor_origin": [True],
-                "_has_anchor_dest": [True],
-            }
-        )
-
-        zero_tour_trips = pl.DataFrame(
-            {
-                "tour_id": [],
-                "linked_trip_id": [],
-                "depart_time": [],
-                "_o_is_home": [],
-                "_d_is_home": [],
-                # Home-based tours: the anchor is home, so these mirror the flags above
-                "_o_at_anchor": [],
-                "_d_at_anchor": [],
-            }
-        )
-
-        _diagnose_problem_tours(tours, zero_tour_trips)
-
-        # Should not log INDETERMINATE warnings
-        assert "INDETERMINATE tours" not in caplog.text
-
-
 class TestTourValidationIntegration:
     """Integration tests for tour validation workflow."""
 
     def test_full_validation_workflow(self):
-        """Test the complete validation workflow."""
+        """Each structural shape lands on its own quality code."""
         tours = pl.DataFrame(
             {
-                "tour_id": ["tour_1", "tour_2", "tour_3"],
-                "person_id": [1, 1, 2],
-                "day_id": [1, 1, 1],
-                "trip_count": [2, 1, 3],
-                "tour_num": [1, 0, 1],
+                "tour_id": ["tour_1", "tour_2", "tour_3", "tour_4"],
+                "person_id": [1, 1, 2, 2],
+                "day_id": [1, 1, 1, 1],
+                "trip_count": [2, 1, 3, 2],
+                "tour_num": [1, 2, 1, 2],
                 "tour_category": [
                     TourCategory.COMPLETE.value,
                     TourCategory.COMPLETE.value,
-                    TourCategory.COMPLETE.value,
+                    TourCategory.PARTIAL_BOTH.value,
+                    TourCategory.PARTIAL_START.value,
                 ],
                 "tour_purpose": [
                     PurposeCategory.WORK.value,
                     PurposeCategory.SHOP.value,
                     PurposeCategory.SOCIALREC.value,
+                    PurposeCategory.SHOP.value,
                 ],
             }
         )
 
         linked_trips = pl.DataFrame(
             {
-                "tour_id": ["tour_1", "tour_1", "tour_2", "tour_3", "tour_3", "tour_3"],
-                "person_id": [1, 1, 1, 2, 2, 2],
-                "hh_id": [1, 1, 1, 2, 2, 2],
-                "day_id": [1, 1, 1, 1, 1, 1],
-                "tour_num": [1, 1, 0, 1, 1, 1],
-                "_o_is_home": [True, False, True, False, False, False],
-                "_d_is_home": [False, True, False, False, False, False],
-                # Home-based tours: the anchor is home, so these mirror the flags above
-                "_o_at_anchor": [True, False, True, False, False, False],
-                "_d_at_anchor": [False, True, False, False, False, False],
+                "tour_id": ["tour_1"] * 2 + ["tour_2"] + ["tour_3"] * 3 + ["tour_4"] * 2,
+                "person_id": [1, 1, 1, 2, 2, 2, 2, 2],
+                "hh_id": [1, 1, 1, 2, 2, 2, 2, 2],
+                "day_id": [1] * 8,
+                "tour_num": [1, 1, 2, 1, 1, 1, 2, 2],
             }
         )
 
-        result = validate_and_correct_tours(tours, linked_trips)
+        result = validate_and_correct_tours(tours, linked_trips).sort("tour_id")
 
-        assert "tour_data_quality" in result.columns
-        assert len(result) == 3
+        assert result["tour_data_quality"].to_list() == [
+            TourDataQuality.VALID.value,  # 2 trips, anchor to anchor
+            TourDataQuality.LOOP_TRIP.value,  # 1 trip, anchor to anchor
+            TourDataQuality.PARTIAL_BOTH.value,  # 3 trips, never reaches anchor
+            TourDataQuality.PARTIAL_START.value,  # 2 trips, only returns
+        ]
 
     def test_mixed_quality_tours(self):
-        """Test handling tours with mixed data quality."""
+        """A one-trip tour is SINGLE_TRIP even though its shape is partial."""
         tours = pl.DataFrame(
             {
                 "tour_id": ["tour_good", "tour_bad"],
                 "person_id": [1, 1],
                 "day_id": [1, 1],
                 "trip_count": [3, 1],
-                "tour_num": [1, 0],
-                "tour_category": [TourCategory.COMPLETE.value, TourCategory.COMPLETE.value],
+                "tour_num": [1, 2],
+                "tour_category": [TourCategory.COMPLETE.value, TourCategory.PARTIAL_BOTH.value],
                 "tour_purpose": [PurposeCategory.WORK.value, PurposeCategory.WORK.value],
             }
         )
@@ -351,17 +326,13 @@ class TestTourValidationIntegration:
                 "person_id": [1, 1, 1, 1],
                 "hh_id": [1, 1, 1, 1],
                 "day_id": [1, 1, 1, 1],
-                "tour_num": [1, 1, 1, 0],
-                "_o_is_home": [True, False, False, True],
-                "_d_is_home": [False, False, True, False],
-                # Home-based tours: the anchor is home, so these mirror the flags above
-                "_o_at_anchor": [True, False, False, True],
-                "_d_at_anchor": [False, False, True, False],
+                "tour_num": [1, 1, 1, 2],
             }
         )
 
-        result = validate_and_correct_tours(tours, linked_trips)
+        result = validate_and_correct_tours(tours, linked_trips).sort("tour_id")
 
-        # Should have different quality flags
-        qualities = result["tour_data_quality"].unique().to_list()
-        assert len(qualities) >= 1  # At least one quality type present
+        assert result["tour_data_quality"].to_list() == [
+            TourDataQuality.SINGLE_TRIP.value,
+            TourDataQuality.VALID.value,
+        ]

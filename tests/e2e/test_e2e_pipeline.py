@@ -265,11 +265,17 @@ class TestEdgeCaseCoverage:
         assert {"M", "N", "H"} <= patterns, f"missing activity patterns: {patterns}"
 
     def test_tour_data_quality_buckets_present(self, full_result):
-        # VALID(0), SINGLE_TRIP(1), LOOP_TRIP(2), MISSING_ANCHOR(3),
-        # CHANGE_MODE(5). INDETERMINATE(4) is a contradictory diagnostic bucket
-        # not representable with clean input, so it is intentionally excluded.
+        # VALID(0), PARTIAL_END(2), PARTIAL_START(3), PARTIAL_BOTH(4),
+        # SINGLE_TRIP(5), LOOP_TRIP(6), CHANGE_MODE(7). SPATIAL_GAP(8) needs
+        # coordinates that teleport mid-tour and is covered by unit tests.
         q = set(full_result.tours["tour_data_quality"].to_list())
-        assert {0, 1, 2, 3, 5} <= q, f"missing tour_data_quality buckets: {q}"
+        assert {0, 2, 3, 4, 5, 6, 7} <= q, f"missing tour_data_quality buckets: {q}"
+
+    def test_partial_quality_codes_mirror_category(self, full_result):
+        """Codes 2-4 must carry the same integer in both columns, per tour."""
+        partials = full_result.tours.filter(pl.col("tour_data_quality").is_in([2, 3, 4]))
+        assert partials.height > 0
+        assert partials.filter(pl.col("tour_data_quality") != pl.col("tour_category")).is_empty()
 
     def test_all_tour_categories_present(self, full_result):
         # COMPLETE(1), PARTIAL_END(2), PARTIAL_START(3), PARTIAL_BOTH(4).
