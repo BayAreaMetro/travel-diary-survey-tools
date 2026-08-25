@@ -8,7 +8,7 @@
 survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Unweighted 2023 Dataset"
 weights_dir: "X:/survey_repos/ProjRoot_Tue-Thu20260616/WgtRoot_Tue-Thu20260616_nocommuteweighting_rmoveonly/output/"
 pums_dir: "M:/Data/Census/PUMS/2023_1yr"
-output_dir: "M:/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_lmz_20260618_NoMon_rmo"
+output_dir: "M:/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_mt_20260821_NoMon_rmo"
 TM1_shapefile_dir: "E:/GitHub/travel-model-one/utilities/geographies"
 log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
 
@@ -80,7 +80,7 @@ steps:
           #   max_iter: 10
 
       # Optional: create diagnostic flags (default: true)
-      create_flags: true
+      stash_preimputed: true
       random_state: 42     # For reproducibility
 
       # Optional: k-fold validation to assess quality
@@ -100,6 +100,10 @@ steps:
       transit_mode_enums: [FERRY, TRANSIT, LONG_DISTANCE]
       max_dwell_time: 180  # in minutes
       dwell_buffer_distance: 100  # in meters
+      # Break a linked trip where the reported party size changes between
+      # segments, on the reading that somebody was picked up or dropped off
+      # rather than transferring. No default: state the choice explicitly.
+      split_on_occupancy: false
 
   - name: detect_joint_trips
     validate_input: false
@@ -124,13 +128,204 @@ steps:
   - name: extract_tours
     validate_input: false
     cache: true
+    params:
+      # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
+      # internal junction jumps more than this many meters between one trip's
+      # destination and the next trip's origin - a missing leg the extractor
+      # would otherwise weld into one "complete" tour. 1 km catches genuine
+      # teleports while ignoring same-place geocoding jitter.
+      spatial_gap_threshold_meters: 1000.0
 
-  # Stamps `complete` and `model_usable`. Must run before weights are applied:
-  # the weighting reads `model_usable` to decide which records carry weight, and
-  # the CT-RAMP tour drop reads the same flag, so both agree on the universe.
+  # Cascade `complete` (survey reporting) through hh <-> person <-> day <->
+  # trip/tour so it is consistent with any upstream adjustments, and stamp
+  # `model_usable`: the subset of complete records admissible to the tour-based
+  # models (VALID tour structure + COMPLETE home-to-home category + household-
+  # day coherence). Parameterless: downstream consumers choose which flag to
+  # honour (weighting: usability_flag_col; formatters: drop_invalid_tours).
   - name: cascade_completeness
     validate_input: false
     cache: false
+
+  # - name: compute_weights
+  #   validate_input: false
+  #   cache: true
+  #   params:
+  #     # -- PUMS 1-year microdata (California) ---------------------------
+  #     # (Optional) will download from Census if not provided
+  #     # pums_households: "{{ pums_dir }}/psam_h06.csv"
+  #     # pums_persons: "{{ pums_dir }}/psam_p06.csv"
+
+  #     state_fips: "06"
+  #     pums_year: 2023
+
+  #     # -- Sample Plan Path ------------------------------------------------
+  #     sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
+
+  #     # -- Geography crosswalk ------------------------------------------
+  #     # Specify a polygon file for target zones.  The crosswalk module
+  #     # auto-discovers overlapping PUMAs and builds a population-weighted
+  #     # allocation table using Census blocks + rasterization.
+  #     geography:
+  #       target_zones:
+  #         file: "{{ TM1_shapefile_dir }}/region_county.shp"
+  #         id_field: "fipco"  # null -> single study-area boundary
+  #       resolution: 50         # meters (raster handles boundary fractions)
+  #       min_allocation: 0.01   # drop PUMA slivers below 1%
+  #       # -- Zone groups (optional) ------------------------------------
+  #       # Merge small zones for weighting.
+  #       # Keys are group names, values are lists of zones combined into a single balancing zone.
+  #       # Also useful for applying names to things.
+  #       zone_groups:
+  #         "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
+  #         # "Contra Costa/Alameda": ["013", "001"]
+  #         "San Mateo/Santa Clara": ["085", "081"]
+  #         "Alameda": ["001"]
+  #         "Contra Costa": ["013"]
+  #         # "Marin": ["041"]
+  #         # "Sonoma": ["055"]
+  #         "San Francisco": ["075"]
+  #         # "Santa Clara": ["081"]
+  #         # "San Mateo": ["085"]
+  #         # "Solano": ["095"]
+  #         # "Napa": ["097"]
+
+  #     # -- Balancer settings -------------------------------------------
+  #     max_expansion_factor: 5.0    # upper bound = initial_weight × factor
+  #     min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+  #     min_weight: 1                # absolute floor (no weight < 1)
+  #     # max_weight:                # absolute ceiling (null = no ceiling)
+  #     max_iterations: 10000
+  #     n_workers: 8                 # parallel zone balancing (numba releases GIL)
+  #     default_importance: 100      # baseline importance for controls without an explicit override
+  #     # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
+  #     moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+
+  #     # -- Completeness handling ---------------------------------------
+  #     # Drop incomplete households from the balancing seed and set their final
+  #     # weights to 0 (they are retained in the output). The balancer spreads each
+  #     # zone's population across the surviving complete respondents. Set false to
+  #     # keep incomplete households in the seed and give them computed weights.
+  #     exclude_incompletes: true
+
+  #     # Which flag decides who carries weight (stamped by cascade_completeness):
+  #     #   model_usable -> only model-admissible records, so the weighted tour
+  #     #                   universe matches what CT-RAMP/DaySim keep.
+  #     #   complete     -> the whole valid survey, including partial/overnight
+  #     #                   tours (survey-analysis weights).
+  #     # Each parent's weight is spread across its usable children, so dropping a
+  #     # record does not shrink the expansion.
+  #     usability_flag_col: model_usable
+
+  #     # -- EF grid search (optional) -----------------------------------
+  #     # Re-run balancing across a grid of max_expansion_factor values and
+  #     # add a diagnostic chart showing fit vs weight quality tradeoffs.
+  #     expansion_factor_grid: [2, 3, 4, 5, 7, 10, 15, 20]
+
+  #     # -- Controls to balance against ---------------------------------
+  #     # Each name must match a key in the CONTROLS registry.
+  #     # Household-level: h_size, h_income, h_workers, h_vehicles, h_children
+  #     # Person-level:    p_gender, p_employment, p_commute_mode, p_student,
+  #     #                  p_education, p_race, p_ethnicity, p_age
+  #     # Optional: merge granular categories before balancing.
+  #     # We start with maximum granularity (e.g. 10 household size categories)
+  #     # and merge up to a coarser set as necessary to achieve convergence.
+  #     # The merge can be global (all zones) or zone-specific
+  #     # merge:
+  #     #   merged_label: [category1, category2, ...]      #
+  #     # For additional per-zone merges on top of the global merge, use
+  #     # zone_merges:
+  #     #   "06001":
+  #     #     further_merged: [category_a, already_merged_label]
+  #     #   "06075":
+  #     #     another_merged: [category_b, already_merged_label]
+  #     controls:
+  #       # Structural controls, set importance very high to ensure totals are matched exactly (if possible)
+  #       - name: h_total
+  #         importance: 200
+  #       - name: p_total
+  #         importance: 200
+
+  #       # Household level controls
+  #       - name: h_size
+  #         merge:
+  #           size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+
+  #       # Household income controls
+  #       - name: h_income
+  #         merge:
+  #           income_under_100:   [income_under25, income_25to50, income_50to75, income_75to100]
+
+  #       # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
+  #       - name: h_vehicles
+  #         merge:
+  #           veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
+  #         # zone_merges:
+  #         #   "San Francisco":
+  #         #     veh_1_plus: [veh_1, veh_2_plus]
+
+  #       # Turning these off because p_employment and p_age captures this already,
+  #       # just adds excess double constraints that make it hard to converge in places like SF.
+  #       # - name: h_workers
+  #       #   merge:
+  #       #     workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
+  #       #   zone_merges:
+  #       #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
+  #       #       workers_1_plus: [workers_1, workers_2_plus]
+
+  #       # - name: h_children
+  #       #   merge:
+  #       #     children_2_plus: [children_2,children_3, children_4, children_5_plus]
+  #       #   zone_merges:
+  #       #     "San Francisco": # SF has very few households with 2+ children
+  #       #       children_1_plus: [children_1, children_2_plus]
+
+  #       # Person level controls (get's aggregated to household level, i.e., num age group per household)
+  #       - name: p_gender
+  #       - name: p_employment
+  #       - name: p_commute_mode
+  #         merge:
+  #           car: ["carpool", "drive_alone"]
+  #           walk_bike: ["walk", "bike"]
+
+  #       - name: p_student
+  #         # merge:
+  #         #   university: ["student_college"]
+  #         #   nonuniversity: ["student_k12", "not_student"]
+
+  #       - name: p_age
+  #         merge:
+  #           age_75_plus: [age_75_to_84, age_85_and_up]
+
+  #       # Just wait until we have imputation which handles this processing and more
+  #       # - name: p_race
+  #       #   merge:
+  #       #     "AAPI": [asian, pacific]
+  #       #     other:  [native, multi, other] # collapse small groups into "other"
+
+  #       # - name: p_ethnicity
+  #       #   merge:
+  #       #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
+
+  #       # Cross-tab controls, these help ensure the joint distribution of two or more variables is preserved
+  #       # - name: p_gender_x_ethnicity
+  #       #   dimensions: [p_gender, p_ethnicity]  # Uses FULL 2×5 = 10 cells from originals
+  #       #   # Cross-tab applies its own coarser merges
+  #       #   merges:
+  #       #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
+
+  #       # Result: 3x3 = 9 cells
+  #       # - name: h_size_by_income
+  #       #   dimensions: [h_size, h_income]
+  #       #   merges:
+  #       #     h_income:
+  #       #       income_under_100: [income_under25, income_25to50, income_50to75, income_75to100]
+  #       #     h_size:
+  #       #         size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+
+  #     # -- Diagnostics report ------------------------------------------
+  #     diagnostics:
+  #       output_path: "{{ output_dir }}/weighting_diagnostics_2023.html"
+
 
   # -- Existing weights (alternative to computing new weights) ----------
   # Uncomment this block and comment out the 'weighting' step above
@@ -140,6 +335,7 @@ steps:
     cache: false
     params:
       derive_missing_weights: true
+      usability_flag_col: model_usable  # supplied weights are redistributed onto usable records, preserving each supplied total
       weights:
         hh_weight:
           weight_path: "{{ weights_dir }}/hh_weights.csv"
@@ -196,8 +392,7 @@ steps:
       gender_default_for_missing: "f"
       taz_field: "TAZ1454"  # TAZ field to use for CTRAMP formatting
       drop_missing_taz: true  # Drop households without valid TAZ
-      filter_zero_weight: true  # Drop households with null or zero survey weight
-
+      drop_invalid_tours: true  # Drop non-VALID or non-COMPLETE tours (parity with DaySim)
 
   - name: write_data
     validate_input: true
@@ -218,14 +413,16 @@ steps:
         habitual_location_days: "{{ output_dir }}/survey/habitual_location_days_2023.csv"
 
         # CTRAMP Formats
-        households_ctramp: "{{ output_dir }}/ctramp_2023/householdData_BATS2023.csv"
-        persons_ctramp: "{{ output_dir }}/ctramp_2023/personData_BATS2023.csv"
-        mandatory_locations_ctramp: "{{ output_dir }}/ctramp_2023/wsLocResults_BATS2023.csv"
-        individual_tours_ctramp: "{{ output_dir }}/ctramp_2023/indivTourData_BATS2023.csv"
-        individual_trips_ctramp: "{{ output_dir }}/ctramp_2023/indivTripData_BATS2023.csv"
-        joint_tours_ctramp: "{{ output_dir }}/ctramp_2023/jointTourData_BATS2023.csv"
-        joint_trips_ctramp: "{{ output_dir }}/ctramp_2023/jointTripData_BATS2023.csv"
+        households_ctramp: "{{ output_dir }}/ctramp_2023/HouseholdData_BATS2023.csv"
+        persons_ctramp: "{{ output_dir }}/ctramp_2023/PersonData_BATS2023.csv"
+        mandatory_locations_ctramp: "{{ output_dir }}/ctramp_2023/MandatoryLocationData_BATS2023.csv"
+        individual_tours_ctramp: "{{ output_dir }}/ctramp_2023/IndivTourData_BATS2023.csv"
+        individual_trips_ctramp: "{{ output_dir }}/ctramp_2023/IndivTripData_BATS2023.csv"
+        joint_tours_ctramp: "{{ output_dir }}/ctramp_2023/JointTourData_BATS2023.csv"
+        joint_trips_ctramp: "{{ output_dir }}/ctramp_2023/JointTripData_BATS2023.csv"
+        cdap_results_ctramp: "{{ output_dir }}/ctramp_2023/cdapResults_BATS2023.csv"
+        ao_results_ctramp: "{{ output_dir }}/ctramp_2023/aoResults_BATS2023.csv"
         # Not CT-RAMP files: individual and joint travel unified into one row per
         # person-record, so a total needs no reconciling across the two files above.
-        all_tours_ctramp: "{{ output_dir }}/ctramp_2023/allTourData_BATS2023.csv"
-        all_trips_ctramp: "{{ output_dir }}/ctramp_2023/allTripData_BATS2023.csv"
+        all_tours_ctramp: "{{ output_dir }}/ctramp_2023/AllTourData_BATS2023.csv"
+        all_trips_ctramp: "{{ output_dir }}/ctramp_2023/AllTripData_BATS2023.csv"
