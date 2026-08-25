@@ -723,13 +723,11 @@ Quick lookup of categorical values and labels for codebook enum fields.
 | Value | Label |
 | --- | --- |
 | 0 | Valid tour |
-| 2 | Start at anchor, end away from anchor |
-| 3 | Start away from anchor, end at anchor |
-| 4 | Start away from anchor, end away from anchor |
-| 5 | Single-trip tour |
-| 6 | Anchor-to-anchor loop trip |
-| 7 | Change mode as primary purpose (linking failure) |
-| 8 | Spatial gap between consecutive trips (missing leg) |
+| 1 | Open end is another home known for this person |
+| 2 | Chain resumes at the same place on the next diary day |
+| 3 | First or last trip in the diary; its open end is not a known home |
+| 4 | No activity to anchor the tour on: returns to the anchor without stopping, or every stop was a mode change |
+| 5 | Missing leg, inside the tour or at its boundary |
 
 ## TourDirection
 
