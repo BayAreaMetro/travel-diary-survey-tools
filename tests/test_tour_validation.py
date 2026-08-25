@@ -1,8 +1,11 @@
 """Tests for tour validation helper functions."""
 
+from datetime import datetime
+
 import polars as pl
 import pytest
 
+from data_canon.codebook.generic import LocationType
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.codebook.trips import PurposeCategory
 from processing.tours.validation_helpers import validate_and_correct_tours
@@ -75,104 +78,152 @@ class TestValidateAndCorrectTours:
         with pytest.raises(ValueError, match="never assigned to a tour"):
             validate_and_correct_tours(tours, linked_trips)
 
-    @pytest.mark.parametrize(
-        ("category", "expected"),
-        [
-            (TourCategory.PARTIAL_BOTH, TourDataQuality.PARTIAL_BOTH),
-            (TourCategory.PARTIAL_START, TourDataQuality.PARTIAL_START),
-            (TourCategory.PARTIAL_END, TourDataQuality.PARTIAL_END),
-            (TourCategory.COMPLETE, TourDataQuality.VALID),
-        ],
-    )
-    def test_partial_quality_mirrors_category(self, category, expected):
-        """Each partial quality code carries its category's own integer value."""
+    def _frames(self, category, *, purpose=PurposeCategory.SHOP.value, trips=2):
+        """One tour with *trips* legs and no other travel around it."""
+        pts = [(37.0 + 0.1 * (i % 2), -122.0 - 0.1 * (i % 2)) for i in range(trips + 1)]
         tours = pl.DataFrame(
             {
                 "tour_id": ["tour_1"],
                 "person_id": [1],
                 "day_id": [1],
-                "trip_count": [2],
+                "trip_count": [trips],
                 "tour_num": [1],
                 "tour_category": [category.value],
-                "tour_purpose": [PurposeCategory.SHOP.value],
+                "tour_purpose": [purpose],
             }
         )
         linked_trips = pl.DataFrame(
             {
-                "tour_id": ["tour_1", "tour_1"],
+                "tour_id": ["tour_1"] * trips,
+                "person_id": [1] * trips,
+                "hh_id": [1] * trips,
+                "day_id": [1] * trips,
+                "tour_num": [1] * trips,
+                # A continuous chain: each trip starts where the last one ended,
+                # so the internal spatial-gap check stays quiet.
+                "o_lat": [pts[i][0] for i in range(trips)],
+                "o_lon": [pts[i][1] for i in range(trips)],
+                "d_lat": [pts[i + 1][0] for i in range(trips)],
+                "d_lon": [pts[i + 1][1] for i in range(trips)],
+                "depart_time": [datetime(2023, 5, 1, 8 + i) for i in range(trips)],
+                "arrive_time": [datetime(2023, 5, 1, 8 + i, 30) for i in range(trips)],
+            }
+        )
+        return tours, linked_trips
+
+    @staticmethod
+    def _two_day_frames(second_day_origin):
+        """A tour ending away on day 1, and day 2 starting from *second_day_origin*."""
+        tours = pl.DataFrame(
+            {
+                "tour_id": ["tour_1", "tour_2"],
+                "person_id": [1, 1],
+                "day_id": [1, 2],
+                "trip_count": [1, 1],
+                "tour_num": [1, 1],
+                "tour_category": [
+                    TourCategory.PARTIAL_END.value,
+                    TourCategory.PARTIAL_START.value,
+                ],
+                "tour_purpose": [PurposeCategory.SHOP.value] * 2,
+            }
+        )
+        linked_trips = pl.DataFrame(
+            {
+                "tour_id": ["tour_1", "tour_2"],
                 "person_id": [1, 1],
                 "hh_id": [1, 1],
-                "day_id": [1, 1],
+                "day_id": [1, 2],
                 "tour_num": [1, 1],
+                "o_lat": [37.0, second_day_origin[0]],
+                "o_lon": [-122.0, second_day_origin[1]],
+                "d_lat": [37.5, 37.0],
+                "d_lon": [-122.5, -122.0],
+                "depart_time": [datetime(2023, 5, 1, 20), datetime(2023, 5, 2, 8)],
+                "arrive_time": [datetime(2023, 5, 1, 21), datetime(2023, 5, 2, 9)],
             }
         )
+        return tours, linked_trips
+
+    @pytest.mark.parametrize(
+        "category",
+        [TourCategory.PARTIAL_BOTH, TourCategory.PARTIAL_START, TourCategory.PARTIAL_END],
+    )
+    def test_lone_partial_tour_is_a_diary_edge(self, category):
+        """With no trip either side of it, an open end is where the diary stops."""
+        tours, linked_trips = self._frames(category)
 
         result = validate_and_correct_tours(tours, linked_trips)
 
-        assert result["tour_data_quality"][0] == expected.value
-        if expected is not TourDataQuality.VALID:
-            # The mirror: same name, same integer, in both columns.
-            assert expected.value == category.value
+        assert result["tour_data_quality"][0] == TourDataQuality.PARTIAL_DIARY_EDGE.value
+
+    def test_complete_tour_is_valid(self):
+        """Both ends anchored and a real purpose: nothing to report."""
+        tours, linked_trips = self._frames(TourCategory.COMPLETE)
+
+        result = validate_and_correct_tours(tours, linked_trips)
+
+        assert result["tour_data_quality"][0] == TourDataQuality.VALID.value
 
     def test_category_is_not_rewritten(self):
-        """Quality is a verdict on the category; it never edits it.
-
-        A single-trip tour that left its anchor is PARTIAL_END -- it started at
-        home and stopped away. Overwriting that to PARTIAL_BOTH would make the
-        column disagree with where the trip actually ran.
-        """
-        tours = pl.DataFrame(
-            {
-                "tour_id": ["tour_1"],
-                "person_id": [1],
-                "day_id": [1],
-                "trip_count": [1],
-                "tour_num": [1],
-                "tour_category": [TourCategory.PARTIAL_END.value],
-                "tour_purpose": [PurposeCategory.SHOP.value],
-            }
-        )
-        linked_trips = pl.DataFrame(
-            {
-                "tour_id": ["tour_1"],
-                "person_id": [1],
-                "hh_id": [1],
-                "day_id": [1],
-                "tour_num": [1],
-            }
-        )
+        """Quality is a verdict on the category; it never edits it."""
+        tours, linked_trips = self._frames(TourCategory.PARTIAL_END, trips=1)
 
         result = validate_and_correct_tours(tours, linked_trips)
 
-        assert result["tour_data_quality"][0] == TourDataQuality.SINGLE_TRIP.value
         assert result["tour_category"][0] == TourCategory.PARTIAL_END.value
 
-    def test_single_anchor_to_anchor_trip_is_a_loop(self):
-        """One trip that departs and returns to the anchor is LOOP_TRIP."""
-        tours = pl.DataFrame(
-            {
-                "tour_id": ["tour_1"],
-                "person_id": [1],
-                "day_id": [1],
-                "trip_count": [1],
-                "tour_num": [1],
-                "tour_category": [TourCategory.COMPLETE.value],
-                "tour_purpose": [PurposeCategory.SHOP.value],
-            }
-        )
-        linked_trips = pl.DataFrame(
-            {
-                "tour_id": ["tour_1"],
-                "person_id": [1],
-                "hh_id": [1],
-                "day_id": [1],
-                "tour_num": [1],
-            }
-        )
+    def test_tour_without_a_purpose_has_no_destination(self):
+        """A null purpose means nothing was found to anchor the tour on.
+
+        Aggregation leaves it null when every candidate was the return leg or a
+        mode change -- an anchor-to-anchor loop being the common case.
+        """
+        tours, linked_trips = self._frames(TourCategory.COMPLETE, purpose=None, trips=1)
 
         result = validate_and_correct_tours(tours, linked_trips)
 
-        assert result["tour_data_quality"][0] == TourDataQuality.LOOP_TRIP.value
+        assert result["tour_data_quality"][0] == TourDataQuality.NO_DESTINATION.value
+
+    def test_open_end_at_a_second_home_is_named_as_such(self):
+        """An end sitting on a known other home is not a truncation."""
+        tours, linked_trips = self._frames(TourCategory.PARTIAL_END, trips=1)
+        habitual = pl.DataFrame(
+            {
+                "person_id": [1],
+                "location_type": [LocationType.HOME.value],
+                "is_primary": [False],
+                # The tour's last destination, to the metre.
+                "lat": [37.1],
+                "lon": [-122.1],
+            }
+        )
+
+        result = validate_and_correct_tours(tours, linked_trips, habitual_locations=habitual)
+
+        assert result["tour_data_quality"][0] == TourDataQuality.PARTIAL_OTHER_HOME.value
+
+    def test_chain_resuming_next_day_is_a_day_split(self):
+        """The journey continues from where it stopped, so it was merely cut."""
+        tours, linked_trips = self._two_day_frames((37.5, -122.5))
+
+        result = validate_and_correct_tours(tours, linked_trips).sort("tour_id")
+
+        assert result["tour_data_quality"].to_list() == [
+            TourDataQuality.PARTIAL_DAY_SPLIT.value,
+            TourDataQuality.PARTIAL_DAY_SPLIT.value,
+        ]
+
+    def test_reappearing_elsewhere_is_a_spatial_gap(self):
+        """A leg is missing when the next trip starts somewhere else entirely."""
+        tours, linked_trips = self._two_day_frames((38.9, -123.9))
+
+        result = validate_and_correct_tours(tours, linked_trips).sort("tour_id")
+
+        assert result["tour_data_quality"].to_list() == [
+            TourDataQuality.SPATIAL_GAP.value,
+            TourDataQuality.SPATIAL_GAP.value,
+        ]
 
 
 class TestSpatialGapDetection:
@@ -280,7 +331,8 @@ class TestTourValidationIntegration:
                 ],
                 "tour_purpose": [
                     PurposeCategory.WORK.value,
-                    PurposeCategory.SHOP.value,
+                    # Nothing but the return leg, so aggregation found no purpose.
+                    None,
                     PurposeCategory.SOCIALREC.value,
                     PurposeCategory.SHOP.value,
                 ],
@@ -300,14 +352,16 @@ class TestTourValidationIntegration:
         result = validate_and_correct_tours(tours, linked_trips).sort("tour_id")
 
         assert result["tour_data_quality"].to_list() == [
-            TourDataQuality.VALID.value,  # 2 trips, anchor to anchor
-            TourDataQuality.LOOP_TRIP.value,  # 1 trip, anchor to anchor
-            TourDataQuality.PARTIAL_BOTH.value,  # 3 trips, never reaches anchor
-            TourDataQuality.PARTIAL_START.value,  # 2 trips, only returns
+            TourDataQuality.VALID.value,  # anchor to anchor, with a purpose
+            TourDataQuality.NO_DESTINATION.value,  # nothing to anchor on
+            # Without coordinates there is no travel visible either side, which
+            # is the diary-edge reading of an open end.
+            TourDataQuality.PARTIAL_DIARY_EDGE.value,
+            TourDataQuality.PARTIAL_DIARY_EDGE.value,
         ]
 
     def test_mixed_quality_tours(self):
-        """A one-trip tour is SINGLE_TRIP even though its shape is partial."""
+        """A tour keeps its own verdict; a neighbour defect does not spread."""
         tours = pl.DataFrame(
             {
                 "tour_id": ["tour_good", "tour_bad"],
@@ -333,6 +387,6 @@ class TestTourValidationIntegration:
         result = validate_and_correct_tours(tours, linked_trips).sort("tour_id")
 
         assert result["tour_data_quality"].to_list() == [
-            TourDataQuality.SINGLE_TRIP.value,
+            TourDataQuality.PARTIAL_DIARY_EDGE.value,
             TourDataQuality.VALID.value,
         ]

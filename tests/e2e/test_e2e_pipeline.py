@@ -265,17 +265,22 @@ class TestEdgeCaseCoverage:
         assert {"M", "N", "H"} <= patterns, f"missing activity patterns: {patterns}"
 
     def test_tour_data_quality_buckets_present(self, full_result):
-        # VALID(0), PARTIAL_END(2), PARTIAL_START(3), PARTIAL_BOTH(4),
-        # SINGLE_TRIP(5), LOOP_TRIP(6), CHANGE_MODE(7). SPATIAL_GAP(8) needs
-        # coordinates that teleport mid-tour and is covered by unit tests.
+        # VALID(0), PARTIAL_DIARY_EDGE(3), NO_DESTINATION(4). The other three
+        # need travel the toy generator does not produce -- a chain resuming
+        # across diary days (2), a person with a second home (1), coordinates
+        # that teleport (5) -- and are covered by unit tests instead.
         q = set(full_result.tours["tour_data_quality"].to_list())
-        assert {0, 2, 3, 4, 5, 6, 7} <= q, f"missing tour_data_quality buckets: {q}"
+        assert {0, 3, 4} <= q, f"missing tour_data_quality buckets: {q}"
 
-    def test_partial_quality_codes_mirror_category(self, full_result):
-        """Codes 2-4 must carry the same integer in both columns, per tour."""
-        partials = full_result.tours.filter(pl.col("tour_data_quality").is_in([2, 3, 4]))
-        assert partials.height > 0
-        assert partials.filter(pl.col("tour_data_quality") != pl.col("tour_category")).is_empty()
+    def test_a_tour_with_a_purpose_is_never_no_destination(self, full_result):
+        """NO_DESTINATION means exactly that aggregation found no purpose."""
+        tours = full_result.tours
+        assert tours.filter(
+            (pl.col("tour_data_quality") == 4) & pl.col("tour_purpose").is_not_null()
+        ).is_empty()
+        assert tours.filter(
+            (pl.col("tour_data_quality") != 4) & pl.col("tour_purpose").is_null()
+        ).is_empty()
 
     def test_all_tour_categories_present(self, full_result):
         # COMPLETE(1), PARTIAL_END(2), PARTIAL_START(3), PARTIAL_BOTH(4).
