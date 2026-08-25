@@ -445,12 +445,10 @@ def test_single_trip_tour(single_trip_tour_data):
     # Single-trip tours should be kept but flagged
     assert len(tours_df) == 1
 
-    # Should be flagged as single-trip tour
+    # Kept, with the count on the tour and a reason for being open-ended. Here
+    # nothing precedes or follows it in the diary, so that is where it stops.
     assert tours_df["trip_count"][0] == 1
-    assert tours_df["tour_data_quality"][0] in (
-        TourDataQuality.SINGLE_TRIP.value,
-        TourDataQuality.LOOP_TRIP.value,
-    )
+    assert tours_df["tour_data_quality"][0] == TourDataQuality.PARTIAL_DIARY_EDGE.value
 
     # Tour number should be 1, not 0
     assert tours_df["tour_num"][0] == 1

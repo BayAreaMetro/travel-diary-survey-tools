@@ -19,7 +19,11 @@ from collections.abc import Callable
 
 import polars as pl
 
-from data_canon.codebook.tours import MIN_TRIPS_FOR_VALID_TOUR, TourDataQuality
+from data_canon.codebook.tours import (
+    MIN_TRIPS_FOR_VALID_TOUR,
+    TourCategory,
+    TourDataQuality,
+)
 from utils.helpers import expr_haversine
 
 logger = logging.getLogger(__name__)
@@ -81,19 +85,20 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
     return errors
 
 
-def check_trip_count_matches_quality(
-    tours: pl.DataFrame, linked_trips: pl.DataFrame
-) -> list[str]:
-    """Verify trip_count and the one-trip quality codes agree with the trips.
+def check_trip_count_matches_quality(tours: pl.DataFrame, linked_trips: pl.DataFrame) -> list[str]:
+    """Verify trip_count matches the trips, and NO_DESTINATION means what it says.
 
-    Two things must hold together: ``trip_count`` is the number of linked trips
-    actually on the tour, and a tour is flagged SINGLE_TRIP or LOOP_TRIP exactly
-    when it has one. Checking them against the trips rather than against each
-    other is what makes this a real check -- both are derived in the extractor,
-    so they would agree even if the extractor were wrong.
+    ``trip_count`` is checked against the linked trips rather than against
+    another tour column: both are derived in the extractor, so they would agree
+    even if the extractor were wrong. Only the trips themselves are independent.
+
+    ``NO_DESTINATION`` is checked in both directions against its actual
+    definition: a *closed* tour that aggregation found no purpose for. A partial
+    tour may also lack a purpose -- half of it went unobserved -- and is graded
+    on its open end instead, so a null purpose alone does not imply the code.
 
     Args:
-        tours: Tour records with trip_count and tour_data_quality
+        tours: Tour records with trip_count, tour_data_quality and tour_purpose
         linked_trips: Trip records to count per tour
 
     Returns:
@@ -114,18 +119,20 @@ def check_trip_count_matches_quality(
             f"number of linked trips. Sample tour IDs: {tour_ids}"
         )
 
-    one_trip_codes = [TourDataQuality.SINGLE_TRIP.value, TourDataQuality.LOOP_TRIP.value]
-    flagged_one_trip = pl.col("tour_data_quality").is_in(one_trip_codes)
-    inconsistent = joined.filter(
-        (flagged_one_trip & (pl.col("actual_trip_count") != 1))
-        | (~flagged_one_trip & (pl.col("actual_trip_count") == 1))
-    )
-    if len(inconsistent) > 0:
-        tour_ids = inconsistent["tour_id"].to_list()[:5]
-        errors.append(
-            f"Found {len(inconsistent)} tours where the SINGLE_TRIP/LOOP_TRIP "
-            f"flag disagrees with the actual trip count. Sample tour IDs: {tour_ids}"
+    if {"tour_purpose", "tour_category"} <= set(tours.columns):
+        no_dest = pl.col("tour_data_quality") == TourDataQuality.NO_DESTINATION.value
+        nothing_to_anchor_on = pl.col("tour_purpose").is_null() & (
+            pl.col("tour_category") == TourCategory.COMPLETE.value
         )
+        drifted = joined.filter(
+            (no_dest & ~nothing_to_anchor_on) | (~no_dest & nothing_to_anchor_on)
+        )
+        if len(drifted) > 0:
+            tour_ids = drifted["tour_id"].to_list()[:5]
+            errors.append(
+                f"Found {len(drifted)} tours where NO_DESTINATION disagrees with "
+                f"being a closed tour without a purpose. Sample tour IDs: {tour_ids}"
+            )
 
     return errors
 
