@@ -185,7 +185,6 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `tour_category` | TourCategory |  |  |  | ✓ |  |
     | `tour_data_quality` | TourDataQuality |  |  |  |  |  |
     | `trip_count` | int | ≥ 1 |  |  |  |  |
-    | `stop_count` | int | ≥ 0 |  |  |  |  |
     | `origin_depart_time` | datetime |  |  |  | ✓ |  |
     | `origin_arrive_time` | datetime |  |  |  | ✓ |  |
     | `dest_arrive_time` | datetime or None |  |  |  |  |  |

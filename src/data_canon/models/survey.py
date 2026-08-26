@@ -456,9 +456,11 @@ class TourModel(BaseModel):
         description=(
             "The tour's primary activity: the highest-priority purpose among "
             "its destinations, ranked by the person's category (a worker's "
-            "work trip outranks their shopping stop). Null only where no "
-            "primary destination exists -- a one-trip tour, which is why "
-            "`tour_data_quality` flags those SINGLE_TRIP or LOOP_TRIP."
+            "work trip outranks their shopping stop). Null where no stop "
+            "qualifies -- every candidate was the return leg to the anchor or a "
+            "mode change. On a closed tour that is `NO_DESTINATION`; on a "
+            "partial one the missing half is the reason, so `tour_data_quality` "
+            "names the open end instead."
         ),
     )
     tour_type: TourType = schema_field(
@@ -480,11 +482,11 @@ class TourModel(BaseModel):
     )
     trip_count: int = schema_field(
         ge=1,
-        description="Linked trips in the tour. A tour needs at least two to be well formed.",
-    )
-    stop_count: int = schema_field(
-        ge=0,
-        description="Intermediate stops, i.e. `trip_count` minus one.",
+        description=(
+            "Linked trips in the tour. Stop counts are a formatter concern: they are "
+            "a modelling convention, and a directional count has to come from the "
+            "trips anyway."
+        ),
     )
 
     # Timing

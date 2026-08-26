@@ -2,11 +2,6 @@
 
 from data_canon.core.labeled_enum import LabeledEnum
 
-# A tour needs one trip out and one back; anything less cannot be a round trip.
-# Lives here rather than in the extractor so the canonical model can enforce it
-# without data_canon importing from processing.
-MIN_TRIPS_FOR_VALID_TOUR = 2
-
 
 class TourType(LabeledEnum):
     """What a tour is anchored on -- the ``tour_type`` column.

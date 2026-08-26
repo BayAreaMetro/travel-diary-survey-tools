@@ -20,7 +20,6 @@ from collections.abc import Callable
 import polars as pl
 
 from data_canon.codebook.tours import (
-    MIN_TRIPS_FOR_VALID_TOUR,
     TourCategory,
     TourDataQuality,
 )
@@ -163,7 +162,7 @@ def check_valid_tours_are_complete(tours: pl.DataFrame) -> list[str]:
     if "tour_data_quality" not in tours.columns:
         return errors
 
-    single_trip = pl.col("trip_count") < MIN_TRIPS_FOR_VALID_TOUR
+    single_trip = pl.col("trip_count") == 1
     invalid = tours.filter(
         (pl.col("tour_data_quality") == TourDataQuality.VALID.value)
         & (single_trip | pl.col("tour_purpose").is_null())
