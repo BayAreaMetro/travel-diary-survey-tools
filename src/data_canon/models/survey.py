@@ -76,31 +76,6 @@ class HouseholdModel(BaseModel):
     income_bin: IncomeBroad = schema_field()
     hh_weight: float | None = schema_field(ge=0)
     num_vehicles: int = schema_field(ge=0)
-    # Weighting geography and seed, stamped by the weighting steps.
-    study_geoid: str | None = schema_field(
-        default=None,
-        description="Geography the household is assigned to for weighting (e.g. county FIPS).",
-    )
-    ctrl_geoid: str | None = schema_field(
-        default=None,
-        description=(
-            "The control geography `study_geoid` maps into. Several study "
-            "geographies can share one control zone where sample is too thin to "
-            "balance them separately."
-        ),
-    )
-    bg_geo_id: str | None = schema_field(
-        default=None,
-        description="Census block group GEOID containing the home location.",
-    )
-    base_weight: float | None = schema_field(
-        ge=0,
-        default=None,
-        description=(
-            "Pre-balancing seed weight, before the balancer fits it to the "
-            "controls. Null for households the weighting could not seed."
-        ),
-    )
     complete: bool = schema_field()
     model_usable: bool | None = schema_field(
         default=None,

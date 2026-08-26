@@ -30,10 +30,6 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `income_bin` | IncomeBroad |  |  |  | ✓ |  |
     | `hh_weight` | float or None | ≥ 0 |  |  |  |  |
     | `num_vehicles` | int | ≥ 0 |  |  | ✓ |  |
-    | `study_geoid` | str or None |  |  |  |  |  |
-    | `ctrl_geoid` | str or None |  |  |  |  |  |
-    | `bg_geo_id` | str or None |  |  |  |  |  |
-    | `base_weight` | float or None | ≥ 0 |  |  |  |  |
     | `complete` | bool |  |  |  |  |  |
     | `model_usable` | bool or None |  |  |  |  |  |
 
