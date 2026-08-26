@@ -223,8 +223,7 @@ class UnlinkedTripModel(BaseModel):
         ge=1,
         default=None,
         description=(
-            "Sequence number of the linked trip this segment belongs to, within "
-            "its person-day."
+            "Sequence number of the linked trip this segment belongs to, within its person-day."
         ),
     )
     tour_id: int | None = schema_field(ge=1, fk_to="tours.tour_id")
@@ -351,9 +350,7 @@ class LinkedTripModel(BaseModel):
         ge=1,
         fk_to="tours.tour_id",
         default=None,
-        description=(
-            "The containing tour for a subtour trip. Primary tours self-reference."
-        ),
+        description=("The containing tour for a subtour trip. Primary tours self-reference."),
     )
     tour_purpose: PurposeCategory | None = schema_field(
         default=None,
