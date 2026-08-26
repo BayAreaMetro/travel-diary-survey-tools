@@ -12,7 +12,6 @@ import polars as pl
 
 from data_canon.codebook.generic import LocationType
 from data_canon.codebook.tours import (
-    MIN_TRIPS_FOR_VALID_TOUR,
     TourCategory,
     TourDirection,
     TourType,
@@ -356,7 +355,6 @@ def _aggregate_and_classify_tours(
             pl.col("d_location_type").last().alias("_fallback_d_location_type"),
             # Counts
             pl.col("linked_trip_id").count().alias("trip_count"),
-            (pl.col("linked_trip_id").count() - 1).alias("stop_count"),
             # Flags for classification
             pl.col("subtour_num").first().alias("_subtour_num"),
             pl.col("_anchor_location_type").first().alias("_anchor_location_type"),
@@ -396,13 +394,8 @@ def _aggregate_and_classify_tours(
         .join(dest_times, on="tour_id", how="left")
     )
 
-    single_trip_count = tours.filter(pl.col("trip_count") < MIN_TRIPS_FOR_VALID_TOUR).height
-    logger.info(
-        "Tours: %d total, %d single-trip tours (<%d trips)",
-        len(tours),
-        single_trip_count,
-        MIN_TRIPS_FOR_VALID_TOUR,
-    )
+    one_trip_count = tours.filter(pl.col("trip_count") == 1).height
+    logger.info("Tours: %d total, %d with a single trip", len(tours), one_trip_count)
 
     # Classify what the tour is anchored on, and -- separately -- how completely
     # it reaches that anchor. These are two orthogonal facts and must not share a
