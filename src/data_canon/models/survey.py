@@ -191,14 +191,10 @@ class PersonDayModel(BaseModel):
             "model_usable within a complete household-day."
         ),
     )
-    hh_day_usable: bool | None = schema_field(
-        default=None,
-        description=(
-            "Usable-side mirror of hh_day_complete: every member's day on this "
-            "travel_date is model_usable. Stamped by cascade_completeness; a "
-            "household is admissible only with >=1 usable household-day."
-        ),
-    )
+    # The usable-side mirror of hh_day_complete is now stamped once per
+    # usability profile, as hh_day_{profile}. Those names come from config, so
+    # they cannot be model fields; cascade_completeness registers them as
+    # generated columns with a description of what each one gated.
     model_usable: bool | None = schema_field(
         default=None,
         description=(

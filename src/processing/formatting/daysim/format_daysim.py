@@ -83,6 +83,7 @@ def format_daysim(
     drop_partial_tours: bool = True,
     drop_missing_taz: bool = True,
     drop_invalid_tours: bool = True,
+    usability_flag_col: str = "model_usable",
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to DaySim model specification.
 
@@ -102,6 +103,10 @@ def format_daysim(
             (default: True). Tours without return home are excluded.
         drop_missing_taz: If True, remove households without valid TAZ/MAZ IDs
             (default: True). Required for model application.
+        usability_flag_col: Which usability profile decides the tour universe.
+            Defaults to the strict ``model_usable``; naming a relaxed profile
+            admits more, at the cost of no longer matching whichever profile
+            the weighting and the CT-RAMP formatter were given.
         drop_invalid_tours: If True, remove tours marked as invalid
             (default: True). Filters out zero distance, negative duration, and
             data quality flagged tours.
@@ -150,10 +155,13 @@ def format_daysim(
         # The column can exist but be unstamped (null) on frames that never
         # passed through the step, so fall back per row rather than dropping.
         is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
-        if "model_usable" in tours.columns:
-            keep = pl.col("model_usable").fill_null(is_valid)
-        else:
-            keep = is_valid
+        gated = usability_flag_col in tours.columns
+        logger.info(
+            "DaySim tour universe gated on %s%s",
+            usability_flag_col,
+            "" if gated else " (not stamped; re-deriving from tour_data_quality)",
+        )
+        keep = pl.col(usability_flag_col).fill_null(is_valid) if gated else is_valid
         tours = tours.filter(keep)
         linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
 

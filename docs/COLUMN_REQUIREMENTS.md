@@ -80,7 +80,6 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `travel_dow` | TravelDow |  |  |  | ✓ |
     | `complete` | bool or None |  | ✓ |  |  |
     | `hh_day_complete` | bool or None |  |  |  |  |
-    | `hh_day_usable` | bool or None |  |  |  |  |
     | `model_usable` | bool or None |  |  |  |  |
     | `day_weight` | float or None | ≥ 0 |  |  |  |
 

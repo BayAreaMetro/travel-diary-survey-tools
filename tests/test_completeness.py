@@ -455,11 +455,14 @@ class TestUnflaggedMemberTablesRaise:
             _flag_joint_groupings(tables)
 
     def test_households_with_uncohered_days_raise(self):
-        """The household rule reads days.hh_day_usable; unflagged days must raise."""
+        """The household rule reads the profile's household-day column.
+
+        Days present but unflagged must raise rather than pass silently.
+        """
         tables = _joint_tables(tour_usable=[True, True])
         # days present but flag_household_day_usable not run yet
-        assert "hh_day_usable" not in tables["days"].columns
-        with pytest.raises(ValueError, match="no hh_day_usable column yet"):
+        assert "hh_day_model_usable" not in tables["days"].columns
+        with pytest.raises(ValueError, match="no hh_day_model_usable column yet"):
             _flag_households(tables)
 
     def test_partial_call_without_the_member_table_is_still_allowed(self):
@@ -483,6 +486,8 @@ class TestCascadeCompletenessStep:
     def test_omits_tables_not_supplied(self):
         """Tables passed as None are not present in the result."""
         tables = _gate_tables()
-        result = cascade_completeness(households=tables["households"])
+        result = cascade_completeness(
+            households=tables["households"], usability_profiles={"model_usable": []}
+        )
         assert set(result) == {"households"}
         assert "model_usable" in result["households"].columns

@@ -145,6 +145,20 @@ steps:
   - name: cascade_completeness
     validate_input: false
     cache: true
+    params:
+      # One boolean column per profile, each the strict gate plus whatever it
+      # additionally admits. Nothing is implicit: every column stamped is named
+      # here, and consumers pick one by name (weighting and both formatters take
+      # usability_flag_col). `complete` is always available as the floor.
+      #   multi_home_tours          - tours closing at another home this person
+      #                               is known to have; the trips are whole and
+      #                               only the anchor differs.
+      #   incomplete_household_days - dates where not every surveyable member
+      #                               reported. Trades household-level coherence
+      #                               for sample size; joint tours and expansion
+      #                               are what pay for it.
+      usability_profiles:
+        model_usable: []
 
   - name: compute_weights
     validate_input: false

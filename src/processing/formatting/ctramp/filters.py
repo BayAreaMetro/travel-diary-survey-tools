@@ -214,6 +214,7 @@ def _drop_invalid_tours(
     tours: pl.DataFrame,
     linked_trips: pl.DataFrame,
     joint_trips: pl.DataFrame,
+    usability_flag_col: str = "model_usable",
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Remove tours not admissible to the model, cascading to linked and joint trips.
 
@@ -235,12 +236,23 @@ def _drop_invalid_tours(
             ``tour_data_quality`` / ``tour_category`` descriptors)
         linked_trips: Canonical linked trip data
         joint_trips: Aggregated joint trip data
+        usability_flag_col: Which usability profile decides the tour universe.
+            Defaults to the strict ``model_usable``; naming a relaxed profile
+            admits more, at the cost of no longer matching whichever profile
+            the weighting and the DaySim formatter were given.
 
     Returns:
         Tuple of (tours, linked_trips, joint_trips) with inadmissible tours and
         their orphaned trips removed.
     """
-    has_gate = "model_usable" in tours.columns
+    has_gate = usability_flag_col in tours.columns
+    # Name the profile in the log: several may be stamped, and two formatters
+    # reading different ones is legitimate but must not be invisible.
+    logger.info(
+        "CT-RAMP tour universe gated on %s%s",
+        usability_flag_col,
+        "" if has_gate else " (not stamped; re-deriving from tour descriptors)",
+    )
     has_quality = "tour_data_quality" in tours.columns
     has_category = "tour_category" in tours.columns
     if not (has_gate or has_quality or has_category):
@@ -263,7 +275,7 @@ def _drop_invalid_tours(
         derived = pl.lit(value=True)
 
     # The upstream gate is authoritative wherever it has been stamped.
-    keep = pl.col("model_usable").fill_null(derived) if has_gate else derived
+    keep = pl.col(usability_flag_col).fill_null(derived) if has_gate else derived
 
     # Tag each dropped tour's reason so the log can distinguish structurally
     # invalid tours from partial/open ones (valid but not home-based).

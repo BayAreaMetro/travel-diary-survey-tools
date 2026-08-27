@@ -65,6 +65,16 @@ class CTRAMPConfig(BaseModel):
         ),
     )
 
+    usability_flag_col: str = Field(
+        default="model_usable",
+        description=(
+            "Which usability profile stamped by cascade_completeness decides the "
+            "tour universe. Defaults to the strict `model_usable`. Name a relaxed "
+            "profile to admit more, at the cost of no longer matching whichever "
+            "profile the weighting and the other formatters were given."
+        ),
+    )
+
     drop_invalid_tours: bool = Field(
         default=True,
         description=(

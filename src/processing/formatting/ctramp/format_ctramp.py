@@ -597,7 +597,9 @@ def format_ctramp(  # noqa: PLR0913
     # Drop invalid/partial tours before anything else so CT-RAMP and DaySim
     # outputs contain the same set of tours (and no null-purpose leakage).
     if config.drop_invalid_tours:
-        tours, linked_trips, joint_trips = _drop_invalid_tours(tours, linked_trips, joint_trips)
+        tours, linked_trips, joint_trips = _drop_invalid_tours(
+            tours, linked_trips, joint_trips, config.usability_flag_col
+        )
 
     # Ensure TAZ columns are Int64 for filtering
     households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))

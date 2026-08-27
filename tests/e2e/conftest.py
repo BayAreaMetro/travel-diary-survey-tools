@@ -189,6 +189,15 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "name": "cascade_completeness",
             "validate_input": False,
             "cache": False,
+            # Two profiles so the e2e exercises the loop, not just one pass:
+            # the strict gate the formatters read, and a relaxed one that has
+            # to reach the delivered output as a registered generated column.
+            "params": {
+                "usability_profiles": {
+                    "model_usable": [],
+                    "analysis_usable": ["multi_home_tours", "incomplete_household_days"],
+                }
+            },
         },
         "add_zone_ids": {
             "name": "add_zone_ids",
