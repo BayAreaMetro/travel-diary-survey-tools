@@ -31,6 +31,7 @@ from processing.completeness import (
     cascade_complete,
     parse_usability_profiles,
     stamp_usable,
+    suggest_usability_columns,
 )
 
 STRICT = UsabilityProfile("usable", PRIMARY_HOME, ALL_MEMBERS)
@@ -512,3 +513,51 @@ class TestNamesThatWriteTheSameColumn:
         profiles = parse_usability_profiles({"hh_day_a": self._axes()})
 
         assert [p.name for p in profiles] == ["hh_day_a"]
+
+
+class TestTheDidYouMeanLine:
+    """The candidates a consumer is offered when its column is not there.
+
+    A profile's name comes from config, so there is nothing about a usability
+    column that distinguishes it from any other boolean. The line says so by
+    offering all of them rather than filtering to a shape it cannot know. That
+    admits unrelated columns, which is the cheaper error: a reader discards one
+    at a glance, where a confident empty answer sends them to the wrong step.
+    """
+
+    def test_a_freely_named_profile_is_offered(self):
+        """No suffix, no prefix, nothing to pattern-match -- still listed."""
+        frame = pl.DataFrame({"tour_id": [1], "keep_for_ctramp": [True]})
+
+        assert "keep_for_ctramp" in suggest_usability_columns(frame)
+
+    def test_unrelated_booleans_are_offered_too_and_that_is_the_deal(self):
+        """Accepted noise. The alternative is guessing, which fails silently."""
+        frame = pl.DataFrame({"tour_id": [1], "complete": [True], "is_subtour": [False]})
+
+        line = suggest_usability_columns(frame)
+
+        assert "complete" in line
+        assert "is_subtour" in line
+
+    def test_non_booleans_are_not_offered(self):
+        """A column that could never hold a verdict is not a candidate."""
+        frame = pl.DataFrame({"tour_id": [1], "tour_purpose": ["work"], "usable": [True]})
+
+        line = suggest_usability_columns(frame)
+
+        assert "usable" in line
+        assert "tour_purpose" not in line
+        assert "tour_id" not in line
+
+    def test_a_frame_with_no_booleans_says_so(self):
+        """Better than an empty list, which reads as a truncated message."""
+        frame = pl.DataFrame({"tour_id": [1], "tour_purpose": ["work"]})
+
+        assert suggest_usability_columns(frame) == "It carries no boolean columns at all."
+
+    def test_the_candidates_are_ordered(self):
+        """Column order is an accident of the frame; the message should not be."""
+        frame = pl.DataFrame({"zeta": [True], "alpha": [True], "mid": [True]})
+
+        assert suggest_usability_columns(frame).endswith("alpha, mid, zeta.")

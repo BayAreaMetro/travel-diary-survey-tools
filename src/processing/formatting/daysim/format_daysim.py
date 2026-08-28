@@ -47,6 +47,7 @@ import polars as pl
 
 from data_canon.codebook.tours import TourCategory
 from pipeline.decoration import step
+from processing.completeness import suggest_usability_columns
 
 from .format_days import format_days
 from .format_households import format_households
@@ -152,13 +153,11 @@ def format_daysim(
         # DaySim, CT-RAMP and the weighting agree on the tour universe by
         # construction rather than by three places implementing one rule.
         if usability_flag_col not in tours.columns:
-            stamped = sorted(c for c in tours.columns if c.endswith("usable"))
             msg = (
                 f"Tours carry no '{usability_flag_col}' column, so there is nothing "
                 f"to gate on. Declare it in cascade_completeness's "
                 f"usability_profiles, or set drop_invalid_tours: false to keep "
-                f"every tour. Usability columns present: "
-                f"{', '.join(stamped) or '(none)'}."
+                f"every tour. {suggest_usability_columns(tours)}"
             )
             raise ValueError(msg)
 

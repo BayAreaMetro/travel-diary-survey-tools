@@ -24,7 +24,7 @@ import logging
 import polars as pl
 
 from data_canon.codebook.tours import TourDataQuality
-from processing.completeness import MIN_JOINT_PARTICIPANTS
+from processing.completeness import MIN_JOINT_PARTICIPANTS, suggest_usability_columns
 
 from .ctramp_config import CTRAMPConfig
 
@@ -228,7 +228,9 @@ def _drop_invalid_tours(
 
     The verdict is read, never re-derived: if the named column is absent this
     raises rather than inventing a criterion of its own, which is how the three
-    consumers used to drift apart.
+    consumers used to drift apart. The error offers the frame's boolean columns
+    as candidates, since a profile's name comes from config and so cannot be
+    recognised by its shape.
 
     Args:
         tours: Canonical tour data carrying *usability_flag_col*
@@ -244,12 +246,11 @@ def _drop_invalid_tours(
         their orphaned trips removed.
     """
     if usability_flag_col not in tours.columns:
-        stamped = sorted(c for c in tours.columns if c.endswith("usable"))
         msg = (
             f"Tours carry no '{usability_flag_col}' column, so there is nothing to "
             f"gate on. Declare it in cascade_completeness's usability_profiles, or "
             f"set drop_invalid_tours: false to keep every tour. "
-            f"Usability columns present: {', '.join(stamped) or '(none)'}."
+            f"{suggest_usability_columns(tours)}"
         )
         raise ValueError(msg)
 

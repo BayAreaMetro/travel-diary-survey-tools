@@ -450,6 +450,23 @@ class TestDropInvalidTours:
                 usability_flag_col="usable",
             )
 
+    def test_a_profile_named_freely_is_still_offered(self):
+        """The candidates cannot be found by name shape; nothing requires a suffix.
+
+        A project may call its profile whatever it likes. An error that only
+        recognised some naming convention would report nothing here -- reading
+        as "the cascade stamped none", and sending the reader to debug the
+        wrong step.
+        """
+        tours = pl.DataFrame({"tour_id": [1, 2], "keep_for_ctramp": [True, False]})
+        with pytest.raises(ValueError, match="keep_for_ctramp"):
+            _drop_invalid_tours(
+                tours,
+                self._linked_trips([1, 2]),
+                self._empty_joint_trips(),
+                usability_flag_col="ctramp_usable",
+            )
+
     def test_a_null_verdict_drops_rather_than_guesses(self):
         """A null means the cascade never reached the row: a broken frame."""
         tours = pl.DataFrame(
