@@ -45,7 +45,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.tours import TourCategory, TourDataQuality
+from data_canon.codebook.tours import TourCategory
 from pipeline.decoration import step
 
 from .format_days import format_days
@@ -80,10 +80,10 @@ def format_daysim(
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
     days: pl.DataFrame,
+    usability_flag_col: str,
     drop_partial_tours: bool = True,
     drop_missing_taz: bool = True,
     drop_invalid_tours: bool = True,
-    usability_flag_col: str = "model_usable",
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to DaySim model specification.
 
@@ -104,9 +104,9 @@ def format_daysim(
         drop_missing_taz: If True, remove households without valid TAZ/MAZ IDs
             (default: True). Required for model application.
         usability_flag_col: Which usability profile decides the tour universe.
-            Defaults to the strict ``model_usable``; naming a relaxed profile
-            admits more, at the cost of no longer matching whichever profile
-            the weighting and the CT-RAMP formatter were given.
+            Required: with several profiles stamped there is no defensible
+            default, and naming a different one from the CT-RAMP formatter or
+            the weighting means those outputs describe different universes.
         drop_invalid_tours: If True, remove tours marked as invalid
             (default: True). Filters out zero distance, negative duration, and
             data quality flagged tours.
@@ -148,20 +148,24 @@ def format_daysim(
     if drop_invalid_tours:
         n_og_tours = len(tours)
         n_og_trips = len(linked_trips)
-        # Prefer the shared ``model_usable`` gate stamped by cascade_completeness
-        # (cascaded completeness AND admissible tour structure) so DaySim,
-        # CT-RAMP and the weighting agree on the tour universe. Fall back to the
-        # quality descriptor when the gate has not been stamped.
-        # The column can exist but be unstamped (null) on frames that never
-        # passed through the step, so fall back per row rather than dropping.
-        is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
-        gated = usability_flag_col in tours.columns
-        logger.info(
-            "DaySim tour universe gated on %s%s",
-            usability_flag_col,
-            "" if gated else " (not stamped; re-deriving from tour_data_quality)",
-        )
-        keep = pl.col(usability_flag_col).fill_null(is_valid) if gated else is_valid
+        # The gate stamped by cascade_completeness is the only criterion, so
+        # DaySim, CT-RAMP and the weighting agree on the tour universe by
+        # construction rather than by three places implementing one rule.
+        if usability_flag_col not in tours.columns:
+            stamped = sorted(c for c in tours.columns if c.endswith("usable"))
+            msg = (
+                f"Tours carry no '{usability_flag_col}' column, so there is nothing "
+                f"to gate on. Declare it in cascade_completeness's "
+                f"usability_profiles, or set drop_invalid_tours: false to keep "
+                f"every tour. Usability columns present: "
+                f"{', '.join(stamped) or '(none)'}."
+            )
+            raise ValueError(msg)
+
+        logger.info("DaySim tour universe gated on %s", usability_flag_col)
+        # A null means the cascade never reached this row -- a broken frame, not
+        # licence to guess a criterion of our own.
+        keep = pl.col(usability_flag_col).fill_null(value=False)
         tours = tours.filter(keep)
         linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
 

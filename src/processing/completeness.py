@@ -9,14 +9,16 @@ surveyed, and each tour's structural validity:
 * one column per **usability profile** -- can the model consume it? Fuses each
   tour's structure with its household-day coherence, then gates the rest.
 
-A profile is the strict gate plus an explicit list of what it additionally
-admits, and a run may stamp several so different consumers can hold different
-standards -- a joint-tour model needs whole households, a trip-level estimation
-does not. ``model_usable`` is only the conventional name for the strict one; it
-is declared in config like any other, because a verdict should never appear that
-nobody asked for. Consumers name the profile they read (``usability_flag_col``
-in the weighting and in both formatters), and ``complete`` is always available
-as the floor beneath all of them.
+A profile states a standard on two axes -- which home has to close a tour, and
+what the household-date has to show -- and a run may stamp several, so different
+consumers can hold different standards. A joint-tour model needs whole
+households; a trip-level estimation does not.
+
+Every profile is named in config and answers both axes, so a column's meaning
+reads off the config without knowing a base rule, and no verdict appears that
+nobody asked for. Consumers name the profile they read
+(``usability_flag_col``), and ``complete`` is always available as the floor
+beneath all of them.
 
 Each flag comes from one place in the tree -- its **direction** -- via a counting
 **operation** (the ``op`` column below). Naming the direction makes it clear that
@@ -48,8 +50,9 @@ household ...........................   >=1       has >=1 usable household-day
  ├ household-day ....................   ALL       all surveyable members' days usable that date
  └ person ...........................   >=1       has >=1 usable day
     └ day ...........................   >=1       >=1 usable tour (or a no-travel day)
-       └ tour .......................   fuse      complete AND VALID AND hh-day complete
-                                                     (each term a profile may admit past)
+       └ tour .......................   fuse      complete AND admitted-quality AND
+                                                     hh-day complete (the last two are
+                                                     the profile's two axes)
           ├ linked trip .............   inherit   takes its tour's verdict
           |  └ unlinked trip ........   inherit   takes its linked trip's verdict
           ├ joint tour ..............   >=2       >=2 usable member tours
@@ -85,24 +88,62 @@ from pipeline.decoration import step
 logger = logging.getLogger(__name__)
 
 
+# --- Profile axes ------------------------------------------------------------
+# A profile answers both, explicitly. There is no default for either: a column
+# whose meaning depends on a value nobody wrote is the thing profiles exist to
+# stop.
+
+# Which home has to close a tour. The quality codes divide into open ends and
+# missing data, and this axis walks down the open ends only.
+PRIMARY_HOME = "primary_home"  # VALID only
+ANY_HOME = "any_home"  # + PARTIAL_OTHER_HOME
+ANYWHERE = "anywhere"  # + PARTIAL_DAY_SPLIT, PARTIAL_DIARY_EDGE
+TOUR_CLOSES_AT = (PRIMARY_HOME, ANY_HOME, ANYWHERE)
+
+# What the household-date has to show.
+ALL_MEMBERS = "all_members"  # every surveyable member's day complete
+NOTHING = "nothing"  # no household-date requirement
+HOUSEHOLD_DAY_NEEDS = (ALL_MEMBERS, NOTHING)
+
+# Quality codes each closure setting admits, cumulatively. NO_DESTINATION and
+# SPATIAL_GAP appear nowhere: they are not open ends but missing data -- no
+# tolerance for a tour that stops somewhere unexpected makes a missing leg
+# present, or an activity that never happened happen.
+_ADMITTED_QUALITY: dict[str, tuple[TourDataQuality, ...]] = {
+    PRIMARY_HOME: (TourDataQuality.VALID,),
+    ANY_HOME: (TourDataQuality.VALID, TourDataQuality.PARTIAL_OTHER_HOME),
+    ANYWHERE: (
+        TourDataQuality.VALID,
+        TourDataQuality.PARTIAL_OTHER_HOME,
+        TourDataQuality.PARTIAL_DAY_SPLIT,
+        TourDataQuality.PARTIAL_DIARY_EDGE,
+    ),
+}
+
+
 @dataclass(frozen=True)
 class UsabilityProfile:
-    """One set of admission rules, and the columns deriving it writes.
+    """One usability standard, stated on both axes, and the columns it writes.
 
-    A profile is the strict gate plus whatever it additionally admits. Strict is
-    the empty profile: it admits nothing beyond a well-formed tour on a coherent
-    household-date.
+    A profile says which home has to close a tour and what the household-date
+    has to show. Both are given explicitly; neither has a default.
 
-    Two columns come out of a pass. ``flag`` is the per-record verdict every
-    consumer reads. ``household_day`` records, per date, whether *all* surveyable
-    members' days passed -- the reduction ``households`` counts. It is computed
-    for every profile even when that profile does not gate on it, so the column
-    means the same thing everywhere and can answer "which dates cost this
-    household its usability" whatever the rules were.
+    Two things hold at every setting and so are not axes. A profile is always a
+    subset of ``complete`` -- a usability column admitting unreported records
+    would be a different flag wearing the name. And no profile admits a tour
+    with *missing data* (a missing leg, an activity that never happened), as
+    opposed to one that merely ends somewhere unexpected.
+
+    Two columns come out of a pass. ``flag`` is the per-record verdict consumers
+    read. ``household_day`` records, per date, whether *all* surveyable members'
+    days passed. It is computed for every profile even where that profile does
+    not gate on it, so the column means the same thing everywhere and can still
+    answer "which dates cost this household its usability".
     """
 
-    name: str = "model_usable"
-    admits: frozenset[str] = frozenset()
+    name: str
+    tour_closes_at: str
+    household_day_needs: str
 
     @property
     def flag(self) -> str:
@@ -114,19 +155,16 @@ class UsabilityProfile:
         """All-surveyable-members-that-date column."""
         return f"hh_day_{self.name}"
 
-    def admits_rule(self, rule: str) -> bool:
-        """Whether this profile additionally admits *rule*."""
-        return rule in self.admits
+    @property
+    def admitted_quality(self) -> tuple[TourDataQuality, ...]:
+        """Tour quality codes this profile's closure setting admits."""
+        return _ADMITTED_QUALITY[self.tour_closes_at]
 
+    @property
+    def needs_whole_household_day(self) -> bool:
+        """Whether a date must show every surveyable member's day complete."""
+        return self.household_day_needs == ALL_MEMBERS
 
-# Admission rules a profile may name. Each maps to a term the gate drops; the
-# vocabulary is closed so a typo fails loudly instead of silently doing nothing.
-MULTI_HOME_TOURS = "multi_home_tours"
-INCOMPLETE_HOUSEHOLD_DAYS = "incomplete_household_days"
-ADMISSION_RULES = frozenset({MULTI_HOME_TOURS, INCOMPLETE_HOUSEHOLD_DAYS})
-
-# The canonical pass: the column every consumer defaults to reading.
-MODEL_USABLE = UsabilityProfile()
 
 # Records that sit on a day: their ``complete`` is their own AND their day's
 # (a trip or tour is no more complete than the day it belongs to).
@@ -256,8 +294,10 @@ def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
 
     Unsurveyable members (see :func:`_join_surveyable`) neither veto the date
     nor borrow its verdict: their own day rows -- if a data source carries any
-    -- keep their own ``complete`` (typically False), so they can never become
-    usable travel days.
+    -- keep their own ``complete``, which is normally False since they file no
+    trips. A source that nonetheless marks one complete is believed rather than
+    overruled: the contradiction is upstream, and inventing a verdict here would
+    hide it.
 
     This runs after :func:`rollup_completeness`, so ``complete`` already
     reflects ancestry; the reduction then flows the other way, up from members to
@@ -294,7 +334,7 @@ def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
 
 def flag_household_day_usable(
     tables: dict[str, pl.DataFrame | None],
-    cols: UsabilityProfile = MODEL_USABLE,
+    cols: UsabilityProfile,
 ) -> None:
     """Stamp the household-day usable flag: ALL surveyable member-days usable, in place.
 
@@ -332,7 +372,7 @@ def flag_household_day_usable(
 
 def _flag_person_usable(
     tables: dict[str, pl.DataFrame | None],
-    cols: UsabilityProfile = MODEL_USABLE,
+    cols: UsabilityProfile,
 ) -> None:
     """Set a person's usable flag = has at least one usable day, in place.
 
@@ -369,7 +409,7 @@ def _flag_person_usable(
 
 def _flag_tours(
     tables: dict[str, pl.DataFrame | None],
-    cols: UsabilityProfile = MODEL_USABLE,
+    cols: UsabilityProfile,
 ) -> None:
     """Stamp the usable flag on tours, in place.
 
@@ -388,13 +428,13 @@ def _flag_tours(
     if tours is None or "complete" not in tours.columns:
         return
 
-    usable = _tour_model_usable_expr(
+    usable = _tour_usable_expr(
         has_quality="tour_data_quality" in tours.columns,
         has_category="tour_category" in tours.columns,
-        admit_multi_home=cols.admits_rule(MULTI_HOME_TOURS),
+        closes_at=cols.tour_closes_at,
     )
     days = tables.get("days")
-    coherence_required = not cols.admits_rule(INCOMPLETE_HOUSEHOLD_DAYS)
+    coherence_required = cols.needs_whole_household_day
     if (
         not coherence_required
         or days is None
@@ -419,7 +459,7 @@ def _flag_tours(
 
 def _flag_subtours_from_parent(
     tours: pl.DataFrame,
-    cols: UsabilityProfile = MODEL_USABLE,
+    cols: UsabilityProfile,
 ) -> pl.DataFrame:
     """Reduce each subtour's usable flag by its parent tour's verdict.
 
@@ -444,57 +484,60 @@ def _flag_subtours_from_parent(
     )
 
 
-def _tour_model_usable_expr(
+def _tour_usable_expr(
     *,
     has_quality: bool,
     has_category: bool,
-    admit_multi_home: bool = False,
+    closes_at: str,
 ) -> pl.Expr:
-    """model_usable expression for the tours table.
+    """Tour-level usability for one closure setting.
 
-    A tour is model-usable when its (cascaded) reporting is complete and its
-    structure is admissible: VALID quality (not single-trip, loop, partial,
-    change-mode or spatially gapped) AND COMPLETE category -- it departs from
-    and returns to its own anchor. The anchor is home for a home-based tour and
-    the workplace for an at-work subtour, so one criterion admits both. This
-    matches the CT-RAMP / DaySim drop criterion exactly.
+    A tour qualifies when its (cascaded) reporting is complete and its quality
+    code is one the setting admits:
 
-    VALID now implies COMPLETE, since the partial shapes are quality codes in
-    their own right; the category term is kept as a guard for frames that carry
-    a category but no quality column.
+    * ``primary_home`` -- VALID only: a whole round trip back to the home it
+      left. The anchor is home for a home-based tour and the workplace for an
+      at-work subtour, so one criterion admits both.
+    * ``any_home`` -- also ``PARTIAL_OTHER_HOME``. That tour did reach a home of
+      this person's, just not the one tours are built around; the trips are
+      whole and only the anchor differs.
+    * ``anywhere`` -- also the two other open ends, ``PARTIAL_DAY_SPLIT`` and
+      ``PARTIAL_DIARY_EDGE``. The tour stops somewhere unexpected and you want
+      the trips anyway.
 
-    ``admit_multi_home`` also admits ``PARTIAL_OTHER_HOME``. That tour did reach
-    a home of this person's, just not the one tours are built around, so its
-    trips are whole and only the anchor differs -- unlike every other non-VALID
-    code, which marks something genuinely missing. Its category is partial by
-    construction, so the admission replaces both structural terms rather than
-    loosening either: such a tour qualifies on its quality code alone. Inert
-    without ``has_quality``, the only way to tell those tours apart.
+    ``NO_DESTINATION`` and ``SPATIAL_GAP`` are admitted by no setting: they mark
+    missing data rather than an open end.
+
+    The ``tour_category`` term only applies at ``primary_home``. Past that the
+    admitted codes are partial by construction, so a category term would
+    contradict the quality term it sits beside -- the two columns state the same
+    fact about where a tour ends.
 
     Args:
         has_quality: Whether the frame carries ``tour_data_quality``.
         has_category: Whether the frame carries ``tour_category``.
-        admit_multi_home: Admit tours closing at another known home of the same
-            person.
+        closes_at: One of :data:`TOUR_CLOSES_AT`.
     """
-    strict = pl.lit(value=True)
-    if has_quality:
-        strict = strict & (pl.col("tour_data_quality") == TourDataQuality.VALID.value)
-    if has_category:
-        strict = strict & (pl.col("tour_category") == TourCategory.COMPLETE.value)
+    admitted = [q.value for q in _ADMITTED_QUALITY[closes_at]]
 
-    admissible = strict
-    if admit_multi_home and has_quality:
-        admissible = strict | (
-            pl.col("tour_data_quality") == TourDataQuality.PARTIAL_OTHER_HOME.value
+    # Each term is filled before it is combined. A null descriptor means the
+    # structure was never established, which is not an admission; leaving the
+    # null to propagate would put a three-valued verdict in a boolean column and
+    # make every consumer decide separately what an unknown means.
+    structural = pl.lit(value=True)
+    if has_quality:
+        structural = structural & pl.col("tour_data_quality").is_in(admitted).fill_null(value=False)
+    if has_category and closes_at == PRIMARY_HOME:
+        structural = structural & (
+            (pl.col("tour_category") == TourCategory.COMPLETE.value).fill_null(value=False)
         )
 
-    return pl.col("complete").fill_null(value=False) & admissible
+    return pl.col("complete").fill_null(value=False) & structural
 
 
 def _flag_joint_groupings(
     tables: dict[str, pl.DataFrame | None],
-    cols: UsabilityProfile = MODEL_USABLE,
+    cols: UsabilityProfile,
 ) -> None:
     """Stamp the usable flag on the joint trip / joint tour tables, in place.
 
@@ -506,7 +549,7 @@ def _flag_joint_groupings(
 
     A member table that was never supplied is a legitimate partial call and the
     grouping falls back to its own ``complete``. A member table that *is* present
-    but carries no ``model_usable`` is a caller ordering error and raises: the
+    but carries no verdict column is a caller ordering error and raises: the
     fallback would silently pass every grouping, which is exactly the behaviour
     this rule exists to replace.
 
@@ -551,7 +594,7 @@ def _flag_joint_groupings(
 
 def _flag_households(
     tables: dict[str, pl.DataFrame | None],
-    cols: UsabilityProfile = MODEL_USABLE,
+    cols: UsabilityProfile,
 ) -> None:
     """Stamp the usable flag on households, in place.
 
@@ -561,7 +604,7 @@ def _flag_households(
     coherently usable household pattern to weight, so the household is dropped
     rather than left holding weight it cannot pass down.
 
-    A profile admitting ``incomplete_household_days`` counts usable *days*
+    A profile whose ``household_day_needs`` is ``nothing`` counts usable *days*
     instead. Reading the household-day column here regardless would leave the
     household on the strict rule while its tours and days had already relaxed --
     the profile would look like it worked, and the household would still be
@@ -579,7 +622,7 @@ def _flag_households(
 
     base = pl.col("complete").fill_null(value=False)
     # The date-level reduction is only the rule while coherence is required.
-    counts = cols.flag if cols.admits_rule(INCOMPLETE_HOUSEHOLD_DAYS) else cols.household_day
+    counts = cols.household_day if cols.needs_whole_household_day else cols.flag
     days = tables.get("days")
     if days is not None and counts not in days.columns:
         msg = (
@@ -628,7 +671,7 @@ def cascade_complete(tables: dict[str, pl.DataFrame | None]) -> None:
 
 def stamp_usable(
     tables: dict[str, pl.DataFrame | None],
-    cols: UsabilityProfile = MODEL_USABLE,
+    cols: UsabilityProfile,
 ) -> None:
     """Derive one usability verdict for every table, in place.
 
@@ -659,7 +702,7 @@ def stamp_usable(
     if days is not None and "complete" in days.columns:
         base = (
             pl.col("complete").fill_null(value=False)
-            if cols.admits_rule(INCOMPLETE_HOUSEHOLD_DAYS)
+            if not cols.needs_whole_household_day
             else pl.col("hh_day_complete").fill_null(value=False)
         )
         if tours is not None and cols.flag not in tours.columns:
@@ -712,85 +755,186 @@ def stamp_usable(
     _flag_joint_groupings(tables, cols)
 
 
-def compute_model_usable(tables: dict[str, pl.DataFrame | None]) -> None:
-    """Stamp ``complete`` and ``model_usable`` on every table, in place.
+def compute_usability(
+    tables: dict[str, pl.DataFrame | None],
+    profile: UsabilityProfile,
+) -> None:
+    """Stamp ``complete`` and one profile's verdict on every table, in place.
 
-    The two halves in order: reporting completeness once, then the canonical
-    usability pass over it.
+    The two halves in order: reporting completeness once, then one usability
+    pass over it. A run stamping several profiles calls :func:`cascade_complete`
+    once and :func:`stamp_usable` per profile instead.
 
     Args:
         tables: Mutable dict of table_name -> DataFrame (or None).
+        profile: The standard to apply, named on both axes.
     """
     cascade_complete(tables)
-    stamp_usable(tables, MODEL_USABLE)
+    stamp_usable(tables, profile)
 
 
-def parse_usability_profiles(spec: dict[str, list[str]]) -> list[UsabilityProfile]:
+_AXES: dict[str, tuple[str, ...]] = {
+    "tour_closes_at": TOUR_CLOSES_AT,
+    "household_day_needs": HOUSEHOLD_DAY_NEEDS,
+}
+
+# Columns the reporting cascade owns. A profile taking one of these names would
+# overwrite a survey fact with a modelling judgement.
+_RESERVED_NAMES = ("complete", "hh_day_complete")
+
+
+def parse_usability_profiles(spec: dict[str, dict[str, str]]) -> list[UsabilityProfile]:
     """Turn the configured profile block into profiles, or say why it cannot.
 
-    Every column the step stamps is named here, including the strict one: a
-    verdict never appears in the output without a project having asked for it.
+    Every profile answers every axis. A missing axis is an error rather than a
+    default, because a default is exactly the implicit meaning profiles exist to
+    remove: the config should say what a column means without the reader
+    knowing a base rule.
 
     Args:
-        spec: Mapping of profile name to the admission rules it adds. An empty
-            list is the strict gate.
+        spec: Mapping of profile name to ``{axis: value}``.
 
     Returns:
         One profile per entry, in declaration order.
 
     Raises:
-        ValueError: If the block is empty, a name would collide with a column
-            the cascade already owns, or a rule is not in the vocabulary.
+        ValueError: If the block is empty, a name collides with a column the
+            reporting cascade owns, or any axis is missing, unknown, or given a
+            value outside its vocabulary.
     """
     if not spec:
         msg = (
-            "usability_profiles is empty. Name at least one profile -- "
-            "'model_usable: []' is the strict gate every consumer defaults to reading."
+            "usability_profiles is empty, so no usability column would be stamped and "
+            "every downstream consumer would have nothing to read. Name at least one "
+            "profile, giving both axes: "
+            + ", ".join(f"{axis} ({'|'.join(values)})" for axis, values in _AXES.items())
+            + "."
         )
         raise ValueError(msg)
 
-    reserved = {"complete", "hh_day_complete"}
-    profiles = []
-    for name, rules in spec.items():
-        if name in reserved:
-            msg = (
-                f"usability_profile '{name}' collides with a column the cascade already "
-                f"owns ({', '.join(sorted(reserved))}). Those describe survey reporting "
-                "and are not usability verdicts; pick another name."
-            )
-            raise ValueError(msg)
-        unknown = sorted(set(rules) - ADMISSION_RULES)
-        if unknown:
-            msg = (
-                f"usability_profile '{name}' names unknown admission rule(s): "
-                f"{', '.join(unknown)}. Known rules: {', '.join(sorted(ADMISSION_RULES))}. "
-                "The vocabulary is closed so a typo cannot silently do nothing."
-            )
-            raise ValueError(msg)
-        profiles.append(UsabilityProfile(name=name, admits=frozenset(rules)))
+    profiles = [_one_profile(name, axes) for name, axes in spec.items()]
+    _reject_column_collisions(profiles)
     return profiles
+
+
+def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
+    """Build one profile from its configured axes, or say why it cannot.
+
+    Raises:
+        ValueError: If the name is reserved, or any axis is missing, unknown, or
+            given a value outside its vocabulary.
+    """
+    if name in _RESERVED_NAMES:
+        msg = (
+            f"usability_profile '{name}' collides with a column the reporting "
+            f"cascade owns ({', '.join(_RESERVED_NAMES)}). Those record what the "
+            "survey collected, not what a model will take; pick another name."
+        )
+        raise ValueError(msg)
+    if not isinstance(axes, dict):
+        msg = (
+            f"usability_profile '{name}' must give each axis a value, as "
+            f"'{{{', '.join(f'{a}: ...' for a in _AXES)}}}'. Got: {axes!r}."
+        )
+        raise ValueError(msg)  # noqa: TRY004 - malformed config, not a caller type error
+
+    for axis, allowed in _AXES.items():
+        if axis not in axes:
+            msg = (
+                f"usability_profile '{name}' does not say '{axis}'. Every profile "
+                f"answers every axis, so a column's meaning can be read off the "
+                f"config alone. Legal values: {', '.join(allowed)}."
+            )
+            raise ValueError(msg)
+        if axes[axis] not in allowed:
+            msg = (
+                f"usability_profile '{name}' sets {axis}: '{axes[axis]}', which is "
+                f"not one of {', '.join(allowed)}."
+            )
+            raise ValueError(msg)
+
+    unknown = sorted(set(axes) - set(_AXES))
+    if unknown:
+        msg = (
+            f"usability_profile '{name}' names unknown axis/axes: "
+            f"{', '.join(unknown)}. Known axes: {', '.join(_AXES)}."
+        )
+        raise ValueError(msg)
+
+    return UsabilityProfile(
+        name=name,
+        tour_closes_at=axes["tour_closes_at"],
+        household_day_needs=axes["household_day_needs"],
+    )
+
+
+def _reject_column_collisions(profiles: list[UsabilityProfile]) -> None:
+    """Two profiles must not write the same column.
+
+    Each profile writes two columns and derives one of them from its name, so a
+    profile called ``hh_day_ctramp_usable`` writes its verdict into the column
+    ``ctramp_usable`` derives for its household-day reduction -- and whichever
+    ran second would win, silently. Distinct names are not enough; the columns
+    they generate have to be distinct too.
+
+    Raises:
+        ValueError: If any two profiles write the same column.
+    """
+    written: dict[str, str] = {}
+    for profile in profiles:
+        for column in (profile.flag, profile.household_day):
+            if column in written:
+                msg = (
+                    f"usability_profiles '{written[column]}' and '{profile.name}' both "
+                    f"write the column '{column}', so one would silently overwrite the "
+                    "other. Each profile writes its own name and 'hh_day_' plus its "
+                    "name; rename one of them."
+                )
+                raise ValueError(msg)
+            written[column] = profile.name
+
+
+_CLOSURE_TEXT = {
+    PRIMARY_HOME: "returning to the home it left",
+    ANY_HOME: (
+        "returning to any home this person is known to have, so a tour closing "
+        "at a second residence counts"
+    ),
+    ANYWHERE: (
+        "ending anywhere, so a tour cut by the diary edge or resuming the next "
+        "day counts; its trips are whole even though it does not close"
+    ),
+}
 
 
 def _describe(profile: UsabilityProfile) -> dict[str, str]:
     """Column descriptions for one profile, for the generated-column registry."""
-    if profile.admits:
-        admits = ", ".join(sorted(profile.admits))
-        gate = f"Admissible to the travel models, additionally admitting: {admits}."
-    else:
-        gate = (
-            "Admissible to the travel models: survey-complete, a coherent "
-            "household-day, and a well-formed tour structure."
+    household = (
+        "every surveyable member's day complete on the same date"
+        if profile.needs_whole_household_day
+        else (
+            "no household-date requirement; a member whose day is missing costs the "
+            "others nothing, and the household's weight redistributes onto those "
+            "who did report -- which preserves the household count but leaves the "
+            "reporters standing in for the whole household"
         )
-    if profile.admits_rule(INCOMPLETE_HOUSEHOLD_DAYS):
-        hh_day = (
-            f"Every surveyable member's day is {profile.flag} on this travel_date. "
-            "Not a gate for this profile, which admits incomplete household days; "
-            "recorded so a dropped household can be traced to the dates that cost it."
-        )
-    else:
+    )
+    gate = (
+        f"Usable under the '{profile.name}' profile: survey-complete, a tour "
+        f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}. Never admits a "
+        "tour with a missing leg or no activity to anchor on."
+    )
+    if profile.needs_whole_household_day:
         hh_day = (
             f"Every surveyable member's day is {profile.flag} on this travel_date. "
             f"A household needs at least one such date to be {profile.flag}."
+        )
+    else:
+        hh_day = (
+            f"Every surveyable member's day is {profile.flag} on this travel_date. "
+            "Not a gate for this profile, which asks nothing of the household-date; "
+            "recorded so a dropped household can still be traced to the dates that "
+            "cost it."
         )
     return {profile.flag: gate, profile.household_day: hh_day}
 
@@ -837,7 +981,7 @@ def cascade_completeness(
     joint_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
     joint_tours: pl.DataFrame | None = None,
-    usability_profiles: dict[str, list[str]] | None = None,
+    usability_profiles: dict[str, dict[str, str]] | None = None,
     canonical_data: CanonicalData | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Cascade ``complete`` through the hierarchy and stamp one column per profile.
@@ -853,23 +997,27 @@ def cascade_completeness(
     * one column per usability profile -- the subset of ``complete`` that
       profile admits.
 
-    A profile is the strict gate (VALID tour structure, COMPLETE home-to-home
-    category, household-day coherence) plus whatever it additionally admits.
-    Several can be stamped in one run so different consumers can hold different
-    standards -- a joint-tour model needs whole households, a trip-level
-    estimation does not:
+    A profile states its standard on two axes: which home has to close a tour,
+    and what the household-date has to show. Several can be stamped in one run
+    so different consumers can hold different standards -- a joint-tour model
+    needs whole households, a trip-level estimation does not:
 
     ```yaml
     usability_profiles:
-      model_usable:  []
-      ctramp_usable: [multi_home_tours]
+      ctramp_usable:
+        tour_closes_at: primary_home
+        household_day_needs: all_members
+      analysis_usable:
+        tour_closes_at: anywhere
+        household_day_needs: nothing
     ```
 
-    Nothing is implicit: every column stamped is named in config, including the
-    strict one. Consumers then choose which to honour by name (weighting via
-    ``usability_flag_col``, likewise the CT-RAMP and DaySim formatters), and
-    none of them re-derive completeness or tour validity. ``complete`` is always
-    available as the floor without being declared.
+    Nothing is implicit: every column stamped is named in config and every
+    profile answers both axes. Consumers then choose which to honour by name
+    (``usability_flag_col``, in the weighting and both formatters), and none of
+    them re-derive completeness or tour validity -- the formatters read the
+    column and raise if it is absent. ``complete`` is always available as the
+    floor without being declared.
 
     See [`stamp_usable`][processing.completeness.stamp_usable] for the per-level
     rules and [`parse_usability_profiles`]
@@ -884,8 +1032,10 @@ def cascade_completeness(
         joint_trips: Aggregated joint trips.
         tours: Canonical tours (with ``tour_data_quality`` / ``tour_category``).
         joint_tours: Aggregated joint tours.
-        usability_profiles: Profile name -> admission rules it adds. Required;
-            there is no default, so a verdict never appears unasked.
+        usability_profiles: Profile name -> ``{tour_closes_at, household_day_needs}``.
+            Required, and every profile answers both axes: there is no default
+            at either level, so a verdict never appears unasked and a column's
+            meaning is never implicit.
         canonical_data: Injected by the pipeline. Profile columns are named from
             config and so cannot be model fields; they are registered here with
             a description of what each admits, which keeps them in the delivered
@@ -901,8 +1051,9 @@ def cascade_completeness(
     if usability_profiles is None:
         msg = (
             "cascade_completeness requires usability_profiles. There is no default "
-            "because the choice decides what every downstream consumer can read; "
-            "declare 'model_usable: []' for the strict gate."
+            "because the choice decides what every downstream consumer can read. "
+            "Declare at least one profile, e.g. 'ctramp_usable: {tour_closes_at: "
+            "primary_home, household_day_needs: all_members}'."
         )
         raise ValueError(msg)
     profiles = parse_usability_profiles(usability_profiles)
