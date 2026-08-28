@@ -6,7 +6,8 @@ preserved, and log what was removed:
 
 * [`_drop_invalid_tours`][processing.formatting.ctramp.filters._drop_invalid_tours]:
   removes tours that are not VALID or not COMPLETE (mirrors the DaySim formatter),
-  reporting a two-grid drop summary split by already-incomplete vs. net-new loss.
+  reporting a two-grid drop summary split by already-incomplete vs. newly-unusable
+  loss.
 * [`_drop_missing_taz`][processing.formatting.ctramp.filters._drop_missing_taz]:
   removes households (and their descendants) without a valid home TAZ, and
   tours/trips whose origin or destination TAZ is missing.
@@ -22,8 +23,8 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.tours import TourCategory, TourDataQuality
-from processing.completeness import MIN_JOINT_PARTICIPANTS
+from data_canon.codebook.tours import TourDataQuality
+from processing.completeness import MIN_JOINT_PARTICIPANTS, suggest_usability_columns
 
 from .ctramp_config import CTRAMPConfig
 
@@ -145,12 +146,13 @@ def _drop_lone_joint_participants(
 
 
 def _completeness_split(df: pl.DataFrame) -> tuple[int, int]:
-    """Return (already_incomplete, net_new) counts from the ``complete`` flag.
+    """Return (already_incomplete, newly_unusable) counts from the ``complete`` flag.
 
     ``already_incomplete`` are records flagged incomplete (household / person /
-    day cascade) — they were already excluded from the weighted model. ``net_new``
-    are otherwise-complete records now being dropped. When the ``complete`` column
-    is absent (e.g. tests), everything is treated as net-new.
+    day cascade) — they were already excluded from the weighted model.
+    ``newly_unusable`` are otherwise-complete records now being dropped. When the
+    ``complete`` column is absent (e.g. tests), everything is treated as newly
+    unusable.
     """
     total = df.height
     if "complete" not in df.columns:
@@ -162,23 +164,23 @@ def _completeness_split(df: pl.DataFrame) -> tuple[int, int]:
 def _drop_grid(title: str, df: pl.DataFrame, denom: int) -> list[str]:
     """Build the lines of one drop grid (tours or member trips).
 
-    ``net %`` is the net-new share of all records — the genuinely new data loss.
+    ``new %`` is the newly-unusable share of all records — the genuinely new loss.
     """
-    header = f"  {title:<14}{'dropped':>9}{'incomplete':>13}{'net-new':>10}{'net %':>8}"
+    header = f"  {title:<14}{'dropped':>9}{'incomplete':>13}{'newly unusable':>16}{'new %':>8}"
 
-    def row(name: str, incomplete: int, net: int) -> str:
-        total = incomplete + net
-        pct = net * 100 / denom if denom > 0 else 0
-        return f"  {name:<14}{total:>9,}{incomplete:>13,}{net:>10,}{pct:>7.1f}%"
+    def row(name: str, incomplete: int, newly_unusable: int) -> str:
+        total = incomplete + newly_unusable
+        pct = newly_unusable * 100 / denom if denom > 0 else 0
+        return f"  {name:<14}{total:>9,}{incomplete:>13,}{newly_unusable:>16,}{pct:>7.1f}%"
 
     lines = [header]
     for label in ("invalid", "partial/open"):
-        incomplete, net = _completeness_split(df.filter(pl.col("_reason") == label))
-        if incomplete + net == 0:
+        incomplete, newly_unusable = _completeness_split(df.filter(pl.col("_reason") == label))
+        if incomplete + newly_unusable == 0:
             continue
-        lines.append(row(label, incomplete, net))
-    incomplete, net = _completeness_split(df)
-    lines.append(row("total", incomplete, net))
+        lines.append(row(label, incomplete, newly_unusable))
+    incomplete, newly_unusable = _completeness_split(df)
+    lines.append(row("total", incomplete, newly_unusable))
     return lines
 
 
@@ -187,8 +189,8 @@ def _log_drop_summary(dropped: pl.DataFrame, linked_trips: pl.DataFrame, n_og_to
 
     Splits each count into records that were already incomplete (household /
     person / day flagged incomplete — already out of the weighted model) versus
-    net-new removal of otherwise-complete records, so the log makes clear how
-    much is genuinely new loss.
+    newly-unusable removal of otherwise-complete records, so the log makes clear
+    how much is genuinely new loss.
     """
     if dropped.height == 0:
         return
@@ -199,7 +201,7 @@ def _log_drop_summary(dropped: pl.DataFrame, linked_trips: pl.DataFrame, n_og_to
     lines = [
         "Dropped tours/member-trips to match DaySim (DaySim already drops these).",
         '  "incomplete" = flagged incomplete via the household>person>day>trip cascade; '
-        '"net-new" = otherwise-complete records.',
+        '"newly unusable" = otherwise-complete records.',
         "",
         *_drop_grid("TOURS", dropped, n_og_tours),
         "",
@@ -212,63 +214,64 @@ def _drop_invalid_tours(
     tours: pl.DataFrame,
     linked_trips: pl.DataFrame,
     joint_trips: pl.DataFrame,
+    usability_flag_col: str,
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Remove tours not admissible to the model, cascading to linked and joint trips.
 
-    Keeps only tours the ``model_usable`` gate admits -- cascaded survey
-    completeness AND an admissible tour structure (VALID quality, COMPLETE
-    home-to-home category). That gate is stamped upstream by the
-    ``cascade_completeness`` step (see [`processing.completeness`]
-    [processing.completeness]) and is shared with the DaySim formatter and the
-    weighting, so all three agree on the tour universe. Without this,
-    single-trip/loop tours (which carry a null ``tour_purpose``) survive into
-    CT-RAMP output and are silently coerced to the ``OTHDISCR`` catch-all purpose.
+    Keeps only the tours *usability_flag_col* admits. That column is one of the
+    usability profiles stamped upstream by the ``cascade_completeness`` step (see
+    [`processing.completeness`][processing.completeness]), so this formatter, the
+    DaySim formatter and the weighting can be pointed at the same profile and
+    agree on the tour universe. Without the filter, single-trip/loop tours (which
+    carry a null ``tour_purpose``) survive into CT-RAMP output and are silently
+    coerced to the ``OTHDISCR`` catch-all purpose.
 
-    When ``model_usable`` is absent (schema-only frames, unit tests that predate
-    the gate) the criterion is re-derived from ``tour_data_quality`` /
-    ``tour_category`` so the behaviour is unchanged.
+    The verdict is read, never re-derived: if the named column is absent this
+    raises rather than inventing a criterion of its own, which is how the three
+    consumers used to drift apart. The error offers the frame's boolean columns
+    as candidates, since a profile's name comes from config and so cannot be
+    recognised by its shape.
 
     Args:
-        tours: Canonical tour data with ``model_usable`` (or the
-            ``tour_data_quality`` / ``tour_category`` descriptors)
+        tours: Canonical tour data carrying *usability_flag_col*
         linked_trips: Canonical linked trip data
         joint_trips: Aggregated joint trip data
+        usability_flag_col: Which usability profile decides the tour universe.
+            Naming a looser profile admits more, at the cost of no longer
+            matching whichever profile the weighting and the DaySim formatter
+            were given.
 
     Returns:
         Tuple of (tours, linked_trips, joint_trips) with inadmissible tours and
         their orphaned trips removed.
     """
-    has_gate = "model_usable" in tours.columns
+    if usability_flag_col not in tours.columns:
+        msg = (
+            f"Tours carry no '{usability_flag_col}' column, so there is nothing to "
+            f"gate on. Declare it in cascade_completeness's usability_profiles, or "
+            f"set drop_invalid_tours: false to keep every tour. "
+            f"{suggest_usability_columns(tours)}"
+        )
+        raise ValueError(msg)
+
+    # Name the profile in the log: several may be stamped, and two formatters
+    # reading different ones is legitimate but must not be invisible.
+    logger.info("CT-RAMP tour universe gated on %s", usability_flag_col)
+
     has_quality = "tour_data_quality" in tours.columns
-    has_category = "tour_category" in tours.columns
-    if not (has_gate or has_quality or has_category):
-        return tours, linked_trips, joint_trips
 
-    is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
-    is_complete = pl.col("tour_category") == TourCategory.COMPLETE.value
-
-    # Re-derive the criterion from the descriptors as a fallback. The column may
-    # exist but be unstamped (null) on frames that never passed through
-    # ``cascade_completeness`` -- e.g. schema-built fixtures -- so fall back per row
-    # rather than treating null as "drop".
-    if has_quality and has_category:
-        derived = is_valid & is_complete
-    elif has_quality:
-        derived = is_valid
-    elif has_category:
-        derived = is_complete
-    else:
-        derived = pl.lit(value=True)
-
-    # The upstream gate is authoritative wherever it has been stamped.
-    keep = pl.col("model_usable").fill_null(derived) if has_gate else derived
+    # The gate is the only criterion. A null means cascade_completeness never
+    # reached this row, which is a broken frame rather than licence to guess:
+    # re-deriving one here would be a second definition of admissibility that
+    # cannot know which profile was asked for.
+    keep = pl.col(usability_flag_col).fill_null(value=False)
 
     # Tag each dropped tour's reason so the log can distinguish structurally
-    # invalid tours from partial/open ones (valid but not home-based).
-    if has_quality and has_category:
+    # invalid tours from partial/open ones (valid but not home-based). This
+    # only labels what the gate already decided; it never decides anything.
+    if has_quality:
+        is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
         reason = pl.when(~is_valid).then(pl.lit("invalid")).otherwise(pl.lit("partial/open"))
-    elif has_quality:
-        reason = pl.lit("invalid")
     else:
         reason = pl.lit("partial/open")
 

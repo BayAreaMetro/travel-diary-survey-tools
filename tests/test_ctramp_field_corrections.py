@@ -78,6 +78,7 @@ def get_required_non_null_fields(model):
 def standard_config():
     """Standard test configuration with explicit parameters."""
     return CTRAMPConfig(
+        usability_flag_col="usable",
         income_low_threshold=30000,  # $30k ($2000, MTC)
         income_med_threshold=60000,  # $60k ($2000, MTC)
         income_high_threshold=100000,  # $100k ($2000, MTC)
@@ -164,9 +165,6 @@ class TestHouseholdFieldCorrections:
                 ),
             ],
             schema=get_tour_schema(),
-        ).with_columns(
-            pl.lit(value=True).alias("single_trip_tour")
-            # Each tour has 1 trip, so flag should be True
         )
 
         # Add trips for each tour to avoid validation error
@@ -204,6 +202,40 @@ class TestHouseholdFieldCorrections:
                     tour_direction=TourDirection.OUTBOUND,
                     joint_tour_id=9002,
                 ),
+                # Return legs: a one-trip tour is structurally invalid and would
+                # be dropped before it could count toward jtf_choice.
+                create_linked_trip(
+                    linked_trip_id=10005,
+                    tour_id=1001,
+                    person_id=101,
+                    day_id=10101,
+                    tour_direction=TourDirection.INBOUND,
+                    joint_tour_id=9001,
+                ),
+                create_linked_trip(
+                    linked_trip_id=10006,
+                    tour_id=1002,
+                    person_id=102,
+                    day_id=10201,
+                    tour_direction=TourDirection.INBOUND,
+                    joint_tour_id=9001,
+                ),
+                create_linked_trip(
+                    linked_trip_id=10007,
+                    tour_id=1003,
+                    person_id=101,
+                    day_id=10101,
+                    tour_direction=TourDirection.INBOUND,
+                    joint_tour_id=9002,
+                ),
+                create_linked_trip(
+                    linked_trip_id=10008,
+                    tour_id=1004,
+                    person_id=102,
+                    day_id=10201,
+                    tour_direction=TourDirection.INBOUND,
+                    joint_tour_id=9002,
+                ),
             ]
         )
 
@@ -220,6 +252,7 @@ class TestHouseholdFieldCorrections:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
+            usability_flag_col="usable",
         )
 
         households_ctramp = result["households_ctramp"]
@@ -246,6 +279,7 @@ class TestHouseholdFieldCorrections:
             income_med_threshold=standard_config.income_med_threshold,
             income_high_threshold=standard_config.income_high_threshold,
             income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
+            usability_flag_col="usable",
         )
 
         households_ctramp = result["households_ctramp"]

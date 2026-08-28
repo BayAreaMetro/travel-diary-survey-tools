@@ -65,11 +65,20 @@ class CTRAMPConfig(BaseModel):
         ),
     )
 
+    usability_flag_col: str = Field(
+        description=(
+            "Which usability profile stamped by cascade_completeness decides the "
+            "tour universe. Required, and must name a profile that run stamped: "
+            "a looser profile admits more, at the cost of no longer matching "
+            "whichever profile the weighting and the other formatters were given."
+        ),
+    )
+
     drop_invalid_tours: bool = Field(
         default=True,
         description=(
             "If True, remove tours that are not VALID (single-trip, loop, "
-            "missing-anchor, change-mode, indeterminate) or not COMPLETE (do not "
+            "partial, change-mode, spatially gapped) or not COMPLETE (do not "
             "start and end at home). Mirrors the DaySim formatter, which drops "
             "both, so both outputs keep the same tours. Cascades to linked and "
             "joint trips."

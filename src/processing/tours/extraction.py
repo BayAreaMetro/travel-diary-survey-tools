@@ -93,6 +93,7 @@ from typing import Any
 
 import polars as pl
 
+from data_canon.codebook.generic import LocationType
 from pipeline.decoration import step
 from utils.create_ids import create_tour_ids
 
@@ -275,7 +276,9 @@ def extract_tours(
     tours = validate_and_correct_tours(
         tours,
         linked_trips_with_tour_dir,
+        habitual_locations=habitual_locations,
         spatial_gap_threshold_meters=config.spatial_gap_threshold_meters,
+        home_threshold_meters=config.distance_thresholds[LocationType.HOME],
     )
 
     # Step 8: Add tour_id and joint_tour_id to unlinked_trips
@@ -285,11 +288,14 @@ def extract_tours(
         how="left",
     )
 
-    # Drop temporary columns, any starting with underscore
+    # Drop temporary columns, any starting with underscore. ``person_category``
+    # is the same kind of thing -- a worker/student label joined on so purpose
+    # priority can be ranked -- it just predates the underscore convention, and
+    # it is derivable from the persons table rather than a survey fact.
     for df in [linked_trips_with_tour_dir, tours]:
         _cols = df.columns
         for c in _cols:
-            if c.startswith("_"):
+            if c.startswith("_") or c == "person_category":
                 df.drop_in_place(c)
 
     msg = (

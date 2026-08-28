@@ -148,7 +148,7 @@ class TestTourExtraction:
         assert subtours["tour_data_quality"].to_list() == [TourDataQuality.VALID.value]
 
     def test_at_work_subtour_reaches_ctramp(self, full_result):
-        # The whole point of #85: the subtour must survive the model_usable gate
+        # The whole point of #85: the subtour must survive the usable gate
         # and the CT-RAMP drop, and be emitted as an AT_WORK tour whose parent
         # reports it in atWork_freq.
         tours = full_result.individual_tours_ctramp
@@ -265,11 +265,23 @@ class TestEdgeCaseCoverage:
         assert {"M", "N", "H"} <= patterns, f"missing activity patterns: {patterns}"
 
     def test_tour_data_quality_buckets_present(self, full_result):
-        # VALID(0), SINGLE_TRIP(1), LOOP_TRIP(2), MISSING_ANCHOR(3),
-        # CHANGE_MODE(5). INDETERMINATE(4) is a contradictory diagnostic bucket
-        # not representable with clean input, so it is intentionally excluded.
+        # VALID(0), PARTIAL_DIARY_EDGE(3), NO_DESTINATION(4). The other three
+        # need travel the toy generator does not produce -- a chain resuming
+        # across diary days (2), a person with a second home (1), coordinates
+        # that teleport (5) -- and are covered by unit tests instead.
         q = set(full_result.tours["tour_data_quality"].to_list())
-        assert {0, 1, 2, 3, 5} <= q, f"missing tour_data_quality buckets: {q}"
+        assert {0, 3, 4} <= q, f"missing tour_data_quality buckets: {q}"
+
+    def test_no_destination_means_a_closed_tour_without_a_purpose(self, full_result):
+        """The code holds exactly when that is what the tour is.
+
+        A partial tour may also lack a purpose -- half of it went unobserved --
+        and is graded on its open end, so a null purpose alone is not enough.
+        """
+        tours = full_result.tours
+        nothing_to_anchor_on = pl.col("tour_purpose").is_null() & (pl.col("tour_category") == 1)
+        assert tours.filter((pl.col("tour_data_quality") == 4) & ~nothing_to_anchor_on).is_empty()
+        assert tours.filter((pl.col("tour_data_quality") != 4) & nothing_to_anchor_on).is_empty()
 
     def test_all_tour_categories_present(self, full_result):
         # COMPLETE(1), PARTIAL_END(2), PARTIAL_START(3), PARTIAL_BOTH(4).

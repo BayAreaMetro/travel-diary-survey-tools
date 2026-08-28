@@ -184,7 +184,7 @@ def ctramp_mode_expression(
 
     # Pick the walk-access and drive-access transit codes based on submode rank.
     # When no submode is available, default to local bus (WLK_LOC_WLK / DRV_LOC_WLK).
-    
+
     if transit_submode is not None:
         walk_transit_code = (
             pl.when(transit_submode == TRANSIT_SUBMODE_COMMUTER)

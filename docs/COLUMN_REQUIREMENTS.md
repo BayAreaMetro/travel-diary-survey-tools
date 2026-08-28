@@ -31,7 +31,6 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `hh_weight` | float or None | ≥ 0 |  |  |  |  |
     | `num_vehicles` | int | ≥ 0 |  |  | ✓ |  |
     | `complete` | bool |  |  |  |  |  |
-    | `model_usable` | bool or None |  |  |  |  |  |
 
 === "persons"
 
@@ -66,7 +65,6 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `surveyable` | bool or None |  |  |  |  |  |
     | `num_days_complete` | int | ≥ 0 |  |  |  |  |
     | `complete` | bool or None |  |  |  |  |  |
-    | `model_usable` | bool or None |  |  |  |  |  |
     | `person_weight` | float or None | ≥ 0 |  |  |  |  |
 
 === "days"
@@ -80,8 +78,6 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `travel_dow` | TravelDow |  |  |  | ✓ |
     | `complete` | bool or None |  | ✓ |  |  |
     | `hh_day_complete` | bool or None |  |  |  |  |
-    | `hh_day_usable` | bool or None |  |  |  |  |
-    | `model_usable` | bool or None |  |  |  |  |
     | `day_weight` | float or None | ≥ 0 |  |  |  |
 
 === "unlinked_trips"
@@ -93,7 +89,9 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `person_id` | int | ≥ 1, FK → `persons.person_id` |  |  |  |  |
     | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |
     | `linked_trip_id` | int | ≥ 1, FK → `linked_trips.linked_trip_id` |  | ✓ |  |  |
+    | `linked_trip_num` | int or None | ≥ 1 |  |  |  |  |
     | `tour_id` | int or None | ≥ 1, FK → `tours.tour_id` |  |  |  | ✓ |
+    | `joint_tour_id` | int or None | ≥ 1, FK → `joint_tours.joint_tour_id` |  |  |  |  |
     | `o_lon` | float | ≥ -180, ≤ 180 | ✓ |  | ✓ |  |
     | `o_lat` | float | ≥ -90, ≤ 90 | ✓ |  | ✓ |  |
     | `d_lon` | float | ≥ -180, ≤ 180 | ✓ |  | ✓ |  |
@@ -114,7 +112,6 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `arrive_time` | datetime or None |  | ✓ | ✓ |  |  |
     | `num_travelers` | int | ≥ 1 |  |  |  |  |
     | `complete` | bool or None |  |  |  |  |  |
-    | `model_usable` | bool or None |  |  |  |  |  |
     | `unlinked_trip_weight` | float or None | ≥ 0 |  |  |  |  |
 
 === "linked_trips"
@@ -147,10 +144,18 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `arrive_time` | datetime |  | ✓ |  |  | ✓ |  |
     | `d_activity_duration` | int |  |  | ✓ |  |  |  |
     | `tour_direction` | TourDirection |  |  |  |  | ✓ | ✓ |
+    | `tour_num` | int or None | ≥ 1 |  |  |  |  |  |
+    | `subtour_num` | int or None | ≥ 0 |  |  |  |  |  |
+    | `parent_tour_id` | int or None | ≥ 1, FK → `tours.tour_id` |  |  |  |  |  |
+    | `tour_purpose` | PurposeCategory or None |  |  |  |  |  |  |
+    | `joint_tour_id` | int or None | ≥ 1, FK → `joint_tours.joint_tour_id` |  |  |  | ✓ |  |
+    | `linked_trip_num` | int or None | ≥ 1 |  |  |  |  |  |
+    | `num_segments` | int or None | ≥ 1 |  |  |  |  |  |
+    | `travel_duration_minutes` | int or None | ≥ 0 |  |  |  |  |  |
+    | `dwell_duration_minutes` | int or None | ≥ 0 |  |  |  |  |  |
     | `o_location_type` | LocationType |  |  |  |  |  |  |
     | `d_location_type` | LocationType |  |  |  |  |  |  |
     | `complete` | bool or None |  |  |  |  |  |  |
-    | `model_usable` | bool or None |  |  |  |  |  |  |
     | `linked_trip_weight` | float or None | ≥ 0 |  |  |  |  |  |
 
 === "tours"
@@ -168,7 +173,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `tour_purpose` | PurposeCategory or None |  |  |  | ✓ |  |
     | `tour_type` | TourType |  |  |  |  |  |
     | `tour_category` | TourCategory |  |  |  | ✓ |  |
-    | `single_trip_tour` | bool |  |  |  |  |  |
+    | `tour_data_quality` | TourDataQuality |  |  |  |  |  |
+    | `trip_count` | int | ≥ 1 |  |  |  |  |
     | `origin_depart_time` | datetime |  |  |  | ✓ |  |
     | `origin_arrive_time` | datetime |  |  |  | ✓ |  |
     | `dest_arrive_time` | datetime or None |  |  |  |  |  |
@@ -186,5 +192,4 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `inbound_mode` | ModeType or None |  |  |  |  |  |
     | `num_travelers` | int | ≥ 1 |  |  |  |  |
     | `complete` | bool or None |  | ✓ |  |  |  |
-    | `model_usable` | bool or None |  |  |  |  |  |
     | `tour_weight` | float or None | ≥ 0 |  |  |  |  |
