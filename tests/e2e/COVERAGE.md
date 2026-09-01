@@ -3,12 +3,69 @@
 The synthetic dataset in `generate_toy_data.py` is a **branch-coverage fixture**: each
 household is authored to exercise specific pipeline classification outputs, so the
 end-to-end run guards the offline data-processing path (`load → link → detect_joint →
-imputation → tours → add_zone_ids → format_ctramp → format_daysim → write_data`) across a
-representative spread of scenarios. Weighting is excluded (not hermetic; covered by
-`tests/test_weighting_*.py`).
+imputation → tours → cascade_completeness → add_zone_ids → format_ctramp → format_daysim →
+write_data`) across a representative spread of scenarios.
+
+**`compute_weights` is excluded** — it fetches PUMS microdata, so it is not hermetic.
+`add_existing_weights` *is* hermetic (it reads a weight file) and now runs in the e2e, so
+weight propagation is covered end to end: see `test_e2e_weight_propagation.py`. Only
+household weights are supplied and the rest are derived, which exercises the copy rule
+down to persons and the split rule from a person across their days. The assertions call
+the pipeline's own `_check_hierarchy` and `_check_joint_sums`, so they cannot drift from
+the rules they test — and those had never been executed by any integration test, which is
+how a signature change to `_check_hierarchy` reached two projects before the suite.
+
+Household 26 exists for this. Both members travel on both diary dates, and one member's
+second day never closes its tour, so a strict profile drops it and the split's divisor
+changes. Everywhere else a person has a single day and weight passes through untouched,
+where a split dividing by *all* days rather than the usable ones would look correct.
+
+The rest of the weighting is covered by `tests/test_weighting_*.py`. That deferral only holds
+while those tests reach the *entry points* the pipeline actually calls. They did not once:
+`weight_sanity_checks` had no test, so when `_check_hierarchy` grew a required
+`usability_flag_col` its caller was never updated and both projects died on the last line of
+`compute_weights` with the suite green. `TestNoCallerOmitsTheFlag` in
+`tests/test_weighting_sanity_checks.py` now walks the source for calls that drop that
+argument, because a seam no test enters cannot be guarded by coverage.
 
 Coverage is **enforced** by `TestEdgeCaseCoverage` in `test_e2e_pipeline.py` — those tests
 fail if a scenario is removed and a bucket disappears.
+
+## Bit-exact output baseline
+
+`test_e2e_baseline.py` fingerprints every canonical table on the `full` profile and
+compares it to `baselines/full.json`. **Any** change in any column fails, including a
+correct one — that is the point. The suite otherwise answers "does it run" and "does
+behaviour X hold", neither of which notices that a number moved; a batch of PRs altered
+production output while the suite stayed green, and only a hand-run against real data
+surfaced it weeks later.
+
+Promoting an intended change:
+
+```
+E2E_BASELINE_UPDATE=1 uv run pytest tests/e2e/test_e2e_baseline.py
+```
+
+That rewrites the baseline; committing it puts the movement in the PR diff where a
+reviewer can judge it.
+
+**No record-level values are stored.** Each column contributes a hash plus aggregates —
+null count, distinct count, numeric range and sum, and for low-cardinality
+non-identifier columns a value-count histogram. The hash detects the change; the
+aggregates make the failure readable (`tours.analysis_usable: counts {'True': 37} ->
+{'True': 33}`) without putting data in the repository. Identifier and coordinate columns
+never get a histogram. The fixture is synthetic, but the rule holds regardless so the
+harness stays safe to point at real output.
+
+Tables are sorted by their own unique key before hashing (`PRIMARY_KEYS` in
+`baseline.py`). A non-unique sort key leaves ties in arbitrary order and reports drift
+where the rows are the same set — worth knowing before adding a table.
+
+Two limits found by deliberately breaking the pipeline and checking the gate fires: the
+toy fixture does not discriminate `household_day_needs: all_members` from `nothing` (no
+household has a partially-reporting day), and at `tour_closes_at: primary_home` the
+`tour_category` term masks changes to the admitted quality codes. Scenarios covering
+either would strengthen the fixture.
 
 ## Step-toggle profiles (parametrized)
 
