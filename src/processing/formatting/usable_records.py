@@ -29,6 +29,8 @@ import logging
 import polars as pl
 
 from data_canon.codebook.tours import TourDataQuality
+from data_canon.core.dataclass import CANONICAL_MODELS
+from data_canon.validation.relational import foreign_key_edges
 from processing.completeness import MIN_JOINT_PARTICIPANTS, suggest_usability_columns
 
 logger = logging.getLogger(__name__)
@@ -47,12 +49,24 @@ _GATED_TABLES = (
     "joint_tours",
 )
 
-# Group memberships, as (member table, id column, group table). Rejecting one
-# member can leave the rest below the quorum that makes a group joint at all.
-_GROUP_MEMBERSHIPS = (
-    ("linked_trips", "joint_trip_id", "joint_trips"),
-    ("tours", "joint_tour_id", "joint_tours"),
+# The declared references between canonical tables, derived rather than listed.
+# There are three dozen, denormalised across the trip tables, and a
+# hand-maintained subset omits whichever one matters next -- which is how a
+# person outlived their household, and a trip outlived its joint tour.
+_EDGES = foreign_key_edges(CANONICAL_MODELS)
+
+# The joint groupings, as (id column, table whose surviving rows are its members,
+# the group's own table).
+_GROUPINGS = (
+    ("joint_tour_id", "tours", "joint_tours"),
+    ("joint_trip_id", "linked_trips", "joint_trips"),
 )
+
+# Reconciliation is iterated because each rule can trigger another: dropping a
+# household drops its persons, which can leave a joint group short, which voids a
+# reference. The bound guards against a cycle rather than counting expected work;
+# drops only shrink and voids only remove references, so it settles quickly.
+_MAX_RECONCILE_PASSES = 10
 
 # What each table's weight is called, for the zero-weight report.
 _WEIGHT_COLUMNS = {
@@ -114,58 +128,183 @@ def keep_usable(
         kept[name] = before.filter(keep)
         logger.info("  %-14s %d -> %d", name, before.height, kept[name].height)
 
-    _demote_undersized_groups(kept)
+    _reconcile(kept)
     _log_exclusion_summary(tables.get("tours"), tables.get("linked_trips"), usability_flag_col)
     _warn_zero_weight(kept, usability_flag_col)
     return kept
 
 
-def _demote_undersized_groups(tables: dict[str, pl.DataFrame]) -> None:
-    """Un-joint any grouping the gate left with fewer than two members, in place.
+def _reconcile(tables: dict[str, pl.DataFrame]) -> None:
+    """Restore the relationships filtering broke, in place.
+
+    Three rules, each stated once and applied until nothing changes. Iterating
+    matters because they feed each other: dropping a household drops its
+    persons, which can leave a joint group below quorum, which voids a reference
+    on a trip.
+
+    Raises:
+        RuntimeError: If the rules have not settled within
+            :data:`_MAX_RECONCILE_PASSES`, which would mean two of them disagree
+            rather than that the data is large.
+    """
+    for _ in range(_MAX_RECONCILE_PASSES):
+        changed = _cascade_references(tables)
+        changed = _demote_undersized_groups(tables) or changed
+        changed = _unjoint_tours_with_individual_trips(tables) or changed
+        if not changed:
+            return
+
+    msg = (
+        f"Record reconciliation did not settle in {_MAX_RECONCILE_PASSES} passes. "
+        "Two rules are undoing each other rather than converging."
+    )
+    raise RuntimeError(msg)
+
+
+def _cascade_references(tables: dict[str, pl.DataFrame]) -> bool:
+    """Follow every declared reference whose target is gone, in place.
+
+    The schema already says what to do. A *required* reference means the child
+    cannot exist without its parent, so the child goes: a person with no
+    household has no home to report and reaches CT-RAMP as a null home TAZ. An
+    *optional* reference means the child stands on its own and only the reference
+    is void, so it is nulled: a trip that stops being joint is still a trip.
+
+    Returns:
+        Whether anything changed, so the caller can iterate to a fixed point.
+    """
+    changed = False
+    for child, column, parent, parent_column, optional in _EDGES:
+        c, p = tables.get(child), tables.get(parent)
+        if c is None or p is None or column not in c.columns or parent_column not in p.columns:
+            continue
+
+        dangling = pl.col(column).is_not_null() & ~pl.col(column).is_in(p[parent_column].implode())
+        n_dangling = c.filter(dangling).height
+        if not n_dangling:
+            continue
+
+        changed = True
+        if optional:
+            tables[child] = c.with_columns(
+                pl.when(dangling).then(None).otherwise(pl.col(column)).alias(column)
+            )
+            logger.info("  voided %d %s.%s: no matching %s", n_dangling, child, column, parent)
+        else:
+            tables[child] = c.filter(~dangling)
+            logger.info(
+                "  dropped %d %s: %s.%s is required and had no matching %s",
+                n_dangling,
+                child,
+                child,
+                column,
+                parent,
+            )
+    return changed
+
+
+def _demote_undersized_groups(tables: dict[str, pl.DataFrame]) -> bool:
+    """Un-joint any grouping left with fewer than two members, in place.
 
     The cascade already refuses a grouping whose members are not usable, so this
     is not a second opinion on that. It is the consequence: rejecting a member
-    leaves the *others* still carrying the group's id, and a group of one is not
-    a party -- CT-RAMP's schema says so with ``num_participants >= 2``.
+    leaves the others carrying the group's id, and a group of one is not a party
+    -- CT-RAMP says so with ``num_participants >= 2``.
 
-    Counting surviving members is the criterion, rather than whether the group's
-    own row survived. Joint tour output is built by grouping ``tours`` on
-    ``joint_tour_id``; the ``joint_tours`` table only carries the weight. So a
-    rule keyed on that table would both miss real undersized groups and demote
-    perfectly good ones wherever it was not supplied.
+    Only the group's own row is removed here. Voiding the members' references to
+    it is left to :func:`_cascade_references`, which does that for every table
+    carrying a copy rather than the ones remembered at this call site.
 
-    Demotion, not deletion: the survivor's travel happened, it is simply no
-    longer joint.
+    Returns:
+        Whether any group was removed.
     """
-    for member_table, id_col, group_table in _GROUP_MEMBERSHIPS:
-        members = tables.get(member_table)
-        if members is None or id_col not in members.columns:
+    changed = False
+    for id_col, member_table, group_table in _GROUPINGS:
+        members, groups = tables.get(member_table), tables.get(group_table)
+        if members is None or groups is None:
+            continue
+        if id_col not in members.columns or id_col not in groups.columns:
             continue
 
-        undersized = (
+        surviving = (
             members.filter(pl.col(id_col).is_not_null())
             .group_by(id_col)
             .agg(pl.len().alias("_n"))
-            .filter(pl.col("_n") < MIN_JOINT_PARTICIPANTS)[id_col]
+            .filter(pl.col("_n") >= MIN_JOINT_PARTICIPANTS)[id_col]
         )
+        undersized = groups.filter(~pl.col(id_col).is_in(surviving.implode()))
         if undersized.is_empty():
             continue
 
+        changed = True
         logger.info(
-            "Demoted %d %s to individual travel: fewer than %d members survived the gate",
-            undersized.len(),
+            "  demoted %d %s: fewer than %d members survived",
+            undersized.height,
             group_table,
             MIN_JOINT_PARTICIPANTS,
         )
-        tables[member_table] = members.with_columns(
-            pl.when(pl.col(id_col).is_in(undersized.implode()))
-            .then(None)
-            .otherwise(pl.col(id_col))
-            .alias(id_col)
+        tables[group_table] = groups.filter(pl.col(id_col).is_in(surviving.implode()))
+    return changed
+
+
+def _unjoint_tours_with_individual_trips(tables: dict[str, pl.DataFrame]) -> bool:
+    """Clear ``joint_tour_id`` where any of a tour's trips is not joint, in place.
+
+    CT-RAMP's fully-joint rule, and the one it checks: a joint
+    tour whose every member shares every trip is the only kind it can represent,
+    so a single non-joint leg disqualifies the whole tour. ``format_joint_tours``
+    refuses such a tour outright, because that leg would reach neither output
+    file -- the individual trip file excludes joint tours, and the joint trip
+    file needs a ``joint_trip_id``.
+
+    A leg loses its group when the group falls below quorum, which can happen
+    while the tour itself still has two members and survives. The tour then
+    becomes individual travel: the trips are all still real, they are simply no
+    longer recorded as shared.
+
+    Returns:
+        Whether any tour was un-jointed.
+    """
+    tours, trips = tables.get("tours"), tables.get("linked_trips")
+    if tours is None or trips is None:
+        return False
+    if "joint_tour_id" not in trips.columns or "joint_trip_id" not in trips.columns:
+        return False
+
+    # A frame recording no trip-level sharing at all is not claiming these tours
+    # are partly shared -- it simply never had joint trips. The same judgement
+    # _validate_joint_tours_are_wholly_joint makes before refusing one.
+    if trips["joint_trip_id"].null_count() == trips.height:
+        return False
+
+    partly = (
+        trips.filter(pl.col("joint_tour_id").is_not_null() & pl.col("joint_trip_id").is_null())[
+            "joint_tour_id"
+        ]
+        .unique()
+        .implode()
+    )
+    is_partly = pl.col("joint_tour_id").is_in(partly)
+    if trips.filter(is_partly).is_empty():
+        return False
+
+    n_tours = 0
+    for name in ("tours", "linked_trips", "unlinked_trips"):
+        df = tables.get(name)
+        if df is None or "joint_tour_id" not in df.columns:
+            continue
+        if name == "tours":
+            n_tours = df.filter(is_partly)["joint_tour_id"].n_unique()
+        tables[name] = df.with_columns(
+            pl.when(is_partly).then(None).otherwise(pl.col("joint_tour_id")).alias("joint_tour_id")
         )
-        groups = tables.get(group_table)
-        if groups is not None and id_col in groups.columns:
-            tables[group_table] = groups.filter(~pl.col(id_col).is_in(undersized.implode()))
+
+    logger.info(
+        "  un-jointed %d tours: a leg of each is no longer shared, and CT-RAMP "
+        "has no partly-joint tour",
+        n_tours,
+    )
+    return True
 
 
 def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) -> None:
