@@ -51,6 +51,7 @@ def create_tour(
     joint_tour_id: int | None = None,
     parent_tour_id: int | None = None,
     subtour_num: int = 0,
+    usable: bool = True,
     **overrides,
 ) -> dict:
     """Create a complete canonical tour record.
@@ -92,7 +93,14 @@ def create_tour(
         joint_tour_id: Joint tour ID (None for individual tours)
         parent_tour_id: Parent tour (None for primary tours)
         subtour_num: Subtour number (0 for primary tours)
+        usable: The usability verdict cascade_completeness stamps. Formatters
+            read it rather than deriving a criterion of their own.
         **overrides: Override any default values
+
+        usable: Value for the usability gate the formatters read.
+            Named by a project's profile in production, so not a model
+            field. True by default: these records exist to exercise
+            formatting, and a test about gating sets it explicitly.
 
     Returns:
         Complete tour record dict
@@ -142,20 +150,29 @@ def create_tour(
         "dest_depart_time": dest_depart_time,
         "dest_arrive_time": dest_arrive_time,
         "travel_dow": travel_dow.value,
-        "num_trips": num_trips,
+        "trip_count": num_trips,
+        "stop_count": max(num_trips - 1, 0),
         "num_travelers": num_travelers,
         "tour_mode": tour_mode.value,
         "student_category": student_category,
-        "data_quality": data_quality.value,
+        "tour_data_quality": data_quality.value,
         "tour_weight": tour_weight,
         "joint_tour_id": joint_tour_id,
         "parent_tour_id": tour_id if parent_tour_id is None else parent_tour_id,
         "subtour_num": subtour_num,
-        "single_trip_tour": False,  # Default to False, set by tour extraction
+        # The usability gate the formatters read. Stamped by cascade_completeness
+        # under whatever name a project's profile carries, so it is not a model
+        # field -- but every tours frame reaching a formatter has one, and the
+        # formatters require it rather than re-deriving a criterion of their own.
+        # Default True: these records exist to exercise formatting. A test about
+        # gating passes usable=... explicitly.
+        "usable": usable,
     }
 
     # Add optional MAZ fields
     add_optional_fields_batch(record, o_maz=o_maz, d_maz=d_maz)
+
+    record["usable"] = usable
 
     return {**record, **overrides}
 
@@ -184,9 +201,10 @@ def get_tour_schema() -> dict[str, type]:
             "o_TAZ1454": pl.Int64,
             "d_TAZ1454": pl.Int64,
             "travel_dow": pl.Int64,
-            "num_trips": pl.Int64,
             "student_category": pl.String,
-            "data_quality": pl.Int64,
+            # The usability gate. Named by a project's profile, so not a model
+            # field, but present on every tours frame a formatter sees.
+            "usable": pl.Boolean,
         }
     )
 

@@ -36,6 +36,10 @@ COORDS = {
     "home_m": (37.7450, -122.4300),
     "home_n": (37.7780, -122.4350),
     "home_o": (37.7300, -122.4150),
+    # Well outside the single zone polygon and far past max_snap_distance, so
+    # the zone join leaves these null rather than snapping them to an edge.
+    "home_remote": (38.5800, -121.4900),
+    "work_remote": (38.5650, -121.4700),
     "work_1": (37.7900, -122.3960),
     "work_2": (37.7850, -122.4010),
     "work_3": (37.7600, -122.3890),
@@ -804,7 +808,7 @@ def _build_records():
     )
 
     # HH 20 - day that never touches home (work -> meal -> gym) ->
-    # tour_data_quality MISSING_ANCHOR, tour_category PARTIAL_BOTH.
+    # tour_data_quality PARTIAL_BOTH, tour_category PARTIAL_BOTH.
     s.household(20, "home_b", income=INC_50_75K)
     s.person(
         2001,
@@ -960,6 +964,222 @@ def _build_records():
             ((hour + 1, 0), (hour + 1, 20)),
             m1=MODE_WALK,
         )
+
+    # HH 26 - the weight-propagation household. Two members, and each travels on
+    # BOTH diary dates, which is what makes the persons -> days split rule real:
+    # a person's weight divides between the days that survive the usability gate,
+    # so the divisor changes when a day is dropped. Everywhere else in this
+    # fixture a person has a single day, and weight passes through untouched --
+    # a split that divided by *all* days rather than the usable ones would be
+    # invisible.
+    #
+    # Person 2601 has one clean day and one whose tour never reaches home
+    # (PARTIAL_DIARY_EDGE), so a strict profile keeps one day of the two and a
+    # loose one keeps both. Person 2602 has two clean days. The household
+    # therefore exercises: a split with every day usable, a split with a day
+    # dropped, and a copy level over two members.
+    s.household(26, "home_a", income=INC_100_200K, npeople=2, veh=2, nworkers=2)
+    for pn, pid in [(1, 2601), (2, 2602)]:
+        s.person(
+            pid,
+            26,
+            pn,
+            AGE_35_TO_44,
+            MALE if pn == 1 else FEMALE,
+            EMP_FULLTIME,
+            STU_NONSTUDENT,
+            wloc="work_1",
+            cf=CF_NEVER,
+        )
+
+    # Day one: both members commute home -> work -> home. Clean, closed tours.
+    for pid in (2601, 2602):
+        s.day(pid, 26, DAY_DATE_1, DOW_MONDAY, pnum=1 if pid == 2601 else 2, dnum=1).round_trip(
+            "home_a",
+            "work_1",
+            PC_HOME,
+            PC_WORK,
+            MT_CAR,
+            ((8, 0), (8, 30)),
+            ((17, 0), (17, 30)),
+            drv=1,
+        )
+
+    # Day two: 2602 commutes again, closed. 2601 leaves home and the diary stops
+    # there -- an open tour, so a primary_home profile drops that day and its
+    # weight must land entirely on day one rather than vanishing.
+    s.day(2602, 26, DAY_DATE_2, DOW_TUESDAY, pnum=2, dnum=2).round_trip(
+        "home_a",
+        "work_1",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        ((8, 0), (8, 30)),
+        ((17, 0), (17, 30)),
+        drv=1,
+    )
+    s.day(2601, 26, DAY_DATE_2, DOW_TUESDAY, pnum=1, dnum=2).trip(
+        "home_a",
+        "work_1",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        (8, 0),
+        (8, 30),
+        drv=1,
+    )
+
+    # HH 27 and 28 - out of region, which a usability profile naming a
+    # zone_coverage gates on. Both travel perfectly: their diaries are complete
+    # and their tours close at home, so geography is the only thing that can
+    # exclude them and a test that sees them excluded knows why.
+    #
+    # 27 lives outside the zone file altogether, so nothing about it can be
+    # addressed -- the household record itself has no home zone. That failure
+    # has to reach its tours and days, which is the case that would otherwise
+    # slip through: the cascade reduces upward, so a household-level fact
+    # reaches its descendants only because it is joined into their verdicts.
+    s.household(27, "home_remote", income=INC_100_200K)
+    s.person(2701, 27, 1, AGE_35_TO_44, FEMALE, EMP_FULLTIME, STU_NONSTUDENT, cf=CF_NEVER)
+    s.day(2701, 27, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+        "home_remote",
+        "work_remote",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        ((8, 0), (8, 30)),
+        ((17, 0), (17, 30)),
+        drv=1,
+    )
+
+    # 28 lives in region and commutes out of it on the second date only. The
+    # household stays addressable, so this isolates the tour-level gate: one day
+    # is dropped for where it went while the person keeps the other and stays
+    # usable. Without it, "unaddressable" and "unaddressable household" would
+    # always fail together and neither term would be shown to do any work.
+    s.household(28, "home_b", income=INC_100_200K)
+    s.person(
+        2801, 28, 1, AGE_35_TO_44, MALE, EMP_FULLTIME, STU_NONSTUDENT, wloc="work_1", cf=CF_NEVER
+    )
+    s.day(2801, 28, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+        "home_b",
+        "work_1",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        ((8, 0), (8, 30)),
+        ((17, 0), (17, 30)),
+        drv=1,
+    )
+    s.day(2801, 28, DAY_DATE_2, DOW_TUESDAY, pnum=1, dnum=2).round_trip(
+        "home_b",
+        "work_remote",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        ((8, 0), (9, 30)),
+        ((17, 0), (18, 30)),
+        drv=1,
+    )
+
+    # HH 29 - the household its own members outlive. Two people, two dates, and
+    # each is usable on the date the other is not: 2901 travels cleanly on Monday
+    # and leaves an open tour on Tuesday, 2902 the reverse.
+    #
+    # Under household_day_needs: all_members, neither date has every member
+    # usable, so the household is usable on no date at all -- while each person
+    # has one usable day of their own and passes. That asymmetry is inherent to
+    # the profile, not a defect, and it is the case a formatter has to survive:
+    # keeping a person whose household was excluded leaves a record with no home
+    # to report, which reached CT-RAMP as 1,512 null HomeTAZ rows.
+    #
+    # No other household makes the levels disagree, which is why nothing caught
+    # it. The tours here are deliberately unremarkable; the verdicts are the
+    # subject.
+    s.household(29, "home_c", income=INC_75_100K, npeople=2, veh=1, nworkers=2)
+    for pn, pid in [(1, 2901), (2, 2902)]:
+        s.person(
+            pid,
+            29,
+            pn,
+            AGE_35_TO_44,
+            FEMALE if pn == 1 else MALE,
+            EMP_FULLTIME,
+            STU_NONSTUDENT,
+            wloc="work_2",
+            cf=CF_NEVER,
+        )
+
+    # Monday: 2901 closes its tour, 2902 does not.
+    s.day(2901, 29, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+        "home_c",
+        "work_2",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        ((8, 0), (8, 25)),
+        ((17, 0), (17, 25)),
+        drv=1,
+    )
+    s.day(2902, 29, DAY_DATE_1, DOW_MONDAY, pnum=2, dnum=1).trip(
+        "home_c", "work_2", PC_HOME, PC_WORK, MT_CAR, (9, 0), (9, 25), drv=1
+    )
+
+    # Tuesday: the other way round.
+    s.day(2901, 29, DAY_DATE_2, DOW_TUESDAY, pnum=1, dnum=2).trip(
+        "home_c", "work_2", PC_HOME, PC_WORK, MT_CAR, (9, 0), (9, 25), drv=1
+    )
+    s.day(2902, 29, DAY_DATE_2, DOW_TUESDAY, pnum=2, dnum=2).round_trip(
+        "home_c",
+        "work_2",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        ((8, 0), (8, 25)),
+        ((17, 0), (17, 25)),
+        drv=1,
+    )
+
+    # HH 30 - the joint group that loses a member. Both travel out together at the
+    # same moment, so the clique detection groups that leg; only 3001 comes home.
+    #
+    # 3002's tour never closes, so a primary_home profile excludes it while 3001
+    # stays usable -- the two differ in tour quality rather than in reporting,
+    # which matters because household_day_needs: all_members would otherwise take
+    # both members out on a completeness difference and leave no survivor.
+    #
+    # The survivor is the point. A group down to one member stops being joint, and
+    # every table carrying its id has to be told: clear it on tours alone and the
+    # trip still claims a joint tour while carrying no joint trip, which reaches
+    # neither output file. That shipped as 66 stranded trips across 25 joint tours.
+    s.household(30, "home_d", income=INC_100_200K, npeople=2, veh=1, nworkers=2)
+    for pn, pid in [(1, 3001), (2, 3002)]:
+        s.person(
+            pid,
+            30,
+            pn,
+            AGE_25_TO_34,
+            FEMALE if pn == 1 else MALE,
+            EMP_FULLTIME,
+            STU_NONSTUDENT,
+            wloc="work_3",
+            cf=CF_NEVER,
+        )
+
+    s.day(3001, 30, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+        "home_d",
+        "work_3",
+        PC_HOME,
+        PC_WORK,
+        MT_CAR,
+        ((7, 30), (8, 0)),
+        ((16, 30), (17, 0)),
+        drv=1,
+        ntrav=2,
+    )
+    s.day(3002, 30, DAY_DATE_1, DOW_MONDAY, pnum=2, dnum=1).trip(
+        "home_d", "work_3", PC_HOME, PC_WORK, MT_CAR, (7, 30), (8, 0), drv=2, ntrav=2
+    )
 
     return s.hhs, s.pers, s.days, s.trips
 

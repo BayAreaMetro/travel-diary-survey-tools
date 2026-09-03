@@ -208,9 +208,9 @@ from data_canon.models.ctramp import (
     PersonCTRAMPModel,
 )
 from pipeline.decoration import step
+from processing.formatting.usable_records import keep_usable
 
 from .ctramp_config import CTRAMPConfig
-from .filters import _drop_invalid_tours, _drop_missing_taz, _drop_zero_weight
 from .format_ao import format_ao_results
 from .format_cdap import format_cdap_results
 from .format_households import format_households
@@ -399,7 +399,7 @@ def _incorporate_day_into_ids(
     # Derived by ablation against the 2023 canonical output: every column below was
     # dropped in turn and the step re-run, keeping those whose absence raised. Columns
     # whose absence merely degrades the output (weights, `industry`, `tnc_type`,
-    # `model_usable`, the `day_id`s) are deliberately excluded - see module note.
+    # the usability flag, the `day_id`s) are deliberately excluded - see module note.
     # Zone columns are omitted because their names come from the `taz_field` param
     # (e.g. `o_TAZ1454`) and so cannot be expressed statically.
     requires={
@@ -473,14 +473,12 @@ def format_ctramp(  # noqa: PLR0913
     joint_trips: pl.DataFrame,
     joint_tours: pl.DataFrame,
     days: pl.DataFrame,
+    usability_flag_col: str,
     income_low_threshold: int,
     income_med_threshold: int,
     income_high_threshold: int,
     income_survey_year_to_ctramp_year: float,
     taz_field: str = "taz",
-    drop_missing_taz: bool = True,
-    drop_invalid_tours: bool = True,
-    filter_zero_weight: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -510,6 +508,10 @@ def format_ctramp(  # noqa: PLR0913
         days: Canonical person-days data. Required columns: person_id, hh_id,
             day_id. Used to expand persons and households to the person-day
             level and encode the survey day into CTRAMP hh_id / person_id so
+        usability_flag_col: Which usability profile decides the tour universe.
+            Required: with several profiles stamped there is no defensible
+            default, and naming a different one from the DaySim formatter or
+            the weighting means those outputs describe different universes.
             that multi-day respondents produce one distinct CTRAMP record per
             day rather than one record that conflates all survey days.
         income_low_threshold: Dollar value dividing low from medium income bracket.
@@ -523,15 +525,6 @@ def format_ctramp(  # noqa: PLR0913
             BATS 2023 -> CT-RAMP year 2000 the factor is 1 / 1.88 ~= 0.532).
         taz_field: Field name containing the TAZ ID for CTRAMP formatting
             (default: "taz").
-        drop_missing_taz: If True, remove households without valid TAZ IDs. This
-            cascades to persons, tours, and trips (default: True).
-        filter_zero_weight: If True, remove households with null or zero
-            hh_weight before formatting, cascading to persons, tours, and
-            trips (default: True).
-        drop_invalid_tours: If True, remove tours that are not VALID (single-trip,
-            loop, missing-anchor, change-mode, indeterminate) or not COMPLETE (do
-            not start and end at home), mirroring the DaySim formatter (which drops
-            both). Cascades to linked and joint trips (default: True).
 
     Returns:
         Dictionary with keys:
@@ -568,7 +561,7 @@ def format_ctramp(  # noqa: PLR0913
             income_med_threshold=60000,          # $60k divides medium from high ($2000)
             income_high_threshold=100000,        # $100k divides high from very high ($2000)
             income_survey_year_to_ctramp_year=0.5319148936,  # 1/1.88: convert 2023 income to $2000
-            drop_missing_taz=True                # Remove households without TAZ
+            usability_flag_col="ctramp_usable",  # the profile deciding the record universe
         )
 
         # Access formatted tables
@@ -583,56 +576,42 @@ def format_ctramp(  # noqa: PLR0913
     """
     # Validate configuration parameters
     config = CTRAMPConfig(
+        usability_flag_col=usability_flag_col,
         income_low_threshold=income_low_threshold,
         income_med_threshold=income_med_threshold,
         income_high_threshold=income_high_threshold,
         income_survey_year_to_ctramp_year=income_survey_year_to_ctramp_year,
-        drop_missing_taz=drop_missing_taz,
-        filter_zero_weight=filter_zero_weight,
-        drop_invalid_tours=drop_invalid_tours,
         taz_field=taz_field,
     )
     logger.info("Starting CT-RAMP formatting")
 
-    # Drop invalid/partial tours before anything else so CT-RAMP and DaySim
-    # outputs contain the same set of tours (and no null-purpose leakage).
-    if config.drop_invalid_tours:
-        tours, linked_trips, joint_trips = _drop_invalid_tours(tours, linked_trips, joint_trips)
+    # One gate, read from the profile the config names. The formatter selects
+    # nothing of its own: see the filters module for why deciding here rather
+    # than in cascade_completeness put the weighting out of step with the output.
+    gated = keep_usable(
+        {
+            "households": households,
+            "persons": persons,
+            "days": days,
+            "tours": tours,
+            "linked_trips": linked_trips,
+            "unlinked_trips": unlinked_trips,
+            "joint_trips": joint_trips,
+            "joint_tours": joint_tours,
+        },
+        config.usability_flag_col,
+    )
+    households = gated["households"]
+    persons = gated["persons"]
+    days = gated["days"]
+    tours = gated["tours"]
+    linked_trips = gated["linked_trips"]
+    unlinked_trips = gated["unlinked_trips"]
+    joint_trips = gated["joint_trips"]
+    joint_tours = gated["joint_tours"]
 
-    # Ensure TAZ columns are Int64 for filtering
+    # CT-RAMP writes the TAZ as an integer.
     households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))
-
-    # Drop households with null or zero survey weight
-    if config.filter_zero_weight:
-        (
-            households,
-            persons,
-            tours,
-            linked_trips,
-            joint_trips,
-        ) = _drop_zero_weight(households, persons, tours, linked_trips, joint_trips)
-
-    # Drop any households that do not have a TAZ assigned
-    if config.drop_missing_taz:
-        (
-            households,
-            persons,
-            tours,
-            linked_trips,
-            joint_trips,
-        ) = _drop_missing_taz(households, persons, tours, linked_trips, joint_trips, config)
-
-    # Filter days to those with a valid (non-zero) weight so that non-target
-    # days (e.g. weekends in a Mon-Thu weighting run) are excluded from the
-    # CTRAMP expansion.  If day_weight is absent we keep all days.
-    if "day_weight" in days.columns:
-        n_days_before = len(days)
-        days = days.filter(pl.col("day_weight").is_not_null() & (pl.col("day_weight") > 0))
-        logger.info(
-            "Filtered days by day_weight > 0: %d → %d day records",
-            n_days_before,
-            len(days),
-        )
 
     # Expand to person-day level: each survey day becomes a distinct CTRAMP
     # household/person so that tour and trip counts are correctly attributed

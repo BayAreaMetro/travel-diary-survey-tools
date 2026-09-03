@@ -45,8 +45,8 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.tours import TourCategory, TourDataQuality
 from pipeline.decoration import step
+from processing.formatting.usable_records import keep_usable
 
 from .format_days import format_days
 from .format_households import format_households
@@ -80,9 +80,7 @@ def format_daysim(
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
     days: pl.DataFrame,
-    drop_partial_tours: bool = True,
-    drop_missing_taz: bool = True,
-    drop_invalid_tours: bool = True,
+    usability_flag_col: str,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to DaySim model specification.
 
@@ -98,13 +96,10 @@ def format_daysim(
         linked_trips: Journey records with coordinates, mode, purpose, and timing.
         tours: Tour records with purpose, timing, and location fields.
         days: Person-day records for completeness calculation.
-        drop_partial_tours: If True, remove tours not marked as complete
-            (default: True). Tours without return home are excluded.
-        drop_missing_taz: If True, remove households without valid TAZ/MAZ IDs
-            (default: True). Required for model application.
-        drop_invalid_tours: If True, remove tours marked as invalid
-            (default: True). Filters out zero distance, negative duration, and
-            data quality flagged tours.
+        usability_flag_col: Which usability profile decides the record universe.
+            Required: with several profiles stamped there is no defensible
+            default, and naming a different one from the CT-RAMP formatter or
+            the weighting means those outputs describe different universes.
 
     Returns:
         Dictionary containing:
@@ -139,80 +134,26 @@ def format_daysim(
     """
     logger.info("Starting DaySim formatting")
 
-    # Drop invalid tours if specified
-    if drop_invalid_tours:
-        n_og_tours = len(tours)
-        n_og_trips = len(linked_trips)
-        # Prefer the shared ``model_usable`` gate stamped by cascade_completeness
-        # (cascaded completeness AND admissible tour structure) so DaySim,
-        # CT-RAMP and the weighting agree on the tour universe. Fall back to the
-        # quality descriptor when the gate has not been stamped.
-        # The column can exist but be unstamped (null) on frames that never
-        # passed through the step, so fall back per row rather than dropping.
-        is_valid = pl.col("tour_data_quality") == TourDataQuality.VALID.value
-        if "model_usable" in tours.columns:
-            keep = pl.col("model_usable").fill_null(is_valid)
-        else:
-            keep = is_valid
-        tours = tours.filter(keep)
-        linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
-
-        # NOTE: We keep all days even if their tours are invalid
-        # Days with invalid tours become "no travel" days in the model
-
-        logger.info(
-            "Dropped %d invalid tours with %d linked trips; "
-            "%d tours remain and %d linked trips remain",
-            n_og_tours - len(tours),
-            n_og_trips - len(linked_trips),
-            len(tours),
-            len(linked_trips),
-        )
-
-    # Drop partial/incomplete tours if specified
-    if drop_partial_tours:
-        n_og_tours = len(tours)
-        n_og_trips = len(linked_trips)
-        tours = tours.filter(pl.col("tour_category") == TourCategory.COMPLETE.value)
-        linked_trips = linked_trips.filter(pl.col("tour_id").is_in(tours["tour_id"].implode()))
-        # NOTE: We keep all days even if their tours are partial/incomplete
-        # Days with partial tours become "no travel" days in the model
-        logger.info(
-            "Dropped %d partial tours with %d linked trips; "
-            "%d tours remain and %d linked trips remain",
-            n_og_tours - len(tours),
-            n_og_trips - len(linked_trips),
-            len(tours),
-            len(linked_trips),
-        )
-
-    # Drop any households that do not have a MAZ/TAZ assigned
-    if drop_missing_taz:
-        n_og_households = len(households)
-        n_og_persons = len(persons)
-        n_og_linked_trips = len(linked_trips)
-        n_og_tours = len(tours)
-
-        households = households.filter(
-            households["home_taz"].is_not_null() & (households["home_taz"] != -1)
-        )
-        persons = persons.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-        days = days.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-        linked_trips = linked_trips.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-        tours = tours.filter(pl.col("hh_id").is_in(households["hh_id"].implode()))
-        logger.info(
-            "Dropped %d households without TAZ/MAZ with "
-            "%d persons, %d linked trips, and %d tours; "
-            "%d households, %d persons, %d linked trips, and %d tours remain",
-            n_og_households - len(households),
-            n_og_persons - len(persons),
-            n_og_linked_trips - len(linked_trips),
-            n_og_tours - len(tours),
-            len(households),
-            len(persons),
-            len(linked_trips),
-            len(tours),
-        )
+    # One gate, read from the profile the config names. DaySim selects nothing
+    # of its own: the same verdict decides the CT-RAMP output and the weighting,
+    # so the three describe one universe rather than three implementations of it.
+    gated = keep_usable(
+        {
+            "households": households,
+            "persons": persons,
+            "days": days,
+            "tours": tours,
+            "linked_trips": linked_trips,
+            "unlinked_trips": unlinked_trips,
+        },
+        usability_flag_col,
+    )
+    households = gated["households"]
+    persons = gated["persons"]
+    days = gated["days"]
+    tours = gated["tours"]
+    linked_trips = gated["linked_trips"]
+    unlinked_trips = gated["unlinked_trips"]
 
     # Format each table
 

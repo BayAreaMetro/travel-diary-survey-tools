@@ -22,13 +22,20 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import polars as pl
 import pytest
 import yaml
 
 E2E_DIR = Path(__file__).parent
 
 # Optional steps that can be toggled (canonical execution order preserved below).
-OPTIONAL_STEPS = ("detect_joint_trips", "imputation", "format_ctramp", "format_daysim")
+OPTIONAL_STEPS = (
+    "detect_joint_trips",
+    "imputation",
+    "add_existing_weights",
+    "format_ctramp",
+    "format_daysim",
+)
 
 # Inter-step dependencies: a step may only run if its requirements also run.
 # format_ctramp consumes the joint_trips table (and emits joint-tour/joint-trip
@@ -73,14 +80,36 @@ _MANDATORY = {
     "add_zone_ids",
     "write_data",
 }
+# The formatted tables each formatter produces. Named once so the write paths,
+# the model registration and the baseline cannot drift apart.
+_CTRAMP_TABLES = (
+    "households_ctramp",
+    "persons_ctramp",
+    "mandatory_locations_ctramp",
+    "individual_tours_ctramp",
+    "individual_trips_ctramp",
+    "joint_tours_ctramp",
+    "joint_trips_ctramp",
+)
+_DAYSIM_TABLES = (
+    "households_daysim",
+    "persons_daysim",
+    "days_daysim",
+    "linked_trips_daysim",
+    "tours_daysim",
+)
+
 _STEP_ORDER = (
     "load_data",
     "link_trips",
     "detect_joint_trips",
     "imputation",
     "extract_tours",
-    "cascade_completeness",
+    # Zones precede the cascade: a profile can gate on whether a record is
+    # addressable, which it cannot do before the zone step has run.
     "add_zone_ids",
+    "cascade_completeness",
+    "add_existing_weights",
     "format_ctramp",
     "format_daysim",
     "write_data",
@@ -101,7 +130,30 @@ def _materialize_data(tmp: Path) -> Path:
     zones_dir = tmp / "zones"
     zones_dir.mkdir()
     (zones_dir / "test_zones.geojson").write_text(json.dumps(ZONE_GEOJSON))
+
+    _write_household_weights(build_survey_dataframes()["households"], tmp / "weights")
     return tmp
+
+
+def _write_household_weights(households: pl.DataFrame, weights_dir: Path) -> None:
+    """Write a household weight file for ``add_existing_weights`` to propagate.
+
+    Only households are supplied. Everything below is derived, which is the
+    point: the run then exercises the copy rule down to persons and the split
+    rule from a person across their days, rather than being handed an answer at
+    each level.
+
+    The weights are distinct per household rather than a constant. A constant
+    hides arithmetic errors -- halving one weight and doubling another still
+    sums correctly -- so a checksum over identical numbers proves much less than
+    it appears to.
+    """
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    households.select(
+        "hh_id",
+        # Distinct, non-round, and none a multiple of another.
+        (pl.lit(100.0) + pl.col("hh_id").cast(pl.Float64) * 7.0).alias("hh_weight"),
+    ).write_csv(weights_dir / "hh_weights.csv")
 
 
 def _p(path: Path) -> str:
@@ -125,6 +177,18 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
     }
     if "detect_joint_trips" in enabled:
         output_paths["joint_trips"] = f"{out}/survey/joint_trips.csv"
+
+    # The formatter tables are written so that write_data validates them against
+    # their CT-RAMP and DaySim models. Registering the models is not enough --
+    # write_data only checks what it is asked to write, so leaving these out ran
+    # the formatters and discarded their output unexamined. Three regressions
+    # reached production that way, each a violation of one of these models.
+    if "format_ctramp" in enabled:
+        for table in _CTRAMP_TABLES:
+            output_paths[table] = f"{out}/ctramp/{table}.csv"
+    if "format_daysim" in enabled:
+        for table in _DAYSIM_TABLES:
+            output_paths[table] = f"{out}/daysim/{table}.csv"
 
     return {
         "load_data": {
@@ -189,6 +253,50 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "name": "cascade_completeness",
             "validate_input": False,
             "cache": False,
+            # Two profiles so the e2e exercises the loop, not just one pass:
+            # the strict gate the formatters read, and a relaxed one that has
+            # to reach the delivered output as a registered generated column.
+            "params": {
+                "usability_profiles": {
+                    # Two strict profiles the formatters name separately, plus a
+                    # relaxed one, so the e2e exercises the loop, per-consumer
+                    # selection, and a relaxed column reaching the delivered
+                    # output as a registered generated column.
+                    "ctramp_usable": {
+                        "tour_closes_at": "primary_home",
+                        "household_day_needs": "all_members",
+                        "zone_coverage": "taz",
+                    },
+                    "daysim_usable": {
+                        "tour_closes_at": "primary_home",
+                        "household_day_needs": "all_members",
+                        "zone_coverage": "taz",
+                    },
+                    "analysis_usable": {
+                        "tour_closes_at": "anywhere",
+                        "household_day_needs": "nothing",
+                        "zone_coverage": "none",
+                    },
+                }
+            },
+        },
+        "add_existing_weights": {
+            "name": "add_existing_weights",
+            "validate_input": False,
+            "cache": False,
+            # Only household weights are supplied; everything below is derived,
+            # so the run exercises the copy rule down to persons and the split
+            # rule from a person across their days. Gated on ctramp_usable, the
+            # strict profile, so a dropped day changes the split's divisor --
+            # which is where "nothing lost" is a real question rather than a
+            # tautology.
+            "params": {
+                "derive_missing_weights": True,
+                "usability_flag_col": "ctramp_usable",
+                "weights": {
+                    "hh_weight": {"weight_path": _p(data_dir / "weights" / "hh_weights.csv")},
+                },
+            },
         },
         "add_zone_ids": {
             "name": "add_zone_ids",
@@ -214,6 +322,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "validate_input": False,
             "cache": False,
             "params": {
+                "usability_flag_col": "ctramp_usable",
                 "income_low_threshold": 60000,
                 "income_med_threshold": 150000,
                 "income_high_threshold": 240000,
@@ -221,7 +330,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 "age_adult": 4,
                 "gender_default_for_missing": "f",
                 "taz_field": "taz",
-                "drop_missing_taz": True,
             },
         },
         # validate_output mirrors the shipping bats_2023 config. The DaySim row
@@ -233,11 +341,12 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "validate_input": False,
             "validate_output": True,
             "cache": False,
+            "params": {"usability_flag_col": "daysim_usable"},
         },
         "write_data": {
             "name": "write_data",
             "validate_input": False,
-            "params": {"output_paths": output_paths},
+            "params": {"output_paths": output_paths, "write_only_canonical": True},
         },
     }
 
@@ -253,6 +362,7 @@ def _run_pipeline(enabled: frozenset):
     """Run the pipeline for a set of enabled optional steps. Returns (result, output_dir, tmp)."""
     from pipeline.pipeline import Pipeline
     from processing import (
+        add_existing_weights,
         add_zone_ids,
         cascade_completeness,
         detect_joint_trips,
@@ -275,6 +385,7 @@ def _run_pipeline(enabled: frozenset):
 
     # All step functions are passed; the config decides which actually run.
     steps = [
+        add_existing_weights,
         load_data,
         link_trips,
         detect_joint_trips,
@@ -360,3 +471,14 @@ def full_output_dir():
     """Output dir of the 'full' profile."""
     _result, output_dir, _tmp = _get_run(PROFILES["full"])
     return output_dir
+
+
+@pytest.fixture(scope="session")
+def full_input_dir():
+    """Raw input dir of the 'full' profile.
+
+    The vendor surface: columns present here are carried through rather than
+    computed, which is what lets a test tell the two apart.
+    """
+    _result, _output_dir, tmp = _get_run(PROFILES["full"])
+    return Path(tmp) / "data"

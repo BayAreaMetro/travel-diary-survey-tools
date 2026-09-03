@@ -44,7 +44,6 @@ from processing.formatting.daysim.format_persons import (
 from processing.formatting.daysim.format_tours import format_tours
 from processing.formatting.daysim.format_trips import format_linked_trips
 from processing.link_trips.link import link_trips
-from processing.tours.extraction import extract_tours
 from tests.fixtures import (
     add_test_taz_maz_ids,
     create_day,
@@ -1270,6 +1269,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
+            usability_flag_col="usable",
         )
 
         # Verify all expected keys present
@@ -1295,6 +1295,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
+            usability_flag_col="usable",
         )
 
         # Verify transit mode detected
@@ -1316,6 +1317,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
+            usability_flag_col="usable",
         )
 
         # Verify household composition
@@ -1326,122 +1328,6 @@ class TestEndToEndDaysimFormatting:
         # Verify person types
         persons_result = result["persons_daysim"]
         assert len(persons_result) == 4
-
-    def test_format_daysim_filters_null_taz(self):
-        """Test that households without TAZ are filtered out."""
-        households_raw = [
-            create_household(hh_id=1, home_taz=100),
-            create_household(hh_id=2, home_taz=None),
-        ]
-
-        households = pl.DataFrame(
-            [
-                create_household(hh_id=1, home_taz=100),
-                create_household(hh_id=2, home_taz=None),
-            ]
-        )
-
-        persons_raw = [
-            create_person(
-                person_id=101,
-                hh_id=1,
-                person_num=1,
-                home_lat=households_raw[0]["home_lat"],
-                home_lon=households_raw[0]["home_lon"],
-            ),
-            create_person(
-                person_id=201,
-                hh_id=2,
-                person_num=1,
-                home_lat=households_raw[1]["home_lat"],
-                home_lon=households_raw[1]["home_lon"],
-            ),
-        ]
-
-        persons = pl.DataFrame(persons_raw)
-
-        days = pl.DataFrame(
-            [
-                create_day(day_id=1, person_id=101, hh_id=1, person_num=1),
-                create_day(day_id=2, person_id=201, hh_id=2, person_num=1),
-            ]
-        )
-
-        unlinked_trips_fixture = pl.DataFrame(
-            [
-                create_unlinked_trip(
-                    unlinked_trip_id=1,
-                    person_id=101,
-                    hh_id=1,
-                    person_num=1,
-                    day_id=1,
-                    o_lat=37.8,
-                    o_lon=-122.4,
-                    d_lat=37.85,
-                    d_lon=-122.45,
-                    o_purpose_category=PurposeCategory.HOME,
-                    d_purpose_category=PurposeCategory.WORK,
-                ),
-                create_unlinked_trip(
-                    unlinked_trip_id=2,
-                    person_id=201,
-                    hh_id=2,
-                    person_num=1,
-                    day_id=2,
-                    o_lat=37.8,
-                    o_lon=-122.4,
-                    d_lat=37.85,
-                    d_lon=-122.45,
-                    o_purpose_category=PurposeCategory.HOME,
-                    d_purpose_category=PurposeCategory.WORK,
-                ),
-            ]
-        )
-
-        linked_result = link_trips(
-            unlinked_trips_fixture,
-            change_mode_enum=PurposeCategory.CHANGE_MODE.value,
-            transit_mode_enums=[Mode.BART.value],
-            split_on_occupancy=False,
-        )
-
-        # Add joint_trip_id for extract_tours validation
-        linked_result["linked_trips"] = linked_result["linked_trips"].with_columns(
-            pl.lit(None).cast(pl.Int64).alias("joint_trip_id")
-        )
-
-        # Perform tour extraction
-        tour_result = extract_tours(
-            persons=persons,
-            households=households,
-            unlinked_trips=linked_result["unlinked_trips"],
-            linked_trips=linked_result["linked_trips"],
-            joint_trips=None,
-        )
-
-        # Add TAZ/MAZ via mock spatial join (skip households since we want to preserve null TAZ)
-        data = add_test_taz_maz_ids(
-            unlinked_trips=tour_result["unlinked_trips"],
-            linked_trips=tour_result["linked_trips"],
-            tours=tour_result["tours"],
-        )
-        data.update(
-            {
-                "households": households,
-                "persons": persons,
-                "days": days,
-            }
-        )
-
-        result = format_daysim(**data)
-
-        # Only household 1 should remain
-        assert len(result["households_daysim"]) == 1
-        assert result["households_daysim"]["hhno"][0] == 1
-
-        # Only person from household 1 should remain
-        assert len(result["persons_daysim"]) == 1
-        assert result["persons_daysim"]["hhno"][0] == 1
 
     def test_format_daysim_output_schema(self):
         """Test that output DataFrames have expected DaySim columns."""
@@ -1454,6 +1340,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
+            usability_flag_col="usable",
         )
 
         # Check household columns

@@ -19,6 +19,7 @@ from data_canon.codebook.persons import (
     Employment,
     Student,
 )
+from data_canon.codebook.tours import TourDataQuality
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.tours.extraction import extract_tours
@@ -444,16 +445,17 @@ def test_single_trip_tour(single_trip_tour_data):
     # Single-trip tours should be kept but flagged
     assert len(tours_df) == 1
 
-    # Should be flagged as single-trip tour
-    assert tours_df["single_trip_tour"][0] is True
+    # Kept, with the count on the tour and a reason for being open-ended. Here
+    # nothing precedes or follows it in the diary, so that is where it stops.
+    assert tours_df["trip_count"][0] == 1
+    assert tours_df["tour_data_quality"][0] == TourDataQuality.PARTIAL_DIARY_EDGE.value
 
     # Tour number should be 1, not 0
     assert tours_df["tour_num"][0] == 1
 
-    # Single-trip tours are allowed to have null purpose and dest times
-    assert tours_df["tour_purpose"][0] is None
-    assert tours_df["dest_arrive_time"][0] is None
-    assert tours_df["dest_depart_time"][0] is None
+    # The one trip leaves home and stops at the shop without returning, so the
+    # shop is a genuine primary destination -- not a return leg to be skipped.
+    assert tours_df["tour_purpose"][0] == PurposeCategory.SHOP.value
 
 
 def test_partial_tour(partial_tour_data):
@@ -474,7 +476,13 @@ def test_distant_destinations(distant_destinations_data):
     """Test that tours with distant destinations still get valid times."""
     persons, households, unlinked_trips, linked_trips = distant_destinations_data
 
-    result = extract_tours(persons, households, unlinked_trips, linked_trips)
+    # Pin the hierarchy method: this fixture's work and social stops are both
+    # 60 min, and under the scoring method a 60-min stay reads as a normal social
+    # visit but an atypically brief work visit, so social would win. This test is
+    # about destination-time fallback, not purpose selection.
+    result = extract_tours(
+        persons, households, unlinked_trips, linked_trips, tour_purpose_method="hierarchy"
+    )
     tours_df = result["tours"]
 
     assert len(tours_df) == 1
@@ -714,7 +722,7 @@ def test_all_tours_have_required_fields():
     assert (tours_df["tour_num"] >= 1).all()
 
     # All non-single-trip tours should have non-null tour_purpose and dest times
-    non_single_trip_tours = tours_df.filter(~tours_df["single_trip_tour"])
+    non_single_trip_tours = tours_df.filter(pl.col("trip_count") > 1)
     if len(non_single_trip_tours) > 0:
         assert non_single_trip_tours["tour_purpose"].null_count() == 0
         assert non_single_trip_tours["dest_arrive_time"].null_count() == 0

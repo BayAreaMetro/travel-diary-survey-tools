@@ -3,13 +3,14 @@
 import inspect
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
 import polars as pl
 from pydantic import BaseModel
 
 from data_canon.models import survey as survey_models
+from data_canon.models import weighting as weighting_models
 from data_canon.validation.column import (
     check_unique_constraints,
     get_unique_fields,
@@ -26,6 +27,21 @@ from data_canon.validation.row import validate_dataframe_rows
 from .exceptions import DataValidationError
 
 logger = logging.getLogger(__name__)
+
+
+CANONICAL_MODELS: dict[str, type[BaseModel]] = {
+    "households": survey_models.HouseholdModel,
+    "persons": survey_models.PersonModel,
+    "days": survey_models.PersonDayModel,
+    "unlinked_trips": survey_models.UnlinkedTripModel,
+    "linked_trips": survey_models.LinkedTripModel,
+    "tours": survey_models.TourModel,
+    "joint_trips": survey_models.JointTripModel,
+    "joint_tours": survey_models.JointTourModel,
+    "habitual_locations": survey_models.HabitualLocationModel,
+    "habitual_location_days": survey_models.HabitualLocationDayModel,
+    "household_weights": weighting_models.HouseholdWeightingModel,
+}
 
 
 @dataclass
@@ -45,22 +61,20 @@ class CanonicalData:
     joint_tours: pl.DataFrame | None = None
     habitual_locations: pl.DataFrame | None = None
     habitual_location_days: pl.DataFrame | None = None
+    household_weights: pl.DataFrame | None = None
 
-    # Model mapping for validation
-    models: dict[str, type[BaseModel]] = field(
-        default_factory=lambda: {
-            "households": survey_models.HouseholdModel,
-            "persons": survey_models.PersonModel,
-            "days": survey_models.PersonDayModel,
-            "unlinked_trips": survey_models.UnlinkedTripModel,
-            "linked_trips": survey_models.LinkedTripModel,
-            "tours": survey_models.TourModel,
-            "joint_trips": survey_models.JointTripModel,
-            "joint_tours": survey_models.JointTourModel,
-            "habitual_locations": survey_models.HabitualLocationModel,
-            "habitual_location_days": survey_models.HabitualLocationDayModel,
-        }
-    )
+    # Model mapping for validation. Named at module scope as well, because the
+    # declared relationships between these models are read outside validation --
+    # a consumer removing records has to respect the same foreign keys.
+    models: dict[str, type[BaseModel]] = field(default_factory=lambda: dict(CANONICAL_MODELS))
+
+    # Columns a step generated whose names come from configuration rather than
+    # a model field: zone ids, pre-imputation stashes, usability profiles.
+    # Populated at runtime by the steps that create them; read when deciding
+    # what to deliver. Maps table -> column -> description, so a column named by
+    # a project can still explain itself in the delivered output. The
+    # description is "" where the generating step offered none.
+    generated_columns: dict[str, dict[str, str]] = field(default_factory=dict, repr=False)
 
     # Custom validators: table_name -> list of validator functions
     # Populated from custom_validation.CUSTOM_VALIDATORS
@@ -83,6 +97,7 @@ class CanonicalData:
             "joint_tours",
             "habitual_locations",
             "habitual_location_days",
+            "household_weights",
         ],
         repr=False,
     )
@@ -90,6 +105,46 @@ class CanonicalData:
     def __post_init__(self) -> None:
         """Validate FK references point to unique fields."""
         validate_fk_references(self.models)
+
+    def register_generated_columns(
+        self,
+        table: str,
+        columns: Iterable[str] | Mapping[str, str],
+    ) -> None:
+        """Record columns a step generated whose names come from configuration.
+
+        ``add_zone_ids`` emits ``{prefix}_{zone_name}``, the imputation step
+        emits ``{column}_preimputed``, and ``cascade_completeness`` emits one
+        column per usability profile, so the names differ per project and cannot
+        be declared as model fields. They are still ours -- computed, named in
+        config, and wanted in the delivered output -- so a step that creates them
+        says so here rather than leaving a consumer to guess from the name.
+
+        Pass a mapping to describe them as well. A model field carries its
+        description to the codebook; a generated column has nowhere else to say
+        what it means, so a column whose name a project chose can still explain
+        itself. Passing a bare iterable records the names with no description.
+
+        Args:
+            table: Canonical table the columns were added to.
+            columns: Column names, or column name -> description.
+        """
+        described = dict(columns) if isinstance(columns, Mapping) else dict.fromkeys(columns, "")
+        registry = self.generated_columns.setdefault(table, {})
+        for column, description in described.items():
+            # Never let a later bare registration blank an existing description.
+            if description or column not in registry:
+                registry[column] = description
+
+    def public_columns(self, table: str) -> set[str]:
+        """Columns of *table* the pipeline stands behind: declared or generated."""
+        model = self.models.get(table)
+        declared = set(model.model_fields) if model is not None else set()
+        return declared | set(self.generated_columns.get(table, {}))
+
+    def describe_generated(self, table: str) -> dict[str, str]:
+        """Descriptions for *table*'s generated columns, empty string where none."""
+        return dict(self.generated_columns.get(table, {}))
 
     def as_dict(self) -> dict[str, pl.DataFrame | None]:
         """Return all canonical tables as a dict (including None entries)."""
