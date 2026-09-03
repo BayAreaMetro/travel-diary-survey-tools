@@ -25,6 +25,7 @@ instead, and the count is the measure of that mismatch.
 """
 
 import logging
+from dataclasses import dataclass, field
 
 import polars as pl
 
@@ -81,6 +82,68 @@ _WEIGHT_COLUMNS = {
 }
 
 
+@dataclass
+class _Ledger:
+    """What each rule removed, per table, accumulated across passes.
+
+    Kept because the per-rule log read alarmingly out of context: a stream of
+    "dropped 953 persons" lines invites the reader to think the formatter is
+    making judgements of its own, when every one of those persons left because
+    their household did not pass the profile. Naming the reason next to the count
+    is the difference between a ledger and a list of casualties.
+
+    Voided references are tracked separately from removals because they are not
+    losses at all -- the record stays in the output, only its grouping is gone.
+    """
+
+    excluded: dict[str, int] = field(default_factory=dict)
+    orphaned: dict[str, int] = field(default_factory=dict)
+    undersized: dict[str, int] = field(default_factory=dict)
+    unjointed: dict[str, int] = field(default_factory=dict)
+
+    def add(self, bucket: dict[str, int], key: str, n: int) -> None:
+        bucket[key] = bucket.get(key, 0) + n
+
+
+def _log_ledger(
+    ledger: _Ledger,
+    kept: dict[str, pl.DataFrame],
+    usability_flag_col: str,
+) -> None:
+    """Log one row per table, with a column per reason and the survivors.
+
+    The profile's own column sits beside the consequential ones on purpose. A
+    reader wondering whether too much was removed should be looking at the
+    profile, since the other columns record bookkeeping that follows from it and
+    decide nothing.
+    """
+    rows = [name for name in _GATED_TABLES if name in kept]
+    if not rows:
+        return
+
+    lines = [
+        f"Records kept for the model, gated on {usability_flag_col}:",
+        "",
+        f"  {'table':<16}{'not ' + usability_flag_col:>22}"
+        f"{'parent dropped':>18}{'below quorum':>15}{'kept':>12}",
+    ]
+    for name in rows:
+        excluded = ledger.excluded.get(name, 0)
+        orphaned = ledger.orphaned.get(name, 0)
+        undersized = ledger.undersized.get(name, 0)
+        lines.append(
+            f"  {name:<16}{-excluded:>22,}{-orphaned:>18,}"
+            f"{-undersized if undersized else 0:>15,}{kept[name].height:>12,}"
+        )
+
+    if ledger.unjointed:
+        lines += ["", "  no longer joint (records kept, only the grouping removed):"]
+        for reference, n in sorted(ledger.unjointed.items()):
+            lines.append(f"    {reference:<34}{n:>10,}")
+
+    logger.info("\n".join(lines))
+
+
 def keep_usable(
     tables: dict[str, pl.DataFrame],
     usability_flag_col: str,
@@ -114,27 +177,27 @@ def keep_usable(
         )
         raise ValueError(msg)
 
-    logger.info("CT-RAMP record universe gated on %s", usability_flag_col)
-
     # A null means the cascade never reached this row -- a broken frame, not
     # licence to guess a criterion of our own.
     keep = pl.col(usability_flag_col).fill_null(value=False)
 
+    ledger = _Ledger()
     kept: dict[str, pl.DataFrame] = dict(tables)
     for name in _GATED_TABLES:
         if name not in kept:
             continue
         before = kept[name]
         kept[name] = before.filter(keep)
-        logger.info("  %-14s %d -> %d", name, before.height, kept[name].height)
+        ledger.add(ledger.excluded, name, before.height - kept[name].height)
 
-    _reconcile(kept)
+    _reconcile(kept, ledger)
+    _log_ledger(ledger, kept, usability_flag_col)
     _log_exclusion_summary(tables.get("tours"), tables.get("linked_trips"), usability_flag_col)
     _warn_zero_weight(kept, usability_flag_col)
     return kept
 
 
-def _reconcile(tables: dict[str, pl.DataFrame]) -> None:
+def _reconcile(tables: dict[str, pl.DataFrame], ledger: _Ledger) -> None:
     """Restore the relationships filtering broke, in place.
 
     Three rules, each stated once and applied until nothing changes. Iterating
@@ -148,9 +211,9 @@ def _reconcile(tables: dict[str, pl.DataFrame]) -> None:
             rather than that the data is large.
     """
     for _ in range(_MAX_RECONCILE_PASSES):
-        changed = _cascade_references(tables)
-        changed = _demote_undersized_groups(tables) or changed
-        changed = _unjoint_tours_with_individual_trips(tables) or changed
+        changed = _cascade_references(tables, ledger)
+        changed = _demote_undersized_groups(tables, ledger) or changed
+        changed = _unjoint_tours_with_individual_trips(tables, ledger) or changed
         if not changed:
             return
 
@@ -161,7 +224,7 @@ def _reconcile(tables: dict[str, pl.DataFrame]) -> None:
     raise RuntimeError(msg)
 
 
-def _cascade_references(tables: dict[str, pl.DataFrame]) -> bool:
+def _cascade_references(tables: dict[str, pl.DataFrame], ledger: _Ledger) -> bool:
     """Follow every declared reference whose target is gone, in place.
 
     The schema already says what to do. A *required* reference means the child
@@ -189,10 +252,12 @@ def _cascade_references(tables: dict[str, pl.DataFrame]) -> bool:
             tables[child] = c.with_columns(
                 pl.when(dangling).then(None).otherwise(pl.col(column)).alias(column)
             )
-            logger.info("  voided %d %s.%s: no matching %s", n_dangling, child, column, parent)
+            ledger.add(ledger.unjointed, f"{child}.{column}", n_dangling)
+            logger.debug("  voided %d %s.%s: no matching %s", n_dangling, child, column, parent)
         else:
             tables[child] = c.filter(~dangling)
-            logger.info(
+            ledger.add(ledger.orphaned, child, n_dangling)
+            logger.debug(
                 "  dropped %d %s: %s.%s is required and had no matching %s",
                 n_dangling,
                 child,
@@ -203,7 +268,7 @@ def _cascade_references(tables: dict[str, pl.DataFrame]) -> bool:
     return changed
 
 
-def _demote_undersized_groups(tables: dict[str, pl.DataFrame]) -> bool:
+def _demote_undersized_groups(tables: dict[str, pl.DataFrame], ledger: _Ledger) -> bool:
     """Un-joint any grouping left with fewer than two members, in place.
 
     The cascade already refuses a grouping whose members are not usable, so this
@@ -237,7 +302,8 @@ def _demote_undersized_groups(tables: dict[str, pl.DataFrame]) -> bool:
             continue
 
         changed = True
-        logger.info(
+        ledger.add(ledger.undersized, group_table, undersized.height)
+        logger.debug(
             "  demoted %d %s: fewer than %d members survived",
             undersized.height,
             group_table,
@@ -247,7 +313,7 @@ def _demote_undersized_groups(tables: dict[str, pl.DataFrame]) -> bool:
     return changed
 
 
-def _unjoint_tours_with_individual_trips(tables: dict[str, pl.DataFrame]) -> bool:
+def _unjoint_tours_with_individual_trips(tables: dict[str, pl.DataFrame], ledger: _Ledger) -> bool:
     """Clear ``joint_tour_id`` where any of a tour's trips is not joint, in place.
 
     CT-RAMP's fully-joint rule, and the one it checks: a joint
@@ -295,11 +361,12 @@ def _unjoint_tours_with_individual_trips(tables: dict[str, pl.DataFrame]) -> boo
             continue
         if name == "tours":
             n_tours = df.filter(is_partly)["joint_tour_id"].n_unique()
+        ledger.add(ledger.unjointed, f"{name}.joint_tour_id", df.filter(is_partly).height)
         tables[name] = df.with_columns(
             pl.when(is_partly).then(None).otherwise(pl.col("joint_tour_id")).alias("joint_tour_id")
         )
 
-    logger.info(
+    logger.debug(
         "  un-jointed %d tours: a leg of each is no longer shared, and CT-RAMP "
         "has no partly-joint tour",
         n_tours,
