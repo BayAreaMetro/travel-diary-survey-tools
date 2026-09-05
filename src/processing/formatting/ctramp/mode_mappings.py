@@ -9,10 +9,11 @@ from data_canon.codebook.trips import AccessEgressMode, Mode, ModeType, TNCType
 # When a transit tour/trip uses multiple submodes, the highest-ranked submode wins.
 TRANSIT_SUBMODE_NONE = 0
 TRANSIT_SUBMODE_LOCAL = 1
-TRANSIT_SUBMODE_LRF = 2  # light rail / ferry
-TRANSIT_SUBMODE_EXPRESS = 3
-TRANSIT_SUBMODE_HEAVY = 4
-TRANSIT_SUBMODE_COMMUTER = 5
+TRANSIT_SUBMODE_LR = 2  # light rail / ferry
+TRANSIT_SUBMODE_FERRY = 3
+TRANSIT_SUBMODE_EXPRESS = 4
+TRANSIT_SUBMODE_HEAVY = 5
+TRANSIT_SUBMODE_COMMUTER = 6
 
 # Detailed Mode -> transit submode rank. Modes not listed have no transit submode.
 MODE_TO_TRANSIT_SUBMODE = {
@@ -22,12 +23,12 @@ MODE_TO_TRANSIT_SUBMODE = {
     Mode.BUS_OTHER.value: TRANSIT_SUBMODE_LOCAL,
     Mode.PARATRANSIT.value: TRANSIT_SUBMODE_LOCAL,
     # Light rail / streetcar / ferry
-    Mode.LIGHT_RAIL.value: TRANSIT_SUBMODE_LRF,
-    Mode.MUNI_METRO.value: TRANSIT_SUBMODE_LRF,
-    Mode.STREETCAR.value: TRANSIT_SUBMODE_LRF,
-    Mode.FERRY.value: TRANSIT_SUBMODE_LRF,
-    Mode.WATER.value: TRANSIT_SUBMODE_LRF,
-    Mode.BOAT.value: TRANSIT_SUBMODE_LRF,
+    Mode.LIGHT_RAIL.value: TRANSIT_SUBMODE_LR,
+    Mode.MUNI_METRO.value: TRANSIT_SUBMODE_LR,
+    Mode.STREETCAR.value: TRANSIT_SUBMODE_LR,
+    Mode.FERRY.value: TRANSIT_SUBMODE_FERRY,
+    Mode.WATER.value: TRANSIT_SUBMODE_FERRY,
+    Mode.BOAT.value: TRANSIT_SUBMODE_FERRY,
     # Express / bus rapid transit
     Mode.BUS_EXPRESS.value: TRANSIT_SUBMODE_EXPRESS,
     Mode.BUS_BRT.value: TRANSIT_SUBMODE_EXPRESS,
@@ -183,14 +184,17 @@ def ctramp_mode_expression(
 
     # Pick the walk-access and drive-access transit codes based on submode rank.
     # When no submode is available, default to local bus (WLK_LOC_WLK / DRV_LOC_WLK).
+
     if transit_submode is not None:
         walk_transit_code = (
             pl.when(transit_submode == TRANSIT_SUBMODE_COMMUTER)
             .then(pl.lit(CTRAMPModeType.WLK_COM_WLK.value))
             .when(transit_submode == TRANSIT_SUBMODE_HEAVY)
             .then(pl.lit(CTRAMPModeType.WLK_HVY_WLK.value))
-            .when(transit_submode == TRANSIT_SUBMODE_LRF)
+            .when(transit_submode == TRANSIT_SUBMODE_LR)
             .then(pl.lit(CTRAMPModeType.WLK_LRF_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_FERRY)
+            .then(pl.lit(CTRAMPModeType.WLK_FERRY_WLK))
             .when(transit_submode == TRANSIT_SUBMODE_EXPRESS)
             .then(pl.lit(CTRAMPModeType.WLK_EXP_WLK.value))
             .otherwise(pl.lit(CTRAMPModeType.WLK_LOC_WLK.value))
@@ -200,8 +204,10 @@ def ctramp_mode_expression(
             .then(pl.lit(CTRAMPModeType.DRV_COM_WLK.value))
             .when(transit_submode == TRANSIT_SUBMODE_HEAVY)
             .then(pl.lit(CTRAMPModeType.DRV_HVY_WLK.value))
-            .when(transit_submode == TRANSIT_SUBMODE_LRF)
+            .when(transit_submode == TRANSIT_SUBMODE_LR)
             .then(pl.lit(CTRAMPModeType.DRV_LRF_WLK.value))
+            .when(transit_submode == TRANSIT_SUBMODE_FERRY)
+            .then(pl.lit(CTRAMPModeType.DRV_FERRY_WLK))
             .when(transit_submode == TRANSIT_SUBMODE_EXPRESS)
             .then(pl.lit(CTRAMPModeType.DRV_EXP_WLK.value))
             .otherwise(pl.lit(CTRAMPModeType.DRV_LOC_WLK.value))

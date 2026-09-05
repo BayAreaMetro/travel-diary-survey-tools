@@ -141,6 +141,9 @@ class CTRAMPModeType(LabeledEnum):
     TAXI = 19, "Taxi"
     TNC = 20, "TNC - single party"
     TNC2 = 21, "TNC - shared"
+    # These modes were added for calibration purpose. They are not used in CTRAMP
+    WLK_FERRY_WLK = 22, "Walk to ferry"
+    DRV_FERRY_WLK = 23, "Drive to ferry"
 
 
 class CTRAMPTourCategory(LabeledEnum):
