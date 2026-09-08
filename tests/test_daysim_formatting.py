@@ -1269,7 +1269,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Verify all expected keys present
@@ -1295,7 +1295,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Verify transit mode detected
@@ -1317,7 +1317,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Verify household composition
@@ -1340,7 +1340,7 @@ class TestEndToEndDaysimFormatting:
             data["linked_trips"],
             data["tours"],
             data["days"],
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Check household columns

@@ -75,7 +75,7 @@ def _verdict(trip_zones, *, coverage: str) -> bool:
     tables = _tables(trip_zones)
     profile = UsabilityProfile("u", "primary_home", "all_members", zone_coverage=coverage)
     compute_usability(tables, profile=profile)
-    return bool(tables["tours"]["u"][0])
+    return bool(tables["tours"]["usable_u"][0])
 
 
 class TestALegOutsideTheAreaCostsTheTour:

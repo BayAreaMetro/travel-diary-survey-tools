@@ -111,6 +111,36 @@ HOUSEHOLD_DAY_NEEDS = (ALL_MEMBERS, NOTHING)
 # produced, so the legal set is whatever that step was configured to build.
 NO_ZONE_COVERAGE = "none"  # no geographic requirement
 
+# A profile is a name -- `ctramp`, `analysis` -- and every column belonging to it
+# is that name suffixed onto a family: `usable_ctramp` for the verdict,
+# `hh_day_ctramp` for the household-date reduction, `hh_weight_ctramp` for the
+# weight fitted over it. One profile, one suffix, one rule per family.
+USABLE_FAMILY = "usable"
+
+# Survey reporting completeness, from the vendor. Deliberately not a profile: it
+# answers "did we collect this record?", not "do the models take it?", and a
+# consumer may name it to mean the whole valid survey. It has no family prefix
+# because it belongs to no family.
+SURVEY_COMPLETE = "complete"
+
+
+def usable_col_for(profile: str) -> str:
+    """The column carrying *profile*'s verdict.
+
+    Args:
+        profile: A usability profile named in config, or
+            :data:`SURVEY_COMPLETE` to mean the whole valid survey.
+
+    Returns:
+        ``usable_<profile>``, or :data:`SURVEY_COMPLETE` unchanged -- that column
+        is vendor data rather than a verdict this pipeline reached, so it is
+        addressable but not a member of the family.
+    """
+    if profile == SURVEY_COMPLETE:
+        return SURVEY_COMPLETE
+    return f"{USABLE_FAMILY}_{profile}"
+
+
 # Zone columns the zone step writes, by table. A record is addressable when
 # every one of its locations landed in the named geography.
 _ZONE_PREFIXES: dict[str, tuple[str, ...]] = {
@@ -176,7 +206,7 @@ class UsabilityProfile:
     @property
     def flag(self) -> str:
         """Per-record verdict column."""
-        return self.name
+        return usable_col_for(self.name)
 
     @property
     def requires_zones(self) -> bool:
@@ -992,7 +1022,6 @@ def parse_usability_profiles(spec: dict[str, dict[str, str]]) -> list[UsabilityP
         raise ValueError(msg)
 
     profiles = [_one_profile(name, axes) for name, axes in spec.items()]
-    _reject_column_collisions(profiles)
     return profiles
 
 
@@ -1065,32 +1094,6 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
         household_day_needs=axes["household_day_needs"],
         zone_coverage=coverage,
     )
-
-
-def _reject_column_collisions(profiles: list[UsabilityProfile]) -> None:
-    """Two profiles must not write the same column.
-
-    Each profile writes two columns and derives one of them from its name, so a
-    profile called ``hh_day_ctramp_usable`` writes its verdict into the column
-    ``ctramp_usable`` derives for its household-day reduction -- and whichever
-    ran second would win, silently. Distinct names are not enough; the columns
-    they generate have to be distinct too.
-
-    Raises:
-        ValueError: If any two profiles write the same column.
-    """
-    written: dict[str, str] = {}
-    for profile in profiles:
-        for column in (profile.flag, profile.household_day):
-            if column in written:
-                msg = (
-                    f"usability_profiles '{written[column]}' and '{profile.name}' both "
-                    f"write the column '{column}', so one would silently overwrite the "
-                    "other. Each profile writes its own name and 'hh_day_' plus its "
-                    "name; rename one of them."
-                )
-                raise ValueError(msg)
-            written[column] = profile.name
 
 
 def suggest_usability_columns(frame: pl.DataFrame) -> str:
@@ -1227,10 +1230,10 @@ def cascade_completeness(
 
     ```yaml
     usability_profiles:
-      ctramp_usable:
+      ctramp:
         tour_closes_at: primary_home
         household_day_needs: all_members
-      analysis_usable:
+      analysis:
         tour_closes_at: anywhere
         household_day_needs: nothing
     ```
@@ -1275,7 +1278,7 @@ def cascade_completeness(
         msg = (
             "cascade_completeness requires usability_profiles. There is no default "
             "because the choice decides what every downstream consumer can read. "
-            "Declare at least one profile, e.g. 'ctramp_usable: {tour_closes_at: "
+            "Declare at least one profile, e.g. 'ctramp: {tour_closes_at: "
             "primary_home, household_day_needs: all_members}'."
         )
         raise ValueError(msg)

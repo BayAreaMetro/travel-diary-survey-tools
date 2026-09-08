@@ -148,15 +148,15 @@ steps:
       # profiles are declared here so the two survey years are gated alike and
       # can be compared without asking which standard each was built under.
       usability_profiles:
-        ctramp_usable:
+        ctramp:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: TAZ1454
-        daysim_usable:
+        daysim:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: taz
-        analysis_usable:
+        analysis:
           tour_closes_at: anywhere
           household_day_needs: nothing
           zone_coverage: none
@@ -181,7 +181,7 @@ steps:
       # Which profile decides who carries weight. Named rather than defaulted:
       # with several stamped there is no defensible default, and a silent choice
       # would weight a different universe than the formatters emit.
-      usability_flag_col: ctramp_usable
+      usability_profile: ctramp
 
       # -- Sample Plan Path ------------------------------------------------
       # sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"

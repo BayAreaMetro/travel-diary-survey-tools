@@ -29,7 +29,7 @@ from processing.completeness import (
 )
 
 # Same standard, two names. Any hardcoded column would make them disagree.
-FIRST = UsabilityProfile("ctramp_usable", PRIMARY_HOME, ALL_MEMBERS)
+FIRST = UsabilityProfile("ctramp", PRIMARY_HOME, ALL_MEMBERS)
 ALIAS = UsabilityProfile("alt_usable", PRIMARY_HOME, ALL_MEMBERS)
 
 

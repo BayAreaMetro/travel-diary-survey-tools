@@ -92,7 +92,7 @@ def create_household(
     record["home_walk_subzone"] = home_walk_subzone
     record["residence_type"] = residence_type.value if residence_type else None
     record["residence_rent_own"] = residence_rent_own.value if residence_rent_own else None
-    record["usable"] = usable
+    record["usable_test"] = usable
 
     return {**record, **overrides}
 
@@ -258,7 +258,7 @@ def create_person(
 
     # The verdict cascade_completeness stamps; formatters read it rather than
     # deriving a criterion of their own.
-    record["usable"] = usable
+    record["usable_test"] = usable
 
     # Apply overrides
     record = {**record, **overrides}
@@ -320,6 +320,6 @@ def create_day(
         "day_weight": day_weight,
     }
 
-    record["usable"] = usable
+    record["usable_test"] = usable
 
     return {**record, **overrides}

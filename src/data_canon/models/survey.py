@@ -20,7 +20,7 @@ Two kinds of flag answer two different questions and must not be conflated:
   record?* Reporting completeness AND an admissible tour structure.
 
 The usability columns are deliberately **not** declared below. A project names
-its profiles in config -- ``ctramp_usable`` and ``analysis_usable`` are this
+its profiles in config -- ``ctramp`` and ``analysis`` are this
 project's names, not the schema's -- so which of them a run produces is a
 project's choice. Declaring one would promise a column that a config need never
 ask for. ``cascade_completeness`` registers whichever it stamps as generated
@@ -29,7 +29,7 @@ could: the description names the actual rules that profile relaxed.
 
 The **weight** columns are absent for the same reason. A weighting run fits each
 profile it is given and suffixes that profile's name onto every weight it writes
-(``hh_weight_ctramp_usable``), and the un-suffixed spelling is just a single
+(``hh_weight_ctramp``), and the un-suffixed spelling is just a single
 profile's weights with the label left off -- there is no unprofiled weight to
 declare. The weighting registers what it wrote, carrying both what the number
 counts and that it cannot be negative, so these columns are still described and
