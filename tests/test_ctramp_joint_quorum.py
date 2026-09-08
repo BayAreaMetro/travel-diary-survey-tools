@@ -65,7 +65,7 @@ class TestAJointTripIsItsOwnGrouping:
         """Its joint_tour_id is null, so only a trip-level rule reaches it.
 
         The second member leaves because its *tour* is unusable, which is the
-        only way a member can depart. A tour's ``complete`` is the ALL over its
+        only way a member can depart. A tour's ``survey_complete`` is the ALL over its
         member trips, so an incomplete trip makes its own tour incomplete and
         therefore unusable -- a usable tour never holds an unusable trip. On
         BATS 2023 that holds for all 324,965 linked trips, zero exceptions.

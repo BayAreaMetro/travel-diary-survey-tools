@@ -54,16 +54,16 @@ def _one_person(**tour_overrides) -> dict:
         "tour_id": [10],
         "day_id": [1],
         "person_id": [1],
-        "complete": [True],
+        "survey_complete": [True],
         "parent_tour_id": [10],
         "tour_data_quality": [TourDataQuality.VALID.value],
         "tour_category": [TourCategory.COMPLETE.value],
     }
     tour.update(tour_overrides)
     return {
-        "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+        "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
         "persons": pl.DataFrame(
-            {"person_id": [1], "hh_id": [1], "complete": [True], "surveyable": [True]}
+            {"person_id": [1], "hh_id": [1], "survey_complete": [True], "surveyable": [True]}
         ),
         "days": pl.DataFrame(
             {
@@ -71,7 +71,7 @@ def _one_person(**tour_overrides) -> dict:
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": [DATE],
-                "complete": [True],
+                "survey_complete": [True],
             }
         ),
         "tours": pl.DataFrame(tour),
@@ -81,7 +81,7 @@ def _one_person(**tour_overrides) -> dict:
 class TestAVerdictIsAlwaysABoolean:
     """No table may leave a null in the column consumers gate on.
 
-    ``complete`` is filled before it is used, but the tour descriptors were not:
+    ``survey_complete`` is filled before it is used, but the tour descriptors were not:
     ``is_in`` propagates null, so a tour whose quality was never established came
     out null rather than rejected. That null then reached the delivered output,
     where the formatters happened to fill it and the weighting did not.
@@ -104,7 +104,7 @@ class TestAVerdictIsAlwaysABoolean:
 
     def test_a_null_complete_is_rejected_not_propagated(self):
         """An unreported record is not usable, and never was ambiguous."""
-        stamped = _stamp(_one_person(complete=[None]))
+        stamped = _stamp(_one_person(survey_complete=[None]))
 
         assert stamped["tours"]["usable_test"].to_list() == [False]
 
@@ -112,10 +112,10 @@ class TestAVerdictIsAlwaysABoolean:
         """The property itself, over every table the cascade touches."""
         tables = _one_person(tour_data_quality=[None], tour_category=[None])
         tables["linked_trips"] = pl.DataFrame(
-            {"linked_trip_id": [100], "tour_id": [10], "day_id": [1], "complete": [None]}
+            {"linked_trip_id": [100], "tour_id": [10], "day_id": [1], "survey_complete": [None]}
         )
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1], "day_id": [1], "complete": [None]}
+            {"joint_tour_id": [1], "day_id": [1], "survey_complete": [None]}
         )
 
         stamped = _stamp(tables)
@@ -132,7 +132,7 @@ class TestDescriptorsThatAreNotThere:
     """A frame may predate tour extraction and carry neither descriptor.
 
     Each term is skipped rather than assumed, so the verdict falls back to
-    ``complete`` alone. That is the honest answer -- the cascade cannot judge a
+    ``survey_complete`` alone. That is the honest answer -- the cascade cannot judge a
     structure it was given no column for -- but it is *looser*, so the absence
     must never be silent at the point a consumer reads the result. That guard
     lives in the formatters; here we only pin what the cascade does.
@@ -149,7 +149,7 @@ class TestDescriptorsThatAreNotThere:
 
     def test_without_either_descriptor_the_verdict_is_complete_alone(self):
         """With both terms gone, the floor is all that is left -- and it still bites."""
-        tables = _one_person(complete=[False])
+        tables = _one_person(survey_complete=[False])
         tables["tours"] = tables["tours"].drop("tour_data_quality", "tour_category")
 
         stamped = _stamp(tables)
@@ -206,11 +206,11 @@ class TestEmptyTables:
     """
 
     EMPTY: ClassVar[dict[str, dict[str, pl.DataType]]] = {
-        "households": {"hh_id": pl.Int64, "complete": pl.Boolean},
+        "households": {"hh_id": pl.Int64, "survey_complete": pl.Boolean},
         "persons": {
             "person_id": pl.Int64,
             "hh_id": pl.Int64,
-            "complete": pl.Boolean,
+            "survey_complete": pl.Boolean,
             "surveyable": pl.Boolean,
         },
         "days": {
@@ -218,12 +218,12 @@ class TestEmptyTables:
             "person_id": pl.Int64,
             "hh_id": pl.Int64,
             "travel_date": pl.Datetime,
-            "complete": pl.Boolean,
+            "survey_complete": pl.Boolean,
         },
         "tours": {
             "tour_id": pl.Int64,
             "day_id": pl.Int64,
-            "complete": pl.Boolean,
+            "survey_complete": pl.Boolean,
             "parent_tour_id": pl.Int64,
             "tour_data_quality": pl.Int64,
             "tour_category": pl.Int64,
@@ -258,14 +258,14 @@ class TestSurveyableMembers:
     usability from it.
     """
 
-    def _two_members(self, surveyable: list[bool], complete: list[bool]) -> dict:
+    def _two_members(self, surveyable: list[bool], survey_complete: list[bool]) -> dict:
         return {
-            "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+            "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
             "persons": pl.DataFrame(
                 {
                     "person_id": [1, 2],
                     "hh_id": [1, 1],
-                    "complete": [True, True],
+                    "survey_complete": [True, True],
                     "surveyable": surveyable,
                 }
             ),
@@ -275,7 +275,7 @@ class TestSurveyableMembers:
                     "person_id": [1, 2],
                     "hh_id": [1, 1],
                     "travel_date": [DATE, DATE],
-                    "complete": complete,
+                    "survey_complete": survey_complete,
                 }
             ),
             "tours": pl.DataFrame(
@@ -283,7 +283,7 @@ class TestSurveyableMembers:
                     "tour_id": [10, 20],
                     "day_id": [1, 2],
                     "person_id": [1, 2],
-                    "complete": [True, True],
+                    "survey_complete": [True, True],
                     "parent_tour_id": [10, 20],
                     "tour_data_quality": [TourDataQuality.VALID.value] * 2,
                     "tour_category": [TourCategory.COMPLETE.value] * 2,
@@ -296,7 +296,7 @@ class TestSurveyableMembers:
         """A roommate who files nothing must not cost the household its day."""
         stamped = _stamp(self._two_members([True, False], [True, False]))
 
-        assert stamped["days"]["hh_day_complete"].to_list() == [True, False]
+        assert stamped["days"]["hh_day_survey_complete"].to_list() == [True, False]
         assert stamped["days"]["usable_test"].to_list() == [True, False]
         assert stamped["households"]["usable_test"].to_list() == [True]
 
@@ -345,7 +345,7 @@ class TestSubtoursWhoseParentIsMissing:
                 "tour_id": [10, 11],
                 "day_id": [1, 1],
                 "person_id": [1, 1],
-                "complete": [True, True],
+                "survey_complete": [True, True],
                 "parent_tour_id": [10, 10],
                 "tour_data_quality": [
                     TourDataQuality.SPATIAL_GAP.value,
@@ -366,12 +366,12 @@ class TestJointQuorum:
     def _joint_tour(self, member_qualities: list[TourDataQuality]) -> dict:
         n = len(member_qualities)
         return {
-            "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+            "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
             "persons": pl.DataFrame(
                 {
                     "person_id": list(range(1, n + 1)),
                     "hh_id": [1] * n,
-                    "complete": [True] * n,
+                    "survey_complete": [True] * n,
                     "surveyable": [True] * n,
                 }
             ),
@@ -381,7 +381,7 @@ class TestJointQuorum:
                     "person_id": list(range(1, n + 1)),
                     "hh_id": [1] * n,
                     "travel_date": [DATE] * n,
-                    "complete": [True] * n,
+                    "survey_complete": [True] * n,
                 }
             ),
             "tours": pl.DataFrame(
@@ -390,13 +390,15 @@ class TestJointQuorum:
                     "day_id": list(range(1, n + 1)),
                     "person_id": list(range(1, n + 1)),
                     "joint_tour_id": [1] * n,
-                    "complete": [True] * n,
+                    "survey_complete": [True] * n,
                     "parent_tour_id": [10 + i for i in range(n)],
                     "tour_data_quality": [q.value for q in member_qualities],
                     "tour_category": [TourCategory.COMPLETE.value] * n,
                 }
             ),
-            "joint_tours": pl.DataFrame({"joint_tour_id": [1], "day_id": [1], "complete": [True]}),
+            "joint_tours": pl.DataFrame(
+                {"joint_tour_id": [1], "day_id": [1], "survey_complete": [True]}
+            ),
         }
 
     def test_exactly_the_minimum_survives(self):
@@ -421,7 +423,7 @@ class TestJointQuorum:
         """A member table that was never supplied is a legitimate partial call."""
         tables = _one_person()
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1, 2], "day_id": [1, 1], "complete": [True, False]}
+            {"joint_tour_id": [1, 2], "day_id": [1, 1], "survey_complete": [True, False]}
         )
 
         stamped = _stamp(tables)
@@ -464,7 +466,7 @@ class TestStampingTwice:
                 "tour_id": [10, 11],
                 "day_id": [1, 1],
                 "person_id": [1, 1],
-                "complete": [True, True],
+                "survey_complete": [True, True],
                 "parent_tour_id": [10, 11],
                 "tour_data_quality": [
                     TourDataQuality.VALID.value,
@@ -546,11 +548,11 @@ class TestTheDidYouMeanLine:
 
     def test_unrelated_booleans_are_offered_too_and_that_is_the_deal(self):
         """Accepted noise. The alternative is guessing, which fails silently."""
-        frame = pl.DataFrame({"tour_id": [1], "complete": [True], "is_subtour": [False]})
+        frame = pl.DataFrame({"tour_id": [1], "survey_complete": [True], "is_subtour": [False]})
 
         line = suggest_usability_columns(frame)
 
-        assert "complete" in line
+        assert "survey_complete" in line
         assert "is_subtour" in line
 
     def test_non_booleans_are_not_offered(self):

@@ -303,7 +303,7 @@ class TestTheGate:
         silently keeping every record was the old behaviour and is the worst of
         the options.
         """
-        tours = pl.DataFrame({"tour_id": [1], "usable_ctramp": [True], "complete": [True]})
+        tours = pl.DataFrame({"tour_id": [1], "usable_ctramp": [True], "survey_complete": [True]})
 
         with pytest.raises(ValueError, match="ctramp"):
             keep_usable({"tours": tours}, "daysim")

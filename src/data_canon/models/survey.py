@@ -12,7 +12,7 @@ Any field without None as an allowed type is considered required core data.
 
 Two kinds of flag answer two different questions and must not be conflated:
 
-* ``complete`` -- *did we collect this record?* Survey reporting completeness,
+* ``survey_complete`` -- *did we collect this record?* Survey reporting completeness,
   cascaded from household down. Partial and overnight tours stay ``True``: they
   are valid survey data, useful for survey analysis. Declared here, because
   every run produces it.
@@ -91,7 +91,7 @@ class HouseholdModel(BaseModel):
     income: int | None = schema_field(ge=0, default=None)
     income_bin: IncomeBroad = schema_field()
     num_vehicles: int = schema_field(ge=0)
-    complete: bool = schema_field()
+    survey_complete: bool = schema_field()
 
 
 class PersonModel(BaseModel):
@@ -157,7 +157,7 @@ class PersonModel(BaseModel):
         ),
     )
     num_days_complete: int = schema_field(ge=0, default=0)
-    complete: bool | None = schema_field(default=None)
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class PersonDayModel(BaseModel):
@@ -177,8 +177,8 @@ class PersonDayModel(BaseModel):
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
-    complete: bool | None = schema_field(default=False)
-    hh_day_complete: bool | None = schema_field(
+    survey_complete: bool | None = schema_field(default=False)
+    hh_day_survey_complete: bool | None = schema_field(
         default=None,
         description=(
             "Household-day coherence: every member of the household reported a "
@@ -187,7 +187,7 @@ class PersonDayModel(BaseModel):
             "asks for whole household-days, a day is only usable within one."
         ),
     )
-    # The usable-side mirror of hh_day_complete is now stamped once per
+    # The usable-side mirror of hh_day_survey_complete is now stamped once per
     # usability profile, as hh_day_{profile}. Those names come from config, so
     # they cannot be model fields; cascade_completeness registers them as
     # generated columns with a description of what each one gated.
@@ -234,7 +234,7 @@ class UnlinkedTripModel(BaseModel):
     depart_time: datetime | None = schema_field()
     arrive_time: datetime | None = schema_field()
     num_travelers: int = schema_field(ge=1)
-    complete: bool | None = schema_field(default=None)
+    survey_complete: bool | None = schema_field(default=None)
 
     # You can add custom row-level validators here
     # Don't confuse with the constom DataFrame-level validators elsewhere
@@ -371,7 +371,7 @@ class LinkedTripModel(BaseModel):
     d_location_type: LocationType = schema_field(
         description="Classified location type of the trip destination (Home/Work/School/Other).",
     )
-    complete: bool | None = schema_field(default=None)
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class TourModel(BaseModel):
@@ -458,7 +458,7 @@ class TourModel(BaseModel):
     outbound_mode: ModeType | None = schema_field()
     inbound_mode: ModeType | None = schema_field()
     num_travelers: int = schema_field(ge=1, default=1)
-    complete: bool | None = schema_field(default=None)
+    survey_complete: bool | None = schema_field(default=None)
 
     @model_validator(mode="after")
     def validate_complete_tours(self) -> "TourModel":
@@ -526,7 +526,7 @@ class JointTripModel(BaseModel):
             "does not track which members the weighting later excluded."
         ),
     )
-    complete: bool | None = schema_field(default=None)
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class JointTourModel(BaseModel):
@@ -553,7 +553,7 @@ class JointTourModel(BaseModel):
             "which members the weighting excluded."
         ),
     )
-    complete: bool | None = schema_field(default=None)
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class HabitualLocationModel(BaseModel):

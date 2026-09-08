@@ -1,16 +1,6 @@
 {
  "days": {
   "columns": {
-   "complete": {
-    "counts": {
-     "False": 1,
-     "True": 50
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "734e370d18fb90e3",
-    "nulls": 0
-   },
    "day_id": {
     "distinct": 51,
     "dtype": "Int64",
@@ -70,16 +60,6 @@
     "hash": "7192204503db5e15",
     "nulls": 0
    },
-   "hh_day_complete": {
-    "counts": {
-     "False": 1,
-     "True": 50
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "734e370d18fb90e3",
-    "nulls": 0
-   },
    "hh_day_ctramp": {
     "counts": {
      "False": 17,
@@ -98,6 +78,16 @@
     "distinct": 2,
     "dtype": "Boolean",
     "hash": "a8664e2284099ffa",
+    "nulls": 0
+   },
+   "hh_day_survey_complete": {
+    "counts": {
+     "False": 1,
+     "True": 50
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "734e370d18fb90e3",
     "nulls": 0
    },
    "hh_id": {
@@ -132,6 +122,16 @@
     "min": 1.0,
     "nulls": 0,
     "sum": 72.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 1,
+     "True": 50
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "734e370d18fb90e3",
+    "nulls": 0
    },
    "travel_date": {
     "distinct": 3,
@@ -729,16 +729,6 @@
  },
  "households": {
   "columns": {
-   "complete": {
-    "counts": {
-     "False": 1,
-     "True": 29
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "5aa4ca597b595d5b",
-    "nulls": 0
-   },
    "hh_id": {
     "distinct": 30,
     "dtype": "Int64",
@@ -944,6 +934,16 @@
     "min": 1.0,
     "nulls": 0,
     "sum": 1069.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 1,
+     "True": 29
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "5aa4ca597b595d5b",
+    "nulls": 0
    },
    "usable_analysis": {
     "counts": {
@@ -1831,15 +1831,6 @@
  },
  "joint_tours": {
   "columns": {
-   "complete": {
-    "counts": {
-     "True": 6
-    },
-    "distinct": 1,
-    "dtype": "Boolean",
-    "hash": "6dbbb186940093d9",
-    "nulls": 0
-   },
    "day_id": {
     "distinct": 5,
     "dtype": "Int64",
@@ -1906,6 +1897,15 @@
     "min": 2.0,
     "nulls": 0,
     "sum": 13.0
+   },
+   "survey_complete": {
+    "counts": {
+     "True": 6
+    },
+    "distinct": 1,
+    "dtype": "Boolean",
+    "hash": "6dbbb186940093d9",
+    "nulls": 0
    },
    "usable_analysis": {
     "counts": {
@@ -2111,15 +2111,6 @@
  },
  "joint_trips": {
   "columns": {
-   "complete": {
-    "counts": {
-     "True": 16
-    },
-    "distinct": 1,
-    "dtype": "Boolean",
-    "hash": "de2f2816534ba445",
-    "nulls": 0
-   },
    "day_id": {
     "distinct": 8,
     "dtype": "Int64",
@@ -2186,6 +2177,15 @@
     "min": 2.0,
     "nulls": 0,
     "sum": 34.0
+   },
+   "survey_complete": {
+    "counts": {
+     "True": 16
+    },
+    "distinct": 1,
+    "dtype": "Boolean",
+    "hash": "de2f2816534ba445",
+    "nulls": 0
    },
    "usable_analysis": {
     "counts": {
@@ -2427,16 +2427,6 @@
     "distinct": 60,
     "dtype": "Datetime(time_unit='us', time_zone=None)",
     "hash": "9977bffa5a34108e",
-    "nulls": 0
-   },
-   "complete": {
-    "counts": {
-     "False": 2,
-     "True": 106
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "be0dad96a22a70b1",
     "nulls": 0
    },
    "d_activity_duration": {
@@ -2866,6 +2856,16 @@
     "min": 0.0,
     "nulls": 0,
     "sum": 2.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 2,
+     "True": 106
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "be0dad96a22a70b1",
+    "nulls": 0
    },
    "tour_direction": {
     "counts": {
@@ -3595,16 +3595,6 @@
     "nulls": 0,
     "sum": 0.0
    },
-   "complete": {
-    "counts": {
-     "False": 1,
-     "True": 44
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "cc896c84cc431900",
-    "nulls": 0
-   },
    "employment": {
     "counts": {
      "1": 25,
@@ -3836,6 +3826,16 @@
     "min": 0.0,
     "nulls": 0,
     "sum": 75.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 1,
+     "True": 44
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "cc896c84cc431900",
+    "nulls": 0
    },
    "telework_freq": {
     "distinct": 1,
@@ -4446,16 +4446,6 @@
  },
  "tours": {
   "columns": {
-   "complete": {
-    "counts": {
-     "False": 1,
-     "True": 52
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "1f522cef7e557c16",
-    "nulls": 0
-   },
    "d_lat": {
     "distinct": 16,
     "dtype": "Float64",
@@ -4710,6 +4700,16 @@
     "min": 0.0,
     "nulls": 0,
     "sum": 1.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 1,
+     "True": 52
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "1f522cef7e557c16",
+    "nulls": 0
    },
    "tour_category": {
     "counts": {
@@ -5294,16 +5294,6 @@
     "hash": "cc20bb93f4574a5a",
     "nulls": 0
    },
-   "complete": {
-    "counts": {
-     "False": 2,
-     "True": 108
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "be3e84b86e01cfbc",
-    "nulls": 0
-   },
    "d_lat": {
     "distinct": 34,
     "dtype": "Float64",
@@ -5624,6 +5614,16 @@
     "min": 101.0,
     "nulls": 0,
     "sum": 177151.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 2,
+     "True": 108
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "be3e84b86e01cfbc",
+    "nulls": 0
    },
    "tour_id": {
     "distinct": 53,

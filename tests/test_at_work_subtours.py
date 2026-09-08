@@ -268,10 +268,10 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": [datetime(2024, 1, 17)],
-                "complete": [True],
+                "survey_complete": [True],
             }
         ),
-        "tours": tours.with_columns(pl.lit(value=True).alias("complete")),
+        "tours": tours.with_columns(pl.lit(value=True).alias("survey_complete")),
     }
     compute_usability(tables, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
     return dict(zip(*tables["tours"].select("tour_id", "usable_test"), strict=True))

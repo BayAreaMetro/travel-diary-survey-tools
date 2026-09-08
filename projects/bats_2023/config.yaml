@@ -132,7 +132,7 @@ steps:
       # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
       # internal junction jumps more than this many meters between one trip's
       # destination and the next trip's origin - a missing leg the extractor
-      # would otherwise weld into one "complete" tour. 1 km catches genuine
+      # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
 
@@ -154,7 +154,7 @@ steps:
           shapefile: "{{ TM1_shapefile_dir }}/bayarea_rtaz1454_rev1_WGS84.shp"
           zone_id_field: "TAZ1454"
 
-  # Cascade `complete` (survey reporting) through hh <-> person <-> day <->
+  # Cascade `survey_complete` (survey reporting) through hh <-> person <-> day <->
   # trip/tour so it is consistent with any upstream adjustments, then stamp one
   # usability column per profile declared below.
   - name: cascade_completeness
@@ -164,7 +164,7 @@ steps:
       # One boolean column per profile. A profile states its standard on two
       # axes, and every profile answers both, so a column's meaning reads off
       # this block without knowing a base rule. Consumers then name the profile
-      # they read (usability_profile, below). `complete` -- what the survey
+      # they read (usability_profile, below). `survey_complete` -- what the survey
       # collected -- is always available as the floor beneath all of them.
       #
       #   tour_closes_at:      primary_home  the tour returns to the home it left
@@ -279,7 +279,7 @@ steps:
       # the hierarchy, plus base_weight_<profile> on household_weights.
       #
       # Each parent's weight is spread across its usable children, so excluding a
-      # record does not shrink the expansion. Name `complete` here to weight the
+      # record does not shrink the expansion. Name `survey_complete` here to weight the
       # whole valid survey, partial and overnight tours included.
       #
       # Mutually exclusive with usability_profile, which weights one profile and

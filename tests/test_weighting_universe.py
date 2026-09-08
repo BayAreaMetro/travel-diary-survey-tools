@@ -86,6 +86,6 @@ class TestTheConfigUsesIt:
 
     def test_a_single_flag_without_the_gate_is_still_allowed(self):
         """It weights every complete household, which is a coherent thing to ask."""
-        assert _config(usability_profile="complete", exclude_incompletes=False).fitted_profiles == (
-            None,
-        )
+        assert _config(
+            usability_profile="survey_complete", exclude_incompletes=False
+        ).fitted_profiles == (None,)

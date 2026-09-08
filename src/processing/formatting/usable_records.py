@@ -507,18 +507,18 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
 
 
 def _completeness_split(df: pl.DataFrame) -> tuple[int, int]:
-    """Return (already_incomplete, newly_unusable) counts from the ``complete`` flag.
+    """Return (already_incomplete, newly_unusable) counts from the ``survey_complete`` flag.
 
     ``already_incomplete`` are records flagged incomplete (household / person /
     day cascade) — they were already excluded from the weighted model.
     ``newly_unusable`` are otherwise-complete records the profile still rejects.
-    When the ``complete`` column is absent (e.g. tests), everything is treated as
+    When the ``survey_complete`` column is absent (e.g. tests), everything is treated as
     newly unusable.
     """
     total = df.height
-    if "complete" not in df.columns:
+    if "survey_complete" not in df.columns:
         return 0, total
-    incomplete = df.filter(~pl.col("complete").fill_null(value=False)).height
+    incomplete = df.filter(~pl.col("survey_complete").fill_null(value=False)).height
     return incomplete, total - incomplete
 
 

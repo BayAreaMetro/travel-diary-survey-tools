@@ -8,11 +8,11 @@ reads the result.
 
 Two kinds of flag, computed side by side:
 
-- `complete` — survey reporting completeness (vendor-provided at the day level,
+- `survey_complete` — survey reporting completeness (vendor-provided at the day level,
   possibly adjusted by the project cleaner), cascaded through
   household ↔ person ↔ day ↔ trip/tour so it is internally consistent. One
   answer per run, never configurable.
-- **one column per usability profile** — the subset of `complete` that profile
+- **one column per usability profile** — the subset of `survey_complete` that profile
   admits. A project names its profiles in config, so several standards can
   coexist in one run and a column's meaning reads off the config.
 
@@ -55,8 +55,8 @@ whose:
 Two profiles can therefore never write the same column, whatever they are
 called: the families have disjoint prefixes, and a name is unique within one.
 
-`survey reporting completeness` sits outside all of it. `complete` and
-`hh_day_complete` record what the survey collected rather than what a model will
+`survey reporting completeness` sits outside all of it. `survey_complete` and
+`hh_day_survey_complete` record what the survey collected rather than what a model will
 take, so they carry no family prefix and are reserved — a profile may not take
 either name.
 

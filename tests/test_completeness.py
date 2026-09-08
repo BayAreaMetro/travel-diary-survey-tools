@@ -24,9 +24,9 @@ class TestRollupCompleteness:
     def _tables(self) -> dict:
         # person 1 (hh 1): day 1 complete, day 2 not. person 2 (hh 2): day 3 not.
         return {
-            "households": pl.DataFrame({"hh_id": [1, 2], "complete": [True, True]}),
+            "households": pl.DataFrame({"hh_id": [1, 2], "survey_complete": [True, True]}),
             "persons": pl.DataFrame(
-                {"person_id": [1, 2], "hh_id": [1, 2], "complete": [True, True]}
+                {"person_id": [1, 2], "hh_id": [1, 2], "survey_complete": [True, True]}
             ),
             "days": pl.DataFrame(
                 {
@@ -34,14 +34,18 @@ class TestRollupCompleteness:
                     "person_id": [1, 1, 2],
                     "hh_id": [1, 1, 2],
                     "travel_date": ["d1", "d2", "d1"],
-                    "complete": [True, False, False],
+                    "survey_complete": [True, False, False],
                 }
             ),
             "tours": pl.DataFrame(
-                {"tour_id": [1, 2, 3], "day_id": [1, 2, 3], "complete": [True, True, True]}
+                {"tour_id": [1, 2, 3], "day_id": [1, 2, 3], "survey_complete": [True, True, True]}
             ),
             "linked_trips": pl.DataFrame(
-                {"linked_trip_id": [1, 2, 3], "day_id": [1, 2, 3], "complete": [True, True, True]}
+                {
+                    "linked_trip_id": [1, 2, 3],
+                    "day_id": [1, 2, 3],
+                    "survey_complete": [True, True, True],
+                }
             ),
         }
 
@@ -49,14 +53,14 @@ class TestRollupCompleteness:
         """Person 1 has a complete day -> complete; person 2 has none -> incomplete."""
         tables = self._tables()
         rollup_completeness(tables)
-        assert tables["persons"].sort("person_id")["complete"].to_list() == [True, False]
+        assert tables["persons"].sort("person_id")["survey_complete"].to_list() == [True, False]
 
     def test_day_records_inherit_their_day(self):
         """A tour/trip is complete only if its day is (own AND day)."""
         tables = self._tables()
         rollup_completeness(tables)
-        assert tables["tours"].sort("tour_id")["complete"].to_list() == [True, False, False]
-        assert tables["linked_trips"].sort("linked_trip_id")["complete"].to_list() == [
+        assert tables["tours"].sort("tour_id")["survey_complete"].to_list() == [True, False, False]
+        assert tables["linked_trips"].sort("linked_trip_id")["survey_complete"].to_list() == [
             True,
             False,
             False,
@@ -65,9 +69,9 @@ class TestRollupCompleteness:
     def test_own_incomplete_survives_a_complete_day(self):
         """A record flagged incomplete stays incomplete even on a complete day."""
         tables = self._tables()
-        tables["tours"] = pl.DataFrame({"tour_id": [1], "day_id": [1], "complete": [False]})
+        tables["tours"] = pl.DataFrame({"tour_id": [1], "day_id": [1], "survey_complete": [False]})
         rollup_completeness(tables)
-        assert tables["tours"]["complete"].to_list() == [False]
+        assert tables["tours"]["survey_complete"].to_list() == [False]
 
     def test_household_needs_a_complete_household_day(self):
         """Hh 1 has a complete household-day (d1); hh 2 has none."""
@@ -75,21 +79,21 @@ class TestRollupCompleteness:
         rollup_completeness(tables)
         flag_household_day_complete(tables)
         rollup_household_complete(tables)
-        assert tables["households"].sort("hh_id")["complete"].to_list() == [True, False]
+        assert tables["households"].sort("hh_id")["survey_complete"].to_list() == [True, False]
 
     def test_idempotent(self):
         """Re-running the rollup never changes an already-rolled result."""
         tables = self._tables()
         rollup_completeness(tables)
-        once = tables["tours"].sort("tour_id")["complete"].to_list()
+        once = tables["tours"].sort("tour_id")["survey_complete"].to_list()
         rollup_completeness(tables)
-        assert tables["tours"].sort("tour_id")["complete"].to_list() == once
+        assert tables["tours"].sort("tour_id")["survey_complete"].to_list() == once
 
     def test_missing_tables_are_skipped(self):
         """Rollup tolerates a bare tables dict (no days)."""
-        tables = {"households": pl.DataFrame({"hh_id": [1], "complete": [False]})}
+        tables = {"households": pl.DataFrame({"hh_id": [1], "survey_complete": [False]})}
         rollup_completeness(tables)  # must not raise
-        assert tables["households"]["complete"].to_list() == [False]
+        assert tables["households"]["survey_complete"].to_list() == [False]
 
 
 def _gate_tables(
@@ -115,14 +119,14 @@ def _gate_tables(
     ]
     tour_complete = tour_complete or [True, True, True]
     return {
-        "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
-        "persons": pl.DataFrame({"person_id": [1], "hh_id": [1], "complete": [True]}),
-        "days": pl.DataFrame({"day_id": [1], "person_id": [1], "complete": [True]}),
+        "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
+        "persons": pl.DataFrame({"person_id": [1], "hh_id": [1], "survey_complete": [True]}),
+        "days": pl.DataFrame({"day_id": [1], "person_id": [1], "survey_complete": [True]}),
         "tours": pl.DataFrame(
             {
                 "tour_id": [1, 2, 3],
                 "day_id": [1, 1, 1],
-                "complete": tour_complete,
+                "survey_complete": tour_complete,
                 "tour_data_quality": tour_quality,
                 "tour_category": tour_category,
             }
@@ -132,7 +136,7 @@ def _gate_tables(
                 "linked_trip_id": [1, 2, 3],
                 "day_id": [1, 1, 1],
                 "tour_id": [1, 2, 3],
-                "complete": [True, True, True],
+                "survey_complete": [True, True, True],
             }
         ),
     }
@@ -148,11 +152,11 @@ class TestComputeModelUsable:
         assert tables["tours"].sort("tour_id")["usable_test"].to_list() == [True, False, False]
 
     def test_complete_is_never_overwritten(self):
-        """Partials/overnights remain valid survey data: `complete` is untouched."""
+        """Partials/overnights remain valid survey data: `survey_complete` is untouched."""
         tables = _gate_tables()
         compute_usability(tables, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
         # all three tours were reported completely, even though two are inadmissible
-        assert tables["tours"].sort("tour_id")["complete"].to_list() == [True, True, True]
+        assert tables["tours"].sort("tour_id")["survey_complete"].to_list() == [True, True, True]
 
     def test_member_trips_follow_their_tour(self):
         """A trip is usable only if its tour is."""
@@ -179,7 +183,7 @@ class TestComputeModelUsable:
         compute_usability(tables, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
         assert tables["days"]["usable_test"].to_list() == [False]
         # ...but it is still valid survey data
-        assert tables["days"]["complete"].to_list() == [True]
+        assert tables["days"]["survey_complete"].to_list() == [True]
 
     def test_no_travel_day_stays_usable(self):
         """A day with no tours at all is a legitimate home-all-day."""
@@ -197,7 +201,7 @@ class TestComputeModelUsable:
         tours/trips inherit the incompleteness downward.
         """
         tables = _gate_tables()
-        tables["days"] = pl.DataFrame({"day_id": [1], "person_id": [1], "complete": [False]})
+        tables["days"] = pl.DataFrame({"day_id": [1], "person_id": [1], "survey_complete": [False]})
         compute_usability(tables, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
         assert tables["persons"]["usable_test"].to_list() == [False]
         assert tables["days"]["usable_test"].to_list() == [False]
@@ -215,18 +219,18 @@ def _joint_tables(*, tour_usable: list[bool]):
     """A household on one day whose three tours form a single joint group."""
     n = len(tour_usable)
     return {
-        "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+        "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
         "persons": pl.DataFrame(
-            {"person_id": list(range(1, n + 1)), "hh_id": [1] * n, "complete": [True] * n}
+            {"person_id": list(range(1, n + 1)), "hh_id": [1] * n, "survey_complete": [True] * n}
         ),
-        "days": pl.DataFrame({"day_id": [1], "person_id": [1], "complete": [True]}),
+        "days": pl.DataFrame({"day_id": [1], "person_id": [1], "survey_complete": [True]}),
         "tours": pl.DataFrame(
             {
                 "tour_id": list(range(1, n + 1)),
                 "person_id": list(range(1, n + 1)),
                 "day_id": [1] * n,
                 "joint_tour_id": [10] * n,
-                "complete": [True] * n,
+                "survey_complete": [True] * n,
                 # Quality/category decide usability; drive them from tour_usable.
                 "tour_data_quality": [
                     TourDataQuality.VALID.value if u else TourDataQuality.NO_DESTINATION.value
@@ -241,11 +245,15 @@ def _joint_tables(*, tour_usable: list[bool]):
                 "day_id": [1] * n,
                 "tour_id": list(range(1, n + 1)),
                 "joint_trip_id": [20] * n,
-                "complete": [True] * n,
+                "survey_complete": [True] * n,
             }
         ),
-        "joint_trips": pl.DataFrame({"joint_trip_id": [20], "day_id": [1], "complete": [True]}),
-        "joint_tours": pl.DataFrame({"joint_tour_id": [10], "day_id": [1], "complete": [True]}),
+        "joint_trips": pl.DataFrame(
+            {"joint_trip_id": [20], "day_id": [1], "survey_complete": [True]}
+        ),
+        "joint_tours": pl.DataFrame(
+            {"joint_tour_id": [10], "day_id": [1], "survey_complete": [True]}
+        ),
     }
 
 
@@ -269,12 +277,12 @@ class TestJointGroupingsNeedTwoMembers:
     def test_joint_trip_follows_its_member_trips(self):
         """A joint trip whose tours were all dropped cannot stay usable.
 
-        Before this rule joint_trips gated on `complete` alone, so a joint trip
+        Before this rule joint_trips gated on `survey_complete` alone, so a joint trip
         survived its own members being dropped.
         """
         tables = _joint_tables(tour_usable=[False, False, False])
         compute_usability(tables, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
-        assert tables["joint_trips"]["complete"].to_list() == [True]
+        assert tables["joint_trips"]["survey_complete"].to_list() == [True]
         assert tables["joint_trips"]["usable_test"].to_list() == [False]
 
 
@@ -293,7 +301,7 @@ def _hh_day_tables(*, day_complete, dates, hh_ids, persons=None, surveyable=None
         {
             "person_id": sorted(set(people)),
             "hh_id": [hh_ids[people.index(p)] for p in sorted(set(people))],
-            "complete": [True] * len(set(people)),
+            "survey_complete": [True] * len(set(people)),
         }
     )
     if surveyable is not None:
@@ -302,7 +310,7 @@ def _hh_day_tables(*, day_complete, dates, hh_ids, persons=None, surveyable=None
         )
     return {
         "households": pl.DataFrame(
-            {"hh_id": sorted(set(hh_ids)), "complete": [True] * len(set(hh_ids))}
+            {"hh_id": sorted(set(hh_ids)), "survey_complete": [True] * len(set(hh_ids))}
         ),
         "persons": person_frame,
         "days": pl.DataFrame(
@@ -311,14 +319,14 @@ def _hh_day_tables(*, day_complete, dates, hh_ids, persons=None, surveyable=None
                 "person_id": people,
                 "hh_id": hh_ids,
                 "travel_date": dates,
-                "complete": day_complete,
+                "survey_complete": day_complete,
             }
         ),
         "tours": pl.DataFrame(
             {
                 "tour_id": day_ids,
                 "day_id": day_ids,
-                "complete": day_complete,
+                "survey_complete": day_complete,
                 "tour_data_quality": [TourDataQuality.VALID.value] * n,
                 "tour_category": [TourCategory.COMPLETE.value] * n,
             }
@@ -328,14 +336,14 @@ def _hh_day_tables(*, day_complete, dates, hh_ids, persons=None, surveyable=None
                 "linked_trip_id": day_ids,
                 "day_id": day_ids,
                 "tour_id": day_ids,
-                "complete": day_complete,
+                "survey_complete": day_complete,
             }
         ),
     }
 
 
 class TestHouseholdDayCoherence:
-    """hh_day_complete: a date is coherent only if ALL members reported it."""
+    """hh_day_survey_complete: a date is coherent only if ALL members reported it."""
 
     def test_all_members_complete_makes_the_household_day_complete(self):
         """One date, two members, both complete -> the household-day is coherent."""
@@ -346,7 +354,7 @@ class TestHouseholdDayCoherence:
             persons=[1, 2],
         )
         compute_usability(t, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
-        assert t["days"]["hh_day_complete"].to_list() == [True, True]
+        assert t["days"]["hh_day_survey_complete"].to_list() == [True, True]
         assert t["days"]["usable_test"].to_list() == [True, True]
 
     def test_one_incomplete_member_breaks_the_whole_household_day(self):
@@ -360,7 +368,7 @@ class TestHouseholdDayCoherence:
         compute_usability(t, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
         # member 1 reported a complete day, but member 2 did not, so the whole
         # household-date is incoherent and neither day is usable
-        assert t["days"]["hh_day_complete"].to_list() == [False, False]
+        assert t["days"]["hh_day_survey_complete"].to_list() == [False, False]
         assert t["days"]["usable_test"].to_list() == [False, False]
 
     def test_each_date_is_independent(self):
@@ -375,7 +383,7 @@ class TestHouseholdDayCoherence:
         compute_usability(t, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
         d = t["days"].sort("day_id")
         # date A (days 1,3) coherent; date B (days 2,4) not
-        assert d["hh_day_complete"].to_list() == [True, False, True, False]
+        assert d["hh_day_survey_complete"].to_list() == [True, False, True, False]
 
     def test_household_needs_one_complete_household_day(self):
         """One coherent date is enough to admit the household."""
@@ -417,7 +425,7 @@ class TestHouseholdDayCoherence:
         )
         compute_usability(t, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
         d = t["days"].sort("day_id")
-        assert d["hh_day_complete"].to_list() == [True, False]
+        assert d["hh_day_survey_complete"].to_list() == [True, False]
         assert d["usable_test"].to_list() == [True, False]
         # The household is admissible through its surveyable member's date.
         assert t["households"]["usable_test"].to_list() == [True]
@@ -436,7 +444,7 @@ class TestHouseholdDayCoherence:
             surveyable={2: 1},
         )
         compute_usability(t, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
-        assert t["days"].sort("day_id")["hh_day_complete"].to_list() == [False, False]
+        assert t["days"].sort("day_id")["hh_day_survey_complete"].to_list() == [False, False]
         assert t["households"]["usable_test"].to_list() == [False]
 
 
@@ -444,7 +452,7 @@ class TestUnflaggedMemberTablesRaise:
     """An unflagged member table must fail loudly, never silently pass.
 
     Each of these rules reads a child's ``usable``. If that column has not
-    been stamped yet the old guards fell back to bare ``complete``, which passes
+    been stamped yet the old guards fell back to bare ``survey_complete``, which passes
     every record -- the exact behaviour the rules exist to replace, with no error
     to notice. They now raise instead.
     """
@@ -471,7 +479,7 @@ class TestUnflaggedMemberTablesRaise:
     def test_partial_call_without_the_member_table_is_still_allowed(self):
         """Omitting the member table entirely is a legitimate partial call."""
         tables = _joint_tables(tour_usable=[True, True])
-        # No linked_trips at all -> joint_trips falls back to its own `complete`.
+        # No linked_trips at all -> joint_trips falls back to its own `survey_complete`.
         del tables["linked_trips"]
         del tables["joint_tours"]
         _flag_joint_groupings(tables, cols=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))

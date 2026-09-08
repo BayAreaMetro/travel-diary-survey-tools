@@ -112,7 +112,7 @@ steps:
       # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
       # internal junction jumps more than this many meters between one trip's
       # destination and the next trip's origin - a missing leg the extractor
-      # would otherwise weld into one "complete" tour. 1 km catches genuine
+      # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
 
@@ -134,7 +134,7 @@ steps:
           shapefile: "{{ TM1_shapefile_dir }}/bayarea_rtaz1454_rev1_WGS84.shp"
           zone_id_field: "TAZ1454"
 
-  # Cascade `complete` (survey reporting) through hh <-> person <-> day <->
+  # Cascade `survey_complete` (survey reporting) through hh <-> person <-> day <->
   # trip/tour so it is consistent with what the cleaner measured, then stamp one
   # usability column per profile declared below. The cleaner sets only the leaf
   # -- whether the vendor completed each person-day -- and everything above it is

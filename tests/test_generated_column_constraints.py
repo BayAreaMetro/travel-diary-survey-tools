@@ -25,7 +25,7 @@ HOUSEHOLD = {
     "residence_type": [1],
     "income_bin": [1],
     "num_vehicles": [1],
-    "complete": [True],
+    "survey_complete": [True],
 }
 
 
