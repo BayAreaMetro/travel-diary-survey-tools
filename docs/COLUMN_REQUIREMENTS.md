@@ -28,9 +28,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `residence_type` | ResidenceType |  |  |  |  | ✓ |
     | `income` | int or None | ≥ 0 |  |  |  |  |
     | `income_bin` | IncomeBroad |  |  |  | ✓ |  |
-    | `hh_weight` | float or None | ≥ 0 |  |  |  |  |
     | `num_vehicles` | int | ≥ 0 |  |  | ✓ |  |
-    | `complete` | bool |  |  |  |  |  |
+    | `survey_complete` | bool |  |  |  |  |  |
 
 === "persons"
 
@@ -64,8 +63,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `is_proxy` | bool or None |  |  |  |  | ✓ |
     | `surveyable` | bool or None |  |  |  |  |  |
     | `num_days_complete` | int | ≥ 0 |  |  |  |  |
-    | `complete` | bool or None |  |  |  |  |  |
-    | `person_weight` | float or None | ≥ 0 |  |  |  |  |
+    | `survey_complete` | bool or None |  |  |  |  |  |
 
 === "days"
 
@@ -76,9 +74,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `hh_id` | int | ≥ 1, FK → `households.hh_id` | ✓ | ✓ |  |
     | `travel_date` | datetime |  | ✓ |  |  |
     | `travel_dow` | TravelDow |  |  |  | ✓ |
-    | `complete` | bool or None |  | ✓ |  |  |
-    | `hh_day_complete` | bool or None |  |  |  |  |
-    | `day_weight` | float or None | ≥ 0 |  |  |  |
+    | `survey_complete` | bool or None |  | ✓ |  |  |
+    | `hh_day_survey_complete` | bool or None |  |  |  |  |
 
 === "unlinked_trips"
 
@@ -111,8 +108,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `depart_time` | datetime or None |  | ✓ | ✓ |  |  |
     | `arrive_time` | datetime or None |  | ✓ | ✓ |  |  |
     | `num_travelers` | int | ≥ 1 |  |  |  |  |
-    | `complete` | bool or None |  |  |  |  |  |
-    | `unlinked_trip_weight` | float or None | ≥ 0 |  |  |  |  |
+    | `survey_complete` | bool or None |  |  |  |  |  |
 
 === "linked_trips"
 
@@ -155,8 +151,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `dwell_duration_minutes` | int or None | ≥ 0 |  |  |  |  |  |
     | `o_location_type` | LocationType |  |  |  |  |  |  |
     | `d_location_type` | LocationType |  |  |  |  |  |  |
-    | `complete` | bool or None |  |  |  |  |  |  |
-    | `linked_trip_weight` | float or None | ≥ 0 |  |  |  |  |  |
+    | `survey_complete` | bool or None |  |  |  |  |  |  |
 
 === "tours"
 
@@ -191,5 +186,4 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `outbound_mode` | ModeType or None |  |  |  |  |  |
     | `inbound_mode` | ModeType or None |  |  |  |  |  |
     | `num_travelers` | int | ≥ 1 |  |  |  |  |
-    | `complete` | bool or None |  |  | ✓ |  |  |
-    | `tour_weight` | float or None | ≥ 0 |  |  |  |  |
+    | `survey_complete` | bool or None |  |  | ✓ |  |  |
