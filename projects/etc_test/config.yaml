@@ -83,15 +83,6 @@ steps:
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
 
-  # Cascade `complete` (survey reporting) through hh <-> person <-> day <->
-  # trip/tour so it is consistent with any upstream adjustments, and stamp
-  # `model_usable`: the subset of complete records admissible to the tour-based
-  # models (VALID tour structure + COMPLETE home-to-home category + household-
-  # day coherence). Parameterless: downstream consumers choose which flag to
-  # honour (weighting: usability_flag_col; formatters: drop_invalid_tours).
-  - name: cascade_completeness
-    validate_input: true
-
   - name: add_zone_ids
     validate_input: true
     params:
@@ -108,6 +99,28 @@ steps:
         - zone_name: "TAZ1454"
           shapefile: "{{ TM1_shapefile_dir }}/bayarea_rtaz1454_rev1_WGS84.shp"
           zone_id_field: "TAZ1454"
+
+  # Cascade `survey_complete` (what the vendor collected) through hh <-> person
+  # <-> day <-> trip/tour so it is consistent with any upstream adjustments,
+  # then stamp one boolean column per usability profile below.
+  #
+  # Two profiles are declared so the cost of each requirement is visible on this
+  # extract: `analysis` asks almost nothing, `ctramp` asks what the tour-based
+  # model actually needs. The gap between `usable_analysis` and `usable_ctramp`
+  # is the part of the vendor's data a model cannot take. See the bats_2023
+  # config for the full vocabulary of both axes.
+  - name: cascade_completeness
+    validate_input: true
+    params:
+      usability_profiles:
+        ctramp:
+          tour_closes_at: primary_home
+          household_day_needs: all_members
+          zone_coverage: TAZ1454
+        analysis:
+          tour_closes_at: anywhere
+          household_day_needs: nothing
+          zone_coverage: none
 
   # - name: final_check
   #   validate_input: true

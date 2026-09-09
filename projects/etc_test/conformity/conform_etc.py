@@ -112,7 +112,7 @@ def conform_households(etc_households: pl.DataFrame) -> pl.DataFrame:
         code_expr("Number Persons").alias("num_people_reported"),
         pl.lit(None, dtype=pl.Float64).alias("hh_weight"),
         # Placeholder: cascade_completeness derives this upward from the days.
-        pl.lit(value=True).alias("complete"),
+        pl.lit(value=True).alias("survey_complete"),
     )
 
 
@@ -216,7 +216,7 @@ def conform_persons(etc_persons: pl.DataFrame) -> pl.DataFrame:
         pl.lit(0, dtype=pl.Int64).alias("num_days_complete"),
         pl.lit(None, dtype=pl.Float64).alias("person_weight"),
         # Placeholder: cascade_completeness derives this upward from the days.
-        pl.lit(value=True).alias("complete"),
+        pl.lit(value=True).alias("survey_complete"),
         recode_expr(etc_persons, "Travel", MADE_TRAVEL, MadeTravel.MISSING.value).alias(
             "made_travel"
         ),
@@ -349,7 +349,7 @@ def conform_trips(etc_trips: pl.DataFrame) -> pl.DataFrame:
             & pl.col("d_lat").is_not_null()
             & pl.col("d_purpose").ne(Purpose.MISSING.value)
             & pl.col("mode_type").ne(ModeType.MISSING.value)
-        ).alias("complete")
+        ).alias("survey_complete")
     )
 
 
@@ -366,7 +366,7 @@ def conform_days(
     """
     diary_days = unlinked_trips.group_by(["hh_id", "person_id", "day_id", "travel_date_str"]).agg(
         pl.len().alias("num_trips"),
-        pl.col("complete").all().alias("_all_trips_surveyed"),
+        pl.col("survey_complete").all().alias("_all_trips_surveyed"),
     )
 
     hh_dates = etc_households.select(
@@ -398,7 +398,7 @@ def conform_days(
     declared_no_travel = (pl.col("made_travel") == MadeTravel.NO.value) & pl.col(
         "no_travel_reason"
     ).is_not_null()
-    complete = (
+    survey_complete = (
         pl.when(pl.col("num_trips") > 0)
         .then(pl.col("_all_trips_surveyed"))
         .otherwise(declared_no_travel)
@@ -421,7 +421,7 @@ def conform_days(
         # No day_weight column at all: this project runs no weighting, and an
         # all-null weight column reads as "weighted, every day zero", which the
         # CT-RAMP day filter takes literally and drops the whole extract.
-        complete.alias("complete"),
+        survey_complete.alias("survey_complete"),
     )
 
 
