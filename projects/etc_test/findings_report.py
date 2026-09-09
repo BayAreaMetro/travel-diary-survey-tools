@@ -1,34 +1,25 @@
 """The catalogue of vendor data checks, and the report that presents them.
 
-**This module does not check anything.**  The checking lives in
-``conformity/check_vendor_data.py``; what lives here is the *description* of
-each check and the code that turns a table of findings into a document.
+**This module does not check anything.** The checking lives in
+``conformity/check_vendor_data.py``, which emits one row per finding. What lives
+here is :data:`CHECKS` -- one entry per check name saying what it looks for, how
+it looks, and what the finding costs -- and the code that joins the two into a
+document. That description is the part a reader, or the vendor, needs in order
+to act on a finding or to argue with it.
 
-The flow is:
+Detection thresholds live here rather than in the checker so the sentence
+describing a rule and the number the rule enforces cannot drift apart;
+``check_vendor_data`` imports them from this module.
 
-1. ``conformity/check_vendor_data.py`` reads the raw vendor tables and emits
-   one row per finding: ``check``, ``severity``, ``hh_id``, ``person_num``,
-   ``trip_num``, ``detail``.  ``detail`` carries the evidence for that one row
-   (the age, the two timestamps, the counts that disagree).
-2. This module holds :data:`CHECKS`, one entry per check name, saying what the
-   check looks for, **how** it looks for it, and what the finding costs us.
-   That is the part a reader -- or the vendor -- needs in order to act on a
-   finding or to argue with it.
-3. :func:`render_markdown` joins the two and writes the report.
-
-The detection thresholds below are defined here rather than in the checker so
-the sentence describing a rule and the number the rule actually uses cannot
-drift apart; ``check_vendor_data`` imports them from this module.
-
-Run this file directly to rebuild the report from the findings CSV the
-pipeline already wrote -- useful after editing a description here, since it
-does not re-run the checks.
+Run this file directly to rebuild the report from the findings CSV the pipeline
+already wrote, without re-running the checks.
 """
 
 import argparse
 import json
 import logging
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -300,6 +291,36 @@ CHECKS: dict[str, Check] = {
     ),
 }
 
+#: Everything the report says before the per-check sections, including the
+#: summary table's header. Placeholders are filled by :func:`render_markdown`.
+#: Everything the report says before the findings themselves. Placeholders are
+#: filled by :func:`render_markdown`.
+PREAMBLE = """# ETC vendor test data: data quality findings
+
+**{n} findings across {n_households} households — {n_error} error, {n_warning} warning.**
+
+Every finding is a contradiction *within the vendor's own tables*, checkable \
+without reference to our schema. An **error** cannot be used as filed; a \
+**warning** survives but drops out of a later reduction. Coded answers are \
+decoded inline from the vendor's own `{codebook}`.
+
+Separately, the vendor's questionnaire cannot express some things our schema \
+needs; those are recorded in `conformity/mappings.py` and are requests to make \
+of the vendor rather than errors in the data.
+
+Generated {generated}{source}
+
+| Severity | Check | Findings | Households |
+| --- | --- | --- | --- |"""
+
+#: Closes the collapsed block holding the detection rules.
+DETECTION_HEADER = """## How each finding was detected
+
+<details>
+<summary>Detection rules, so any finding can be reproduced or disputed \
+without reading the code. Click to expand.</summary>
+"""
+
 
 def _cell(value: object) -> str:
     """Render one value for a Markdown cell, keeping blanks visibly blank."""
@@ -308,52 +329,100 @@ def _cell(value: object) -> str:
     return str(value).replace("|", "\\|")
 
 
-def _parse_evidence(row: dict) -> dict[str, str]:
-    """Decode one finding's evidence JSON, tolerating checks that carry none."""
-    raw = row.get("evidence")
-    if raw is None or raw == "":
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError) as exc:  # a malformed payload must never pass silently
-        msg = f"Finding for check {row.get('check')!r} has unreadable evidence: {raw!r}"
-        raise ValueError(msg) from exc
-    # Nulls are kept: for checks about a missing answer the empty field *is* the
-    # evidence, and dropping it would hide the point of the finding.
-    return parsed
+def _evidence(rows: pl.DataFrame) -> list[dict[str, str]]:
+    """Decode each finding's evidence JSON, tolerating checks that carry none.
+
+    Nulls are kept: for a check about a missing answer the empty field *is* the
+    evidence, and dropping it would hide the point of the finding.
+
+    Raises:
+        ValueError: A payload is malformed, which must never pass silently.
+    """
+    decoded = []
+    for row in rows.iter_rows(named=True):
+        raw = row.get("evidence")
+        if raw is None or raw == "":
+            decoded.append({})
+            continue
+        try:
+            decoded.append(json.loads(raw))
+        except (TypeError, ValueError) as exc:
+            msg = f"Finding for check {row.get('check')!r} has unreadable evidence: {raw!r}"
+            raise ValueError(msg) from exc
+    return decoded
 
 
-def _table(rows: pl.DataFrame) -> list[str]:
+def _cited_fields(evidence: list[dict[str, str]]) -> list[str]:
+    """The evidence field names, in first-seen order and without repeats."""
+    return list(dict.fromkeys(key for item in evidence for key in item))
+
+
+def _decoder(codebook_path: Path | None) -> Callable[[str, object], str]:
+    """Build the function that puts a coded answer's meaning beside the code.
+
+    The findings quote the vendor's raw numeric answers, which mean nothing on
+    their own -- ``Mode of Travel = 2`` is only intelligible next to the
+    vendor's label for 2. Decoding inline keeps the tables self-explanatory,
+    which is what lets the report carry no codebook appendix: a reader needs
+    the handful of values actually cited, not every code the field allows.
+
+    Fields the checker derives from a vendor column keep that column's name
+    with a prefix (``companion Mode of Travel``), so a prefixed field falls
+    back to the column it was derived from.
+
+    Args:
+        codebook_path: The vendor ``codebook.csv``. When absent, values are
+            rendered as filed.
+
+    Returns:
+        A function taking a field name and value, returning the cell text.
+    """
+    if codebook_path is None or not codebook_path.exists():
+        return lambda _field, value: _cell(value)
+
+    codebook = pl.read_csv(codebook_path, infer_schema_length=5000)
+    labels = {
+        (str(row["Column Name"]), str(row["Option Key"])): str(row["Value"])
+        for row in codebook.iter_rows(named=True)
+    }
+
+    def decode(field: str, value: object) -> str:
+        text = _cell(value)
+        if value is None or value == "":
+            return text
+        # Try the field itself, then the vendor column a derived field came from.
+        for name in (field, field.split(" ", 1)[-1]):
+            label = labels.get((name, str(value)))
+            if label:
+                return f"{text} ({label})"
+        return text
+
+    return decode
+
+
+def _table(rows: pl.DataFrame, decode: Callable[[str, object], str]) -> list[str]:
     """Render the findings of one check as a Markdown table.
 
     The values that triggered each finding become their own columns, so the
     reader sees the offending record rather than only a sentence about it.
-    Column names are the vendor's own, so they can be looked up in the codebook
-    appendix and in the vendor data dictionary.
+    Column names are the vendor's own, so they can be looked up in the vendor
+    data dictionary.
     """
-    evidence = [_parse_evidence(row) for row in rows.iter_rows(named=True)]
-    fields: list[str] = []
-    for item in evidence:
-        fields.extend(k for k in item if k not in fields)
-
-    header = ["Household", "Person", "Trip", *fields]
+    evidence = _evidence(rows)
+    fields = _cited_fields(evidence)
+    header = ["HH", "Person", "Trip", *fields]
     out = [
         "| " + " | ".join(header) + " |",
         "| " + " | ".join("---" for _ in header) + " |",
     ]
     for row, item in zip(rows.iter_rows(named=True), evidence, strict=True):
-        out.append(
-            "| "
-            + " | ".join(
-                [
-                    str(row["hh_id"]),
-                    "" if row["person_num"] is None else str(row["person_num"]),
-                    "" if row["trip_num"] is None else str(row["trip_num"]),
-                    *(_cell(item.get(f)) for f in fields),
-                ]
-            )
-            + " |"
-        )
+        cells = [
+            str(row["hh_id"]),
+            "" if row["person_num"] is None else str(row["person_num"]),
+            "" if row["trip_num"] is None else str(row["trip_num"]),
+            *(decode(field, item.get(field)) for field in fields),
+        ]
+        out.append("| " + " | ".join(cells) + " |")
     return out
 
 
@@ -388,6 +457,20 @@ def _validate(issues: pl.DataFrame) -> None:
         )
 
 
+def _detection_appendix(names: list[str]) -> list[str]:
+    """Collect every cited check's detection rule into one collapsed block.
+
+    Held back rather than repeated under each check: a reader deciding what to
+    fix needs the finding, and only a reader disputing one needs the rule.
+    """
+    lines = DETECTION_HEADER.splitlines()
+    for name in names:
+        check = CHECKS[name]
+        lines += ["", f"**`{name}`** — {check.detection} (`{check.source}()`)"]
+    lines += ["", "</details>"]
+    return lines
+
+
 def render_markdown(
     issues: pl.DataFrame,
     source: str | None = None,
@@ -399,49 +482,32 @@ def render_markdown(
         issues: The ``etc_data_issues`` frame from ``check_etc_data``.
         source: Optional description of the extract the findings came from.
         codebook_path: The vendor `codebook.csv`, used to decode the coded
-            values the findings quote. When omitted the report says the
-            values are undecoded rather than quietly leaving them bare.
+            values the findings quote. When omitted the values are rendered as
+            filed and the report says so.
 
     Returns:
         The report as one Markdown string.
     """
     _validate(issues)
 
-    generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     counts = Counter(issues["severity"].to_list())
-    n_households = issues["hh_id"].n_unique()
-
-    lines = [
-        "# ETC vendor test data: data quality findings",
-        "",
-        f"{issues.height} findings across {n_households} households "
-        f"({counts.get('error', 0)} error, {counts.get('warning', 0)} warning).",
-        "",
-        "Every finding below is a contradiction *within the vendor's own tables*: it "
-        "can be checked and corrected without reference to our schema or our codebook. "
-        "Separately from this, the vendor's questionnaire cannot express some things "
-        "our schema needs; those are recorded in `conformity/mappings.py` and are "
-        "requests to make of the vendor rather than errors in the data.",
-        "",
-        "Each check below states what it looks for, the rule used to find it, and what "
-        "accepting the record would cost, so any finding can be reproduced or disputed "
-        "without reading the code.",
-        "",
-        f"Generated {generated}"
-        + (f" from {source}." if source else ".")
-        + " Regenerate with `python -m projects.etc_test.run`, or rebuild this document "
-        "alone with `python projects/etc_test/findings_report.py`.",
-        "",
-        "## Summary",
-        "",
-        "| Severity | Check | Findings | Households |",
-        "| --- | --- | --- | --- |",
-    ]
+    # Ties on count are broken by check name so regenerating the report does not
+    # reshuffle its sections: two runs over the same findings must diff clean.
     summary = (
-        issues.group_by(["severity", "check"])
+        issues.group_by(["severity", "check"], maintain_order=True)
         .agg(pl.len().alias("n"), pl.col("hh_id").n_unique().alias("n_hh"))
-        .sort(["severity", "n"], descending=[False, True])
+        .sort(["severity", "n", "check"], descending=[False, True, False])
     )
+
+    lines = PREAMBLE.format(
+        n=issues.height,
+        n_households=issues["hh_id"].n_unique(),
+        n_error=counts.get("error", 0),
+        n_warning=counts.get("warning", 0),
+        codebook=codebook_path.name if codebook_path else CODEBOOK_FILENAME,
+        generated=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        source=f" from {source}." if source else ".",
+    ).splitlines()
     # Anchors are the heading text lowercased with spaces hyphenated; check names
     # have no spaces, so the underscores carry through to the fragment unchanged.
     lines.extend(
@@ -449,31 +515,26 @@ def render_markdown(
         for row in summary.iter_rows(named=True)
     )
 
+    decode = _decoder(codebook_path)
     for severity in SEVERITY_ORDER:
         subset = issues.filter(pl.col("severity") == severity)
         if subset.is_empty():
             continue
-        lines += ["", f"## {severity.capitalize()}s", "", SEVERITY_BLURB[severity], ""]
+        lines += ["", f"## {severity.capitalize()}s"]
         # Follow the summary table's order so the two read as one document.
-        ordered = summary.filter(pl.col("severity") == severity)["check"].to_list()
-        for name in ordered:
+        for name in summary.filter(pl.col("severity") == severity)["check"].to_list():
             rows = subset.filter(pl.col("check") == name)
             check = CHECKS[name]
             lines += [
+                "",
                 f"### {name}",
                 "",
-                f"{rows.height} finding(s). {check.summary}",
+                f"{check.summary} {check.cost}",
                 "",
-                f"- **How it is detected.** {check.detection}",
-                f"- **What it costs.** {check.cost}",
-                f"- **Implemented by.** `{check.source}()` in `conformity/check_vendor_data.py`",
-                "",
-                *_table(rows),
-                "",
+                *_table(rows, decode),
             ]
 
-    lines += _codebook_section(issues, codebook_path)
-
+    lines += ["", *_detection_appendix(summary["check"].to_list())]
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -483,15 +544,7 @@ def write_markdown(
     source: str | None = None,
     codebook_path: Path | None = None,
 ) -> Path:
-    """Write the Markdown report, creating the parent directory if needed.
-
-    Args:
-        issues: The ``etc_data_issues`` frame from ``check_etc_data``.
-        path: Destination for the report.
-        source: Optional description of the extract the findings came from.
-        codebook_path: The vendor `codebook.csv`, used to decode the coded
-            values the findings quote. When omitted the report says the
-            values are undecoded rather than quietly leaving them bare.
+    """Write :func:`render_markdown` to ``path``, creating the parent directory.
 
     Returns:
         The path written.
@@ -503,58 +556,8 @@ def write_markdown(
     return out
 
 
-def _codebook_section(issues: pl.DataFrame, codebook_path: Path | None) -> list[str]:
-    """Decode every coded field the findings quote, using the vendor's codebook.
-
-    The findings tables carry the vendor's raw numeric answers, which mean
-    nothing on their own -- ``Mode of Travel = 2`` is only intelligible next to
-    the vendor's own label for 2. Only the fields actually cited are listed, so
-    the appendix stays as short as the findings allow.
-
-    Args:
-        issues: The findings frame, read for the field names its evidence cites.
-        codebook_path: The vendor ``codebook.csv``. When absent the appendix is
-            replaced by a line saying so; it is never silently omitted.
-    """
-    cited: list[str] = []
-    for row in issues.iter_rows(named=True):
-        cited.extend(k for k in _parse_evidence(row) if k not in cited)
-    if not cited:
-        return []
-
-    lines = ["", "## Codebook", ""]
-    if codebook_path is None or not codebook_path.exists():
-        where = codebook_path or "an unknown location"
-        lines += [
-            f"The vendor codebook was not found at `{where}`, so the coded values above "
-            "are shown as filed and are not decoded here.",
-        ]
-        return lines
-
-    codebook = pl.read_csv(codebook_path, infer_schema_length=5000)
-    lines += [
-        "Values quoted in the tables above, decoded with the vendor's own "
-        f"`{codebook_path.name}`. Fields not listed here are free text, "
-        "coordinates, timestamps, or counts.",
-    ]
-    decoded = 0
-    for field in cited:
-        entries = codebook.filter(pl.col("Column Name") == field)
-        if entries.is_empty():
-            continue
-        decoded += 1
-        lines += ["", f"### {field}", "", "| Code | Meaning |", "| --- | --- |"]
-        lines += [
-            f"| {row['Option Key']} | {_cell(row['Value'])} |"
-            for row in entries.iter_rows(named=True)
-        ]
-    if not decoded:
-        lines += ["", "_None of the cited fields are coded; all are free values._"]
-    return lines
-
-
 def default_issues_path() -> Path:
-    """Find the findings CSV using the same directory the pipeline writes to.
+    """Find the findings CSV in the directory the pipeline writes to.
 
     Reads ``survey_dir`` out of the project config rather than keeping a second
     copy of that path here, so moving the data only means editing one file.
@@ -577,9 +580,8 @@ def main() -> None:
     """Re-render the report from the findings CSV the pipeline already wrote.
 
     The pipeline calls :func:`write_markdown` directly; this entry point exists
-    so the report can be rebuilt on its own after editing a description above,
-    without re-running the checks. With no arguments it uses the paths from
-    ``config.yaml``.
+    so the report can be rebuilt after editing a description above, without
+    re-running the checks. With no arguments it uses the paths from ``config.yaml``.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
