@@ -39,7 +39,7 @@ class TestAddExistingWeights:
         }
 
         result = add_existing_weights(
-            weights=weights_config, households=households, usability_flag_col="usable"
+            weights=weights_config, households=households, usability_profile="test"
         )
 
         assert "households" in result
@@ -78,7 +78,7 @@ class TestAddExistingWeights:
         }
 
         result = add_existing_weights(
-            weights=weights_config, persons=persons, usability_flag_col="usable"
+            weights=weights_config, persons=persons, usability_profile="test"
         )
 
         assert "persons" in result
@@ -112,12 +112,47 @@ class TestAddExistingWeights:
         }
 
         result = add_existing_weights(
-            weights=weights_config, unlinked_trips=trips, usability_flag_col="usable"
+            weights=weights_config, unlinked_trips=trips, usability_profile="test"
         )
 
         assert "unlinked_trips" in result
         assert "wt" in result["unlinked_trips"].columns
         assert result["unlinked_trips"]["wt"].to_list() == [2.0, 1.5, 1.8]
+
+    def test_custom_weight_column_name_is_redistributed(self, tmp_path):
+        """A kept vendor column is the one usability redistributes.
+
+        Under ``keep_name`` the vendor's column is the only record of where the
+        weight landed, so reaching for the canonical name instead reads a column
+        that was never created. Needs the usability column present, since that
+        is what makes the redistribution run at all.
+        """
+        trips = pl.DataFrame(
+            {
+                "unlinked_trip_id": [1, 2, 3],
+                "day_id": [1, 1, 1],
+                "usable_test": [True, True, False],
+            }
+        )
+
+        weight_file = tmp_path / "trip_weights.csv"
+        pl.DataFrame({"unlinked_trip_id": [1, 2, 3], "wt": [2.0, 1.5, 1.8]}).write_csv(weight_file)
+
+        result = add_existing_weights(
+            weights={
+                "unlinked_trip_weight": {
+                    "weight_path": str(weight_file),
+                    "weight_col": "wt",
+                    "keep_name": True,
+                }
+            },
+            unlinked_trips=trips,
+            usability_profile="test",
+        )
+
+        wt = result["unlinked_trips"]["wt"]
+        assert wt[2] == 0.0
+        assert wt.sum() == pytest.approx(5.3)
 
     def test_derive_person_weights_from_household(self, tmp_path):
         """Test deriving person weights from household weights."""
@@ -161,7 +196,7 @@ class TestAddExistingWeights:
             households=households,
             persons=persons,
             derive_missing_weights=True,
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Check households have weights
@@ -211,7 +246,7 @@ class TestAddExistingWeights:
             unlinked_trips=unlinked_trips,
             linked_trips=linked_trips,
             derive_missing_weights=True,
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Check linked trips have derived weights (mean of component trips, excluding zeros)
@@ -256,7 +291,7 @@ class TestAddExistingWeights:
             unlinked_trips=unlinked_trips,
             linked_trips=linked_trips,
             derive_missing_weights=True,
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Linked trip 1: mean(1.0) = 1.0 (zero excluded)
@@ -282,7 +317,7 @@ class TestAddExistingWeights:
 
         with pytest.raises(ValueError, match="Invalid weight config key"):
             add_existing_weights(
-                weights=weights_config, households=households, usability_flag_col="usable"
+                weights=weights_config, households=households, usability_profile="test"
             )
 
     def test_error_on_missing_weight_path(self):
@@ -301,7 +336,7 @@ class TestAddExistingWeights:
 
         with pytest.raises(ValidationError):
             add_existing_weights(
-                weights=weights_config, households=households, usability_flag_col="usable"
+                weights=weights_config, households=households, usability_profile="test"
             )
 
     def test_error_on_nonexistent_file(self):
@@ -320,7 +355,7 @@ class TestAddExistingWeights:
 
         with pytest.raises(FileNotFoundError, match="Weight file does not exist"):
             add_existing_weights(
-                weights=weights_config, households=households, usability_flag_col="usable"
+                weights=weights_config, households=households, usability_profile="test"
             )
 
     def test_error_on_missing_id_column_in_weight_file(self, tmp_path):
@@ -348,7 +383,7 @@ class TestAddExistingWeights:
 
         with pytest.raises(ValueError, match="missing required ID column"):
             add_existing_weights(
-                weights=weights_config, households=households, usability_flag_col="usable"
+                weights=weights_config, households=households, usability_profile="test"
             )
 
     def test_error_on_missing_weight_column(self, tmp_path):
@@ -376,7 +411,7 @@ class TestAddExistingWeights:
 
         with pytest.raises(ValueError, match="missing required weight column"):
             add_existing_weights(
-                weights=weights_config, households=households, usability_flag_col="usable"
+                weights=weights_config, households=households, usability_profile="test"
             )
 
     def test_multiple_tables_with_weights(self, tmp_path):
@@ -424,7 +459,7 @@ class TestAddExistingWeights:
             weights=weights_config,
             households=households,
             persons=persons,
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         assert "hh_weight" in result["households"].columns
@@ -452,7 +487,7 @@ class TestAddExistingWeights:
         result = add_existing_weights(
             weights=weights_config,
             households=None,  # Table not provided
-            usability_flag_col="usable",
+            usability_profile="test",
         )
 
         # Should not raise error, just log warning
@@ -484,7 +519,7 @@ class TestAddExistingWeights:
         }
 
         result = add_existing_weights(
-            weights=weights_config, households=households, usability_flag_col="usable"
+            weights=weights_config, households=households, usability_profile="test"
         )
 
         assert "hh_weight" in result["households"].columns
@@ -517,7 +552,7 @@ class TestAddExistingWeights:
         }
 
         result = add_existing_weights(
-            weights=weights_config, persons=persons, usability_flag_col="usable"
+            weights=weights_config, persons=persons, usability_profile="test"
         )
 
         assert "person_weight" in result["persons"].columns
@@ -529,7 +564,7 @@ class TestSuppliedTotalPreserved:
 
     The vendor's anchor cannot be re-balanced from here -- their weights already
     sum to their population estimate -- so dropping records must leave each
-    table's supplied total intact. These use ``complete`` rather than the
+    table's supplied total intact. These use ``survey_complete`` rather than the
     default ``usable``, since the fixtures carry no tour structure.
     """
 
@@ -539,7 +574,7 @@ class TestSuppliedTotalPreserved:
             {
                 "hh_id": [1, 2, 3, 4],
                 "hh_size": [2, 3, 1, 2],
-                "complete": [True, True, False, True],
+                "survey_complete": [True, True, False, True],
             }
         )
 
@@ -555,7 +590,7 @@ class TestSuppliedTotalPreserved:
         result = add_existing_weights(
             weights=self._weights_config(tmp_path),
             households=self._households(),
-            usability_flag_col="complete",
+            usability_profile="survey_complete",
         )
         weights = result["households"].sort("hh_id")["hh_weight"].to_list()
         # hh 3 (incomplete) stays 0; the supplied total of 100 is retained
@@ -579,7 +614,7 @@ class TestSuppliedTotalPreserved:
                 "day_id": [10, 20, 30, 40],
                 "person_id": [1, 1, 2, 2],
                 "hh_id": [1, 1, 1, 1],
-                "complete": [True, False, True, True],
+                "survey_complete": [True, False, True, True],
             }
         )
         weight_file = tmp_path / "day_weights.csv"
@@ -590,7 +625,7 @@ class TestSuppliedTotalPreserved:
         result = add_existing_weights(
             weights={"day_weight": {"weight_path": str(weight_file)}},
             days=days,
-            usability_flag_col="complete",
+            usability_profile="survey_complete",
         )
         weights = result["days"].sort("day_id")["day_weight"].to_list()
         # Person 1: 20 supplied over one usable day; person 2: unchanged.
@@ -599,7 +634,7 @@ class TestSuppliedTotalPreserved:
 
     def test_missing_scope_column_raises(self, tmp_path):
         """Days without person_id cannot be conserved as declared, so this fails loudly."""
-        days = pl.DataFrame({"day_id": [10, 20], "hh_id": [1, 1], "complete": [True, False]})
+        days = pl.DataFrame({"day_id": [10, 20], "hh_id": [1, 1], "survey_complete": [True, False]})
         weight_file = tmp_path / "day_weights.csv"
         pl.DataFrame({"day_id": [10, 20], "day_weight": [10.0, 10.0]}).write_csv(weight_file)
 
@@ -607,17 +642,19 @@ class TestSuppliedTotalPreserved:
             add_existing_weights(
                 weights={"day_weight": {"weight_path": str(weight_file)}},
                 days=days,
-                usability_flag_col="complete",
+                usability_profile="survey_complete",
             )
 
     def test_no_usable_record_is_safe(self, tmp_path):
         """If nothing is usable there is nowhere to put the weight; no error."""
-        households = pl.DataFrame({"hh_id": [1, 2], "hh_size": [2, 3], "complete": [False, False]})
+        households = pl.DataFrame(
+            {"hh_id": [1, 2], "hh_size": [2, 3], "survey_complete": [False, False]}
+        )
         weight_file = tmp_path / "hh_weights.csv"
         pl.DataFrame({"hh_id": [1, 2], "hh_weight": [10.0, 20.0]}).write_csv(weight_file)
         result = add_existing_weights(
             weights={"hh_weight": {"weight_path": str(weight_file)}},
             households=households,
-            usability_flag_col="complete",
+            usability_profile="survey_complete",
         )
         assert result["households"]["hh_weight"].to_list() == [0.0, 0.0]

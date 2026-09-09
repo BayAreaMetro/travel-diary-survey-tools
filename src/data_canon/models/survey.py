@@ -12,7 +12,7 @@ Any field without None as an allowed type is considered required core data.
 
 Two kinds of flag answer two different questions and must not be conflated:
 
-* ``complete`` -- *did we collect this record?* Survey reporting completeness,
+* ``survey_complete`` -- *did we collect this record?* Survey reporting completeness,
   cascaded from household down. Partial and overnight tours stay ``True``: they
   are valid survey data, useful for survey analysis. Declared here, because
   every run produces it.
@@ -20,12 +20,21 @@ Two kinds of flag answer two different questions and must not be conflated:
   record?* Reporting completeness AND an admissible tour structure.
 
 The usability columns are deliberately **not** declared below. A project names
-its profiles in config -- ``ctramp_usable`` and ``analysis_usable`` are this
+its profiles in config -- ``ctramp`` and ``analysis`` are this
 project's names, not the schema's -- so which of them a run produces is a
 project's choice. Declaring one would promise a column that a config need never
 ask for. ``cascade_completeness`` registers whichever it stamps as generated
 columns, each described by what it admits, which says more than a fixed field
 could: the description names the actual rules that profile relaxed.
+
+The **weight** columns are absent for the same reason. A weighting run fits each
+profile it is given and suffixes that profile's name onto every weight it writes
+(``hh_weight_ctramp``), and the un-suffixed spelling is just a single
+profile's weights with the label left off -- there is no unprofiled weight to
+declare. The weighting registers what it wrote, carrying both what the number
+counts and that it cannot be negative, so these columns are still described and
+still checked. See [`processing.weighting.core.hierarchy`]
+[processing.weighting.core.hierarchy].
 
 See [`processing.completeness`][processing.completeness] for the per-level rules
 and the admission vocabulary.
@@ -81,9 +90,8 @@ class HouseholdModel(BaseModel):
     residence_type: ResidenceType = schema_field()
     income: int | None = schema_field(ge=0, default=None)
     income_bin: IncomeBroad = schema_field()
-    hh_weight: float | None = schema_field(ge=0)
     num_vehicles: int = schema_field(ge=0)
-    complete: bool = schema_field()
+    survey_complete: bool = schema_field()
 
 
 class PersonModel(BaseModel):
@@ -149,8 +157,7 @@ class PersonModel(BaseModel):
         ),
     )
     num_days_complete: int = schema_field(ge=0, default=0)
-    complete: bool | None = schema_field(default=None)
-    person_weight: float | None = schema_field(default=None, ge=0)
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class PersonDayModel(BaseModel):
@@ -170,8 +177,8 @@ class PersonDayModel(BaseModel):
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
-    complete: bool | None = schema_field(default=False)
-    hh_day_complete: bool | None = schema_field(
+    survey_complete: bool | None = schema_field(default=False)
+    hh_day_survey_complete: bool | None = schema_field(
         default=None,
         description=(
             "Household-day coherence: every member of the household reported a "
@@ -180,11 +187,10 @@ class PersonDayModel(BaseModel):
             "asks for whole household-days, a day is only usable within one."
         ),
     )
-    # The usable-side mirror of hh_day_complete is now stamped once per
+    # The usable-side mirror of hh_day_survey_complete is now stamped once per
     # usability profile, as hh_day_{profile}. Those names come from config, so
     # they cannot be model fields; cascade_completeness registers them as
     # generated columns with a description of what each one gated.
-    day_weight: float | None = schema_field(default=None, ge=0)
 
 
 class UnlinkedTripModel(BaseModel):
@@ -228,8 +234,7 @@ class UnlinkedTripModel(BaseModel):
     depart_time: datetime | None = schema_field()
     arrive_time: datetime | None = schema_field()
     num_travelers: int = schema_field(ge=1)
-    complete: bool | None = schema_field(default=None)
-    unlinked_trip_weight: float | None = schema_field(default=None, ge=0)
+    survey_complete: bool | None = schema_field(default=None)
 
     # You can add custom row-level validators here
     # Don't confuse with the constom DataFrame-level validators elsewhere
@@ -366,8 +371,7 @@ class LinkedTripModel(BaseModel):
     d_location_type: LocationType = schema_field(
         description="Classified location type of the trip destination (Home/Work/School/Other).",
     )
-    complete: bool | None = schema_field(default=None)
-    linked_trip_weight: float | None = schema_field(default=None, ge=0)
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class TourModel(BaseModel):
@@ -454,8 +458,7 @@ class TourModel(BaseModel):
     outbound_mode: ModeType | None = schema_field()
     inbound_mode: ModeType | None = schema_field()
     num_travelers: int = schema_field(ge=1, default=1)
-    complete: bool | None = schema_field(default=None)
-    tour_weight: float | None = schema_field(default=None, ge=0)
+    survey_complete: bool | None = schema_field(default=None)
 
     @model_validator(mode="after")
     def validate_complete_tours(self) -> "TourModel":
@@ -523,17 +526,7 @@ class JointTripModel(BaseModel):
             "does not track which members the weighting later excluded."
         ),
     )
-    complete: bool | None = schema_field(default=None)
-    joint_trip_weight: float | None = schema_field(
-        default=None,
-        ge=0,
-        description=(
-            "Person-trips represented: the SUM of the member `linked_trip_weight`, "
-            "so the record stands for its whole party. Same unit as `linked_trips`, "
-            "which this table OVERLAYS rather than partitions, so "
-            "`sum(linked) + sum(joint)` double counts."
-        ),
-    )
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class JointTourModel(BaseModel):
@@ -560,16 +553,7 @@ class JointTourModel(BaseModel):
             "which members the weighting excluded."
         ),
     )
-    complete: bool | None = schema_field(default=None)
-    joint_tour_weight: float | None = schema_field(
-        default=None,
-        ge=0,
-        description=(
-            "Person-tours represented: the SUM of the member `tour_weight`. Same "
-            "unit as `tours`, which this table OVERLAYS rather than partitions, "
-            "so `sum(tours) + sum(joint_tours)` double counts."
-        ),
-    )
+    survey_complete: bool | None = schema_field(default=None)
 
 
 class HabitualLocationModel(BaseModel):

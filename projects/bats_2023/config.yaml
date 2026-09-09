@@ -3,13 +3,29 @@
 
 # config.yaml
 
-# Define directory shorthands
-survey_dir: "M:/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
-weights_dir: "X:/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"
-pums_dir: "M:/Data/Census/PUMS/2023_1yr"
-output_dir: "E:/Box/Modeling and Surveys/Surveys/Travel Diary Survey/BATS_across_years/20260327"
-TM1_shapefile_dir: "E:/GitHub/travel-model-one/utilities/geographies"
-TM2_shapefile_dir: "E:/GitHub/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles"
+# Directory shorthands.
+#
+# Paths are built from *roots* -- MTC_DATA, BOX_DIR, TM1_CLONE and so on -- which
+# say where a shared location is mounted on this machine. Roots come from your
+# environment or a `.env` file beside the project; see `example.env` for the
+# ones this config needs. A root that is referenced but set nowhere is an error
+# naming the root, before the pipeline starts.
+#
+# Only the root is machine-specific. Everything below it is the same for
+# everyone and belongs here, where it can be reviewed.
+#
+# A root that genuinely is the same everywhere can be given a committed default
+# in an `ENVS` block, which the environment still wins over:
+#
+#   ENVS:
+#     SOME_SHARED_ROOT: "/opt/shared"
+#
+survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
+weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"
+pums_dir: "{{ MTC_DATA }}/Data/Census/PUMS/2023_1yr"
+output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
+TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
 
 # Pipeline configuration
@@ -132,7 +148,7 @@ steps:
       # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
       # internal junction jumps more than this many meters between one trip's
       # destination and the next trip's origin - a missing leg the extractor
-      # would otherwise weld into one "complete" tour. 1 km catches genuine
+      # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
 
@@ -154,7 +170,7 @@ steps:
           shapefile: "{{ TM1_shapefile_dir }}/bayarea_rtaz1454_rev1_WGS84.shp"
           zone_id_field: "TAZ1454"
 
-  # Cascade `complete` (survey reporting) through hh <-> person <-> day <->
+  # Cascade `survey_complete` (survey reporting) through hh <-> person <-> day <->
   # trip/tour so it is consistent with any upstream adjustments, then stamp one
   # usability column per profile declared below.
   - name: cascade_completeness
@@ -164,7 +180,7 @@ steps:
       # One boolean column per profile. A profile states its standard on two
       # axes, and every profile answers both, so a column's meaning reads off
       # this block without knowing a base rule. Consumers then name the profile
-      # they read (usability_flag_col, below). `complete` -- what the survey
+      # they read (usability_profile, below). `survey_complete` -- what the survey
       # collected -- is always available as the floor beneath all of them.
       #
       #   tour_closes_at:      primary_home  the tour returns to the home it left
@@ -197,15 +213,15 @@ steps:
       # No setting admits a tour with a missing leg or no activity to anchor on.
       # Those are missing data, not an open end.
       usability_profiles:
-        ctramp_usable:
+        ctramp:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: TAZ1454
-        daysim_usable:
+        daysim:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: taz
-        analysis_usable:
+        analysis:
           tour_closes_at: anywhere
           household_day_needs: nothing
           zone_coverage: none
@@ -271,13 +287,27 @@ steps:
       # keep incomplete households in the seed and give them computed weights.
       exclude_incompletes: true
 
-      # Which flag decides who carries weight. Name one of the profiles
-      # cascade_completeness stamps above, so the weighted tour universe matches
-      # what that consumer keeps -- or `complete` to weight the whole valid
-      # survey, including partial/overnight tours (survey-analysis weights).
-      # Each parent's weight is spread across its usable children, so dropping a
-      # record does not shrink the expansion.
-      usability_flag_col: ctramp_usable
+      # -- One balancing run per profile -------------------------------
+      # Each profile named here is fitted separately, and its own flag is the
+      # seed filter -- so every fit expands its own universe onto the controls
+      # and nothing is derived or rescaled from another fit. Columns carry the
+      # profile name verbatim: hh_weight_ctramp, person_weight_..., down
+      # the hierarchy, plus base_weight_<profile> on household_weights.
+      #
+      # Each parent's weight is spread across its usable children, so excluding a
+      # record does not shrink the expansion. Name `survey_complete` here to weight the
+      # whole valid survey, partial and overnight tours included.
+      #
+      # Mutually exclusive with usability_profile, which weights one profile and
+      # writes the un-suffixed columns.
+      weight_profiles: [ctramp, daysim, analysis]
+
+      # Homes outside the control geography (region_county.shp, strict
+      # point-in-polygon -- no snap tolerance, unlike add_zone_ids) belong to no
+      # balancing zone and can carry no fitted weight. Error above this share
+      # rather than returning nulls quietly. Measured 0.00% on 2019 and 2023, so
+      # this is a tripwire for a misconfigured geography, not a routine dial.
+      max_unplaceable_share: 0.01
 
       # -- EF grid search (optional) -----------------------------------
       # Re-run balancing across a grid of max_expansion_factor values and
@@ -398,7 +428,9 @@ steps:
   #   cache: false
   #   params:
   #     derive_missing_weights: true
-  #     usability_flag_col: ctramp_usable  # supplied weights are redistributed onto usable records, preserving each supplied total
+  #     # Supplied weights are redistributed onto each profile's usable records,
+  #     # preserving each supplied total -- a vendor's anchor cannot be re-balanced.
+  #     weight_profiles: [ctramp, daysim, analysis]
   #     weights:
   #       hh_weight:
   #         weight_path: "{{ weights_dir }}/hh_weights.csv"
@@ -420,7 +452,7 @@ steps:
     validate_input: true
     cache: false
     params:
-      usability_flag_col: ctramp_usable
+      usability_profile: ctramp
       # Income thresholds (in year 2000 dollars, per CT-RAMP convention).
       # From MTC CT-RAMP INCOME_SEGMENT_DOLLAR_LIMITS = {30000, 60000, 100000, MAX}:
       # https://github.com/BayAreaMetro/travel-model-one/blob/a1c6cfb48ed3397a436170d810db91c5f9474c08/core/projects/mtc/src/java/com/pb/mtc/ctramp/MtcModelStructure.java#L14
@@ -451,7 +483,7 @@ steps:
       # Which profile decides the tour universe. DaySim and CT-RAMP name their
       # own, so a project can let them differ -- but while both say the same
       # thing, both outputs describe the same tours.
-      usability_flag_col: daysim_usable
+      usability_profile: daysim
 
   - name: write_data
     validate_input: true
