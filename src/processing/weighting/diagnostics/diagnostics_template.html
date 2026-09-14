@@ -30,21 +30,38 @@
 <h1>{{ title }}</h1>
 
 {% if imputation_table %}
-<h2>0 &mdash; Data Quality &amp; Imputation</h2>
+<h2>0 &mdash; Fractional Seed Imputation</h2>
+<p class="note" style="border-left:3px solid #ccc; padding-left:.8rem;">
+  <b>This is not the survey <code>imputation</code> step, and nothing here changes survey data.</b>
+  That step makes a discrete decision &mdash; it picks a value for a missing field and writes it
+  into the canonical tables, where every downstream consumer reads it.  What is reported below
+  happens only inside this weighting run, on the seed incidence matrix, and is discarded once the
+  weights are fitted.  The control totals are never touched: they come from PUMS and stay fixed.
+</p>
 <p class="note">
-  Controls with null survey values are imputed using Random Forest predicted class-membership
-  probabilities trained on complete PUMS microdata.  The table below shows the null rate and
-  RF cross-validated diagnostics for each control.  Controls exceeding 25% null are flagged &mdash;
-  consider removing them as targets if imputation quality (log_loss, F1) is poor.<br><br>
-  &bull; <b>log_loss</b>: Cross-entropy between predicted probabilities and true labels (lower is better; &lt;&thinsp;0.5 is good).<br>
+  A household with a null control value contributes an all-zero row to that control's incidence
+  block &mdash; it still counts in <code>h_total</code>, but it silently drops out of that one
+  constraint, as if it had been deleted from the gender table alone.  Rather than let that happen,
+  those zeros are replaced with class-membership probabilities from a Random Forest trained on
+  complete PUMS microdata: a record becomes, say, 0.6&thinsp;male and 0.4&thinsp;female.  The
+  balancer accepts non-negative floats, so a fractional row is valid input (fractional imputation,
+  Kim &amp; Fuller 2004).  It is a last resort that keeps a record in the constraint, not a
+  statement about what that household actually is.<br><br>
+  Read the table as <i>how much of the seed leaned on this</i>, and how trustworthy the lean was.
+  Controls exceeding 25% null are flagged &mdash; consider removing them as targets if the RF
+  quality is also poor, since at that point the constraint is being met largely by predictions.<br>
+  &bull; <b>Null&nbsp;%</b>: share of seed rows whose incidence block for this control was empty.<br>
+  &bull; <b>log_loss</b>: Cross-entropy between predicted probabilities and true labels, cross-validated on the PUMS training data (lower is better; &lt;&thinsp;0.5 is good).<br>
   &bull; <b>F1</b>: Macro-averaged F1 score across all categories (higher is better; &gt;&thinsp;0.7 is good).<br>
+  &bull; A dash means no model was fitted &mdash; the control had no nulls, or a category had too few training records to cross-validate.<br>
 </p>
 {{ imputation_table }}
 {% if imputation_chart %}
 <p class="note">
-  Category shares for imputed controls.  Each survey bar is split into the
+  Category shares for the controls that needed filling.  Each survey bar is split into the
   <b>observed</b> (pre-imputation) portion and the <b>imputed</b> (RF-predicted)
-  contribution.  The PUMS bar provides the reference distribution.
+  contribution, so the imputed segment shows how much of that category's mass is prediction
+  rather than response.  The PUMS bar provides the reference distribution.
   All counts are unweighted.  Large discrepancies suggest the RF predictions
   may not generalise well to the survey population.
 </p>

@@ -3,6 +3,10 @@
 Produces a self-contained interactive HTML report (Plotly + Jinja2, no
 external dependencies) with the following sections:
 
+0. **Fractional Seed Imputation** — per-control null rate in the seed
+   incidence matrix and the quality of the PUMS-trained model that filled
+   it.  Shown only when something was filled.  This describes the seed
+   handed to the balancer, not the survey ``imputation`` pipeline step.
 1. **Crosswalk Map** — geographic crosswalk visualization.
 2. **Convergence & Weight Summary** — per-zone convergence status,
    weight sums, ESS%, and CV.

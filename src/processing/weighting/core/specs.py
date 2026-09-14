@@ -108,9 +108,15 @@ class IncidenceBundle:
 
 @dataclass
 class ImputationSummary:
-    """Per-control imputation metadata for diagnostics.
+    """Per-control fractional seed imputation metadata for diagnostics.
 
-    One entry per control target, regardless of whether imputation was
+    Describes what [`fill_null_incidence`]
+    [processing.weighting.data_prep.fractional_impute.fill_null_incidence]
+    filled in the seed incidence matrix -- never the survey ``imputation``
+    step, which writes discrete values to canonical data and is reported
+    separately.
+
+    One entry per control target, regardless of whether any filling was
     needed.  Controls with no nulls have ``n_null == 0`` and ``None``
     for the RF metrics.
     """

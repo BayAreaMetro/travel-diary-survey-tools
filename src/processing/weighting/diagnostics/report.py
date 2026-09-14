@@ -97,7 +97,7 @@ def generate_report(  # noqa: PLR0913
 
     zf = zone_fit_summary(fit, target_names)
 
-    # Section 0 — Data quality & imputation
+    # Section 0 — Fractional seed imputation
     if imputation_summary:
         imp_table_html = imputation_summary_table(imputation_summary)
         imputed_controls = [s.control for s in imputation_summary if s.n_null > 0]

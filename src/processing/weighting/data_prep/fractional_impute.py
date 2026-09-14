@@ -10,6 +10,16 @@ trained on complete PUMS data, implementing *fractional imputation*
 The max-entropy balancer accepts non-negative floats in the incidence
 matrix, so fractional entries are valid without modification.
 
+This is not the survey ``imputation`` step (:mod:`processing.imputation`),
+and the two should not be read as versions of each other.  That step decides
+a value for a missing field and writes it into canonical data, where every
+downstream consumer sees it.  This one decides nothing: it spreads a record
+across a control's categories, only inside the seed incidence matrix, only
+for this balancing run, and the matrix is discarded once weights are fitted.
+Control totals are never touched -- they come from PUMS and stay fixed.
+It is a last resort that keeps a record in a constraint it would otherwise
+drop out of, not a statement about what that record is.
+
 Public API
 ----------
 :func:`fill_null_incidence`

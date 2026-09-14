@@ -289,7 +289,7 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Imputation distribution chart
+# Fractional seed imputation chart
 # ---------------------------------------------------------------------------
 
 
@@ -303,10 +303,11 @@ def imputation_distribution_figure(
 ) -> go.Figure:
     """Stacked bar chart: observed + imputed contribution vs PUMS shares.
 
-    For each imputed control the survey bar is split into two stacked
+    For each filled control the survey bar is split into two stacked
     segments — *Observed* (pre-imputation, unweighted) and *Imputed*
-    (the RF-predicted fractional contribution).  A separate PUMS bar
-    provides the reference distribution.
+    (the RF-predicted fractional contribution), so the second segment
+    shows how much of a category's mass is prediction rather than
+    response.  A separate PUMS bar provides the reference distribution.
 
     When *pre_imputation* is ``None`` the chart falls back to a single
     post-imputation bar (no stacking).

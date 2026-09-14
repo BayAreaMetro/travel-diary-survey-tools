@@ -107,17 +107,19 @@ def _html_table(
 
 
 # ---------------------------------------------------------------------------
-# Section 0 — Data Quality & Imputation
+# Section 0 — Fractional seed imputation
 # ---------------------------------------------------------------------------
 
 _HIGH_NULL_PCT = 25
 
 
 def imputation_summary_table(summaries: list[ImputationSummary]) -> str:
-    """Generate the imputation summary table (Section 0 of diagnostics report).
+    """Generate the fractional seed imputation table (Section 0 of diagnostics report).
 
-    One row per control showing null count, null share, RF cross-validated
-    log-loss and F1, and an overall status indicator.
+    One row per control showing how many seed rows had an empty incidence block
+    for it, plus the cross-validated log-loss and F1 of the PUMS-trained model
+    that filled them.  Describes the seed the balancer was handed -- not the
+    survey ``imputation`` step, which writes discrete values to canonical data.
     """
     headers = [
         "Control",
