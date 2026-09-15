@@ -280,13 +280,6 @@ steps:
       # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
       moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
 
-      # -- Completeness handling ---------------------------------------
-      # Drop incomplete households from the balancing seed and set their final
-      # weights to 0 (they are retained in the output). The balancer spreads each
-      # zone's population across the surviving complete respondents. Set false to
-      # keep incomplete households in the seed and give them computed weights.
-      exclude_incompletes: true
-
       # -- One balancing run per profile -------------------------------
       # Each profile named here is fitted separately, and its own flag is the
       # seed filter -- so every fit expands its own universe onto the controls

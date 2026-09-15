@@ -1,9 +1,28 @@
 """Report orchestration: assemble sections and render the Jinja2 template.
 
 Entry point is [`generate_report`][processing.weighting.diagnostics.report.generate_report],
-which collects data from the balancer run, builds Plotly figures and HTML tables via the sibling
-modules (``charts``, ``data``, ``tables``), then renders everything
+which collects every fit a run produced, builds Plotly figures and HTML tables via the sibling
+modules (``charts``, ``data``, ``tables``), then renders them
 into a single ``.html`` file using a bundled Jinja2 template.
+
+# One document per run, not per fit
+
+The crosswalk geometry, the control totals and the PUMS incidence are properties
+of the *run*: they are built once in ``setup()`` however many profiles are
+fitted. Only the balancer's output varies per profile. Writing one report per
+fit therefore re-embedded the same polygons once per profile -- on a Bay Area
+run that geometry is 95% of the file -- so the report is assembled once, with
+the per-fit sections behind a profile toggle.
+
+What sits where follows from what can be compared on screen:
+
+* **Run-level, always visible** -- the profile comparison, the map, and the
+  weight-cascade tables. These are small enough to show every profile at once,
+  and a labelled column cannot be misread the way a toggled chart can.
+* **Per-profile, toggled** -- the per-zone tables and every figure. Three
+  profiles of a per-zone fit grid will not fit side by side, so they are
+  switched rather than juxtaposed, and each carries its profile in the heading
+  so a cropped screenshot still says what it shows.
 """
 
 import logging
@@ -13,7 +32,7 @@ import jinja2
 import polars as pl
 from geopandas import GeoDataFrame
 
-from processing.weighting.core.specs import ControlTotals, GridPoint, ImputationSummary, ZoneStatus
+from processing.weighting.core.specs import ControlTotals, ProfileFit
 
 from .charts import (
     crosswalk_figure,
@@ -27,12 +46,21 @@ from .data import (
     compute_weighted_totals,
     fit_table,
     merge_control_moe,
+    profile_summary,
+    redistribution,
+    split_identity,
+    weight_cascade,
     zone_fit_summary,
 )
 from .tables import (
     balancer_performance_table,
+    cascade_table,
+    coverage_table,
     crosswalk_summary_table,
     imputation_summary_table,
+    profile_comparison_table,
+    redistribution_table,
+    split_identity_table,
     unweighted_cell_counts,
     weight_quality_table,
 )
@@ -64,110 +92,208 @@ _PLOTLY_KWARGS: dict = {
 }
 
 
-def generate_report(  # noqa: PLR0913
-    seed: pl.DataFrame,
-    weights: pl.DataFrame,
+def _label(profile: str | None) -> str:
+    """How a profile is named to a reader."""
+    return profile or "the survey"
+
+
+def _key(profile: str | None) -> str:
+    """How a profile is named in markup, for the toggle to address."""
+    return profile or "survey"
+
+
+def _fit_control_table(
+    fit: ProfileFit,
     control_totals: ControlTotals,
     target_names: list[str],
-    statuses: list[ZoneStatus],
+    merge_specs: list | None,
+    control_moe: pl.DataFrame | None,
+) -> pl.DataFrame:
+    """Target-vs-weighted table for one fit, with PUMS MOE joined where available."""
+    weighted_totals = compute_weighted_totals(fit.seed_incidence, fit.weights, target_names)
+    table = apply_fit_merges(fit_table(control_totals, weighted_totals), merge_specs, target_names)
+    if control_moe is not None:
+        merged_moe = merge_control_moe(control_moe, merge_specs)
+        table = table.join(
+            merged_moe.select("geo_id", "control_name", "category", "moe_pct"),
+            on=["geo_id", "control_name", "category"],
+            how="left",
+        )
+    return table
+
+
+def _imputation_blocks(
+    fit: ProfileFit,
+    target_names: list[str],
+    pums_incidence: pl.DataFrame | None,
+) -> tuple[str, str]:
+    """Fractional seed imputation table and chart for one fit."""
+    if not fit.imputation_summary:
+        return "", ""
+    table_html = imputation_summary_table(fit.imputation_summary)
+    filled = [s.control for s in fit.imputation_summary if s.n_null > 0]
+    if not filled or pums_incidence is None:
+        return table_html, ""
+    figure = imputation_distribution_figure(
+        fit.seed_incidence,
+        pums_incidence,
+        target_names,
+        filled,
+        pre_imputation=fit.pre_imputation_incidence,
+    )
+    return table_html, figure.to_html(**_PLOTLY_KWARGS)
+
+
+def _ef_section(fit: ProfileFit, max_expansion_factor: float | None) -> str:
+    """Expansion-factor calibration chart, when a grid was searched."""
+    if not fit.grid_results or max_expansion_factor is None:
+        return ""
+    figure = ef_tradeoff_figure(fit.grid_results, max_expansion_factor)
+    return f'<div class="chart">{figure.to_html(**_PLOTLY_KWARGS)}</div>'
+
+
+def _pane(
+    fit: ProfileFit,
+    control_table: pl.DataFrame,
+    control_totals: ControlTotals,
+    target_names: list[str],
+    merge_specs: list | None,
+    pums_incidence: pl.DataFrame | None,
+    max_expansion_factor: float | None,
+) -> dict:
+    """Everything one profile contributes to the document."""
+    weighted = fit.seed_incidence.join(
+        fit.weights.select("hh_id", "hh_weight"), on="hh_id", how="left"
+    )
+    imputation_table, imputation_chart = _imputation_blocks(fit, target_names, pums_incidence)
+    zone_fit = zone_fit_summary(control_table, target_names)
+    return {
+        "profile": _label(fit.profile),
+        "key": _key(fit.profile),
+        "imputation_table": imputation_table,
+        "imputation_chart": imputation_chart,
+        "balancer_performance_table": balancer_performance_table(fit.statuses, weighted, zone_fit),
+        "weight_quality_table": weight_quality_table(weighted),
+        "violins_html": violins_figure(weighted).to_html(**_PLOTLY_KWARGS),
+        "fit_bars_html": fit_diverging_figure(control_table).to_html(**_PLOTLY_KWARGS),
+        "sparsity_html": unweighted_cell_counts(
+            fit.seed_incidence, target_names, control_totals, merge_specs
+        ),
+        "ef_tradeoff_section": _ef_section(fit, max_expansion_factor),
+    }
+
+
+def generate_report(  # noqa: PLR0913
+    fits: dict[str | None, ProfileFit],
+    control_totals: ControlTotals,
+    target_names: list[str],
+    tables: dict[str, pl.DataFrame | None],
     output_path: Path,
     *,
+    run_meta: dict[str, str] | None = None,
     puma_gdf: GeoDataFrame | None = None,
     target_gdf: GeoDataFrame | None = None,
     crosswalk_df: pl.DataFrame | None = None,
     zone_groups: dict[str, list[str]] | None = None,
     merge_specs: list | None = None,
-    grid_results: list[GridPoint] | None = None,
-    selected_ef: float | None = None,
     control_moe: pl.DataFrame | None = None,
-    imputation_summary: list[ImputationSummary] | None = None,
     pums_incidence: pl.DataFrame | None = None,
-    pre_imputation_incidence: pl.DataFrame | None = None,
+    max_expansion_factor: float | None = None,
 ) -> Path:
-    """Write the self-contained HTML diagnostics report to *output_path*."""
-    weighted = seed.join(weights.select("hh_id", "hh_weight"), on="hh_id", how="left")
-    weighted_totals = compute_weighted_totals(seed, weights, target_names)
-    fit = apply_fit_merges(fit_table(control_totals, weighted_totals), merge_specs, target_names)
+    """Write the run's self-contained HTML diagnostics report to *output_path*.
 
-    # Join per-cell MOE from PUMS replicate weights (when available)
-    if control_moe is not None:
-        merged_moe = merge_control_moe(control_moe, merge_specs)
-        moe_cols = merged_moe.select("geo_id", "control_name", "category", "moe_pct")
-        fit = fit.join(moe_cols, on=["geo_id", "control_name", "category"], how="left")
+    Args:
+        fits: Every completed fit in the run, keyed by profile. A run that
+            weights one un-profiled set has a single ``None`` key, and the
+            toggle collapses to one pane.
+        control_totals: The targets every fit was balanced to.
+        target_names: Control registry names in the spec.
+        tables: The propagated canonical tables, for the weight cascade. Read
+            after propagation, so each level carries its own weight column.
+        output_path: Destination for the HTML file.
+        run_meta: Label/value pairs identifying the run, shown in the header.
+        puma_gdf: PUMA boundaries for the crosswalk map.
+        target_gdf: Target-zone boundaries for the crosswalk map.
+        crosswalk_df: The PUMA-to-zone allocation table.
+        zone_groups: Zone groupings, when zones were merged for balancing.
+        merge_specs: Category merges, for labelling the fit table.
+        control_moe: Per-cell PUMS standard errors from replicate weights.
+        pums_incidence: PUMS incidence, as the reference distribution for the
+            fractional seed imputation chart.
+        max_expansion_factor: The production EF, marked on the calibration
+            chart when a grid was searched.
 
-    zf = zone_fit_summary(fit, target_names)
+    Returns:
+        The path written.
+    """
+    if not fits:
+        msg = "generate_report needs at least one completed fit"
+        raise ValueError(msg)
 
-    # Section 0 — Fractional seed imputation
-    if imputation_summary:
-        imp_table_html = imputation_summary_table(imputation_summary)
-        imputed_controls = [s.control for s in imputation_summary if s.n_null > 0]
-        if imputed_controls and pums_incidence is not None:
-            imp_fig = imputation_distribution_figure(
-                seed,
-                pums_incidence,
-                target_names,
-                imputed_controls,
-                pre_imputation=pre_imputation_incidence,
-            )
-            imp_chart_html = imp_fig.to_html(**_PLOTLY_KWARGS)
-        else:
-            imp_chart_html = ""
-    else:
-        imp_table_html = ""
-        imp_chart_html = ""
+    control_tables = {
+        profile: _fit_control_table(fit, control_totals, target_names, merge_specs, control_moe)
+        for profile, fit in fits.items()
+    }
 
-    # Section 1 — crosswalk map
+    panes = [
+        _pane(
+            fit,
+            control_tables[profile],
+            control_totals,
+            target_names,
+            merge_specs,
+            pums_incidence,
+            max_expansion_factor,
+        )
+        for profile, fit in fits.items()
+    ]
+
+    # Section 1 — profile comparison, the one view no single fit can produce
+    comparison = profile_comparison_table(
+        [profile_summary(fit, tables, control_tables[profile]) for profile, fit in fits.items()]
+    )
+
+    # Section 2 — crosswalk map, drawn once for the run
+    crosswalk_section = ""
     if puma_gdf is not None and target_gdf is not None and crosswalk_df is not None:
-        fig = crosswalk_figure(
+        figure = crosswalk_figure(
             puma_gdf=puma_gdf,
             target_gdf=target_gdf,
             crosswalk_df=crosswalk_df,
-            households=seed,
+            seeds={profile: fit.seed_incidence for profile, fit in fits.items()},
             zone_groups=zone_groups,
         )
-        xw_div = fig.to_html(**_PLOTLY_KWARGS)
-        crosswalk_section = (
-            f'<h2>1 &mdash; Crosswalk Map</h2>\n<div class="chart-map">{xw_div}</div>'
-        )
-    else:
-        crosswalk_section = ""
+        crosswalk_section = f'<div class="chart-map">{figure.to_html(**_PLOTLY_KWARGS)}</div>'
 
-    # Section 1b — crosswalk summary table
-    if crosswalk_df is not None:
-        crosswalk_table = crosswalk_summary_table(crosswalk_df, seed)
-    else:
-        crosswalk_table = ""
+    first = next(iter(fits.values()))
+    crosswalk_table = (
+        crosswalk_summary_table(crosswalk_df, first.seed_incidence)
+        if crosswalk_df is not None
+        else ""
+    )
 
-    # Section — EF tradeoff chart (optional)
-    if grid_results and selected_ef is not None:
-        ef_fig = ef_tradeoff_figure(grid_results, selected_ef)
-        ef_div = ef_fig.to_html(**_PLOTLY_KWARGS)
-        ef_tradeoff_section = (
-            "<h2>4 &mdash; Expansion Factor Calibration</h2>\n"
-            '<p class="note">\n'
-            "  Tradeoff between target fit (left axis) and weight quality "
-            "(right axis) across a grid of <code>max_expansion_factor</code> "
-            "values.  Tighter bounds (lower EF) yield more stable weights "
-            "(lower CV, higher ESS%) but may degrade fit (higher MAPE/P90). "
-            "The dashed vertical line marks the selected production EF.\n"
-            "</p>\n"
-            f'<div class="chart">{ef_div}</div>'
-        )
-    else:
-        ef_tradeoff_section = ""
+    # Section 3 — the weight cascade, every profile side by side
+    cascades = {
+        profile: weight_cascade(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
+        for profile, fit in fits.items()
+    }
+    ratios = {
+        profile: redistribution(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
+        for profile, fit in fits.items()
+    }
+    splits = {profile: split_identity(tables, profile=profile) for profile in fits}
 
     ctx = {
         "title": "Weighting Diagnostics Report",
-        "imputation_table": imp_table_html,
-        "imputation_chart": imp_chart_html,
+        "run_meta": run_meta or {},
+        "comparison_table": comparison,
         "crosswalk_section": crosswalk_section,
         "crosswalk_table": crosswalk_table,
-        "balancer_performance_table": balancer_performance_table(statuses, weighted, zf),
-        "weight_quality_table": weight_quality_table(weighted),
-        "fit_bars_html": fit_diverging_figure(fit).to_html(**_PLOTLY_KWARGS),
-        "violins_html": violins_figure(weighted).to_html(**_PLOTLY_KWARGS),
-        "sparsity_html": unweighted_cell_counts(seed, target_names, control_totals, merge_specs),
-        "ef_tradeoff_section": ef_tradeoff_section,
+        "cascade_table": cascade_table(cascades),
+        "redistribution_table": redistribution_table(ratios),
+        "split_identity_table": split_identity_table(splits),
+        "coverage_table": coverage_table({p: f.coverage for p, f in fits.items()}),
+        "panes": panes,
     }
 
     html = _TEMPLATE.render(**ctx)

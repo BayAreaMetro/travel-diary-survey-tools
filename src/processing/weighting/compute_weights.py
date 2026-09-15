@@ -39,8 +39,9 @@ Orchestrates the full weighting pipeline in the following stages:
 
 **E. [Diagnostics](diagnostics.md) & [Validation](validation.md)**
 
-11. **Diagnostics** -- generate a self-contained interactive HTML report
-    with convergence, fit, and weight-quality diagnostics.
+11. **Diagnostics** -- generate one self-contained interactive HTML report
+    for the run, comparing every profile fitted and carrying each one's
+    convergence, fit, weight-quality and weight-cascade diagnostics.
 12. **Validation** -- run sanity checks on the final weights and control
     totals.  Results are logged as warnings but are not currently included
     in the HTML report — check the pipeline log to review them.

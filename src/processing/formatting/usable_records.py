@@ -11,11 +11,15 @@ output -- a joint group's `num_participants` counted from survivors while its
 weight was summed over more of them. Filtering on the same verdict the weighting
 used makes the two agree by construction.
 
-Filtering each table independently is safe because the cascade is already
-consistent: member trips inherit their tour's verdict, the upward reductions are
-`>= 1` so a usable tour implies a usable day, person and household, and
-`_flag_joint_groupings` guarantees a surviving joint group still has two usable
-members. Nothing can be orphaned by removing what the flag rejects.
+Filtering each table independently is *not* enough on its own, which is what
+`_reconcile` is for. Most of the cascade does agree -- member trips inherit their
+tour's verdict, and the upward reductions to day and person are `>= 1`, so a
+usable tour implies a usable day and person. The household is the exception: a
+profile requiring a whole household-day reduces over *dates on which every member
+was usable*, not over usable days, so a person can be usable while their
+household is not. Those records are orphaned by an independent filter and are
+removed by the reference cascade below, which is why the ledger counts them
+separately rather than trusting an invariant that does not hold.
 
 Weights are read for the profile this consumer names, so its universe and its
 weights are the same universe. Where a record still carries no weight it is

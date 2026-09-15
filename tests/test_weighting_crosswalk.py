@@ -679,8 +679,8 @@ class TestPlotCrosswalk:
         html = fig.to_html()
         assert "plotly" in html.lower()
 
-    def test_with_households_and_zone_groups(self, crosswalk_data):
-        """crosswalk_figure should accept households and zone_groups."""
+    def test_with_seeds_and_zone_groups(self, crosswalk_data):
+        """crosswalk_figure should accept per-profile seeds and zone_groups."""
         puma_gdf, target_gdf, xw_df = crosswalk_data
         hh = pl.DataFrame({"hh_id": [1, 2, 3], "ctrl_geoid": ["1", "2", "3"]})
         groups = {"north": ["1", "2"]}
@@ -688,7 +688,7 @@ class TestPlotCrosswalk:
             puma_gdf=puma_gdf,
             target_gdf=target_gdf,
             crosswalk_df=xw_df,
-            households=hh,
+            seeds={"ctramp": hh},
             zone_groups=groups,
         )
         html = fig.to_html()

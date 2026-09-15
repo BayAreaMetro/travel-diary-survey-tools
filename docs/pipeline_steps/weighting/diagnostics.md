@@ -30,12 +30,21 @@
         - zone_fit_summary
         - compute_weighted_totals
         - fit_table
+        - profile_summary
+        - weight_cascade
+        - redistribution
+        - split_identity
 
 ::: processing.weighting.diagnostics.tables
     options:
       show_root_heading: true
       members:
+        - profile_comparison_table
         - balancer_performance_table
         - weight_quality_table
+        - cascade_table
+        - redistribution_table
+        - split_identity_table
+        - coverage_table
         - unweighted_cell_counts
         - crosswalk_summary_table

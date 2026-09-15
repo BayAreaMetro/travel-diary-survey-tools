@@ -49,6 +49,7 @@ Orchestrates the full weighting pipeline via
 """
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -566,80 +567,102 @@ class WeightingPipeline:
                 importance=imp_cfg,
             )
 
-    def generate_diagnostics(self, fit: ProfileFit, output_path: Path | str | None = None) -> None:
-        """Write a self-contained interactive HTML diagnostics report for the weighting run.
+    def generate_diagnostics(self, output_path: Path | str | None = None) -> None:
+        """Write one self-contained interactive HTML report for the whole run.
 
-        The report covers the full weighting pipeline from geographic crosswalk
-        through IPF convergence to final weight quality.  It is intended to be
-        opened in any browser with no external dependencies (Plotly is either
-        bundled or loaded from CDN).
+        Covers the weighting from geographic crosswalk through IPF convergence
+        to what carries weight at every level below the household. Opens in any
+        browser with no external dependencies beyond Plotly, loaded from CDN.
+
+        One document, not one per profile. The crosswalk geometry, control
+        totals and PUMS incidence are built once in ``setup()`` however many
+        profiles are fitted -- and on a regional run that geometry is the great
+        majority of the file -- so writing a report per fit re-embedded the same
+        polygons once per profile. Only the balancer's output actually varies,
+        and it sits behind a profile toggle.
 
         Report sections
         ---------------
-        1. **Crosswalk Map** — choropleth showing how PUMAs overlap the target
-           zones, with allocation weights visualised per PUMA-zone pair.
-        2. **Convergence & Weight Summary** — per-zone table of convergence
-           status, final weight sum, effective sample size (ESS%), and
-           coefficient of variation (CV) of the weights.
-        3. **Target Fit** — per-zone summary metrics for household- and
-           person-level controls: MAPE, 90th-percentile absolute error, and
-           maximum absolute error.
-        4. **Weight Distribution** — violin / jitter plots of
-           ``final_weight / base_weight`` (the expansion factor applied to each
-           household) per zone, with printed summary statistics.
-        5. **Target Fit (% Error)** — diverging bar charts showing the signed
-           percentage error for every control category per zone.  Bars are
-           coloured by user-configurable error thresholds.
-        6. **Unweighted Cell Counts (Data Sparsity)** — heatmap of raw survey
-           seed counts per control category per zone, flagging cells below the
-           minimum-count warning threshold.
-        7. **Expansion Factor Calibration** *(optional)* — MAPE vs CV scatter
-           across the ``expansion_factor_grid`` values, helping identify the
-           best trade-off between fit quality and weight spread.  Only included
-           when ``expansion_factor_grid`` was set in the weighting config.
+        1. **Profile Comparison** — one row per fit: seed size, weight sums by
+           level, ESS%, CV, MAPE and convergence. The only view that needs every
+           fit at once, and so the only one no per-fit report could produce.
+        2. **Crosswalk Map** — choropleth showing how PUMAs overlap the target
+           zones, with allocation weights per PUMA-zone pair and each profile's
+           seed count in the zone tooltip.
+        3. **Weight Cascade** — per level, what the profile admitted and what
+           carries weight, every profile side by side; the redistribution each
+           survivor absorbs, the day-split identity, and control-geography
+           coverage.
+        4. **Fractional Seed Imputation** *(per profile)* — null rate per
+           control in the seed incidence, and the quality of the PUMS-trained
+           model that filled it.
+        5. **Balancer Performance** *(per profile)* — per-zone convergence,
+           target fit (MAPE, P90, Max), CV and ESS%.
+        6. **Weight Quality** *(per profile)* — per-zone weight and expansion
+           factor statistics, with violin plots.
+        7. **Expansion Factor Calibration** *(per profile, optional)* — MAPE vs
+           CV across the ``expansion_factor_grid`` values. Only included when
+           the grid was set in the weighting config.
+        8. **Target Fit (% Error)** *(per profile)* — diverging bars per control
+           category per zone, with PUMS replicate-weight whiskers.
+        9. **Unweighted Cell Counts** *(per profile)* — seed counts per control
+           category per zone, flagging sparse cells.
 
         Parameters
         ----------
-        fit:
-            The completed fit to describe.  Each profile gets its own report.
         output_path:
             Destination for the HTML file.  Accepts a ``Path``, a string
             (including Jinja-rendered template paths from the YAML config), or
             ``None``.  When ``None`` the file is written to
             ``<cache_dir>/diagnostics.html`` (or ``./weighting/diagnostics.html``
-            if no cache directory is configured).  With several profiles fitted
-            the profile name is inserted into the stem, so one run's reports do
-            not overwrite each other.
+            if no cache directory is configured).  No profile suffix: a run
+            writes one file however many profiles it fits.
         """
+        if not self.fits:
+            logger.warning("No completed fits to report on; skipping diagnostics.")
+            return
+
         if output_path is not None:
             resolved_path = Path(output_path)
         else:
             report_dir = self.cache_dir or Path.cwd() / "weighting"
             resolved_path = report_dir / "diagnostics.html"
-        if fit.profile is not None:
-            resolved_path = resolved_path.with_name(
-                f"{resolved_path.stem}_{fit.profile}{resolved_path.suffix}"
-            )
+
         zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
         generate_report(
-            seed=fit.seed_incidence,
-            weights=fit.weights,
+            fits=self.fits,
             control_totals=self.control_totals,
             target_names=self.controls.target_names,
-            statuses=fit.statuses,
+            tables=self.data.as_dict(),
             output_path=resolved_path,
+            run_meta=self._run_meta(),
             puma_gdf=self.crosswalk.puma_gdf,
             target_gdf=self.crosswalk.target_gdf,
             crosswalk_df=self.crosswalk.crosswalk_df,
             zone_groups=zone_groups,
             merge_specs=self.controls.all_merges,
-            grid_results=fit.grid_results,
-            selected_ef=(self.balancing.max_expansion_factor if fit.grid_results else None),
             control_moe=self.control_moe,
-            imputation_summary=fit.imputation_summary,
             pums_incidence=self.pums_incidence,
-            pre_imputation_incidence=fit.pre_imputation_incidence,
+            max_expansion_factor=self.balancing.max_expansion_factor,
         )
+
+    def _run_meta(self) -> dict[str, str]:
+        """Label/value pairs identifying this run, for the report header.
+
+        Reports get shared around detached from the run that made them, so the
+        file has to say which run it describes.
+        """
+        profiles = ", ".join(p or "the survey" for p in self.fits)
+        return {
+            "Run": datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
+            "PUMS": f"{self.config.pums_year} &middot; FIPS {self.config.state_fips}",
+            "Profiles": profiles,
+            "Expansion bounds": (
+                f"{self.balancing.min_expansion_factor:g}&ndash;"
+                f"{self.balancing.max_expansion_factor:g}"
+            ),
+            "Controls": ", ".join(self.controls.target_names),
+        }
 
     def propagate_fit(self, fit: ProfileFit) -> None:
         """Attach one fit's weights to households and propagate them down.
@@ -696,27 +719,31 @@ class WeightingPipeline:
             if df is not None:
                 setattr(self.data, name, df)
 
-    def fit(self, profile: str | None, *, output_path: str | None = None) -> ProfileFit:
-        """Build, balance, propagate and report one profile's weights."""
+    def fit(self, profile: str | None) -> ProfileFit:
+        """Build, balance and propagate one profile's weights.
+
+        Reporting is deliberately not done here: the report describes the run
+        and needs every fit, so ``fit_all`` writes it once they are all in.
+        """
         fit = self.build_seed(profile)
         self.balance_fit(fit)
         self.propagate_fit(fit)
-        self.generate_diagnostics(fit, output_path=output_path)
         self.fits[fit.profile] = fit
         return fit
 
     def fit_all(self, *, output_path: str | None = None) -> dict[str | None, ProfileFit]:
         """Run one fit per configured profile, then raise if any failed to converge.
 
-        Every profile is attempted and every report written before raising, so a
+        Every profile is attempted and the report written before raising, so a
         convergence failure in one costs a diagnosis of the others rather than
-        hiding it.
+        hiding it -- including the failure itself, which the report names.
 
         Raises:
             RuntimeError: If any profile left zones unconverged.
         """
         for profile in self.config.fitted_profiles:
-            self.fit(profile, output_path=output_path)
+            self.fit(profile)
+        self.generate_diagnostics(output_path=output_path)
 
         failed = {
             fit.profile or "the survey": fit.unconverged_zones

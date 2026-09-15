@@ -26,9 +26,21 @@ import polars as pl
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
-from processing.weighting.core.specs import ControlTotals, ImputationSummary, ZoneStatus
+from processing.weighting.core.specs import (
+    ControlTotals,
+    GeographyCoverage,
+    ImputationSummary,
+    ZoneStatus,
+)
 
-from .data import category_label_map
+from .data import (
+    _REDISTRIBUTION_TAIL,
+    CascadeRow,
+    ProfileSummary,
+    RedistributionRow,
+    SplitIdentityRow,
+    category_label_map,
+)
 
 # ---------------------------------------------------------------------------
 # HTML primitives
@@ -617,3 +629,180 @@ def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> s
         body_rows.append(f"<tr>{cells}</tr>")
 
     return f"<table>\n{header}\n" + "\n".join(body_rows) + "\n</table>"
+
+
+# ---------------------------------------------------------------------------
+# Section 1 — Profile comparison (one row per fit)
+# ---------------------------------------------------------------------------
+
+
+def profile_comparison_table(rows: list[ProfileSummary]) -> str:
+    """Compare every fit in the run, one row each.
+
+    Each profile is balanced to the same controls over its own universe, so the
+    totals should land on the same targets. Divergence is the usability gate
+    changing what the survey can reach, not the balancer failing -- which is why
+    this table only exists once all the fits are done.
+    """
+    headers = [
+        "Profile",
+        "Seed&nbsp;hh",
+        "&Sigma;&nbsp;hh&nbsp;weight",
+        "&Sigma;&nbsp;person&nbsp;weight",
+        "&Sigma;&nbsp;day&nbsp;weight",
+        "ESS&nbsp;%",
+        "CV",
+        "max/med",
+        "MAPE",
+        "Converged",
+    ]
+    body: list[list[str]] = []
+    for r in rows:
+        converged = f"{r.zones_converged} / {r.zones_total}"
+        css = "converged" if r.zones_converged == r.zones_total else "failed"
+        body.append(
+            [
+                r.profile or "the survey",
+                f"{r.seed_households:,}",
+                f"{r.weight_sums.get('households', 0.0):,.0f}",
+                f"{r.weight_sums.get('persons', 0.0):,.0f}",
+                f"{r.weight_sums.get('days', 0.0):,.0f}",
+                f"{r.ess_pct:.1f}%",
+                f"{r.cv:.3f}",
+                f"{r.max_over_median:.1f}",
+                f"{r.mape:.2f}%",
+                f'<td class="{css}">{converged}</td>',
+            ]
+        )
+    return _html_table(headers, body)
+
+
+# ---------------------------------------------------------------------------
+# Section — Weight cascade (all profiles side by side)
+# ---------------------------------------------------------------------------
+
+
+def cascade_table(cascades: dict[str | None, list[CascadeRow]]) -> str:
+    """Per-level weight coverage, one column group per profile.
+
+    Shown side by side rather than behind the profile toggle: the counts are
+    small enough to compare directly, and a labelled column cannot be misread
+    the way a toggled chart can.
+    """
+    if not cascades:
+        return ""
+    profiles = list(cascades)
+    by_table: dict[str, dict[str | None, CascadeRow]] = {}
+    for profile, rows in cascades.items():
+        for row in rows:
+            by_table.setdefault(row.table, {})[profile] = row
+
+    group_row = [("Level", 1), ("Rows", 1)]
+    group_row += [(p or "the survey", 3) for p in profiles]
+    sub_headers = ["Usable", "Weighted", "Unweighted"] * len(profiles)
+
+    body: list[list[str]] = []
+    for table, per_profile in by_table.items():
+        any_row = next(iter(per_profile.values()))
+        cells = [table, f"{any_row.rows:,}"]
+        for profile in profiles:
+            row = per_profile.get(profile)
+            if row is None:
+                cells += ["—", "—", "—"]
+                continue
+            unweighted = (
+                f'<td class="failed">{row.unweighted:,}</td>'
+                if row.unweighted
+                else f"{row.unweighted:,}"
+            )
+            cells += [f"{row.usable:,}", f"{row.weighted:,}", unweighted]
+        body.append(cells)
+    return _html_table(sub_headers, body, group_row=group_row)
+
+
+def redistribution_table(rows: dict[str | None, list[RedistributionRow]]) -> str:
+    """Child/parent weight ratio per copy-and-conserve edge, per profile."""
+    headers = [
+        "Edge",
+        "Profile",
+        "Median",
+        "P90",
+        "P99",
+        "Max",
+        f"&gt;&thinsp;{_REDISTRIBUTION_TAIL:g}&times;",
+    ]
+    body: list[list[str]] = []
+    for profile, edges in rows.items():
+        for r in edges:
+            body.append(  # noqa: PERF401
+                [
+                    f"{r.table} / {r.parent}",
+                    profile or "the survey",
+                    f"{r.p50:.2f}",
+                    f"{r.p90:.2f}",
+                    f"{r.p99:.2f}",
+                    f"{r.maximum:.1f}",
+                    f"{r.share_above:.1f}%",
+                ]
+            )
+    return _html_table(headers, body) if body else ""
+
+
+def split_identity_table(rows: dict[str | None, list[SplitIdentityRow]]) -> str:
+    """Whether each split level's children still sum to their parent's weight."""
+    headers = [
+        "Edge",
+        "Profile",
+        "Parents",
+        "Max&nbsp;residual",
+        "Stranded",
+        "Unrepresented",
+        "Children",
+    ]
+    body: list[list[str]] = []
+    for profile, edges in rows.items():
+        for r in edges:
+            stranded = (
+                f'<td class="failed">{r.stranded_parents:,}</td>'
+                if r.stranded_parents
+                else f'<td class="converged">{r.stranded_parents:,}</td>'
+            )
+            body.append(
+                [
+                    f"{r.table} / {r.parent}",
+                    profile or "the survey",
+                    f"{r.parents_checked:,}",
+                    f"{r.max_residual:.1e}",
+                    stranded,
+                    f"{r.stranded_weight:,.0f}",
+                    f"{r.min_children}&ndash;{r.max_children} (med {r.median_children})",
+                ]
+            )
+    return _html_table(headers, body) if body else ""
+
+
+def coverage_table(coverages: dict[str | None, GeographyCoverage]) -> str:
+    """Households each profile admits that the control geography cannot place.
+
+    A household outside every control polygon belongs to no balancing zone, so
+    no fit can give it a weight. That is a bound on what the weighting answers,
+    and it is stated rather than left to be inferred from a column of nulls.
+    """
+    headers = ["Profile", "Universe", "Placed", "Unplaceable", "Share"]
+    body: list[list[str]] = []
+    for profile, cov in coverages.items():
+        unplaceable = (
+            f'<td class="failed">{cov.n_unplaceable:,}</td>'
+            if cov.n_unplaceable
+            else f'<td class="converged">{cov.n_unplaceable:,}</td>'
+        )
+        body.append(
+            [
+                profile or "the survey",
+                f"{cov.n_universe:,}",
+                f"{cov.n_placed:,}",
+                unplaceable,
+                f"{cov.unplaceable_share * 100:.2f}%",
+            ]
+        )
+    return _html_table(headers, body)
