@@ -284,6 +284,39 @@ class TestAssignHouseholds:
         assert result[0, "extra_col"] == "keep_me"
 
 
+class TestAssignBlockGroups:
+    """PumaCrosswalk.assign_block_groups matches homes to blocks' block groups."""
+
+    @staticmethod
+    def _make_xw() -> PumaCrosswalk:
+        """Three unit blocks in a row: two in block group ...0001, one in ...0002."""
+        obj = object.__new__(PumaCrosswalk)
+        obj.block_gdf = gpd.GeoDataFrame(
+            {"block_id": ["060010001001000", "060010001001001", "060010001002000"]},
+            geometry=[box(0, 0, 1, 1), box(1, 0, 2, 1), box(2, 0, 3, 1)],
+            crs="EPSG:4326",
+        )
+        return obj
+
+    def test_block_groups(self):
+        """Inside a block, on an edge within one block group, on an edge between two, outside."""
+        hh = pl.DataFrame(
+            {
+                "hh_id": [1, 2, 3, 4, 5],
+                "home_lon": [0.5, 1.0, 2.0, 2.5, 9.0],
+                "home_lat": [0.5, 0.5, 0.5, 0.5, 0.5],
+            }
+        )
+        result = self._make_xw().assign_block_groups(hh).sort("hh_id")
+        assert result["bg_geo_id"].to_list() == [
+            "060010001001",
+            "060010001001",  # between blocks of the same block group: lies within it
+            None,  # between block groups: within neither
+            "060010001002",
+            None,
+        ]
+
+
 # ---------------------------------------------------------------------------
 # Tests: full crosswalk (integration with exactextract)
 # ---------------------------------------------------------------------------
