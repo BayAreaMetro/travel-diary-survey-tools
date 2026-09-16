@@ -280,13 +280,6 @@ steps:
       # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
       moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
 
-      # -- Completeness handling ---------------------------------------
-      # Drop incomplete households from the balancing seed and set their final
-      # weights to 0 (they are retained in the output). The balancer spreads each
-      # zone's population across the surviving complete respondents. Set false to
-      # keep incomplete households in the seed and give them computed weights.
-      exclude_incompletes: true
-
       # -- One balancing run per profile -------------------------------
       # Each profile named here is fitted separately, and its own flag is the
       # seed filter -- so every fit expands its own universe onto the controls
@@ -418,6 +411,32 @@ steps:
       # -- Diagnostics report ------------------------------------------
       diagnostics:
         output_path: "{{ output_dir }}/weighting_diagnostics_2023.html"
+
+        # Weight sets that arrived with the survey, to compare our fits against
+        # in the report's comparer section. Named rather than discovered: a
+        # vendor suffix is indistinguishable from a profile suffix (a scan would
+        # read hh_weight_rmove_only as a profile called 'rmove_only'), and the
+        # vendor's trip column does not share the level's base name. The bare
+        # columns below are read before drop_unsuffixed_weights removes them.
+        #
+        # Comparing weight sets is not a validation: two methods can both be
+        # correct and still disagree on nearly every record. See the caveat the
+        # report prints above the plot.
+        compare_weights:
+          vendor:
+            label: vendor
+            columns:
+              households: hh_weight
+              persons: person_weight
+              days: day_weight
+              unlinked_trips: trip_weight
+          vendor_rmove:
+            label: vendor rMove
+            columns:
+              households: hh_weight_rmove_only
+              persons: person_weight_rmove_only
+              days: day_weight_rmove_only
+              unlinked_trips: trip_weight_rmove_only
 
 
   # -- Existing weights (alternative to computing new weights) ----------

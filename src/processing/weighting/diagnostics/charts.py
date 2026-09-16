@@ -2,6 +2,7 @@
 
 import math
 from collections import defaultdict
+from collections.abc import Mapping
 
 import geopandas as gpd
 import plotly.graph_objects as go
@@ -10,6 +11,7 @@ from plotly.subplots import make_subplots
 
 from processing.weighting.controls.registry import CONTROLS, resolve_targets
 
+_MAP_SIMPLIFY_M = 10  # boundary tolerance; sub-pixel at regional zoom
 _WARN_PCT = 15  # fallback red threshold when MOE is unavailable or zero
 _MIN_MOE = 5  # floor for MOE-based red trigger (avoids over-sensitivity on precise targets)
 
@@ -289,7 +291,7 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Imputation distribution chart
+# Fractional seed imputation chart
 # ---------------------------------------------------------------------------
 
 
@@ -303,10 +305,11 @@ def imputation_distribution_figure(
 ) -> go.Figure:
     """Stacked bar chart: observed + imputed contribution vs PUMS shares.
 
-    For each imputed control the survey bar is split into two stacked
+    For each filled control the survey bar is split into two stacked
     segments — *Observed* (pre-imputation, unweighted) and *Imputed*
-    (the RF-predicted fractional contribution).  A separate PUMS bar
-    provides the reference distribution.
+    (the RF-predicted fractional contribution), so the second segment
+    shows how much of a category's mass is prediction rather than
+    response.  A separate PUMS bar provides the reference distribution.
 
     When *pre_imputation* is ``None`` the chart falls back to a single
     post-imputation bar (no stacking).
@@ -559,9 +562,13 @@ _GROUP_BORDERS = [
 def _build_tooltips(
     target_4326: gpd.GeoDataFrame,
     xw: pl.DataFrame,
-    sample_counts: dict[str, int],
+    sample_counts: dict[str | None, dict[str, int]],
 ) -> dict[str, str]:
-    """Build per-zone tooltips showing PUMA allocation weights."""
+    """Build per-zone tooltips showing PUMA allocation weights.
+
+    The map is rendered once for the whole run, so every profile's sample count
+    for a zone is listed together rather than the map being drawn per profile.
+    """
     tooltips: dict[str, str] = {}
     for geo_id in target_4326["study_geoid"]:
         rows = xw.filter(pl.col("study_geoid") == geo_id).sort(
@@ -573,8 +580,13 @@ def _build_tooltips(
             continue
         zone_pop = rows["population"].sum()
         header = f"Zone {geo_id} (BG 2020 person pop {zone_pop:,.0f})"
-        if geo_id in sample_counts:
-            header += f" — {sample_counts[geo_id]:,} sample HH"
+        seeded = [
+            f"{profile or 'survey'} {counts[geo_id]:,}"
+            for profile, counts in sample_counts.items()
+            if geo_id in counts
+        ]
+        if seeded:
+            header += " — sample households: " + " · ".join(seeded)
         lines = [header]
         for r in rows.iter_rows(named=True):
             aw = r["allocation_weight"] * 100
@@ -690,12 +702,31 @@ def _add_zone_label_traces(
         )
 
 
+def _simplified(gdf: gpd.GeoDataFrame, tolerance_m: float) -> gpd.GeoDataFrame:
+    """Reproject to WGS84, thinning the boundary to *tolerance_m* on the way.
+
+    TIGER polygons carry far more vertices than a regional map can resolve, and
+    they dominate the report's size -- on a Bay Area run, 72 PUMAs account for
+    95% of the file. Douglas-Peucker at a few metres is imperceptible at this
+    zoom and removes most of them. ``preserve_topology`` keeps each polygon
+    valid; adjacent polygons are still simplified independently, so a tolerance
+    far above a pixel would start to show hairlines between zones.
+    """
+    if tolerance_m <= 0:
+        return gdf.to_crs("EPSG:4326")
+    metric = gdf.estimate_utm_crs()
+    thinned = gdf.to_crs(metric)
+    thinned = thinned.set_geometry(thinned.geometry.simplify(tolerance_m))
+    return thinned.to_crs("EPSG:4326")
+
+
 def crosswalk_figure(
     puma_gdf: gpd.GeoDataFrame,
     target_gdf: gpd.GeoDataFrame,
     crosswalk_df: pl.DataFrame,
-    households: pl.DataFrame | None = None,
+    seeds: Mapping[str | None, pl.DataFrame] | None = None,
     zone_groups: dict[str, list[str]] | None = None,
+    simplify_tolerance_m: float = _MAP_SIMPLIFY_M,
 ) -> go.Figure:
     """Build an interactive Plotly map of the crosswalk.
 
@@ -705,21 +736,27 @@ def crosswalk_figure(
     - Target zones (solid border, transparent fill) with tooltip
       showing PUMA allocation weights from the crosswalk.
 
+    The geometry is run-level: it comes from the crosswalk, which is built once
+    however many profiles are fitted, so the map is drawn once and every
+    profile's per-zone seed count is listed in the same tooltip.
+
     Args:
         puma_gdf: PUMA boundary polygons (must have ``puma_id`` column).
         target_gdf: Target zone polygons (must have ``study_geoid`` column).
         crosswalk_df: Crosswalk table with ``puma_id``, ``study_geoid``,
             ``population``, ``allocation_weight``.
-        households: Assigned households (must contain ``study_geoid``).  When
-            provided, per-zone sample counts appear in the tooltip.
+        seeds: Each profile's seed, keyed by profile name (must contain
+            ``study_geoid``).  Per-zone counts appear in the tooltip.
         zone_groups: Optional zone group mapping.  When provided, grouped zones
             share a fill colour and labels include the group name.
+        simplify_tolerance_m: Boundary simplification tolerance in metres.
+            Zero keeps full TIGER precision.
 
     Returns:
         go.Figure
     """
-    puma_4326 = puma_gdf.to_crs("EPSG:4326")
-    target_4326 = target_gdf.to_crs("EPSG:4326")
+    puma_4326 = _simplified(puma_gdf, simplify_tolerance_m)
+    target_4326 = _simplified(target_gdf, simplify_tolerance_m)
     study_boundary = target_4326.dissolve()
 
     # Build tooltip per target zone showing allocation weights
@@ -730,11 +767,13 @@ def crosswalk_figure(
         "allocation_weight",
     )
 
-    # Per-zone sample counts from assigned households (Polars only)
-    sample_counts: dict[str, int] = {}
-    if households is not None and "study_geoid" in households.columns:
-        sample_counts = dict(
-            households.filter(pl.col("study_geoid").is_not_null())
+    # Per-zone seed counts, one entry per fitted profile (Polars only)
+    sample_counts: dict[str | None, dict[str, int]] = {}
+    for profile, seed in (seeds or {}).items():
+        if "study_geoid" not in seed.columns:
+            continue
+        sample_counts[profile] = dict(
+            seed.filter(pl.col("study_geoid").is_not_null())
             .group_by("study_geoid")
             .len()
             .iter_rows()

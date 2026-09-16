@@ -39,8 +39,9 @@ Orchestrates the full weighting pipeline in the following stages:
 
 **E. [Diagnostics](diagnostics.md) & [Validation](validation.md)**
 
-11. **Diagnostics** -- generate a self-contained interactive HTML report
-    with convergence, fit, and weight-quality diagnostics.
+11. **Diagnostics** -- generate one self-contained interactive HTML report
+    for the run, comparing every profile fitted and carrying each one's
+    convergence, fit, weight-quality and weight-cascade diagnostics.
 12. **Validation** -- run sanity checks on the final weights and control
     totals.  Results are logged as warnings but are not currently included
     in the HTML report — check the pipeline log to review them.
@@ -244,7 +245,9 @@ def compute_weights(  # noqa: PLR0913
         len(profiles),
         ", ".join(p or "the whole survey" for p in profiles),
     )
-    fits = wt_pipeline.fit_all(output_path=diagnostics.get("output_path") if diagnostics else None)
+    # The whole block, not one key: the comparer also reads it, and it must run
+    # before drop_unsuffixed_weights below takes the supplied weights away.
+    fits = wt_pipeline.fit_all(diagnostics=diagnostics)
 
     # Basic sanity check to ensure weights were propagated to all tables before returning
     result_tables = wt_pipeline.data.as_dict_non_null()
