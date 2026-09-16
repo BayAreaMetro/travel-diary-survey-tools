@@ -33,6 +33,7 @@ from processing.weighting.core.specs import (
     ZoneStatus,
 )
 
+from .comparison import Inheritance
 from .data import (
     _REDISTRIBUTION_TAIL,
     CascadeRow,
@@ -41,6 +42,7 @@ from .data import (
     SplitIdentityRow,
     category_label_map,
 )
+from .glossary import term
 
 # ---------------------------------------------------------------------------
 # HTML primitives
@@ -139,8 +141,8 @@ def imputation_summary_table(summaries: list[ImputationSummary]) -> str:
         "Records",
         "Null",
         "Null&nbsp;%",
-        "RF log_loss",
-        "RF&nbsp;F1",
+        term("logloss", "RF&nbsp;log_loss"),
+        term("f1", "RF&nbsp;F1"),
         "Status",
     ]
     rows: list[list[str]] = []
@@ -212,13 +214,14 @@ def balancer_performance_table(
         ("Iter", 1),
         ("Household", 2),
         ("Person", 2),
-        ("MAPE", 1),
-        ("P90", 1),
-        ("Max", 1),
-        ("CV", 1),
-        ("ESS&nbsp;%", 1),
+        (term("mape"), 1),
+        (term("p90"), 1),
+        (term("maxerr"), 1),
+        (term("cv"), 1),
+        (term("ess", "ESS&nbsp;%"), 1),
     ]
-    sub_headers = ["Target", "%&nbsp;Error", "Target", "%&nbsp;Error"]
+    pct_error = term("pcterr", "%&nbsp;Error")
+    sub_headers = ["Target", pct_error, "Target", pct_error]
 
     rows: list[list[str]] = []
     for z in zones:
@@ -317,10 +320,10 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
         "Std",
         "Min",
         "Max",
-        "Min&nbsp;EF",
-        "Max&nbsp;EF",
-        "Mean&nbsp;EF",
-        "Median&nbsp;EF",
+        term("ef", "Min&nbsp;EF"),
+        term("ef", "Max&nbsp;EF"),
+        term("ef", "Mean&nbsp;EF"),
+        term("ef", "Median&nbsp;EF"),
     ]
 
     def _row(label: str, df: pl.DataFrame) -> list[str]:
@@ -646,14 +649,14 @@ def profile_comparison_table(rows: list[ProfileSummary]) -> str:
     """
     headers = [
         "Profile",
-        "Seed&nbsp;hh",
+        "Households&nbsp;in&nbsp;sample",
         "&Sigma;&nbsp;hh&nbsp;weight",
         "&Sigma;&nbsp;person&nbsp;weight",
         "&Sigma;&nbsp;day&nbsp;weight",
-        "ESS&nbsp;%",
-        "CV",
-        "max/med",
-        "MAPE",
+        term("ess", "ESS&nbsp;%"),
+        term("cv"),
+        term("maxmed"),
+        term("mape"),
         "Converged",
     ]
     body: list[list[str]] = []
@@ -723,7 +726,7 @@ def cascade_table(cascades: dict[str | None, list[CascadeRow]]) -> str:
 def redistribution_table(rows: dict[str | None, list[RedistributionRow]]) -> str:
     """Child/parent weight ratio per copy-and-conserve edge, per profile."""
     headers = [
-        "Edge",
+        "Levels",
         "Profile",
         "Median",
         "P90",
@@ -751,13 +754,13 @@ def redistribution_table(rows: dict[str | None, list[RedistributionRow]]) -> str
 def split_identity_table(rows: dict[str | None, list[SplitIdentityRow]]) -> str:
     """Whether each split level's children still sum to their parent's weight."""
     headers = [
-        "Edge",
+        "Levels",
         "Profile",
-        "Parents",
-        "Max&nbsp;residual",
-        "Stranded",
-        "Unrepresented",
-        "Children",
+        "Higher-level&nbsp;records",
+        "Largest&nbsp;gap",
+        "With&nbsp;no&nbsp;usable&nbsp;lower-level&nbsp;record",
+        "Weight&nbsp;not&nbsp;passed&nbsp;down",
+        "Lower-level&nbsp;records&nbsp;each",
     ]
     body: list[list[str]] = []
     for profile, edges in rows.items():
@@ -788,7 +791,13 @@ def coverage_table(coverages: dict[str | None, GeographyCoverage]) -> str:
     no fit can give it a weight. That is a bound on what the weighting answers,
     and it is stated rather than left to be inferred from a column of nulls.
     """
-    headers = ["Profile", "Universe", "Placed", "Unplaceable", "Share"]
+    headers = [
+        "Profile",
+        "Households",
+        "In&nbsp;a&nbsp;zone",
+        "Outside&nbsp;all&nbsp;zones",
+        "Share",
+    ]
     body: list[list[str]] = []
     for profile, cov in coverages.items():
         unplaceable = (
@@ -806,3 +815,51 @@ def coverage_table(coverages: dict[str | None, GeographyCoverage]) -> str:
             ]
         )
     return _html_table(headers, body)
+
+
+def inheritance_table(rows: list[Inheritance], labels: dict[str, str]) -> str:
+    """How each set's weight descends from the level above, and by what mechanism.
+
+    The mechanism is the column that matters. *Copied* means the level adds
+    nothing of its own, so a comparison there restates the level above. *Adjusted*
+    means records were rescaled individually after the weight descended, which is
+    the one case where the level no longer nests inside its parent -- and the one
+    a reader is most likely to mistake for the harmless kind.
+    """
+    if not rows:
+        return ""
+    headers = [
+        "Level",
+        "Weight set",
+        "Records",
+        term("inherit", "Same&nbsp;as&nbsp;level&nbsp;above"),
+        "Groups&nbsp;with&nbsp;unequal&nbsp;adjustments",
+        "Largest&nbsp;difference",
+        "Mechanism",
+    ]
+    verdicts = {
+        "copied": '<td class="failed">copied</td>',
+        "redistributed": "redistributed",
+        "adjusted": '<td class="failed">adjusted per record</td>',
+    }
+    body: list[list[str]] = []
+    for row in rows:
+        uniform = row.max_scope_spread <= 1 + 1e-9
+        spread = "&mdash;" if uniform else f"{row.max_scope_spread:,.2f}&times;"
+        varying = (
+            f'<td class="failed">{row.n_scopes_varying:,}</td>'
+            if row.n_scopes_varying
+            else f"{row.n_scopes_varying:,}"
+        )
+        body.append(
+            [
+                f"{row.level} &larr; {row.parent}",
+                labels.get(row.set_name, row.set_name),
+                f"{row.n:,}",
+                f"{row.share:.1f}%",
+                varying,
+                spread,
+                verdicts[row.mode],
+            ]
+        )
+    return _html_table(headers, body, css_class="inherit")

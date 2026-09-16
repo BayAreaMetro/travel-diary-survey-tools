@@ -16,15 +16,17 @@ the per-fit sections behind a profile toggle.
 
 What sits where follows from what can be compared on screen:
 
-* **Run-level, always visible** -- the profile comparison, the map, and the
-  weight-cascade tables. These are small enough to show every profile at once,
-  and a labelled column cannot be misread the way a toggled chart can.
+* **Run-level, always visible** -- the definitions, the profile comparison, the
+  map, the weight-cascade tables and the weight set comparer. These are small
+  enough to show every profile at once, and a labelled column cannot be misread
+  the way a toggled chart can.
 * **Per-profile, toggled** -- the per-zone tables and every figure. Three
   profiles of a per-zone fit grid will not fit side by side, so they are
   switched rather than juxtaposed, and each carries its profile in the heading
   so a cropped screenshot still says what it shows.
 """
 
+import json
 import logging
 from pathlib import Path
 
@@ -41,6 +43,7 @@ from .charts import (
     imputation_distribution_figure,
     violins_figure,
 )
+from .comparison import Comparison, fitted_weight_sets, inheritance, payload
 from .data import (
     apply_fit_merges,
     compute_weighted_totals,
@@ -52,12 +55,14 @@ from .data import (
     weight_cascade,
     zone_fit_summary,
 )
+from .glossary import CASCADE, COMPARER, FIT, IMPUTATION, WEIGHTS, glossary_groups, term
 from .tables import (
     balancer_performance_table,
     cascade_table,
     coverage_table,
     crosswalk_summary_table,
     imputation_summary_table,
+    inheritance_table,
     profile_comparison_table,
     redistribution_table,
     split_identity_table,
@@ -77,6 +82,7 @@ _ENV = jinja2.Environment(
     autoescape=False,  # noqa: S701
     undefined=jinja2.StrictUndefined,
 )
+_ENV.globals["term"] = term
 _TEMPLATE = _ENV.get_template("diagnostics_template.html")
 
 # Plotly HTML config: hover tooltips only, no resize/zoom/toolbar.
@@ -90,6 +96,87 @@ _PLOTLY_KWARGS: dict = {
     "include_plotlyjs": False,
     "config": _PLOTLY_CONFIG,
 }
+
+# Document order for the run-level sections, the ones outside the profile toggle.
+_RUN_SECTIONS: tuple[str, ...] = ("comparison", "crosswalk", "cascade", "comparer")
+
+# Document order for the per-profile sections, each paired with the pane field
+# whose presence decides whether that pane renders it at all.
+_PANE_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("imputation", "imputation_table"),
+    ("balancer", "balancer_performance_table"),
+    ("quality", "weight_quality_table"),
+    ("ef_tradeoff", "ef_tradeoff_section"),
+    ("fit_bars", "fit_bars_html"),
+    ("sparsity", "sparsity_html"),
+)
+
+
+# Section headings, used by both the heading and the sidebar entry for it.
+_TITLES: dict[str, str] = {
+    "comparison": "Profile Comparison",
+    "crosswalk": "Crosswalk Map",
+    "cascade": "Weight Cascade",
+    "comparer": "Weight Set Comparer",
+    "imputation": "Fractional Seed Imputation",
+    "balancer": "Balancer Performance",
+    "quality": "Weight Quality",
+    "ef_tradeoff": "Expansion Factor Calibration",
+    "fit_bars": "Target Fit (% Error)",
+    "sparsity": "Unweighted Cell Counts",
+}
+
+# Which definitions a section needs, so the glossary lists only what is on the page.
+_GLOSSARY_FOR: dict[str, str] = {
+    "comparison": WEIGHTS,
+    "balancer": FIT,
+    "imputation": IMPUTATION,
+    "cascade": CASCADE,
+    "comparer": COMPARER,
+}
+
+
+def _outline(nums: dict[str, int]) -> list[dict]:
+    """Sidebar entries for the rendered sections, in document order.
+
+    Per-profile sections are flagged so the sidebar can send a click to whichever
+    profile pane is showing, since each pane repeats them.
+    """
+    per_profile = {key for key, _ in _PANE_SECTIONS}
+    return [
+        {"key": key, "num": num, "title": _TITLES[key], "per_profile": key in per_profile}
+        for key, num in sorted(nums.items(), key=lambda item: item[1])
+    ]
+
+
+def _section_numbers(present: dict[str, bool], panes: list[dict]) -> dict[str, int]:
+    """Number the sections this run actually renders, consecutively from 1.
+
+    A section heading carries its number as text, so the numbers have to be
+    assigned where the conditions are already known -- here -- rather than
+    branched on in the template, where a section that appears under some runs and
+    not others makes every later heading a nested conditional.
+
+    Per-profile sections are numbered once for the whole document rather than per
+    pane. A number is an address into the report, and an address that moved when
+    the reader pressed the profile toggle would be worse than a gap: a section
+    absent from one pane keeps its number and that pane simply skips it.
+
+    Args:
+        present: Whether each run-level section produced any content.
+        panes: The per-profile panes, read for which sections any of them filled.
+
+    Returns:
+        Section key to number, holding only the sections that are rendered.
+    """
+    numbers: dict[str, int] = {}
+    for key in _RUN_SECTIONS:
+        if present.get(key):
+            numbers[key] = len(numbers) + 1
+    for key, field in _PANE_SECTIONS:
+        if any(pane.get(field) for pane in panes):
+            numbers[key] = len(numbers) + 1
+    return numbers
 
 
 def _label(profile: str | None) -> str:
@@ -199,6 +286,7 @@ def generate_report(  # noqa: PLR0913
     control_moe: pl.DataFrame | None = None,
     pums_incidence: pl.DataFrame | None = None,
     max_expansion_factor: float | None = None,
+    comparison: Comparison | None = None,
 ) -> Path:
     """Write the run's self-contained HTML diagnostics report to *output_path*.
 
@@ -222,6 +310,9 @@ def generate_report(  # noqa: PLR0913
             fractional seed imputation chart.
         max_expansion_factor: The production EF, marked on the calibration
             chart when a grid was searched.
+        comparison: Weight sets to compare pairwise. Run-level by construction:
+            a comparison names two profiles, so it cannot sit in a pane that
+            shows one. Omitted, or holding no pairs, the section is left out.
 
     Returns:
         The path written.
@@ -249,7 +340,7 @@ def generate_report(  # noqa: PLR0913
     ]
 
     # Section 1 — profile comparison, the one view no single fit can produce
-    comparison = profile_comparison_table(
+    comparison_table = profile_comparison_table(
         [profile_summary(fit, tables, control_tables[profile]) for profile, fit in fits.items()]
     )
 
@@ -283,17 +374,44 @@ def generate_report(  # noqa: PLR0913
     }
     splits = {profile: split_identity(tables, profile=profile) for profile in fits}
 
-    ctx = {
-        "title": "Weighting Diagnostics Report",
-        "run_meta": run_meta or {},
-        "comparison_table": comparison,
-        "crosswalk_section": crosswalk_section,
-        "crosswalk_table": crosswalk_table,
+    # How each set's weight descends, including any supplied sets: it describes
+    # each set on its own, so it belongs with the cascade, not the comparer.
+    sets = comparison.sets if comparison is not None else fitted_weight_sets(list(fits))
+    cascade_blocks = {
         "cascade_table": cascade_table(cascades),
         "redistribution_table": redistribution_table(ratios),
+        "inheritance_table": inheritance_table(
+            inheritance(tables, sets), {s.name: s.label for s in sets}
+        ),
         "split_identity_table": split_identity_table(splits),
         "coverage_table": coverage_table({p: f.coverage for p, f in fits.items()}),
+    }
+
+    # Section 4 — the pairwise comparer, embedded as data and drawn in the browser
+    comparer = comparison or Comparison(sets=[], pairs=[])
+
+    nums = _section_numbers(
+        {
+            "comparison": bool(comparison_table),
+            "crosswalk": bool(crosswalk_section or crosswalk_table),
+            "cascade": any(cascade_blocks.values()),
+            "comparer": bool(comparer),
+        },
+        panes,
+    )
+    ctx = {
+        "title": "Weighting Diagnostics Report",
+        "titles": _TITLES,
+        "outline": _outline(nums),
+        "glossary": glossary_groups({_GLOSSARY_FOR[k] for k in nums if k in _GLOSSARY_FOR}),
+        "comparison_json": json.dumps(payload(comparer), separators=(",", ":")),
+        "run_meta": run_meta or {},
+        "comparison_table": comparison_table,
+        "crosswalk_section": crosswalk_section,
+        "crosswalk_table": crosswalk_table,
+        **cascade_blocks,
         "panes": panes,
+        "nums": nums,
     }
 
     html = _TEMPLATE.render(**ctx)

@@ -586,7 +586,7 @@ def _build_tooltips(
             if geo_id in counts
         ]
         if seeded:
-            header += " — seed HH: " + " · ".join(seeded)
+            header += " — sample households: " + " · ".join(seeded)
         lines = [header]
         for r in rows.iter_rows(named=True):
             aw = r["allocation_weight"] * 100

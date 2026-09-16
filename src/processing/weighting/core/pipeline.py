@@ -102,6 +102,12 @@ from processing.weighting.data_prep.seed_data import (
     recode_survey_persons,
 )
 from processing.weighting.diagnostics import generate_report
+from processing.weighting.diagnostics.comparison import (
+    Comparison,
+    all_pairs,
+    fitted_weight_sets,
+    reference_weight_sets,
+)
 from processing.weighting.validation.checksums import check_incidence_sums
 from processing.weighting.validation.control_validation import (
     validate_total_control_categories,
@@ -567,7 +573,7 @@ class WeightingPipeline:
                 importance=imp_cfg,
             )
 
-    def generate_diagnostics(self, output_path: Path | str | None = None) -> None:
+    def generate_diagnostics(self, diagnostics: dict | None = None) -> None:
         """Write one self-contained interactive HTML report for the whole run.
 
         Covers the weighting from geographic crosswalk through IPF convergence
@@ -591,37 +597,55 @@ class WeightingPipeline:
            seed count in the zone tooltip.
         3. **Weight Cascade** — per level, what the profile admitted and what
            carries weight, every profile side by side; the redistribution each
-           survivor absorbs, the day-split identity, and control-geography
+           survivor absorbs, how each weight set's lower levels descend from
+           the level above, the day-split identity, and control-geography
            coverage.
-        4. **Fractional Seed Imputation** *(per profile)* — null rate per
+        4. **Weight Set Comparer** *(optional)* — any two weight sets compared
+           pairwise at any level, this run's fits against each other or against
+           sets named in ``diagnostics.compare_weights``. Omitted when there is
+           only one set to show.
+        5. **Fractional Seed Imputation** *(per profile)* — null rate per
            control in the seed incidence, and the quality of the PUMS-trained
            model that filled it.
-        5. **Balancer Performance** *(per profile)* — per-zone convergence,
+        6. **Balancer Performance** *(per profile)* — per-zone convergence,
            target fit (MAPE, P90, Max), CV and ESS%.
-        6. **Weight Quality** *(per profile)* — per-zone weight and expansion
+        7. **Weight Quality** *(per profile)* — per-zone weight and expansion
            factor statistics, with violin plots.
-        7. **Expansion Factor Calibration** *(per profile, optional)* — MAPE vs
+        8. **Expansion Factor Calibration** *(per profile, optional)* — MAPE vs
            CV across the ``expansion_factor_grid`` values. Only included when
            the grid was set in the weighting config.
-        8. **Target Fit (% Error)** *(per profile)* — diverging bars per control
+        9. **Target Fit (% Error)** *(per profile)* — diverging bars per control
            category per zone, with PUMS replicate-weight whiskers.
-        9. **Unweighted Cell Counts** *(per profile)* — seed counts per control
+        10. **Unweighted Cell Counts** *(per profile)* — seed counts per control
            category per zone, flagging sparse cells.
+
+        Numbers are assigned to the sections a run actually renders, so an
+        optional section that is absent takes its number with it rather than
+        leaving a gap.
 
         Parameters
         ----------
-        output_path:
-            Destination for the HTML file.  Accepts a ``Path``, a string
-            (including Jinja-rendered template paths from the YAML config), or
-            ``None``.  When ``None`` the file is written to
-            ``<cache_dir>/diagnostics.html`` (or ``./weighting/diagnostics.html``
-            if no cache directory is configured).  No profile suffix: a run
-            writes one file however many profiles it fits.
+        diagnostics:
+            The ``diagnostics`` block of the weighting config, or ``None``.
+
+            ``output_path`` is the destination for the HTML file, as a ``Path``
+            or a string (including Jinja-rendered template paths from the YAML).
+            When absent the file is written to ``<cache_dir>/diagnostics.html``
+            (or ``./weighting/diagnostics.html`` if no cache directory is
+            configured).  No profile suffix: a run writes one file however many
+            profiles it fits.
+
+            ``compare_weights`` names weight sets that arrived with the survey,
+            to compare this run's fits against.  See
+            [`reference_weight_sets`][processing.weighting.diagnostics.comparison
+            .reference_weight_sets] for why they are named rather than found.
         """
         if not self.fits:
             logger.warning("No completed fits to report on; skipping diagnostics.")
             return
 
+        settings = diagnostics or {}
+        output_path = settings.get("output_path")
         if output_path is not None:
             resolved_path = Path(output_path)
         else:
@@ -644,7 +668,21 @@ class WeightingPipeline:
             control_moe=self.control_moe,
             pums_incidence=self.pums_incidence,
             max_expansion_factor=self.balancing.max_expansion_factor,
+            comparison=self._weight_comparisons(settings.get("compare_weights")),
         )
+
+    def _weight_comparisons(self, references: dict | None) -> Comparison:
+        """Compare every pair of weight sets this run can see.
+
+        Read before ``drop_unsuffixed_weights`` runs, which is the only moment a
+        supplied un-suffixed weight and this run's own output are both on the
+        table -- afterwards the bare column is gone precisely so that no reader
+        has to guess which of the two it was.
+        """
+        sets = fitted_weight_sets(list(self.fits)) + reference_weight_sets(references)
+        if len(sets) < 2:  # noqa: PLR2004 - a comparison needs two sides
+            return Comparison(sets=sets, pairs=[])
+        return Comparison(sets=sets, pairs=all_pairs(self.data.as_dict(), sets))
 
     def _run_meta(self) -> dict[str, str]:
         """Label/value pairs identifying this run, for the report header.
@@ -731,7 +769,7 @@ class WeightingPipeline:
         self.fits[fit.profile] = fit
         return fit
 
-    def fit_all(self, *, output_path: str | None = None) -> dict[str | None, ProfileFit]:
+    def fit_all(self, *, diagnostics: dict | None = None) -> dict[str | None, ProfileFit]:
         """Run one fit per configured profile, then raise if any failed to converge.
 
         Every profile is attempted and the report written before raising, so a
@@ -743,7 +781,7 @@ class WeightingPipeline:
         """
         for profile in self.config.fitted_profiles:
             self.fit(profile)
-        self.generate_diagnostics(output_path=output_path)
+        self.generate_diagnostics(diagnostics)
 
         failed = {
             fit.profile or "the survey": fit.unconverged_zones

@@ -245,7 +245,9 @@ def compute_weights(  # noqa: PLR0913
         len(profiles),
         ", ".join(p or "the whole survey" for p in profiles),
     )
-    fits = wt_pipeline.fit_all(output_path=diagnostics.get("output_path") if diagnostics else None)
+    # The whole block, not one key: the comparer also reads it, and it must run
+    # before drop_unsuffixed_weights below takes the supplied weights away.
+    fits = wt_pipeline.fit_all(diagnostics=diagnostics)
 
     # Basic sanity check to ensure weights were propagated to all tables before returning
     result_tables = wt_pipeline.data.as_dict_non_null()
