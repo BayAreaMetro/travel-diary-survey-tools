@@ -272,30 +272,49 @@ class PumaCrosswalk:
         """Point-in-polygon assignment of households to Census block groups.
 
         Returns *households* with a ``bg_geo_id`` column added (null for
-        points outside all block groups).  Block group boundaries are
-        derived by dissolving Census blocks on the first 12 characters
-        of their GEOID.
-        """
-        # Dissolve blocks → block groups
-        bg_gdf = self.block_gdf.copy()
-        bg_gdf["bg_geo_id"] = bg_gdf["block_id"].str[:12]
-        bg_dissolved = bg_gdf.dissolve(by="bg_geo_id").reset_index()[["bg_geo_id", "geometry"]]
+        points outside all block groups).  A block group is the first 12
+        characters of its blocks' GEOIDs, so each point is matched to the
+        block it lies in rather than to block groups dissolved from blocks,
+        which is far slower and gives the same answer.
 
+        A point on the edge between blocks lies within neither, though it
+        does lie within their block group when they share one. Such a point
+        takes the block group of the blocks it touches when they all agree,
+        as it would against dissolved block groups.
+        """
         points = gpd.GeoDataFrame(
-            {"hh_id": households["hh_id"].to_list()},
+            {"hh_id": households["hh_id"].to_numpy()},
             geometry=gpd.points_from_xy(
-                households[lon_col].to_list(),
-                households[lat_col].to_list(),
+                households[lon_col].to_numpy(),
+                households[lat_col].to_numpy(),
             ),
             crs="EPSG:4326",
         )
-        bg_dissolved = bg_dissolved.to_crs("EPSG:4326")
-        joined = gpd.sjoin(points, bg_dissolved, how="left", predicate="within")
-        joined = joined.drop(columns=["geometry", "index_right"])
+        blocks = self.block_gdf[["block_id", "geometry"]].to_crs("EPSG:4326")
+        schema = {"hh_id": households.schema["hh_id"], "bg_geo_id": pl.Utf8}
 
-        result_pl = pl.from_pandas(joined[["hh_id", "bg_geo_id"]]).unique(
-            subset=["hh_id"], keep="first"
+        def block_groups(predicate: str, pts: gpd.GeoDataFrame) -> pl.DataFrame:
+            joined = gpd.sjoin(pts, blocks, how="inner", predicate=predicate)
+            return pl.DataFrame(
+                {
+                    "hh_id": joined["hh_id"].to_numpy(),
+                    "bg_geo_id": joined["block_id"].str[:12].to_list(),
+                },
+                schema=schema,
+            )
+
+        within = block_groups("within", points)
+        on_edge = points[~points["hh_id"].isin(within["hh_id"].to_numpy())]
+        edge_bg = (
+            block_groups("intersects", on_edge)
+            .rename({"bg_geo_id": "_bg"})
+            .group_by("hh_id")
+            .agg(pl.col("_bg").unique())
+            .filter(pl.col("_bg").list.len() == 1)
+            .select("hh_id", pl.col("_bg").list.first().alias("bg_geo_id"))
         )
+
+        result_pl = pl.concat([within, edge_bg]).unique(subset=["hh_id"], keep="first")
         return households.join(result_pl, on="hh_id", how="left")
 
     def assign_households(

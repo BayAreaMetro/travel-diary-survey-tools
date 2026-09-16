@@ -11,6 +11,40 @@ from pipeline.decoration import step
 logger = logging.getLogger(__name__)
 
 
+def prepare_zones(shp: gpd.GeoDataFrame, zone_id_field: str) -> gpd.GeoDataFrame:
+    """Zone polygons indexed by zone ID, as a string so nulls survive pandas."""
+    zones = shp.loc[:, [zone_id_field, "geometry"]].copy()
+    zones[zone_id_field] = zones[zone_id_field].astype(str)
+    return zones.set_index(zone_id_field)
+
+
+def prepare_snap_zones(
+    shp: gpd.GeoDataFrame, zone_id_field: str, projected_crs: str
+) -> gpd.GeoDataFrame:
+    """Zone polygons for the nearest-zone fallback: projected and repaired.
+
+    make_valid() repairs self-intersecting rings that cause GEOSException in
+    shapely's query_nearest. Reprojecting and repairing a large zone system
+    takes seconds, so callers zoning several tables against the same shapefile
+    should build this once and pass it to ``add_zone_to_dataframe``.
+    """
+    zones = prepare_zones(shp, zone_id_field).to_crs(projected_crs)
+    zones["geometry"] = zones.geometry.make_valid()
+    return zones
+
+
+def zone_points(df: pl.DataFrame, df_index: str, lon_col: str, lat_col: str) -> gpd.GeoDataFrame:
+    """WGS-84 points for ``df``'s coordinates, indexed by ``df_index``."""
+    # Keep just index to avoid corrupting original polars DataFrame with pandas nonsense
+    points = gpd.GeoDataFrame(
+        index=df[df_index].to_numpy(),
+        geometry=gpd.points_from_xy(df[lon_col].to_numpy(), df[lat_col].to_numpy()),
+        crs="EPSG:4326",
+    )
+    points.index.name = df_index
+    return points
+
+
 # Helper function to add zone ID to a dataframe based on lon/lat
 def add_zone_to_dataframe(
     df: pl.DataFrame,
@@ -22,6 +56,9 @@ def add_zone_to_dataframe(
     zone_id_field: str,
     projected_crs: str | None = None,
     max_snap_distance: float | None = None,
+    zones: gpd.GeoDataFrame | None = None,
+    snap_zones: gpd.GeoDataFrame | None = None,
+    points: gpd.GeoDataFrame | None = None,
 ) -> pl.DataFrame:
     """Add a zone ID column to a Polars DataFrame via point-in-polygon spatial join.
 
@@ -64,24 +101,22 @@ def add_zone_to_dataframe(
             (assumed to be genuinely out-of-region rather than near a zone
             edge).  ``None`` means no distance limit — all unmatched points
             are snapped.  Only used when ``projected_crs`` is provided.
+        zones: ``shp`` as built by ``prepare_zones`` for the same
+            ``zone_id_field``. Built here when not given; passing it lets
+            repeated calls reuse its spatial index.
+        snap_zones: ``shp`` as built by ``prepare_snap_zones`` for the same
+            ``zone_id_field`` and ``projected_crs``. Built here when not given.
+        points: ``df``'s coordinates as built by ``zone_points``. Built here
+            when not given; passing it lets several zone systems reuse them.
 
     Returns:
         ``df`` with a new ``zone_col_name`` column appended.  The column dtype
         is ``Int64`` when all non-null values are numeric, otherwise ``Utf8``.
     """
-    # Convert to GeoDataFrame
-    # Keep just index to avoid corrupting original polars DataFrame with pandas nonsense
-    gdf = gpd.GeoDataFrame(
-        index=df[df_index].to_list(),
-        geometry=gpd.points_from_xy(df[lon_col].to_list(), df[lat_col].to_list()),
-        crs="EPSG:4326",
-    )
-    gdf.index.name = df_index
+    gdf = points if points is not None else zone_points(df, df_index, lon_col, lat_col)
 
     # Prepare shapefile for spatial join and ensure zone ID is string to handle nulls in pandas land
-    shp_prepared = shp.loc[:, [zone_id_field, "geometry"]].copy()
-    shp_prepared[zone_id_field] = shp_prepared[zone_id_field].astype(str)
-    shp_prepared = shp_prepared.set_index(zone_id_field)
+    shp_prepared = zones if zones is not None else prepare_zones(shp, zone_id_field)
 
     # Spatial join to find zone containing each point
     gdf_joined = gpd.sjoin(gdf, shp_prepared, how="left", predicate="within")
@@ -97,10 +132,11 @@ def add_zone_to_dataframe(
         if projected_crs:
             # Project to metric CRS before nearest-neighbour join
             # to avoid incorrect results from operating in geographic CRS (degrees).
-            # make_valid() repairs self-intersecting rings that cause GEOSException
-            # in shapely's query_nearest when using polygon geometries directly.
-            shp_for_nearest = shp_prepared.to_crs(projected_crs)
-            shp_for_nearest["geometry"] = shp_for_nearest.geometry.make_valid()
+            shp_for_nearest = (
+                snap_zones
+                if snap_zones is not None
+                else prepare_snap_zones(shp, zone_id_field, projected_crs)
+            )
             points_projected = gdf[null_mask].to_crs(projected_crs)
             # Exclude points with null/NaN coordinates (e.g. persons with no work location);
             # those have no real location and should remain null regardless.
@@ -148,7 +184,7 @@ def add_zone_to_dataframe(
     # If all zone IDs are integers, convert to Int64 to allow nulls
     # else keep as string
     casttype = pl.Utf8
-    if gdf_joined[zone_col_name].dropna().apply(lambda x: x.isdigit()).all():
+    if gdf_joined[zone_col_name].dropna().str.isdigit().all():
         casttype = pl.Int64
 
     # Join back to original polars DataFrame on index
@@ -228,6 +264,8 @@ def add_zone_ids(
 
     # Pre-load the shapefiles to avoid re-loading for each table
     shapefiles_cache = {}
+    # Coordinates don't change between zone systems, so their points are built once
+    points_cache = {}
 
     # Process each zone geography
     for zone_config in zone_geographies:
@@ -241,6 +279,11 @@ def add_zone_ids(
 
         # Load the shapefile
         shapefile = shapefiles_cache[shapefile_path]
+        # Built once per geography: rebuilding them per table cost most of the step
+        zones = prepare_zones(shapefile, zone_id_field)
+        snap_zones = (
+            prepare_snap_zones(shapefile, zone_id_field, projected_crs) if projected_crs else None
+        )
 
         # Standard location mappings: (table, table_index, lon_col, lat_col, location_prefix)
         standard_locations = [
@@ -284,6 +327,10 @@ def add_zone_ids(
                 )
                 df = df.drop(output_col)
 
+            points_key = (table, lon_col, lat_col)
+            if points_key not in points_cache:
+                points_cache[points_key] = zone_points(df, idx, lon_col, lat_col)
+
             results[table] = add_zone_to_dataframe(
                 df,
                 shapefile,
@@ -294,6 +341,9 @@ def add_zone_ids(
                 zone_id_field=zone_id_field,
                 projected_crs=projected_crs,
                 max_snap_distance=max_snap_distance,
+                zones=zones,
+                snap_zones=snap_zones,
+                points=points_cache[points_key],
             )
 
             # The name comes from config, so no model can declare it. Say what
