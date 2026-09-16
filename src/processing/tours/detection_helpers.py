@@ -400,8 +400,9 @@ def detect_anchor_based_subtours(
 
         modified_tours.append(updated_tour_df)
 
-    # Concatenate all tours back together
-    linked_trips_with_subtours = pl.concat(modified_tours)
+    # Concatenate all tours back together. Rechunk: one chunk per tour makes
+    # every downstream expression orders of magnitude slower.
+    linked_trips_with_subtours = pl.concat(modified_tours, rechunk=True)
 
     # tour_num, subtour_num, and parent_tour_id are now set for subtour trips
     # They will be used for ID creation and parent tracking during aggregation
