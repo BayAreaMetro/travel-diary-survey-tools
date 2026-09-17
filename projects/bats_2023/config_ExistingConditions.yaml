@@ -1,0 +1,216 @@
+# Processing Pipeline Configuration for BATS 2023
+# This config file demonstrates the full pipeline with DaySim and CTRAMP formatting
+
+# config.yaml
+
+# Directory shorthands.
+#
+# Paths are built from *roots* -- MTC_DATA, BOX_DIR, TM1_CLONE and so on -- which
+# say where a shared location is mounted on this machine. Roots come from your
+# environment or a `.env` file beside the project; see `example.env` for the
+# ones this config needs. A root that is referenced but set nowhere is an error
+# naming the root, before the pipeline starts.
+#
+# Only the root is machine-specific. Everything below it is the same for
+# everyone and belongs here, where it can be reviewed.
+#
+# A root that genuinely is the same everywhere can be given a committed default
+# in an `ENVS` block, which the environment still wins over:
+#
+#   ENVS:
+#     SOME_SHARED_ROOT: "/opt/shared"
+#
+survey_dir: "E:/Box/Modeling and Surveys/Surveys/Travel Diary Survey/BATS_2023/Versioned_Data/Weighted_PreLink_TueToThu_20251217"
+weights_dir: "X:/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output"
+pums_dir: "M:/Data/Census/PUMS/2023_1yr"
+# output_dir: "M:/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_lmz_20260501"
+output_dir: "E:/BATS2023_ExistingConditions_20260916"
+TM1_shapefile_dir: "E:/GitHub/travel-model-one/utilities/geographies"
+TM2_shapefile_dir: "E:/GitHub/TM2/tm2py-utils/tm2py_utils/inputs/maz_taz/shapefiles"
+log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
+
+# Pipeline configuration
+steps:
+  - name: load_data
+    validate_input: false # This will override @step(validate=True/False) in the function definition
+    cache: true
+    params:
+      input_paths:
+        households: "{{ survey_dir }}/hh.csv"
+        persons: "{{ survey_dir }}/person.csv"
+        days: "{{ survey_dir }}/day.csv"
+        unlinked_trips: "{{ survey_dir }}/trip.csv"
+
+  - name: clean_2023_bats
+    validate_input: false
+    cache: true
+  
+  # no imputation because we are using weights from RSG
+
+  - name: link_trips
+    validate_input: false
+    cache: true
+    params:
+      change_mode_enum: CHANGE_MODE
+      transit_mode_enums: [FERRY, TRANSIT, LONG_DISTANCE]
+      max_dwell_time: 180  # in minutes
+      dwell_buffer_distance: 100  # in meters
+      # Break a linked trip where the reported party size changes between
+      # segments, on the reading that somebody was picked up or dropped off
+      # rather than transferring. No default: state the choice explicitly.
+      split_on_occupancy: false
+
+  - name: detect_joint_trips
+    validate_input: false
+    cache: true
+    params:
+      config:
+        method: "mahalanobis"
+        # Covariance for Mahalanobis distance calculation
+        # Think of this as the standard deviation of measurement noise in each dimension
+        # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
+        # Default [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
+        covariance: [10000, 10000, 100, 100]
+        # Confidence level: Higher = stricter matching (fewer detections)
+        # 0.90 = 90% confidence (strict), 0.75 = moderate, 0.50 = permissive
+        confidence_level: 0.90
+
+        # Alternative: simpler buffer method with time/space thresholds
+        # method: "buffer"
+        # time_threshold_minutes: 15.0
+        # space_threshold_meters: 100.0
+
+  - name: extract_tours
+    validate_input: false
+    cache: true
+    params:
+      # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
+      # internal junction jumps more than this many meters between one trip's
+      # destination and the next trip's origin - a missing leg the extractor
+      # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
+      # teleports while ignoring same-place geocoding jitter.
+      spatial_gap_threshold_meters: 1000.0
+
+  - name: add_zone_ids
+    validate_input: false
+    cache: true
+    params:
+      projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
+      max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
+      zone_geographies:
+        - zone_name: "taz"  # Primary TAZ for DaySim (TM1)
+          shapefile: "{{ TM2_shapefile_dir }}/tazs_TM2_2_5.shp"
+          zone_id_field: "TAZ_NODE"
+        - zone_name: "maz"  # Primary MAZ for DaySim (TM2)
+          shapefile: "{{ TM2_shapefile_dir }}/mazs_TM2_2_5.shp"
+          zone_id_field: "MAZ_NODE"
+        # Add additional zone geographies as needed:
+        - zone_name: "TAZ1454"
+          shapefile: "{{ TM1_shapefile_dir }}/bayarea_rtaz1454_rev1_WGS84.shp"
+          zone_id_field: "TAZ1454"
+
+  # Cascade `survey_complete` (survey reporting) through hh <-> person <-> day <->
+  # trip/tour so it is consistent with any upstream adjustments, then stamp one
+  # usability column per profile declared below.
+  - name: cascade_completeness
+    validate_input: false
+    cache: true
+    params:
+      # One boolean column per profile. A profile states its standard on two
+      # axes, and every profile answers both, so a column's meaning reads off
+      # this block without knowing a base rule. Consumers then name the profile
+      # they read (usability_profile, below). `survey_complete` -- what the survey
+      # collected -- is always available as the floor beneath all of them.
+      #
+      #   tour_closes_at:      primary_home  the tour returns to the home it left
+      #                        any_home      ...or to another home this person is
+      #                                      known to have; the trips are whole,
+      #                                      only the anchor differs
+      #                        anywhere      ...or nowhere: cut by the diary edge
+      #                                      or resuming next day. Trips are whole;
+      #                                      the tour just does not close
+      #
+      #   household_day_needs: all_members   every surveyable member reported that
+      #                                      date -- needed to model how a
+      #                                      household coordinates
+      #                        nothing       no household-date requirement. Buys
+      #                                      sample size; the household's weight
+      #                                      redistributes onto whoever reported,
+      #                                      so they stand in for the whole
+      #                                      household
+      #
+      #   zone_coverage:       <zone_name>   every location -- the household's
+      #                                      home included -- must land in this
+      #                                      geography, named from the add_zone_ids
+      #                                      step above. Out-of-region travel is real
+      #                                      data this consumer cannot address,
+      #                                      so it is gated here rather than
+      #                                      dropped later, where the weighting
+      #                                      would already have counted it
+      #                        none          no geographic requirement
+      #
+      # No setting admits a tour with a missing leg or no activity to anchor on.
+      # Those are missing data, not an open end.
+      usability_profiles:
+        ctramp:
+          tour_closes_at: primary_home
+          household_day_needs: all_members
+          zone_coverage: TAZ1454
+        daysim:
+          tour_closes_at: primary_home
+          household_day_needs: all_members
+          zone_coverage: taz
+        analysis:
+          tour_closes_at: anywhere
+          household_day_needs: nothing
+          zone_coverage: none
+
+  # -- Existing weights (alternative to computing new weights) ----------
+  # Uncomment this block and comment out the 'weighting' step above
+  # to use pre-computed weights from an external source.
+  - name: add_existing_weights
+    validate_input: false
+    cache: false
+    params:
+      derive_missing_weights: true
+      weight_profiles: [survey_complete]
+      weights:
+        hh_weight:
+          weight_path: "{{ weights_dir }}/hh_weights.csv"
+        person_weight:
+          weight_path: "{{ weights_dir }}/person_weights.csv"
+        day_weight:
+          weight_path: "{{ weights_dir }}/day_weights.csv"
+        unlinked_trip_weight:
+          weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
+          weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
+          weight_path: "{{ weights_dir }}/trip_weights.csv"
+          keep_name: false # Defaults to false, but you could keep original name if desired
+
+  # - name: final_check
+  #   validate_input: true
+
+  - name: write_data
+    validate_input: true
+    params:
+      # Deliver only the documented schema: declared model fields plus the
+      # zone and pre-imputation columns steps register. Set false to dump
+      # every column on the frame when debugging.
+      write_only_canonical: true
+
+      # The "codebook" includes all the labeled enums used in the survey datamodel.
+      # This is useful to generate Tableau aliases and for summarization code.
+      enum_codebook_path: "{{ output_dir }}/survey/codebook.xlsx"
+      output_paths:
+        # Standard Survey Formats
+        households: "{{ output_dir }}/survey/households_2023.csv"
+        persons: "{{ output_dir }}/survey/persons_2023.csv"
+        days: "{{ output_dir }}/survey/days_2023.csv"
+        unlinked_trips: "{{ output_dir }}/survey/unlinked_trips_2023.csv"
+        linked_trips: "{{ output_dir }}/survey/linked_trips_2023.csv"
+        tours: "{{ output_dir }}/survey/tours_2023.csv"
+        joint_trips: "{{ output_dir }}/survey/joint_trips_2023.csv"
+        habitual_locations: "{{ output_dir }}/survey/habitual_locations_2023.csv"
+        habitual_location_days: "{{ output_dir }}/survey/habitual_location_days_2023.csv"
+
+
