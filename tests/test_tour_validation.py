@@ -5,10 +5,27 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from data_canon.codebook.generic import LocationType
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.codebook.trips import PurposeCategory
 from processing.tours.validation_helpers import validate_and_correct_tours
+
+PRIMARY_HOME, SECOND_HOME = 1101, 1102
+
+
+def with_homes(linked_trips, o_homes=None, d_homes=None):
+    """Add the home each trip end matched, as ``match_trip_ends`` reports it.
+
+    Ends default to no home. ``SECOND_HOME`` is the person's other home.
+    """
+    n = linked_trips.height
+    o_homes = o_homes or [None] * n
+    d_homes = d_homes or [None] * n
+    return linked_trips.with_columns(
+        pl.Series("_o_home_id", o_homes, dtype=pl.Int64),
+        pl.Series("_d_home_id", d_homes, dtype=pl.Int64),
+        pl.Series("_o_at_other_home", [h == SECOND_HOME for h in o_homes]),
+        pl.Series("_d_at_other_home", [h == SECOND_HOME for h in d_homes]),
+    )
 
 
 class TestValidateAndCorrectTours:
@@ -22,6 +39,7 @@ class TestValidateAndCorrectTours:
                 "person_id": [1],
                 "day_id": [1],
                 "trip_count": [2],
+                "subtour_num": [0],
                 "tour_num": [1],
                 "tour_category": [TourCategory.COMPLETE.value],
                 "tour_purpose": [PurposeCategory.WORK.value],
@@ -60,6 +78,7 @@ class TestValidateAndCorrectTours:
                 "person_id": [1],
                 "day_id": [1],
                 "trip_count": [1],
+                "subtour_num": [0],
                 "tour_num": [0],
                 "tour_category": [TourCategory.COMPLETE.value],
                 "tour_purpose": [PurposeCategory.WORK.value],
@@ -78,8 +97,21 @@ class TestValidateAndCorrectTours:
         with pytest.raises(ValueError, match="never assigned to a tour"):
             validate_and_correct_tours(tours, linked_trips)
 
-    def _frames(self, category, *, purpose=PurposeCategory.SHOP.value, trips=2):
-        """One tour with *trips* legs and no other travel around it."""
+    def _frames(
+        self,
+        category,
+        *,
+        purpose=PurposeCategory.SHOP.value,
+        trips=2,
+        start_home=PRIMARY_HOME,
+        end_home=PRIMARY_HOME,
+        subtour_num=0,
+    ):
+        """One tour with *trips* legs and no other travel around it.
+
+        Its first origin is at *start_home* and its last destination at
+        *end_home* (None for no home).
+        """
         pts = [(37.0 + 0.1 * (i % 2), -122.0 - 0.1 * (i % 2)) for i in range(trips + 1)]
         tours = pl.DataFrame(
             {
@@ -87,6 +119,7 @@ class TestValidateAndCorrectTours:
                 "person_id": [1],
                 "day_id": [1],
                 "trip_count": [trips],
+                "subtour_num": [subtour_num],
                 "tour_num": [1],
                 "tour_category": [category.value],
                 "tour_purpose": [purpose],
@@ -109,7 +142,9 @@ class TestValidateAndCorrectTours:
                 "arrive_time": [datetime(2023, 5, 1, 8 + i, 30) for i in range(trips)],
             }
         )
-        return tours, linked_trips
+        o_homes = [start_home] + [None] * (trips - 1)
+        d_homes = [None] * (trips - 1) + [end_home]
+        return tours, with_homes(linked_trips, o_homes, d_homes)
 
     @staticmethod
     def _two_day_frames(second_day_origin):
@@ -120,6 +155,7 @@ class TestValidateAndCorrectTours:
                 "person_id": [1, 1],
                 "day_id": [1, 2],
                 "trip_count": [1, 1],
+                "subtour_num": [0, 0],
                 "tour_num": [1, 1],
                 "tour_category": [
                     TourCategory.PARTIAL_END.value,
@@ -143,7 +179,7 @@ class TestValidateAndCorrectTours:
                 "arrive_time": [datetime(2023, 5, 1, 21), datetime(2023, 5, 2, 9)],
             }
         )
-        return tours, linked_trips
+        return tours, with_homes(linked_trips)
 
     @pytest.mark.parametrize(
         "category",
@@ -185,23 +221,45 @@ class TestValidateAndCorrectTours:
 
         assert result["tour_data_quality"][0] == TourDataQuality.NO_DESTINATION.value
 
-    def test_open_end_at_a_second_home_is_named_as_such(self):
-        """An end sitting on a known other home is not a truncation."""
-        tours, linked_trips = self._frames(TourCategory.PARTIAL_END, trips=1)
-        habitual = pl.DataFrame(
-            {
-                "person_id": [1],
-                "location_type": [LocationType.HOME.value],
-                "is_primary": [False],
-                # The tour's last destination, to the metre.
-                "lat": [37.1],
-                "lon": [-122.1],
-            }
+    def test_tour_closed_at_a_second_home_is_other_home(self):
+        """A round trip from the second home is complete, but not from the primary."""
+        tours, linked_trips = self._frames(
+            TourCategory.COMPLETE, start_home=SECOND_HOME, end_home=SECOND_HOME
         )
 
-        result = validate_and_correct_tours(tours, linked_trips, habitual_locations=habitual)
+        result = validate_and_correct_tours(tours, linked_trips)
 
-        assert result["tour_data_quality"][0] == TourDataQuality.PARTIAL_OTHER_HOME.value
+        assert result["tour_data_quality"][0] == TourDataQuality.OTHER_HOME.value
+
+    def test_direct_move_between_homes_is_other_home(self):
+        """Primary home straight to the second home: no stop, but the move is why."""
+        tours, linked_trips = self._frames(
+            TourCategory.COMPLETE, purpose=None, trips=1, end_home=SECOND_HOME
+        )
+
+        result = validate_and_correct_tours(tours, linked_trips)
+
+        assert result["tour_data_quality"][0] == TourDataQuality.OTHER_HOME.value
+
+    def test_open_tour_from_a_second_home_reports_its_open_end(self):
+        """One code per tour: an open end outranks the home it left from."""
+        tours, linked_trips = self._frames(
+            TourCategory.PARTIAL_END, trips=1, start_home=SECOND_HOME, end_home=None
+        )
+
+        result = validate_and_correct_tours(tours, linked_trips)
+
+        assert result["tour_data_quality"][0] == TourDataQuality.PARTIAL_DIARY_EDGE.value
+
+    def test_subtour_beside_a_second_home_is_graded_on_its_own_anchor(self):
+        """Subtours start and end at work or school, whatever home is nearby."""
+        tours, linked_trips = self._frames(
+            TourCategory.COMPLETE, start_home=SECOND_HOME, end_home=SECOND_HOME, subtour_num=1
+        )
+
+        result = validate_and_correct_tours(tours, linked_trips)
+
+        assert result["tour_data_quality"][0] == TourDataQuality.VALID.value
 
     def test_chain_resuming_next_day_is_a_day_split(self):
         """The journey continues from where it stopped, so it was merely cut."""
@@ -241,6 +299,7 @@ class TestSpatialGapDetection:
                 "person_id": [1],
                 "day_id": [1],
                 "trip_count": [n],
+                "subtour_num": [0],
                 "tour_num": [1],
                 "tour_category": [TourCategory.COMPLETE.value],
                 "tour_purpose": [purpose],
@@ -265,7 +324,7 @@ class TestSpatialGapDetection:
                 "d_lon": [p[4][1] for p in points],
             }
         )
-        return tours, linked_trips
+        return tours, with_homes(linked_trips)
 
     def test_internal_gap_flags_spatial_gap(self):
         """A tour whose trips jump across a hole is flagged SPATIAL_GAP."""
@@ -322,6 +381,7 @@ class TestTourValidationIntegration:
                 "person_id": [1, 1, 2, 2],
                 "day_id": [1, 1, 1, 1],
                 "trip_count": [2, 1, 3, 2],
+                "subtour_num": [0, 0, 0, 0],
                 "tour_num": [1, 2, 1, 2],
                 "tour_category": [
                     TourCategory.COMPLETE.value,
@@ -368,6 +428,7 @@ class TestTourValidationIntegration:
                 "person_id": [1, 1],
                 "day_id": [1, 1],
                 "trip_count": [3, 1],
+                "subtour_num": [0, 0],
                 "tour_num": [1, 2],
                 "tour_category": [TourCategory.COMPLETE.value, TourCategory.PARTIAL_BOTH.value],
                 "tour_purpose": [PurposeCategory.WORK.value, PurposeCategory.WORK.value],

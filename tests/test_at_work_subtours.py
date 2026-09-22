@@ -42,7 +42,6 @@ from processing.formatting.ctramp.format_tours import format_individual_tour
 from processing.formatting.daysim.format_days import format_days as format_days_daysim
 from processing.formatting.daysim.format_tours import format_tours as format_tours_daysim
 from processing.formatting.usable_records import keep_usable
-from processing.tours.extraction import extract_tours
 from tests.fixtures import (
     create_household,
     create_linked_trip,
@@ -51,6 +50,7 @@ from tests.fixtures import (
 )
 from tests.fixtures.fixtures import process_scenario_through_pipeline
 from tests.fixtures.scenario_builders import multi_stop_tour
+from tests.fixtures.tour_pipeline import locate_and_extract_tours
 from tests.fixtures.tour_records import get_tour_schema
 
 HOME = (37.80, -122.40)
@@ -181,7 +181,9 @@ def extracted():
     linked_trips = link_result["linked_trips"].with_columns(
         pl.lit(None).cast(pl.Int64).alias("joint_trip_id")
     )
-    result = extract_tours(persons, households, link_result["unlinked_trips"], linked_trips)
+    result = locate_and_extract_tours(
+        persons, households, link_result["unlinked_trips"], linked_trips
+    )
     return result, persons, households
 
 

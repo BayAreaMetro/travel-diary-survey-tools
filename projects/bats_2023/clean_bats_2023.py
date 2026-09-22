@@ -4,6 +4,7 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.generic import LocationType
 from data_canon.codebook.households import (
     IncomeBroad,
     IncomeDetailed,
@@ -14,6 +15,7 @@ from data_canon.codebook.households import (
 from data_canon.codebook.persons import Ethnicity, Race
 from data_canon.core.labeled_enum import LabeledEnum
 from pipeline.decoration import step
+from processing.habitual_locations import reported_habitual_locations
 from utils.helpers import add_time_columns, expr_haversine, get_income_midpoint
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,25 @@ def _income_midpoint_expr(col: str, enum: type[LabeledEnum], households: pl.Data
         except ValueError:  # PNTA / Missing carry no dollar range
             continue
     return pl.col(col).cast(pl.Int64).replace_strict(midpoints, default=None, return_dtype=pl.Int64)
+
+
+def second_homes(persons: pl.DataFrame) -> pl.DataFrame:
+    """Each person's reported second home, as a further reported location.
+
+    BATS asks whether the respondent has a second home and geocodes it into the
+    wide ``second_home_lat/lon`` person columns. Canonical data carries it as a
+    row of the delivered ``habitual_locations`` table instead.
+    """
+    return persons.filter(
+        (pl.col("second_home") == 1)
+        & pl.col("second_home_lat").is_not_null()
+        & pl.col("second_home_lon").is_not_null()
+    ).select(
+        "person_id",
+        pl.lit(LocationType.HOME.value, dtype=pl.Int64).alias("location_type"),
+        pl.col("second_home_lat").alias("lat"),
+        pl.col("second_home_lon").alias("lon"),
+    )
 
 
 @step()
@@ -360,4 +381,7 @@ def clean_2023_bats(
         "persons": persons,
         "days": days,
         "unlinked_trips": unlinked_trips,
+        "habitual_locations": reported_habitual_locations(
+            households, persons, extra=second_homes(persons)
+        ),
     }

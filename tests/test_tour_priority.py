@@ -198,7 +198,7 @@ def _score_trips(person_category, purpose_category, durations):
     return pl.DataFrame(
         {
             "person_category": [person_category] * n,
-            "_d_purpose_effective": [purpose_category] * n,
+            "d_purpose_category": [purpose_category] * n,
             "_activity_duration": [float(d) for d in durations],
         }
     )
@@ -230,7 +230,7 @@ class TestAddPurposeScoreColumn:
         df = pl.DataFrame(
             {
                 "person_category": [PersonCategory.WORKER, PersonCategory.WORKER],
-                "_d_purpose_effective": [
+                "d_purpose_category": [
                     PurposeCategory.WORK.value,
                     PurposeCategory.SHOP.value,
                 ],
@@ -238,8 +238,8 @@ class TestAddPurposeScoreColumn:
             }
         )
         scored = add_purpose_score_column(df, default_config, alias="_s")
-        work = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.WORK.value)["_s"][0]
-        shop = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.SHOP.value)["_s"][0]
+        work = scored.filter(pl.col("d_purpose_category") == PurposeCategory.WORK.value)["_s"][0]
+        shop = scored.filter(pl.col("d_purpose_category") == PurposeCategory.SHOP.value)["_s"][0]
         assert shop > work
 
     def test_modest_mandatory_is_sticky_over_long_discretionary(self, default_config):
@@ -251,7 +251,7 @@ class TestAddPurposeScoreColumn:
         df = pl.DataFrame(
             {
                 "person_category": [PersonCategory.WORKER, PersonCategory.WORKER],
-                "_d_purpose_effective": [
+                "d_purpose_category": [
                     PurposeCategory.WORK.value,
                     PurposeCategory.SHOP.value,
                 ],
@@ -259,8 +259,8 @@ class TestAddPurposeScoreColumn:
             }
         )
         scored = add_purpose_score_column(df, default_config, alias="_s")
-        work = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.WORK.value)["_s"][0]
-        shop = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.SHOP.value)["_s"][0]
+        work = scored.filter(pl.col("d_purpose_category") == PurposeCategory.WORK.value)["_s"][0]
+        shop = scored.filter(pl.col("d_purpose_category") == PurposeCategory.SHOP.value)["_s"][0]
         assert work > shop
 
     def test_pure_escort_wins_but_escort_with_activity_does_not(self, default_config):
@@ -268,7 +268,7 @@ class TestAddPurposeScoreColumn:
         df = pl.DataFrame(
             {
                 "person_category": [PersonCategory.WORKER, PersonCategory.WORKER],
-                "_d_purpose_effective": [
+                "d_purpose_category": [
                     PurposeCategory.ESCORT.value,
                     PurposeCategory.SHOP.value,
                 ],
@@ -277,10 +277,10 @@ class TestAddPurposeScoreColumn:
             }
         )
         scored = add_purpose_score_column(df, default_config, alias="_s")
-        escort = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.ESCORT.value)[
-            "_s"
-        ][0]
-        shop = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.SHOP.value)["_s"][0]
+        escort = scored.filter(pl.col("d_purpose_category") == PurposeCategory.ESCORT.value)["_s"][
+            0
+        ]
+        shop = scored.filter(pl.col("d_purpose_category") == PurposeCategory.SHOP.value)["_s"][0]
         assert shop > escort
 
     def test_typical_mandatory_outscores_long_discretionary(self, default_config):
@@ -288,7 +288,7 @@ class TestAddPurposeScoreColumn:
         df = pl.DataFrame(
             {
                 "person_category": [PersonCategory.WORKER, PersonCategory.WORKER],
-                "_d_purpose_effective": [
+                "d_purpose_category": [
                     PurposeCategory.WORK.value,
                     PurposeCategory.SOCIALREC.value,
                 ],
@@ -296,8 +296,8 @@ class TestAddPurposeScoreColumn:
             }
         )
         scored = add_purpose_score_column(df, default_config, alias="_s")
-        work = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.WORK.value)["_s"][0]
-        social = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.SOCIALREC.value)[
+        work = scored.filter(pl.col("d_purpose_category") == PurposeCategory.WORK.value)["_s"][0]
+        social = scored.filter(pl.col("d_purpose_category") == PurposeCategory.SOCIALREC.value)[
             "_s"
         ][0]
         assert work > social
@@ -312,7 +312,7 @@ class TestAddPurposeScoreColumn:
                     PersonCategory.STUDENT,
                     PersonCategory.STUDENT,
                 ],
-                "_d_purpose_effective": [
+                "d_purpose_category": [
                     PurposeCategory.WORK.value,
                     PurposeCategory.SCHOOL.value,
                     PurposeCategory.WORK.value,
@@ -325,16 +325,12 @@ class TestAddPurposeScoreColumn:
         scored = add_purpose_score_column(df, default_config, alias="_s")
         worker = scored.filter(pl.col("person_category") == PersonCategory.WORKER)
         student = scored.filter(pl.col("person_category") == PersonCategory.STUDENT)
-        w_work = worker.filter(pl.col("_d_purpose_effective") == PurposeCategory.WORK.value)["_s"][
-            0
-        ]
-        w_school = worker.filter(pl.col("_d_purpose_effective") == PurposeCategory.SCHOOL.value)[
+        w_work = worker.filter(pl.col("d_purpose_category") == PurposeCategory.WORK.value)["_s"][0]
+        w_school = worker.filter(pl.col("d_purpose_category") == PurposeCategory.SCHOOL.value)[
             "_s"
         ][0]
-        s_work = student.filter(pl.col("_d_purpose_effective") == PurposeCategory.WORK.value)["_s"][
-            0
-        ]
-        s_school = student.filter(pl.col("_d_purpose_effective") == PurposeCategory.SCHOOL.value)[
+        s_work = student.filter(pl.col("d_purpose_category") == PurposeCategory.WORK.value)["_s"][0]
+        s_school = student.filter(pl.col("d_purpose_category") == PurposeCategory.SCHOOL.value)[
             "_s"
         ][0]
         assert w_work > w_school
@@ -345,7 +341,7 @@ class TestAddPurposeScoreColumn:
         df = pl.DataFrame(
             {
                 "person_category": [PersonCategory.WORKER, PersonCategory.WORKER],
-                "_d_purpose_effective": [
+                "d_purpose_category": [
                     PurposeCategory.OVERNIGHT.value,
                     PurposeCategory.SHOP.value,
                 ],
@@ -353,10 +349,10 @@ class TestAddPurposeScoreColumn:
             }
         )
         scored = add_purpose_score_column(df, default_config, alias="_s")
-        overnight = scored.filter(
-            pl.col("_d_purpose_effective") == PurposeCategory.OVERNIGHT.value
-        )["_s"][0]
-        shop = scored.filter(pl.col("_d_purpose_effective") == PurposeCategory.SHOP.value)["_s"][0]
+        overnight = scored.filter(pl.col("d_purpose_category") == PurposeCategory.OVERNIGHT.value)[
+            "_s"
+        ][0]
+        shop = scored.filter(pl.col("d_purpose_category") == PurposeCategory.SHOP.value)["_s"][0]
         assert overnight == 0.0
         assert shop > overnight
 

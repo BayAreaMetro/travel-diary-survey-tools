@@ -13,6 +13,7 @@ from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory, TNCTyp
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
 from pipeline.decoration import step
 from pipeline.step_registry import get_all_required_fields
+from processing.habitual_locations import reported_habitual_locations
 from utils.helpers import expr_haversine
 
 logger = logging.getLogger(__name__)
@@ -395,6 +396,9 @@ def clean_days(
         travel_dow=pl.col("travel_date_dow"),
         # Create day_id as (person_id * 100 + day_num)
         day_id=(pl.col("person_id") * 100 + pl.col("day_num")),
+        # 2019 did not ask where the day began or ended.
+        begin_day=pl.lit(None, dtype=pl.Int64),
+        end_day=pl.lit(None, dtype=pl.Int64),
     )
 
     # Add day entries for surveyable persons without any days recorded.
@@ -922,4 +926,8 @@ def clean_2019_bats(
         # Final check
         check_fields(results[df_name], df_name, models[df_name])
 
+    # 2019 reports home, work and school only; there are no further locations.
+    results["habitual_locations"] = reported_habitual_locations(
+        results["households"], results["persons"]
+    )
     return results

@@ -22,7 +22,7 @@ from data_canon.codebook.persons import (
 from data_canon.codebook.tours import TourDataQuality
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
-from processing.tours.extraction import extract_tours
+from tests.fixtures.tour_pipeline import locate_and_extract_tours
 
 
 @pytest.fixture
@@ -387,7 +387,7 @@ def test_tour_destination_is_primary_destination_not_home(round_trip_tour_data):
     """The tour destination should be the shop, not the home it returns to."""
     persons, households, unlinked_trips, linked_trips = round_trip_tour_data
 
-    result = extract_tours(persons, households, unlinked_trips, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_df = result["tours"]
 
     assert len(tours_df) == 1
@@ -409,7 +409,7 @@ def test_tour_destination_type_matches_destination_coords(round_trip_tour_data):
     """
     persons, households, unlinked_trips, linked_trips = round_trip_tour_data
 
-    tour = extract_tours(persons, households, unlinked_trips, linked_trips)["tours"].row(
+    tour = locate_and_extract_tours(persons, households, unlinked_trips, linked_trips)["tours"].row(
         0, named=True
     )
 
@@ -428,7 +428,7 @@ def test_single_trip_tour_destination_falls_back_to_last_trip(single_trip_tour_d
     """
     persons, households, unlinked_trips, linked_trips = single_trip_tour_data
 
-    result = extract_tours(persons, households, unlinked_trips, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips, linked_trips)
     tour = result["tours"].row(0, named=True)
 
     assert tour["d_lat"] is not None, "Fallback should keep the destination populated"
@@ -439,7 +439,7 @@ def test_single_trip_tour(single_trip_tour_data):
     """Test that single-trip tours are flagged appropriately."""
     persons, households, unlinked_trips, linked_trips = single_trip_tour_data
 
-    result = extract_tours(persons, households, unlinked_trips, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_df = result["tours"]
 
     # Single-trip tours should be kept but flagged
@@ -462,7 +462,7 @@ def test_partial_tour(partial_tour_data):
     """Test that tours starting away from home get valid tour numbers."""
     persons, households, unlinked_trips, linked_trips = partial_tour_data
 
-    result = extract_tours(persons, households, unlinked_trips, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips, linked_trips)
     tours_df = result["tours"]
 
     # All tour numbers should be >= 1
@@ -480,7 +480,7 @@ def test_distant_destinations(distant_destinations_data):
     # 60 min, and under the scoring method a 60-min stay reads as a normal social
     # visit but an atypically brief work visit, so social would win. This test is
     # about destination-time fallback, not purpose selection.
-    result = extract_tours(
+    result = locate_and_extract_tours(
         persons, households, unlinked_trips, linked_trips, tour_purpose_method="hierarchy"
     )
     tours_df = result["tours"]
@@ -597,7 +597,7 @@ def test_tour_num_sequential():
         pl.lit(None).cast(pl.Int64).alias("joint_trip_id")
     )
 
-    result = extract_tours(persons, households, unlinked_trips_with_ids, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips_with_ids, linked_trips)
     tours_df = result["tours"]
 
     # Should have 3 tours
@@ -715,7 +715,7 @@ def test_all_tours_have_required_fields():
         pl.lit(None).cast(pl.Int64).alias("joint_trip_id")
     )
 
-    result = extract_tours(persons, households, unlinked_trips_with_ids, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips_with_ids, linked_trips)
     tours_df = result["tours"]
 
     # All tours should have tour_num >= 1
