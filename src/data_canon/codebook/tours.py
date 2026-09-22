@@ -66,6 +66,10 @@ class TourDataQuality(LabeledEnum):
     this says *why* it is open -- the two answer different questions and neither
     substitutes for the other.
 
+    ``OTHER_HOME`` is neither open nor broken: the tour leaves from or returns to
+    a home this person is known to have that is not their primary one, such as a
+    second home. It is whole; only its anchor is not the primary home.
+
     Read the ``PARTIAL_*`` codes as statements about observation, not about
     corruption: the trips are as the respondent reported them, and the tour does
     not close because the diary stopped watching. ``NO_DESTINATION`` and
@@ -81,7 +85,7 @@ class TourDataQuality(LabeledEnum):
     """
 
     VALID = (0, "Valid tour")
-    PARTIAL_OTHER_HOME = (1, "Open end is another home known for this person")
+    OTHER_HOME = (1, "Leaves from or returns to another home known for this person")
     PARTIAL_DAY_SPLIT = (2, "Chain resumes at the same place on the next diary day")
     PARTIAL_DIARY_EDGE = (3, "First or last trip in the diary; its open end is not a known home")
     NO_DESTINATION = (

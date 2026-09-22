@@ -44,7 +44,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, model_validator
 
-from data_canon.codebook.days import TravelDow
+from data_canon.codebook.days import BeginEndDay, TravelDow
 from data_canon.codebook.generic import BooleanYesNo, LocationSource, LocationType
 from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
@@ -177,6 +177,22 @@ class PersonDayModel(BaseModel):
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
+    begin_day: BeginEndDay | None = schema_field(
+        default=None,
+        description=(
+            "Where the respondent said the day began. Null where the survey did "
+            "not ask. HOME or OTHER_HOME puts a home of theirs at the day's first "
+            "trip origin; away from every reported home, that is another home."
+        ),
+    )
+    end_day: BeginEndDay | None = schema_field(
+        default=None,
+        description=(
+            "Where the respondent said the day ended. Null where the survey did "
+            "not ask. HOME or OTHER_HOME puts a home of theirs at the day's last "
+            "trip destination; away from every reported home, that is another home."
+        ),
+    )
     survey_complete: bool | None = schema_field(default=False)
     hh_day_survey_complete: bool | None = schema_field(
         default=None,
@@ -569,11 +585,22 @@ class HabitualLocationModel(BaseModel):
     distinguishes a habitual location is the person's standing relationship to
     it, which is what ``source`` and ``is_primary`` record.
 
-    ``location_num`` numbers locations of the same kind for a person, with the
-    primary (when known) at ``1``. An alternate worksite is therefore just a
-    ``WORK`` row with ``location_num > 1`` and ``source = OBSERVED`` — there is
-    no separate ``ALTERNATE_WORK`` kind. An "other home" (second home, other
-    parent's house) is likewise a ``HOME`` row with ``location_num > 1``.
+    ``location_num`` numbers locations of the same kind for a person: reported
+    ones first, primary at ``1``, then the rest in the order the person was first
+    seen there. An alternate worksite is therefore just a ``WORK`` row with
+    ``location_num > 1`` and ``source = OBSERVED`` — there is no separate
+    ``ALTERNATE_WORK`` kind. An "other home" (second home, other parent's house)
+    is likewise a ``HOME`` row with ``location_num > 1``. Homes are never
+    inferred from travel: every home is one the respondent reported or named as
+    where a day began or ended.
+
+    Survey cleaning delivers the table holding the reported locations only — the
+    survey's home, work and school coordinates plus any further ones, such as a
+    vendor's second home — numbered and identified. The
+    ``detect_habitual_locations`` step appends the observed ones after them and
+    never changes a delivered row. Each reported primary repeats its coordinate
+    columns (``home_lat/lon`` on households, ``work_*``/``school_*`` on persons),
+    and validation holds the two equal.
 
     Per-day use of a location lives in
     [`HabitualLocationDayModel`][data_canon.models.survey.HabitualLocationDayModel],

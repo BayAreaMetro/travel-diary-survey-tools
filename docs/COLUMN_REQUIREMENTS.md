@@ -74,6 +74,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `hh_id` | int | ≥ 1, FK → `households.hh_id` | ✓ | ✓ |  |
     | `travel_date` | datetime |  | ✓ |  |  |
     | `travel_dow` | TravelDow |  |  |  | ✓ |
+    | `begin_day` | BeginEndDay or None |  |  |  |  |
+    | `end_day` | BeginEndDay or None |  |  |  |  |
     | `survey_complete` | bool or None |  | ✓ |  |  |
     | `hh_day_survey_complete` | bool or None |  |  |  |  |
 
