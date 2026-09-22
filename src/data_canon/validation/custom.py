@@ -19,6 +19,7 @@ from collections.abc import Callable
 
 import polars as pl
 
+from data_canon.codebook.generic import LocationSource, LocationType
 from data_canon.codebook.tours import (
     TourCategory,
     TourDataQuality,
@@ -271,9 +272,87 @@ def check_trip_spatial_continuity(linked_trips: pl.DataFrame) -> list[str]:
     return errors
 
 
+# The survey's reported coordinate columns that each primary location repeats:
+# (location type, table, lat column, lon column).
+# How far apart the two copies of one place may be: about 0.1 m, far below
+# any distance that changes an answer. They are copies of the same value, so
+# they normally agree exactly; the tolerance absorbs a float round-trip (a
+# column stored at single precision, a CSV written and read back) without
+# admitting a genuinely different place.
+_SAME_PLACE_DEGREES = 1e-6
+
+_COORDINATE_COLUMNS = [
+    (LocationType.HOME, "households", "home_lat", "home_lon"),
+    (LocationType.WORK, "persons", "work_lat", "work_lon"),
+    (LocationType.SCHOOL, "persons", "school_lat", "school_lon"),
+]
+
+
+def check_reported_locations_match_coordinates(
+    habitual_locations: pl.DataFrame,
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+) -> list[str]:
+    """Check the reported primary locations and the coordinate columns say the same.
+
+    Each reported primary home, workplace and school repeats a pair of
+    coordinate columns (``home_lat/lon`` on households, ``work_*``/``school_*``
+    on persons) that other steps still read. Every such pair must have its row,
+    and every row its pair, within ``_SAME_PLACE_DEGREES``, so the two can never
+    drift apart.
+
+    Args:
+        habitual_locations: Habitual locations.
+        households: Households with ``hh_id`` and the home coordinates.
+        persons: Persons with ``person_id``, ``hh_id`` and work/school coordinates.
+
+    Returns:
+        One message per location type that disagrees.
+    """
+    errors: list[str] = []
+    tables = {
+        "households": persons.select("person_id", "hh_id").join(households, on="hh_id"),
+        "persons": persons,
+    }
+    primaries = habitual_locations.filter(
+        (pl.col("source") == LocationSource.REPORTED.value) & pl.col("is_primary")
+    )
+    for kind, table, lat, lon in _COORDINATE_COLUMNS:
+        if not {lat, lon} <= set(tables[table].columns):
+            continue
+        reported = tables[table].filter(pl.col(lat).is_not_null() & pl.col(lon).is_not_null())
+        reported = reported.select(
+            "person_id",
+            pl.col(lat).cast(pl.Float64).alias("_a_lat"),
+            pl.col(lon).cast(pl.Float64).alias("_a_lon"),
+        )
+        rows = primaries.filter(pl.col("location_type") == kind.value).select(
+            "person_id",
+            pl.col("lat").cast(pl.Float64).alias("_r_lat"),
+            pl.col("lon").cast(pl.Float64).alias("_r_lon"),
+        )
+        joined = reported.join(rows, on="person_id", how="full", coalesce=True)
+        differ = joined.filter(
+            pl.col("_a_lat").is_null()
+            | pl.col("_r_lat").is_null()
+            | ((pl.col("_a_lat") - pl.col("_r_lat")).abs() > _SAME_PLACE_DEGREES)
+            | ((pl.col("_a_lon") - pl.col("_r_lon")).abs() > _SAME_PLACE_DEGREES)
+        )
+        if differ.height > 0:
+            errors.append(
+                f"{differ.height} person(s) have a reported primary {kind.name} location "
+                f"that does not match {table}.{lat}/{lon} (sample person_ids: "
+                f"{differ['person_id'].to_list()[:5]})"
+            )
+    return errors
+
+
 # Register the tour validators
 CUSTOM_VALIDATORS["tours"].append(check_trip_count_matches_quality)
 CUSTOM_VALIDATORS["tours"].append(check_valid_tours_are_complete)
 
 # Register the linked-trip validators
 CUSTOM_VALIDATORS["linked_trips"].append(check_trip_spatial_continuity)
+
+# Register the habitual-location validators
+CUSTOM_VALIDATORS["habitual_locations"].append(check_reported_locations_match_coordinates)
