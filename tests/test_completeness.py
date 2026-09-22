@@ -8,14 +8,13 @@ from processing.completeness import (
     ALL_MEMBERS,
     PRIMARY_HOME,
     UsabilityProfile,
-    _flag_households,
-    _flag_joint_groupings,
     cascade_completeness,
     compute_usability,
     flag_household_day_complete,
     rollup_completeness,
     rollup_household_complete,
 )
+from processing.completeness.usable_cascade import _flag_households, _flag_joint_groupings
 
 
 class TestRollupCompleteness:

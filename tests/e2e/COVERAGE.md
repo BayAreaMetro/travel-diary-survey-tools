@@ -150,7 +150,7 @@ Two of the four states that broke production are still unreachable from the fixt
   members out on any completeness difference. Household 30 gets the trip-level version;
   the tour-level one resisted construction. Covered by unit tests in
   `test_ctramp_joint_quorum.py` instead.
-* **A tour with addressable endpoints and an unaddressable middle leg.** Needs control
+* **A tour whose endpoints have zones and whose middle leg has none.** Needs control
   over which stop becomes the primary destination. Covered by
   `test_zone_coverage_cascade.py`.
 

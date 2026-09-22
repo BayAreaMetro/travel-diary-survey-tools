@@ -1,4 +1,4 @@
-"""A tour is addressable only if every leg of it is, not just its endpoints.
+"""A tour has a zone only if every leg of it does, not just its endpoints.
 
 ``zone_coverage`` asks whether a consumer's zone system can place a record. For a
 tour, the obvious reading is its own ``o``/``d`` -- but those are its anchor and
@@ -27,7 +27,7 @@ VALID, COMPLETE = TourDataQuality.VALID.value, TourCategory.COMPLETE.value
 def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.DataFrame]:
     """One household, one person, one day, one tour, with the given trip endpoints.
 
-    The tour's own endpoints are always addressable, so only the legs can fail.
+    The tour's own endpoints always have zones, so only the legs can fail.
     """
     n = len(trip_zones)
     return {
@@ -83,11 +83,11 @@ def _verdict(trip_zones, *, coverage: str) -> bool:
 class TestALegOutsideTheAreaCostsTheTour:
     """The ALL over legs, which the endpoints-only rule missed."""
 
-    def test_all_legs_addressable_is_usable(self):
+    def test_all_legs_with_zones_is_usable(self):
         """The baseline, or the test below proves nothing."""
         assert _verdict([(100, 200), (200, 100)], coverage=ZONE) is True
 
-    def test_an_unaddressable_middle_leg_makes_the_tour_unusable(self):
+    def test_a_middle_leg_with_no_zone_makes_the_tour_unusable(self):
         """Endpoints are fine; one stop is outside the area.
 
         This is the case the endpoints-only rule admitted, and CT-RAMP then
@@ -95,7 +95,7 @@ class TestALegOutsideTheAreaCostsTheTour:
         """
         assert _verdict([(100, None), (None, 100)], coverage=ZONE) is False
 
-    def test_the_missing_sentinel_counts_as_unaddressable(self):
+    def test_the_missing_sentinel_counts_as_no_zone(self):
         """-1 is written as a missing zone as well as null."""
         assert _verdict([(100, -1), (-1, 100)], coverage=ZONE) is False
 

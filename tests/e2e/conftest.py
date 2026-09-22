@@ -107,8 +107,8 @@ _STEP_ORDER = (
     "detect_joint_trips",
     "imputation",
     "extract_tours",
-    # Zones precede the cascade: a profile can gate on whether a record is
-    # addressable, which it cannot do before the zone step has run.
+    # Zones precede the cascade: a profile can gate on whether a record has a
+    # zone, which it cannot do before the zone step has run.
     "add_zone_ids",
     "cascade_completeness",
     "add_existing_weights",
