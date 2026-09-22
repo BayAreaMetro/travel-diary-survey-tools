@@ -10,11 +10,10 @@ and temporal patterns.
 
     # 1. Location Classification
 
-    - Calculates haversine distances from trip endpoints to known locations
-      (home, work, school) using person-specific coordinates
+    - Says which of the person's habitual locations (built by the
+      ``detect_habitual_locations`` step) each trip origin/destination is at
     - Classifies each trip origin/destination as HOME, WORK, SCHOOL, or OTHER
-      based on configurable distance thresholds
-    - Only matches work/school locations if person has those locations defined
+      from the location it is at; any of the person's homes bounds tours
     - Adds boolean flags: o_is_home, d_is_home, o_is_work, d_is_work, etc.
 
     # 2. Home-Based Tour Identification
@@ -38,8 +37,8 @@ and temporal patterns.
     # 4. Anchor-Based Subtour Detection
 
     - Within expanded anchor periods, identifies subtours by detecting:
-        * Departures from anchor (o_at_anchor=True, d_at_anchor=False)
-        * Returns to anchor (o_at_anchor=False, d_at_anchor=True)
+        * Departures from an anchor (o_at_anchor=True, d_at_anchor=False)
+        * Returns to that same anchor (o_at_anchor=False, d_at_anchor=True)
     - Assigns hierarchical subtour IDs
     - Format: subtour_id = (tour_id * 10) + subtour_sequence_number
     - Currently supports work-based subtours, extensible to school-based
@@ -82,7 +81,7 @@ and temporal patterns.
     - Missing work/school locations (null coordinates)
     - Non-sequential trip chains (spatial gaps)
     - Hierarchical tour structure: Home-based tours → Work-based subtours
-    - Location classification robust to GPS/geododing errors via distance thresholds
+    - Location matching allows for GPS/geocoding error through one buffer
     - Tour purpose reflects primary activity, not intermediate stops
     - Extensible design allows future additions (school-based subtours, other
       anchor types)
@@ -93,7 +92,6 @@ from typing import Any
 
 import polars as pl
 
-from data_canon.codebook.generic import LocationType
 from pipeline.decoration import step
 from utils.create_ids import create_tour_ids
 
@@ -103,13 +101,8 @@ from .detection_helpers import (
     expand_anchor_periods,
     identify_home_based_tours,
 )
-from .habitual_locations import build_habitual_locations
 from .joint_tour_helpers import build_joint_tours_table, identify_joint_tours
-from .location_helpers import (
-    add_anchor_flags,
-    classify_trip_locations,
-    prepare_person_locations,
-)
+from .location_helpers import add_anchor_flags, classify_trip_locations
 from .tour_configs import TourConfig
 from .validation_helpers import validate_and_correct_tours
 
@@ -119,18 +112,7 @@ logger = logging.getLogger(__name__)
 
 @step(
     requires={
-        "households": {"hh_id", "home_lat", "home_lon"},
-        "persons": {
-            "person_id",
-            "age",
-            "employment",
-            "student",
-            "school_type",
-            "work_lat",
-            "work_lon",
-            "school_lat",
-            "school_lon",
-        },
+        "persons": {"person_id", "age", "employment", "student", "school_type"},
         "unlinked_trips": {"day_id", "linked_trip_id", "depart_time", "arrive_time"},
         "linked_trips": {
             "day_id",
@@ -142,20 +124,29 @@ logger = logging.getLogger(__name__)
             "d_activity_duration",
             "mode_type",
         },
+        "habitual_locations": {
+            "habitual_location_id",
+            "person_id",
+            "location_type",
+            "is_primary",
+            "lat",
+            "lon",
+            "source",
+        },
+        "days": {"day_id", "begin_day", "end_day"},
     },
     produces={
         "unlinked_trips": {"tour_id"},
         "linked_trips": {"tour_id"},
         "tours": {"tour_id"},
-        "habitual_locations": {"habitual_location_id"},
-        "habitual_location_days": {"habitual_location_id"},
     },
 )
 def extract_tours(
     persons: pl.DataFrame,
-    households: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
+    habitual_locations: pl.DataFrame,
+    days: pl.DataFrame,
     joint_trips: pl.DataFrame | None = None,
     **kwargs: dict[str, Any],
 ) -> dict[str, pl.DataFrame]:
@@ -165,19 +156,22 @@ def extract_tours(
     and temporal patterns. See module docstring for complete algorithm description.
 
     Args:
-        persons: Person attributes including work/school locations. Used to identify
-            anchor locations for tour/subtour detection.
-        households: Household attributes including home locations. Home location is
-            primary anchor for tour identification.
+        persons: Person attributes, for the person category purpose priority is
+            ranked by.
         unlinked_trips: Individual trip segments. Will receive tour_id assignment.
         linked_trips: Journey records with coordinates and timing. Required columns:
             person_id, day_id, o_lon, o_lat, d_lon, d_lat, depart_time, arrive_time.
+        habitual_locations: The person's habitual locations, from
+            ``detect_habitual_locations``. Read only.
+        days: Days with ``begin_day``/``end_day``. A day stated to begin or end
+            at home counts beside the trip purpose at its first origin or last
+            destination.
         joint_trips: Optional joint trip aggregations. If provided, enables joint
             tour identification based on stable participant groups.
         **kwargs: Configuration parameters for TourConfig:
 
-            - distance_thresholds: Dict of location type → distance threshold (meters).
-              Default: {"home": 100, "work": 200, "school": 200}
+            - habitual_locations: The match rule (MatchConfig): the buffer, which
+              must be the one ``detect_habitual_locations`` used.
             - mode_hierarchy: Mode priority for tour mode assignment (list).
               Higher index = higher priority.
             - purpose_hierarchy: Purpose priority by person type (dict).
@@ -197,45 +191,22 @@ def extract_tours(
 
     config = TourConfig(**kwargs)  # pyright: ignore[reportArgumentType]
 
-    # Prepare person location cache with categories
-    person_locations = prepare_person_locations(
-        persons,
-        households,
-        config.person_category_expression(),
-    )
-
-    # Build the habitual locations (reported home/work/school plus observed
-    # worksites, campuses and other homes derived from travel), and the per-day
-    # record of presence at them. The locations drive both classification and
-    # anchor detection; the day table is foundation for later consumers and is
-    # not read here.
-    habitual_locations, habitual_location_days = build_habitual_locations(
-        person_locations,
-        linked_trips,
-        config.habitual_locations,
-    )
+    person_categories = persons.select("person_id", config.person_category_expression())
 
     msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
     logger.info(msg)
 
-    # Step 1: Classify trip ends against the habitual locations
+    # Step 1: Say which habitual location each trip end is at, and classify it
     linked_trips_classified = classify_trip_locations(
         linked_trips,
         habitual_locations,
-        config.distance_thresholds,
-    ).join(
-        person_locations.select(["person_id", "person_category"]),
-        on="person_id",
-        how="left",
-    )
+        config.habitual_locations,
+        days,
+    ).join(person_categories, on="person_id", how="left")
 
     # Anchor flags from the habitual locations (reported + observed work/school,
     # with per-day resolution). These drive anchor-period and subtour detection.
-    linked_trips_classified = add_anchor_flags(
-        linked_trips_classified,
-        habitual_locations,
-        config.distance_thresholds,
-    )
+    linked_trips_classified = add_anchor_flags(linked_trips_classified)
 
     # Step 2: Identify home-based tours
     linked_trips_with_hb_tours = identify_home_based_tours(
@@ -276,9 +247,7 @@ def extract_tours(
     tours = validate_and_correct_tours(
         tours,
         linked_trips_with_tour_dir,
-        habitual_locations=habitual_locations,
         spatial_gap_threshold_meters=config.spatial_gap_threshold_meters,
-        home_threshold_meters=config.distance_thresholds[LocationType.HOME],
     )
 
     # Step 8: Add tour_id and joint_tour_id to unlinked_trips
@@ -314,6 +283,4 @@ def extract_tours(
         "linked_trips": linked_trips_with_tour_dir,
         "tours": tours,
         "joint_tours": joint_tours,
-        "habitual_locations": habitual_locations,
-        "habitual_location_days": habitual_location_days,
     }
