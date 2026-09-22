@@ -15,7 +15,8 @@ two dates.
 The household term is the one worth the trouble. The cascade reduces *upward* --
 days to persons to households -- so a household-level fact reaches its
 descendants only because it is joined into their verdicts. Get that wrong and an
-unaddressable household keeps perfectly usable tours hanging off a household the
+household whose home has no zone keeps perfectly usable tours hanging off a
+household the
 consumer cannot write at all.
 """
 
@@ -42,7 +43,7 @@ def _for_hh(frame: pl.DataFrame, hh_id: int) -> pl.DataFrame:
     return frame.filter(pl.col("hh_id") == hh_id)
 
 
-class TestTheFixtureActuallyHasUnaddressableRecords:
+class TestTheFixtureActuallyHasRecordsWithoutZones:
     """Guards the guard: every assertion below is vacuous without this."""
 
     def test_a_household_has_no_home_zone(self, tables):
@@ -53,14 +54,14 @@ class TestTheFixtureActuallyHasUnaddressableRecords:
             "join placed it -- the snap distance or the fixture coordinates moved"
         )
 
-    def test_a_tour_has_an_unaddressable_end(self, tables):
+    def test_a_tour_has_an_end_with_no_zone(self, tables):
         tours = _for_hh(tables["tours"], COMMUTES_OUT_HH)
         assert tours["d_taz"].null_count() >= 1, (
             "household 28 was expected to travel out of region on one date"
         )
 
 
-class TestAnUnaddressableHouseholdTakesItsTravelWithIt:
+class TestAHouseholdWithNoHomeZoneTakesItsTravelWithIt:
     """The household term, which the upward cascade cannot deliver on its own."""
 
     @pytest.mark.parametrize("table", ["households", "persons", "days", "tours"])
@@ -71,19 +72,20 @@ class TestAnUnaddressableHouseholdTakesItsTravelWithIt:
         usable = rows.filter(pl.col(GATED).fill_null(value=False))
 
         assert usable.height == 0, (
-            f"{usable.height} {table} row(s) of an unaddressable household are still "
+            f"{usable.height} {table} row(s) of a household with no home zone are "
+            f"still "
             f"{GATED}; the home-zone term is not reaching this level"
         )
 
 
 class TestTravellingOutOfRegionGatesTheDayNotThePerson:
-    """The tour term alone, on a household that stays addressable."""
+    """The tour term alone, on a household whose home keeps its zone."""
 
     def test_the_household_itself_is_still_usable(self, tables):
         """Otherwise this case says nothing the household case did not."""
         household = _for_hh(tables["households"], COMMUTES_OUT_HH)
 
-        assert household[GATED].all(), "household 28 should remain addressable"
+        assert household[GATED].all(), "household 28's home should keep its zone"
 
     def test_the_out_of_region_day_is_gated(self, tables):
         days = _for_hh(tables["days"], COMMUTES_OUT_HH)

@@ -1063,9 +1063,9 @@ def _build_records():
     )
 
     # 28 lives in region and commutes out of it on the second date only. The
-    # household stays addressable, so this isolates the tour-level gate: one day
-    # is dropped for where it went while the person keeps the other and stays
-    # usable. Without it, "unaddressable" and "unaddressable household" would
+    # household's home keeps its zone, so this isolates the tour-level gate: one
+    # day is dropped for where it went while the person keeps the other and stays
+    # usable. Without it, "leg with no zone" and "home with no zone" would
     # always fail together and neither term would be shown to do any work.
     s.household(28, "home_b", income=INC_100_200K)
     s.person(
