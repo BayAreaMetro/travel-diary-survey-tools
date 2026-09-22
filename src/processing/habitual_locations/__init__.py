@@ -36,7 +36,9 @@ Observed locations:
   other home, placed where that day's travel began or ended. Away from every
   reported home, such a place is another home of theirs.
 - Observed workplaces and schools: places the person went for that purpose and
-  stayed long enough.
+  stayed long enough. Work-related stops count towards a workplace at their own
+  longer cutoff: their median is under an hour, a meeting or a delivery, but a
+  stay the length of a working day says the person works there.
 
 Homes are never inferred from travel alone. A stay at "another residence" may be
 a second home or a friend's flat, and only the respondent can say which.
@@ -46,8 +48,11 @@ vocabulary. Stops within it of one another are one place; a place within it of a
 reported location is that location, so it is not added again; and a trip end
 within it of a location is at that location when its purpose agrees with the
 location's kind (:func:`matching.match_points`). Only an agreeing purpose
-counts: an unknown one matches nothing. Tour extraction asks the same question
-through :func:`match_trip_ends`, with the same buffer.
+counts: an unknown one matches nothing. The exception is a person's own front
+door: within ``at_address_meters`` of their primary home, any purpose is at that
+home, because there the purpose describes what they were doing rather than a
+different place. Tour extraction asks the same question through
+:func:`match_trip_ends`, with the same settings.
 
 Modules:
 

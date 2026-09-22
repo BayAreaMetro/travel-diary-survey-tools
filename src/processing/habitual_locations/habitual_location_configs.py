@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from data_canon.codebook.trips import Purpose
 
 DEFAULT_BUFFER_METERS = 300.0
+DEFAULT_AT_ADDRESS_METERS = 100.0
 
 
 class MatchConfig(BaseModel):
@@ -15,6 +16,19 @@ class MatchConfig(BaseModel):
     differ between them.
     """
 
+    at_address_meters: float = Field(
+        default=DEFAULT_AT_ADDRESS_METERS,
+        gt=0,
+        description=(
+            "Distance in metres within which a trip end is at the person's own "
+            "primary home whatever its purpose. At their doorstep the purpose "
+            "describes what they are doing -- exercising, working from home, "
+            "dropping someone off -- not a different place, and refusing it "
+            "welds two tours into one. Further out the purpose has to agree, "
+            "because that is where the corner shop is. Homes only: a lunch "
+            "place can be metres from the office door."
+        ),
+    )
     buffer_meters: float = Field(
         default=DEFAULT_BUFFER_METERS,
         gt=0,
@@ -50,10 +64,18 @@ class HabitualLocationConfig(MatchConfig):
         ),
     )
     min_dwell_minutes_by_purpose: dict[Purpose, float] = Field(
-        default={Purpose.COLLEGE: 45.0},
+        default={
+            Purpose.COLLEGE: 45.0,
+            Purpose.WORK_ACTIVITY: 240.0,
+            Purpose.VOLUNTEERING: 240.0,
+            Purpose.OTHER_WORK: 240.0,
+        },
         description=(
             "Per-purpose overrides of min_dwell_minutes. College is lower "
-            "because a student may attend one class and leave."
+            "because a student may attend one class and leave. Work-related "
+            "purposes are higher: their median stop is under an hour, a meeting "
+            "or a delivery, and only a stay the length of a working day says "
+            "the person works there."
         ),
     )
     min_distinct_days: int = Field(

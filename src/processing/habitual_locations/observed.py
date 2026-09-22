@@ -21,12 +21,14 @@ from utils.helpers import expr_haversine
 
 from .habitual_location_configs import HabitualLocationConfig
 
-# Kinds found from long stops, and the purpose category of the stops that feed
-# each. Only the primary workplace purpose maps to WORK: work-related stops
-# (meetings, worksites) can be long without being a fixed place.
+# Kinds found from long stops, and the purpose categories of the stops that feed
+# each. Work-related stops count towards a workplace, but only at their own
+# (much longer) cutoff: respondents describe their own workplace as
+# work-related as readily as "primary workplace", so excluding them found no
+# second workplace at all for anyone who reported one.
 OBSERVED_KINDS = {
-    LocationType.WORK: PurposeCategory.WORK,
-    LocationType.SCHOOL: PurposeCategory.SCHOOL,
+    LocationType.WORK: (PurposeCategory.WORK, PurposeCategory.WORK_RELATED),
+    LocationType.SCHOOL: (PurposeCategory.SCHOOL,),
 }
 
 # Answers to "where did the day begin/end?" that name a home of the person's.
@@ -166,14 +168,17 @@ def observed_locations(
 ) -> pl.DataFrame:
     """Workplaces or schools the person went to for that purpose and stayed at.
 
-    A stop counts as evidence when its purpose is the kind's own and it lasted
-    at least the cutoff for that purpose. Stops are filtered *before* they are
-    clustered, so a short visit neither makes nor moves a location. Whether one
-    is the primary is left open here (see ``numbering.number_observed``).
+    A stop counts as evidence when its purpose is one of the kind's own and it
+    lasted at least the cutoff for that purpose -- 90 minutes by default, 45 for
+    a college class, four hours for a work-related stop. Stops are filtered
+    *before* they are clustered, so a short visit neither makes nor moves a
+    location. Whether one is the primary is left open here (see
+    ``numbering.number_observed``).
     """
     by_purpose = {p.value: m for p, m in config.min_dwell_minutes_by_purpose.items()}
+    categories = [c.value for c in OBSERVED_KINDS[location_type]]
     stops = episodes.filter(
-        (pl.col("purpose_category") == OBSERVED_KINDS[location_type].value)
+        pl.col("purpose_category").is_in(categories)
         & (
             pl.col("dwell_minutes")
             >= pl.col("purpose").replace_strict(

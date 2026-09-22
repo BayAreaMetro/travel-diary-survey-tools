@@ -35,14 +35,15 @@ The primary rows repeat the coordinate columns (`home_lat/lon`, `work_*`,
 
 | Kind | Evidence | Rule |
 |---|---|---|
-| Workplace | Stops with the primary-workplace purpose | 90 min or longer, clustered within the buffer |
+| Workplace | Stops with a work purpose | 90 min or longer for the primary-workplace purpose, 4 h for work-related, clustered within the buffer |
 | School | Stops with a school purpose | 90 min or longer (college 45), clustered within the buffer |
 | Home | Days the respondent said began or ended at home or their other home | Placed at that day's first origin or last destination, clustered within the buffer |
 
 - A cluster within the buffer of a reported location of the same kind is that
   location, and is not added.
 - Homes are never found from travel alone.
-- Work-related stops never make a workplace.
+- A work-related stop of a few hours is a meeting, not a place of work; only a
+  stay the length of a working day counts.
 - Observed rows are numbered after the delivered ones, in the order the person
   was first seen there. Delivered rows are never changed.
 - The step refuses a delivered row that is not `REPORTED`, and two primaries of
@@ -51,9 +52,18 @@ The primary rows repeat the coordinate columns (`home_lat/lon`, `work_*`,
 ## When a trip end is at a location
 
 Within the buffer **and** its purpose agrees with the location's kind. An
-unknown purpose agrees with nothing. At a day's first origin and last
-destination, the respondent's answer to where the day began or ended also
-counts, for homes only. Nothing is recoded.
+unknown purpose agrees with nothing. A work-related purpose agrees with a
+workplace: it says the person is working, and the distance says which workplace.
+At a day's first origin and last destination, the respondent's answer to where
+the day began or ended also counts, for homes only.
+
+One exception: within `at_address_meters` (100 m) of their *primary* home, any
+purpose is at that home. At their own door the purpose describes the activity —
+a walk, working from home, dropping someone off — not a different place, and
+refusing it welds two tours into one. Other homes are placed from trip ends in
+the first place, so they still need the purpose or the day answer.
+
+Nothing is recoded: a work-related stop stays work-related.
 
 `extract_tours` asks the same question through `match_trip_ends`.
 
@@ -67,8 +77,9 @@ steps:
   - name: detect_habitual_locations
     params:
       buffer_meters: "{{ habitual_buffer_meters }}"
+      # at_address_meters: 100
       # min_dwell_minutes: 90
-      # min_dwell_minutes_by_purpose: {COLLEGE: 45}
+      # min_dwell_minutes_by_purpose: {COLLEGE: 45, WORK_ACTIVITY: 240}
   - name: extract_tours
     params:
       habitual_locations:

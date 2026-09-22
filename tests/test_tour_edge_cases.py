@@ -20,7 +20,13 @@ from data_canon.codebook.persons import (
     Student,
 )
 from data_canon.codebook.tours import TourDataQuality
-from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
+from data_canon.codebook.trips import (
+    Driver,
+    ModeType,
+    Purpose,
+    PurposeCategory,
+    PurposeToCategoryMap,
+)
 from processing import link_trips
 from tests.fixtures.tour_pipeline import locate_and_extract_tours
 
@@ -731,3 +737,88 @@ def test_all_tours_have_required_fields():
     # All tours should have non-null origin depart/arrive times
     assert tours_df["origin_depart_time"].null_count() == 0
     assert tours_df["origin_arrive_time"].null_count() == 0
+
+
+def test_two_trips_out_and_back_are_two_tours_whatever_the_purpose_says():
+    """Out and back twice is two tours, even when an arrival home is coded as an activity.
+
+    The second arrival home carries the purpose of what the person did there --
+    a walk that ends at their own door -- rather than "home". Read strictly,
+    that end is not home, and the two tours weld into one long chain. Within the
+    home's own address the purpose describes the activity, not a different
+    place.
+    """
+    persons = pl.DataFrame(
+        {
+            "person_id": [1],
+            "hh_id": [1],
+            "age": [AgeCategory.AGE_35_TO_44.value],
+            "employment": [Employment.EMPLOYED_FULLTIME.value],
+            "student": [Student.NONSTUDENT.value],
+            "school_type": [None],
+            "work_lat": [None],
+            "work_lon": [None],
+            "school_lat": [None],
+            "school_lon": [None],
+        },
+        schema_overrides={
+            "school_type": pl.Int64,
+            "work_lat": pl.Float64,
+            "work_lon": pl.Float64,
+            "school_lat": pl.Float64,
+            "school_lon": pl.Float64,
+        },
+    )
+    households = pl.DataFrame({"hh_id": [1], "home_lat": [HOME[0]], "home_lon": [HOME[1]]})
+    # home -> shop -> home (arrival coded exercise) -> shop -> home
+    legs = [
+        (HOME, SHOP, Purpose.HOME, Purpose.SHOPPING_ERRANDS, 9),
+        (SHOP, HOME, Purpose.SHOPPING_ERRANDS, Purpose.EXERCISE, 11),
+        (HOME, SHOP, Purpose.EXERCISE, Purpose.SHOPPING_ERRANDS, 14),
+        (SHOP, HOME, Purpose.SHOPPING_ERRANDS, Purpose.HOME, 16),
+    ]
+    unlinked_trips = pl.DataFrame(
+        {
+            "unlinked_trip_id": list(range(1, len(legs) + 1)),
+            "day_id": [1] * len(legs),
+            "person_id": [1] * len(legs),
+            "hh_id": [1] * len(legs),
+            "travel_dow": [TravelDow.WEDNESDAY.value] * len(legs),
+            "depart_time": [datetime(2024, 1, 15, leg[4], 0) for leg in legs],
+            "arrive_time": [datetime(2024, 1, 15, leg[4], 15) for leg in legs],
+            "o_purpose": [leg[2].value for leg in legs],
+            "d_purpose": [leg[3].value for leg in legs],
+            "o_purpose_category": [
+                PurposeToCategoryMap.PURPOSE_TO_CATEGORY[leg[2]].value for leg in legs
+            ],
+            "d_purpose_category": [
+                PurposeToCategoryMap.PURPOSE_TO_CATEGORY[leg[3]].value for leg in legs
+            ],
+            "mode_type": [ModeType.CAR.value] * len(legs),
+            "o_lat": [leg[0][0] for leg in legs],
+            "o_lon": [leg[0][1] for leg in legs],
+            "d_lat": [leg[1][0] for leg in legs],
+            "d_lon": [leg[1][1] for leg in legs],
+            "unlinked_trip_weight": [1.0] * len(legs),
+            "distance_meters": [2000.0] * len(legs),
+            "duration_minutes": [15.0] * len(legs),
+            "num_travelers": [1] * len(legs),
+            "driver": [Driver.DRIVER.value] * len(legs),
+        }
+    )
+
+    link_result = link_trips(
+        unlinked_trips=unlinked_trips,
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=[ModeType.TRANSIT.value],
+        split_on_occupancy=False,
+    )
+    linked_trips = link_result["linked_trips"].with_columns(
+        pl.lit(None).cast(pl.Int64).alias("joint_trip_id")
+    )
+    tours = locate_and_extract_tours(
+        persons, households, link_result["unlinked_trips"], linked_trips
+    )["tours"]
+
+    assert tours.height == 2
+    assert tours["tour_data_quality"].to_list() == [TourDataQuality.VALID.value] * 2

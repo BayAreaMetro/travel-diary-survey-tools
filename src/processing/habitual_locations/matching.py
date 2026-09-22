@@ -5,7 +5,15 @@ agrees with the location's kind. An unknown purpose agrees with nothing: a stop
 near the office with no purpose could be work or a coffee, so it is neither.
 At a day's first origin and last destination, the respondent's answer to where
 the day began or ended is a second purpose: "home" or "other home" agrees with a
-home. Nothing is recoded — a work-related stop by the office stays work-related.
+home.
+
+One exception: at the person's own front door — within ``at_address_meters`` of
+their primary home — any purpose is at that home. There the purpose describes
+what they are doing, not a different place, and refusing it welds two tours
+into one.
+
+Nothing is recoded. A work-related stop stays work-related; it is evidence of
+where the person is, not a rewrite of what they said they were doing.
 """
 
 import polars as pl
@@ -45,7 +53,10 @@ def _purpose_agrees(
 
     "Went to another residence" agrees only with a home that is *not* the
     primary one: it is how people code arriving at their own second home, but
-    never how they code coming back to their main one.
+    never how they code coming back to their main one. A work-related purpose
+    agrees with a workplace: it says the person is working, and respondents use
+    it for their own workplace as readily as for a meeting elsewhere. It says
+    nothing about *which* workplace; the distance settles that.
     """
     return (
         pl.when(location_type == LocationType.HOME.value)
@@ -54,7 +65,10 @@ def _purpose_agrees(
             | (~is_primary.fill_null(value=True) & (purpose == Purpose.OTHER_RESIDENCE.value))
         )
         .when(location_type == LocationType.WORK.value)
-        .then(category == PurposeCategory.WORK.value)
+        .then(
+            (category == PurposeCategory.WORK.value)
+            | (category == PurposeCategory.WORK_RELATED.value)
+        )
         .when(location_type == LocationType.SCHOOL.value)
         .then(category == PurposeCategory.SCHOOL.value)
         .otherwise(pl.lit(value=False))
@@ -110,7 +124,8 @@ def match_points(
     Within the buffer, and the trip purpose or the stated day start/end agrees
     with the location's kind. A corner store by the house or lunch by the office
     is within the buffer but says it is somewhere else, so it is not at home or
-    at work.
+    at work. The exception is the person's own front door: within
+    ``at_address_meters`` of their primary home, any purpose is at that home.
 
     Args:
         points: Points from :func:`with_stated_day_ends`, with ``_pt``
@@ -161,6 +176,16 @@ def match_points(
                     kind, primary, pl.col("stated_purpose"), pl.col("stated_purpose_category")
                 )
             ).alias("_agrees"),
+        )
+        .with_columns(
+            (
+                pl.col("_agrees")
+                | (
+                    (kind == LocationType.HOME.value)
+                    & primary.fill_null(value=False)
+                    & (pl.col("_d") <= config.at_address_meters)
+                )
+            ).alias("_agrees")
         )
         .filter((pl.col("_d") <= config.buffer_meters) & pl.col("_agrees"))
         .select("_pt", "habitual_location_id", "location_type", "is_primary", "source", "_d")

@@ -283,17 +283,19 @@ def test_long_primary_workplace_stay_makes_a_workplace():
 
 
 @pytest.mark.parametrize(
-    ("dwell", "purpose"),
+    ("dwell", "purpose", "made"),
     [
-        (60, Purpose.PRIMARY_WORKPLACE),  # too short
-        (480, Purpose.WORK_ACTIVITY),  # work-related is never a fixed place
-        (480, Purpose.GROCERY),  # not a work purpose at all
+        (60, Purpose.PRIMARY_WORKPLACE, False),  # too short
+        (120, Purpose.PRIMARY_WORKPLACE, True),
+        (120, Purpose.WORK_ACTIVITY, False),  # a meeting, not a place of work
+        (480, Purpose.WORK_ACTIVITY, True),  # a working day says they work there
+        (480, Purpose.GROCERY, False),  # not a work purpose at all
     ],
 )
-def test_other_stops_make_no_workplace(dwell, purpose):
-    """Only long stops with the primary-workplace purpose are evidence."""
+def test_a_workplace_needs_a_long_enough_stop_of_a_work_purpose(dwell, purpose, made):
+    """Work-related stops count, but only at their own four-hour cutoff."""
     locations, _days = _build(_trips(_trip(1, 10, ALT_WORK, dwell, purpose=purpose)))
-    assert _of(locations, 1, LocationType.WORK).height == 1
+    assert (_of(locations, 1, LocationType.WORK).height == 2) is made
 
 
 def test_stay_length_cutoff_is_tunable():
@@ -410,23 +412,46 @@ def _match(trips, days=None, extra=None, persons=None) -> dict:
     [
         (Purpose.HOME, 250, True),  # agrees, within the buffer
         (Purpose.HOME, 400, False),  # agrees, but too far
-        (Purpose.GROCERY, 50, False),  # the corner store is not home
-        (Purpose.MISSING, 50, False),  # unknown agrees with nothing
-        (Purpose.PNTA, 50, False),
+        (Purpose.GROCERY, 250, False),  # the corner store is not home
+        (Purpose.MISSING, 250, False),  # unknown agrees with nothing
+        (Purpose.PNTA, 250, False),
+        (Purpose.GROCERY, 50, True),  # at their own front door, whatever they did
+        (Purpose.MISSING, 50, True),
+        (Purpose.EXERCISE, 50, True),
     ],
 )
-def test_a_trip_end_is_home_only_within_the_buffer_with_an_agreeing_purpose(
+def test_a_trip_end_is_home_by_purpose_beyond_the_doorstep_and_by_distance_at_it(
     purpose, meters, at_home
 ):
-    """Distance and purpose must both say home."""
+    """Beyond the address, distance and purpose must both say home; at it, distance is enough."""
     row = _match(_trips(_trip(1, 10, _offset(HOME, meters), -1, purpose=purpose, origin=ALT_WORK)))
     assert (row["_d_home_id"] is not None) is at_home
+
+
+def test_the_doorstep_rule_is_for_the_primary_home_only():
+    """A second home is placed from trip ends, so proximity alone would over-attribute."""
+    second_home = _second_home(OTHER_HOME)
+    row = _match(
+        _trips(_trip(1, 10, _offset(OTHER_HOME, 50), 60, purpose=Purpose.GROCERY, origin=HOME)),
+        extra=second_home,
+    )
+    assert row["_d_home_id"] is None
 
 
 def test_lunch_by_the_office_is_not_work():
     """Within the buffer of the workplace, but the purpose says otherwise."""
     row = _match(_trips(_trip(1, 10, _offset(USUAL_WORK, 100), 45, purpose=Purpose.DINING)))
     assert row["_d_reported_work_id"] is None
+
+
+def test_a_work_related_stop_at_the_workplace_is_at_work():
+    """Respondents call their own workplace work-related; the distance says which place."""
+    at_work = _match(
+        _trips(_trip(1, 10, _offset(USUAL_WORK, 100), 45, purpose=Purpose.WORK_ACTIVITY))
+    )
+    elsewhere = _match(_trips(_trip(1, 10, ALT_WORK, 45, purpose=Purpose.WORK_ACTIVITY)))
+    assert at_work["_d_reported_work_id"] is not None
+    assert elsewhere["_d_reported_work_id"] is None
 
 
 def test_other_residence_agrees_only_with_a_home_that_is_not_the_primary():
@@ -436,7 +461,16 @@ def test_other_residence_agrees_only_with_a_home_that_is_not_the_primary():
         _trips(_trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE)), extra=second_home
     )
     at_primary = _match(
-        _trips(_trip(1, 10, HOME, -2, purpose=Purpose.OTHER_RESIDENCE, origin=ALT_WORK)),
+        _trips(
+            _trip(
+                1,
+                10,
+                _offset(HOME, 250),
+                -2,
+                purpose=Purpose.OTHER_RESIDENCE,
+                origin=ALT_WORK,
+            )
+        ),
         extra=second_home,
     )
     assert at_second["_d_at_other_home"] is True
@@ -446,15 +480,15 @@ def test_other_residence_agrees_only_with_a_home_that_is_not_the_primary():
 def test_stated_home_counts_where_the_trip_purpose_describes_the_activity():
     """Working from home: the last trip says work, the day says it ended at home."""
     trips = _trips(
-        _trip(1, 10, _offset(HOME, 100), -2, purpose=Purpose.PRIMARY_WORKPLACE, origin=ALT_WORK)
+        _trip(1, 10, _offset(HOME, 250), -2, purpose=Purpose.PRIMARY_WORKPLACE, origin=ALT_WORK)
     )
     assert _match(trips)["_d_home_id"] is None
     assert _match(trips, _days((10, None, BeginEndDay.HOME)))["_d_home_id"] is not None
 
 
 def test_stated_work_is_not_evidence():
-    """A day said to end at work does not make a work-related stop the workplace."""
-    trips = _trips(_trip(1, 10, _offset(USUAL_WORK, 100), -2, purpose=Purpose.WORK_ACTIVITY))
+    """A day said to end at work does not make a shopping trip beside it the workplace."""
+    trips = _trips(_trip(1, 10, _offset(USUAL_WORK, 100), -2, purpose=Purpose.GROCERY))
     row = _match(trips, _days((10, None, BeginEndDay.WORK)))
     assert row["_d_reported_work_id"] is None
 
