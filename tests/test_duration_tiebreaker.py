@@ -13,7 +13,7 @@ from data_canon.codebook.persons import (
 )
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
-from processing.tours.extraction import extract_tours
+from tests.fixtures.tour_pipeline import locate_and_extract_tours
 
 
 def create_test_data(
@@ -157,7 +157,7 @@ def test_duration_tiebreaker_equal_priority():
             },
         ],
     )
-    result = extract_tours(persons, households, unlinked_trips, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips, linked_trips)
 
     # Should have 1 tour
     assert len(result["tours"]) == 1
@@ -259,7 +259,7 @@ def test_duration_tiebreaker_different_priority():
         ],
     )
 
-    result = extract_tours(
+    result = locate_and_extract_tours(
         persons, households, unlinked_trips, linked_trips, tour_purpose_method="hierarchy"
     )
 
@@ -329,7 +329,7 @@ def test_activity_duration_last_trip():
         ],
     )
 
-    result = extract_tours(persons, households, unlinked_trips, linked_trips)
+    result = locate_and_extract_tours(persons, households, unlinked_trips, linked_trips)
 
     # This should not error - last trip gets default duration
     assert len(result["tours"]) == 1

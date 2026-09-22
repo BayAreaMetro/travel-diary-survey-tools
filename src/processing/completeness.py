@@ -94,10 +94,10 @@ logger = logging.getLogger(__name__)
 # whose meaning depends on a value nobody wrote is the thing profiles exist to
 # stop.
 
-# Which home has to close a tour. The quality codes divide into open ends and
-# missing data, and this axis walks down the open ends only.
+# Which home has to close a tour. The quality codes divide into other-home
+# anchors, open ends and missing data, and this axis walks down the first two.
 PRIMARY_HOME = "primary_home"  # VALID only
-ANY_HOME = "any_home"  # + PARTIAL_OTHER_HOME
+ANY_HOME = "any_home"  # + OTHER_HOME
 ANYWHERE = "anywhere"  # + PARTIAL_DAY_SPLIT, PARTIAL_DIARY_EDGE
 TOUR_CLOSES_AT = (PRIMARY_HOME, ANY_HOME, ANYWHERE)
 
@@ -160,10 +160,10 @@ _MISSING_ZONE = -1
 # present, or an activity that never happened happen.
 _ADMITTED_QUALITY: dict[str, tuple[TourDataQuality, ...]] = {
     PRIMARY_HOME: (TourDataQuality.VALID,),
-    ANY_HOME: (TourDataQuality.VALID, TourDataQuality.PARTIAL_OTHER_HOME),
+    ANY_HOME: (TourDataQuality.VALID, TourDataQuality.OTHER_HOME),
     ANYWHERE: (
         TourDataQuality.VALID,
-        TourDataQuality.PARTIAL_OTHER_HOME,
+        TourDataQuality.OTHER_HOME,
         TourDataQuality.PARTIAL_DAY_SPLIT,
         TourDataQuality.PARTIAL_DIARY_EDGE,
     ),
@@ -691,10 +691,10 @@ def _tour_usable_expr(
     * ``primary_home`` -- VALID only: a whole round trip back to the home it
       left. The anchor is home for a home-based tour and the workplace for an
       at-work subtour, so one criterion admits both.
-    * ``any_home`` -- also ``PARTIAL_OTHER_HOME``. That tour did reach a home of
-      this person's, just not the one tours are built around; the trips are
-      whole and only the anchor differs.
-    * ``anywhere`` -- also the two other open ends, ``PARTIAL_DAY_SPLIT`` and
+    * ``any_home`` -- also ``OTHER_HOME``. That tour leaves from or returns to
+      another home of this person's, such as a second home, rather than the
+      primary one; the trips are whole and only the anchor differs.
+    * ``anywhere`` -- also the two open ends, ``PARTIAL_DAY_SPLIT`` and
       ``PARTIAL_DIARY_EDGE``. The tour stops somewhere unexpected and you want
       the trips anyway.
 
@@ -702,9 +702,9 @@ def _tour_usable_expr(
     missing data rather than an open end.
 
     The ``tour_category`` term only applies at ``primary_home``. Past that the
-    admitted codes are partial by construction, so a category term would
-    contradict the quality term it sits beside -- the two columns state the same
-    fact about where a tour ends.
+    admitted codes include tours that are open by construction, so a category
+    term would reject what the quality term beside it admits -- the two columns
+    state the same fact about where a tour ends.
 
     Args:
         has_quality: Whether the frame carries ``tour_data_quality``.

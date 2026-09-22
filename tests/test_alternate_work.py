@@ -1,14 +1,16 @@
 """Tests for observed alternate worksites and per-day work anchoring.
 
 A person's work anchor for a day is normally their reported workplace. The
-person-location registry also records observed work locations (places they spend
-substantial time on work/work-related trips). On days a person does not visit
-their reported workplace, an observed work location becomes the day's anchor -
-so someone can be based at a different worksite on different days. Work-related
-errands on a day they DID visit their reported workplace stay subtours.
+habitual-location registry also records observed workplaces: places they went
+for their primary workplace purpose and stayed long enough. On days a person
+does not visit their reported workplace, an observed one becomes the day's
+anchor - so someone can be based at a different worksite on different days.
+Work-related errands on a day they DID visit their reported workplace stay
+subtours. Work-related stops never make a workplace, however long.
 
 Covers:
 - A day worked entirely at an observed alternate site is a WORK tour anchored there
+- A long work-related stay is not a workplace, and stays work-related
 - A work-related errand on a reported-workplace day is a work-based subtour
 - The anchor switches per day between the reported workplace and an observed site
 """
@@ -19,11 +21,11 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.days import TravelDow
-from data_canon.codebook.generic import LocationType
+from data_canon.codebook.generic import LocationSource, LocationType
 from data_canon.codebook.persons import AgeCategory, Employment, Student
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
-from processing.tours.extraction import extract_tours
+from tests.fixtures.tour_pipeline import locate_and_extract_tours
 
 HOME = (37.8, -122.4)
 USUAL_WORK = (37.85, -122.45)
@@ -108,7 +110,7 @@ def _extract(persons, households, unlinked_trips):
     linked_trips = link_result["linked_trips"].with_columns(
         pl.lit(None).cast(pl.Int64).alias("joint_trip_id")
     )
-    return extract_tours(
+    return locate_and_extract_tours(
         persons,
         households,
         link_result["unlinked_trips"],
@@ -120,9 +122,55 @@ def test_alternate_workplace_day_is_a_work_tour(person_and_household):
     """A day worked away from the usual workplace is still a work tour.
 
     The person never goes to their usual workplace; they spend the day at
-    another location on a WORK_RELATED trip. That location is an observed work
-    location and, since the usual workplace was not visited, the day's anchor -
-    so the tour is WORK, and the trip end there is classified WORK (via purpose).
+    another location they call their workplace. That location is an observed
+    workplace and, since the usual workplace was not visited, the day's anchor.
+    """
+    persons, households = person_and_household
+    unlinked_trips = _build(
+        [
+            _trip(
+                1,
+                datetime(2024, 1, 17, 8, 0),
+                datetime(2024, 1, 17, 8, 45),
+                HOME,
+                ALT_WORK,
+                PurposeCategory.HOME.value,
+                PurposeCategory.WORK.value,
+                Purpose.HOME.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+            ),
+            _trip(
+                1,
+                datetime(2024, 1, 17, 17, 0),
+                datetime(2024, 1, 17, 17, 45),
+                ALT_WORK,
+                HOME,
+                PurposeCategory.WORK.value,
+                PurposeCategory.HOME.value,
+                Purpose.PRIMARY_WORKPLACE.value,
+                Purpose.HOME.value,
+            ),
+        ]
+    )
+
+    result = _extract(persons, households, unlinked_trips)
+    tours = result["tours"]
+    observed = result["habitual_locations"].filter(
+        (pl.col("location_type") == LocationType.WORK.value)
+        & (pl.col("source") == LocationSource.OBSERVED.value)
+    )
+
+    assert observed.height == 1, "The alternate worksite should be an observed workplace"
+    assert len(tours) == 1
+    assert tours.row(0, named=True)["tour_purpose"] == PurposeCategory.WORK.value
+
+
+def test_a_days_work_at_another_site_is_a_workplace_but_is_not_recoded(person_and_household):
+    """A full day on a work-related trip is evidence of a workplace, and keeps its purpose.
+
+    Respondents describe their own workplace as work-related as readily as
+    "primary workplace", so a stay the length of a working day is evidence of a
+    place of work. What they said they were doing is left alone.
     """
     persons, households = person_and_household
     unlinked_trips = _build(
@@ -153,20 +201,53 @@ def test_alternate_workplace_day_is_a_work_tour(person_and_household):
     )
 
     result = _extract(persons, households, unlinked_trips)
-    tours = result["tours"]
-    linked_trips = result["linked_trips"]
-
-    # The alternate-workplace trip end classifies WORK (via its work purpose),
-    # not a distinct "alternate work" type.
-    assert linked_trips.filter(pl.col("d_location_type") == LocationType.WORK.value).height >= 1, (
-        "The alternate-workplace trip end should be classified WORK"
+    workplaces = result["habitual_locations"].filter(
+        pl.col("location_type") == LocationType.WORK.value
     )
 
-    assert len(tours) == 1
-    tour = tours.row(0, named=True)
-    assert tour["tour_purpose"] == PurposeCategory.WORK.value, (
-        "A tour anchored at the day's workplace should be a WORK tour, not WORK_RELATED"
+    assert workplaces["source"].to_list() == [
+        LocationSource.REPORTED.value,
+        LocationSource.OBSERVED.value,
+    ]
+    assert result["tours"]["tour_purpose"].to_list() == [PurposeCategory.WORK_RELATED.value]
+
+
+def test_a_brief_work_related_stop_is_not_a_workplace(person_and_household):
+    """A meeting is not a place of work, however far from the office it is."""
+    persons, households = person_and_household
+    unlinked_trips = _build(
+        [
+            _trip(
+                1,
+                datetime(2024, 1, 17, 8, 0),
+                datetime(2024, 1, 17, 8, 45),
+                HOME,
+                ALT_WORK,
+                PurposeCategory.HOME.value,
+                PurposeCategory.WORK_RELATED.value,
+                Purpose.HOME.value,
+                Purpose.WORK_ACTIVITY.value,
+            ),
+            _trip(
+                1,
+                datetime(2024, 1, 17, 10, 0),
+                datetime(2024, 1, 17, 10, 45),
+                ALT_WORK,
+                HOME,
+                PurposeCategory.WORK_RELATED.value,
+                PurposeCategory.HOME.value,
+                Purpose.WORK_ACTIVITY.value,
+                Purpose.HOME.value,
+            ),
+        ]
     )
+
+    result = _extract(persons, households, unlinked_trips)
+    workplaces = result["habitual_locations"].filter(
+        pl.col("location_type") == LocationType.WORK.value
+    )
+
+    assert workplaces["source"].to_list() == [LocationSource.REPORTED.value]
 
 
 def test_work_related_errand_forms_a_subtour(person_and_household):
@@ -298,9 +379,9 @@ def test_anchor_switches_per_day_between_reported_and_observed(person_and_househ
                 HOME,
                 ALT_WORK,
                 PurposeCategory.HOME.value,
-                PurposeCategory.WORK_RELATED.value,
+                PurposeCategory.WORK.value,
                 Purpose.HOME.value,
-                Purpose.WORK_ACTIVITY.value,
+                Purpose.PRIMARY_WORKPLACE.value,
             ),
             _trip(
                 2,
@@ -308,9 +389,9 @@ def test_anchor_switches_per_day_between_reported_and_observed(person_and_househ
                 datetime(2024, 1, 18, 17, 45),
                 ALT_WORK,
                 HOME,
-                PurposeCategory.WORK_RELATED.value,
+                PurposeCategory.WORK.value,
                 PurposeCategory.HOME.value,
-                Purpose.WORK_ACTIVITY.value,
+                Purpose.PRIMARY_WORKPLACE.value,
                 Purpose.HOME.value,
             ),
         ]

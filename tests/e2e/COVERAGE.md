@@ -135,7 +135,7 @@ Feature-specific behaviours (imputation stash, edge-case coverage below) are ass
 - **CT-RAMP person_type**: all 8 (FT worker, PT worker, university student, nonworker, retired, child driving-age, child non-driving, child under-5).
 - **StudentCategory**: all 3 (College or higher, Grade or high school, Not a student).
 - **activity_pattern**: M, N, H.
-- **tour_data_quality**: VALID, PARTIAL_DIARY_EDGE, NO_DESTINATION (3 of 6). PARTIAL_OTHER_HOME, PARTIAL_DAY_SPLIT and SPATIAL_GAP need travel the generator does not produce and are unit-tested.
+- **tour_data_quality**: VALID, PARTIAL_DIARY_EDGE, NO_DESTINATION (3 of 6). OTHER_HOME, PARTIAL_DAY_SPLIT and SPATIAL_GAP need travel the generator does not produce and are unit-tested.
 - **tour_category**: COMPLETE, PARTIAL_END, PARTIAL_START, PARTIAL_BOTH (all 4).
 - **joint tour_composition**: ADULTS_ONLY, CHILDREN_ONLY, ADULTS_AND_CHILDREN (all 3).
 - **modes**: walk, bike, bikeshare, taxi, TNC, car, school-bus, transit.

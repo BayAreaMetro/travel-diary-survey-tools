@@ -5,8 +5,8 @@ steps, rather than from per-"year" YAML files. This lets the suite parametrize
 the step toggling and verify that turning a step on/off does not break the
 downstream steps.
 
-- Mandatory steps always run: load_data, link_trips, extract_tours, add_zone_ids,
-  write_data.
+- Mandatory steps always run: load_data, link_trips, detect_habitual_locations,
+  extract_tours, add_zone_ids, write_data.
 - Optional steps toggle: detect_joint_trips, imputation, format_ctramp,
   format_daysim. (The format_* steps are terminal/parallel — nothing depends on
   their output — so by default they are on; they are toggled only to prove
@@ -75,6 +75,7 @@ PROFILES = {
 _MANDATORY = {
     "load_data",
     "link_trips",
+    "detect_habitual_locations",
     "extract_tours",
     "cascade_completeness",
     "add_zone_ids",
@@ -102,6 +103,7 @@ _DAYSIM_TABLES = (
 _STEP_ORDER = (
     "load_data",
     "link_trips",
+    "detect_habitual_locations",
     "detect_joint_trips",
     "imputation",
     "extract_tours",
@@ -201,6 +203,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                     "persons": f"{survey}/persons.parquet",
                     "days": f"{survey}/days.parquet",
                     "unlinked_trips": f"{survey}/unlinked_trips.parquet",
+                    "habitual_locations": f"{survey}/habitual_locations.parquet",
                 }
             },
         },
@@ -247,6 +250,11 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 "stash_preimputed": True,
                 "random_state": 42,
             },
+        },
+        "detect_habitual_locations": {
+            "name": "detect_habitual_locations",
+            "validate_input": False,
+            "cache": False,
         },
         "extract_tours": {"name": "extract_tours", "validate_input": False, "cache": False},
         "cascade_completeness": {
@@ -371,6 +379,7 @@ def _run_pipeline(enabled: frozenset):
         add_existing_weights,
         add_zone_ids,
         cascade_completeness,
+        detect_habitual_locations,
         detect_joint_trips,
         extract_tours,
         format_ctramp,
@@ -394,6 +403,7 @@ def _run_pipeline(enabled: frozenset):
         add_existing_weights,
         load_data,
         link_trips,
+        detect_habitual_locations,
         detect_joint_trips,
         imputation,
         extract_tours,

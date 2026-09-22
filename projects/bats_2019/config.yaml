@@ -25,6 +25,10 @@ output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/2026032
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2019.log" # If not set, logs just to console, if not absolute saves to .cache directory
+# Distance within which a trip end is at a habitual location (home, work,
+# school). detect_habitual_locations finds the locations with it and
+# extract_tours matches trips to them with it, so both steps read this one key.
+habitual_buffer_meters: "300"
 
 # Pipeline configuration
 steps:
@@ -101,6 +105,12 @@ steps:
       # rather than transferring. No default: state the choice explicitly.
       split_on_occupancy: false
 
+  - name: detect_habitual_locations
+    validate_input: true
+    cache: true
+    params:
+      buffer_meters: "{{ habitual_buffer_meters }}"
+
   - name: detect_joint_trips
     validate_input: true
     cache: true
@@ -131,6 +141,8 @@ steps:
       # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
+      habitual_locations:
+        buffer_meters: "{{ habitual_buffer_meters }}"
 
   - name: add_zone_ids
     validate_input: true

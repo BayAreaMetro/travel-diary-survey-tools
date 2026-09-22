@@ -10,7 +10,6 @@ import pytest
 
 from data_canon.codebook.trips import PurposeCategory
 from processing.link_trips import link_trips
-from processing.tours import extract_tours
 
 from .base_records import create_day
 from .locations import lookup_location
@@ -22,6 +21,7 @@ from .scenario_builders import (
     simple_work_tour,
     transit_commute,
 )
+from .tour_pipeline import locate_and_extract_tours
 from .trip_records import create_unlinked_trip
 
 # ==============================================================================
@@ -288,7 +288,7 @@ def process_scenario_through_pipeline(
     unlinked_trips = link_result["unlinked_trips"]  # Use updated unlinked trips with linked_trip_id
 
     # Extract tours (using config.yaml defaults)
-    tour_result = extract_tours(
+    tour_result = locate_and_extract_tours(
         persons=persons,
         households=households,
         unlinked_trips=unlinked_trips,

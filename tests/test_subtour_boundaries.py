@@ -15,8 +15,8 @@ closed.
 
 Each case states the itinerary and the subtour number expected per trip, read
 off the definition rather than off the implementation: a subtour is the run of
-trips that leaves the anchor and comes back to it, and the legs that bound the
-anchor period are the commute and belong to the parent tour.
+trips that leaves an anchor and comes back to that same anchor, and the legs
+that bound the anchor period are the commute and belong to the parent tour.
 
 ``assert_subtour_invariants`` then checks the properties that must hold for
 *any* itinerary, so a future change cannot satisfy the worked examples while
@@ -32,31 +32,38 @@ from processing.tours.detection_helpers import (
     expand_anchor_periods,
 )
 
-# A trip as (origin_at_anchor, destination_at_anchor) -- the only input subtour
-# detection reads, so stating it directly keeps each itinerary legible.
+# A trip as (origin anchor, destination anchor), each the anchor's identifier
+# or 0 for none -- the only input subtour detection reads, so stating it directly
+# keeps each itinerary legible. Anchor 1 is the usual workplace; 2 is another.
 TO_ANCHOR = (0, 1)
 LEAVE_ANCHOR = (1, 0)
 RETURN_TO_ANCHOR = (0, 1)
 ANCHOR_TO_HOME = (1, 0)
 AWAY = (0, 0)
-ANCHOR_TO_ANCHOR = (1, 1)
+ANCHOR_TO_ANCHOR = (1, 2)
+TO_OTHER_ANCHOR = (0, 2)
+LEAVE_OTHER_ANCHOR = (2, 0)
 
 
 def _tour(legs: list[tuple[int, int]], anchor: LocationType = LocationType.WORK) -> pl.DataFrame:
-    """One tour's trips, with the anchor flags set for *anchor*."""
+    """One tour's trips, with the anchor columns set for *anchor*."""
     n = len(legs)
     at = "work" if anchor is LocationType.WORK else "school"
     other = "school" if anchor is LocationType.WORK else "work"
+    ends = {"o": [o for o, _ in legs], "d": [d for _, d in legs]}
+    columns = {}
+    for end, ids in ends.items():
+        columns[f"_{end}_at_{at}"] = pl.Series([bool(i) for i in ids], dtype=pl.Boolean)
+        columns[f"_{end}_{at}_anchor_id"] = pl.Series([i or None for i in ids], dtype=pl.Int64)
+        columns[f"_{end}_at_{other}"] = pl.Series([False] * n, dtype=pl.Boolean)
+        columns[f"_{end}_{other}_anchor_id"] = pl.Series([None] * n, dtype=pl.Int64)
     return pl.DataFrame(
         {
             "person_id": [1] * n,
             "day_id": [11] * n,
             "tour_num": [1] * n,
             "linked_trip_id": list(range(1, n + 1)),
-            f"_o_at_{at}": pl.Series([bool(o) for o, _ in legs], dtype=pl.Boolean),
-            f"_d_at_{at}": pl.Series([bool(d) for _, d in legs], dtype=pl.Boolean),
-            f"_o_at_{other}": pl.Series([False] * n, dtype=pl.Boolean),
-            f"_d_at_{other}": pl.Series([False] * n, dtype=pl.Boolean),
+            **columns,
         }
     )
 
@@ -71,8 +78,9 @@ def _detect(legs: list[tuple[int, int]], anchor: LocationType = LocationType.WOR
 def assert_subtour_invariants(legs: list[tuple[int, int]], result: pl.DataFrame) -> None:
     """Properties that hold for every itinerary, whatever the numbers come out as.
 
-    1. A subtour is a round trip: its first trip leaves the anchor and its last
-       arrives back at it. A run that does only one of those is not a subtour.
+    1. A subtour is a round trip: its first trip leaves an anchor and its last
+       arrives back at that same anchor. A run that does only one of those, or
+       comes back to a different anchor, is not a subtour.
     2. Subtours are numbered ``1..k`` within their tour, in the order they occur,
        with no gaps and no reuse.
     3. Every trip of a subtour is contiguous with the rest of that subtour.
@@ -89,8 +97,10 @@ def assert_subtour_invariants(legs: list[tuple[int, int]], result: pl.DataFrame)
     for num in seen:
         members = [i for i, value in enumerate(nums) if value == num]
         first, last = legs[members[0]], legs[members[-1]]
-        assert first == LEAVE_ANCHOR, f"subtour {num} does not start by leaving the anchor: {legs}"
-        assert last == RETURN_TO_ANCHOR, f"subtour {num} does not end back at the anchor: {legs}"
+        assert first[0], f"subtour {num} does not start at an anchor: {legs}"
+        assert not first[1], f"subtour {num} does not leave its anchor: {legs}"
+        assert not last[0], f"subtour {num} does not end by arriving: {legs}"
+        assert last[1] == first[0], f"subtour {num} does not return where it left: {legs}"
 
 
 def check(legs: list[tuple[int, int]], expected: list[int], anchor=LocationType.WORK) -> None:
@@ -187,11 +197,53 @@ class TestUnclosedChainsAreDiscarded:
     def test_open_chain_falls_back_to_the_parent_tour(self):
         """A trip both leaving and arriving at an anchor closes nothing.
 
-        Two habitual worksites make ``(1, 1)`` neither a departure nor a
-        return, so the chain reaches the end of the anchor period still open.
-        Those trips belong to the parent tour, not to a half-built subtour.
+        A trip between two worksites is neither a departure nor a return, so the
+        chain reaches the end of the anchor period still open. Those trips
+        belong to the parent tour, not to a half-built subtour.
         """
         check([TO_ANCHOR, LEAVE_ANCHOR, AWAY, ANCHOR_TO_ANCHOR], [0, 0, 0, 0])
+
+
+class TestSubtoursReturnToTheSameAnchor:
+    """A subtour leaves one workplace or school and comes back to that one."""
+
+    def test_chain_between_two_workplaces_is_not_a_subtour(self):
+        """Home > Work 1 > Coffee > Work 2 > Home: no round trip, so no subtour."""
+        check([TO_ANCHOR, LEAVE_ANCHOR, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR], [0, 0, 0, 0])
+
+    def test_second_workplace_starts_its_own_subtours(self):
+        """Home > Work 1 > Coffee > Work 2 > Lunch > Work 2 > Home.
+
+        The coffee run arrived elsewhere and stays on the parent tour; the lunch
+        leaves work 2 and comes back to it, so it is subtour 1.
+        """
+        check(
+            [
+                TO_ANCHOR,
+                LEAVE_ANCHOR,
+                TO_OTHER_ANCHOR,
+                LEAVE_OTHER_ANCHOR,
+                TO_OTHER_ANCHOR,
+                LEAVE_OTHER_ANCHOR,
+            ],
+            [0, 0, 0, 1, 1, 0],
+        )
+
+    def test_numbering_stays_gapless_after_a_dropped_chain(self):
+        """Home > Work 1 > Lunch > Work 1 > Coffee > Work 2 > Errand > Work 2 > Home."""
+        check(
+            [
+                TO_ANCHOR,
+                LEAVE_ANCHOR,
+                RETURN_TO_ANCHOR,
+                LEAVE_ANCHOR,
+                TO_OTHER_ANCHOR,
+                LEAVE_OTHER_ANCHOR,
+                TO_OTHER_ANCHOR,
+                LEAVE_OTHER_ANCHOR,
+            ],
+            [0, 1, 1, 0, 0, 2, 2, 0],
+        )
 
 
 class TestInvariantsHoldAcrossItineraries:
@@ -208,6 +260,8 @@ class TestInvariantsHoldAcrossItineraries:
             [TO_ANCHOR, LEAVE_ANCHOR, AWAY, ANCHOR_TO_ANCHOR],
             [TO_ANCHOR, ANCHOR_TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
             [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, LEAVE_ANCHOR, AWAY],
+            [TO_ANCHOR, LEAVE_ANCHOR, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR],
+            [TO_ANCHOR, LEAVE_ANCHOR, AWAY, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR, RETURN_TO_ANCHOR],
             [AWAY, AWAY],
         ],
     )

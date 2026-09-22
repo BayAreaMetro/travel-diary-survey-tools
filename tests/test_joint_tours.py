@@ -24,11 +24,11 @@ from data_canon.codebook.persons import (
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.joint_trips import detect_joint_trips
-from processing.tours.extraction import extract_tours
 from processing.tours.joint_tour_helpers import (
     _validate_joint_tours_have_joint_trips,
     identify_joint_tours,
 )
+from tests.fixtures.tour_pipeline import locate_and_extract_tours
 
 
 @pytest.fixture
@@ -190,7 +190,7 @@ class TestFullyJointTour:
         ) = link_and_detect_joint_trips(unlinked_trips, households)
 
         # Extract tours
-        tour_result = extract_tours(
+        tour_result = locate_and_extract_tours(
             persons=persons,
             households=households,
             unlinked_trips=unlinked_trips_with_ids,
@@ -278,7 +278,7 @@ class TestFullyJointTour:
         ) = link_and_detect_joint_trips(unlinked_trips, households)
 
         # Extract tours
-        tour_result = extract_tours(
+        tour_result = locate_and_extract_tours(
             persons=persons,
             households=households,
             unlinked_trips=unlinked_trips_with_ids,
@@ -402,7 +402,7 @@ class TestPartialJointTour:
         ) = link_and_detect_joint_trips(unlinked_trips, households)
 
         # Extract tours
-        tour_result = extract_tours(
+        tour_result = locate_and_extract_tours(
             persons=persons,
             households=households,
             unlinked_trips=unlinked_trips_with_ids,
@@ -535,7 +535,7 @@ class TestPartialDropoff:
         ) = link_and_detect_joint_trips(unlinked_trips, households)
 
         # Extract tours
-        tour_result = extract_tours(
+        tour_result = locate_and_extract_tours(
             persons=persons,
             households=households,
             unlinked_trips=unlinked_trips_with_ids,
@@ -736,7 +736,7 @@ class TestNoJointTours:
         ) = link_and_detect_joint_trips(unlinked_trips, households)
 
         # Extract tours
-        tour_result = extract_tours(
+        tour_result = locate_and_extract_tours(
             persons=persons,
             households=households,
             unlinked_trips=unlinked_trips_with_ids,

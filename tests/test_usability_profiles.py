@@ -161,7 +161,7 @@ class TestTourClosesAt:
     )
     def test_a_second_home_needs_any_home_or_wider(self, profile, expected):
         """The tour reached a home of this person's, just not the usual one."""
-        tables = _one_household(TourDataQuality.PARTIAL_OTHER_HOME, TourCategory.PARTIAL_END)
+        tables = _one_household(TourDataQuality.OTHER_HOME, TourCategory.PARTIAL_END)
         assert _stamp([profile], tables)["tours"][profile.flag].to_list() == expected
 
     @pytest.mark.parametrize(
@@ -233,7 +233,7 @@ class TestProfilesAreIndependent:
 
     def test_declaration_order_changes_no_verdict(self):
         """Order in the config is presentation, never meaning."""
-        tables = _one_household(TourDataQuality.PARTIAL_OTHER_HOME, TourCategory.PARTIAL_END)
+        tables = _one_household(TourDataQuality.OTHER_HOME, TourCategory.PARTIAL_END)
         forwards = _stamp(list(ALL_PROFILES), tables)
         backwards = _stamp(list(reversed(ALL_PROFILES)), tables)
         for name, df in forwards.items():

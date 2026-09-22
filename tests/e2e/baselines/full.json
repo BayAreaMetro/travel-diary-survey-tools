@@ -1,6 +1,15 @@
 {
  "days": {
   "columns": {
+   "begin_day": {
+    "counts": {
+     "None": 51
+    },
+    "distinct": 1,
+    "dtype": "Int64",
+    "hash": "149e675ab9525ebf",
+    "nulls": 51
+   },
    "day_id": {
     "distinct": 51,
     "dtype": "Int64",
@@ -49,6 +58,15 @@
     "min": 0.0,
     "nulls": 0,
     "sum": 10767.769634
+   },
+   "end_day": {
+    "counts": {
+     "None": 51
+    },
+    "distinct": 1,
+    "dtype": "Int64",
+    "hash": "149e675ab9525ebf",
+    "nulls": 51
    },
    "hh_day_analysis": {
     "counts": {
@@ -2450,17 +2468,17 @@
    "d_location_type": {
     "counts": {
      "1": 45,
-     "2": 30,
+     "2": 28,
      "3": 6,
-     "4": 27
+     "4": 29
     },
     "distinct": 4,
     "dtype": "Int32",
-    "hash": "7a32eb7eb3655772",
+    "hash": "8d47b508f04e686a",
     "max": 4.0,
     "min": 1.0,
     "nulls": 0,
-    "sum": 231.0
+    "sum": 235.0
    },
    "d_lon": {
     "distinct": 31,
@@ -2748,17 +2766,17 @@
    "o_location_type": {
     "counts": {
      "1": 50,
-     "2": 28,
+     "2": 26,
      "3": 6,
-     "4": 24
+     "4": 26
     },
     "distinct": 4,
     "dtype": "Int32",
-    "hash": "17c63b24d33161f4",
+    "hash": "2bd6d85649edbf8d",
     "max": 4.0,
     "min": 1.0,
     "nulls": 0,
-    "sum": 220.0
+    "sum": 224.0
    },
    "o_lon": {
     "distinct": 29,
@@ -4458,17 +4476,17 @@
    "d_location_type": {
     "counts": {
      "1": 2,
-     "2": 29,
+     "2": 27,
      "3": 6,
-     "4": 16
+     "4": 18
     },
     "distinct": 4,
     "dtype": "Int32",
-    "hash": "9b64ec6d2f1c83cb",
+    "hash": "c0aad38ef1523e2b",
     "max": 4.0,
     "min": 1.0,
     "nulls": 0,
-    "sum": 142.0
+    "sum": 146.0
    },
    "d_lon": {
     "distinct": 15,

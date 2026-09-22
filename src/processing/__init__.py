@@ -7,6 +7,7 @@ from .add_zone_ids import add_zone_ids
 from .completeness import cascade_completeness
 from .final_check import final_check
 from .formatting import format_ctramp, format_daysim
+from .habitual_locations import detect_habitual_locations
 from .imputation.impute import imputation
 from .joint_trips import detect_joint_trips
 from .link_trips import link_trips
@@ -19,6 +20,7 @@ __all__ = [
     "add_zone_ids",
     "cascade_completeness",
     "compute_weights",
+    "detect_habitual_locations",
     "detect_joint_trips",
     "extract_tours",
     "final_check",

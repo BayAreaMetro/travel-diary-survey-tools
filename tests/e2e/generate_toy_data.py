@@ -17,6 +17,8 @@ from datetime import date, datetime
 
 import polars as pl
 
+from processing.habitual_locations import reported_habitual_locations
+
 # ---------------------------------------------------------------------------
 # Coordinates (synthetic SF Bay Area -- no real addresses)
 # ---------------------------------------------------------------------------
@@ -291,6 +293,9 @@ class _Survey:
                 "person_num": pnum,
                 "day_num": dnum,
                 "survey_complete": comp,
+                # Not asked in the toy survey.
+                "begin_day": None,
+                "end_day": None,
                 "day_weight": None,
             }
         )
@@ -1222,11 +1227,14 @@ def build_survey_dataframes():
         income=pl.col("income_bin").replace_strict(_bin_to_income, default=None)
     )
 
+    persons = pl.DataFrame(per)
     tables = {
         "households": households,
-        "persons": pl.DataFrame(per),
-        "days": pl.DataFrame(day),
+        "persons": persons,
+        "days": pl.DataFrame(day, schema_overrides={"begin_day": pl.Int64, "end_day": pl.Int64}),
         "unlinked_trips": pl.DataFrame(trip),
+        # Delivered with the survey: the reported home, work and school only.
+        "habitual_locations": reported_habitual_locations(households, persons),
     }
 
     # The e2e excludes compute_weights/add_existing_weights, but the daysim/ctramp

@@ -723,7 +723,7 @@ Quick lookup of categorical values and labels for codebook enum fields.
 | Value | Label |
 | --- | --- |
 | 0 | Valid tour |
-| 1 | Open end is another home known for this person |
+| 1 | Leaves from or returns to another home known for this person |
 | 2 | Chain resumes at the same place on the next diary day |
 | 3 | First or last trip in the diary; its open end is not a known home |
 | 4 | No activity to anchor the tour on: returns to the anchor without stopping, or every stop was a mode change |
