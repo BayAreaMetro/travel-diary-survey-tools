@@ -5,11 +5,10 @@ This test module ensures joint trip detection correctly handles:
 - Buffer method with strict AND logic
 - Mahalanobis method with diagonal and full covariance
 - Temporal overlap requirements
-- Clique detection with partial overlaps
 - Edge cases (single-person households, no matches, empty data)
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
@@ -28,91 +27,112 @@ from processing.joint_trips.similarity import (
     compute_pairwise_distances,
 )
 
+FULL_COVARIANCE = [
+    [10000, 0, 0, 0],
+    [0, 10000, 0, 0],
+    [0, 0, 100, 0],
+    [0, 0, 0, 100],
+]
+
 
 class TestJointTripConfig:
     """Test configuration validation."""
 
-    def test_valid_buffer_config(self):
-        """Test valid buffer configuration."""
-        config = JointTripConfig(
-            method="buffer",
-            time_threshold_minutes=15.0,
-            space_threshold_meters=100.0,
-        )
-        assert config.method == "buffer"
-        assert config.time_threshold_minutes == 15.0
-        assert config.space_threshold_meters == 100.0
+    @pytest.mark.parametrize(
+        ("kwargs", "expected_threshold"),
+        [
+            pytest.param(
+                {
+                    "method": "buffer",
+                    "time_threshold_minutes": 15.0,
+                    "space_threshold_meters": 100.0,
+                },
+                0.0,
+                id="buffer_has_no_statistical_threshold",
+            ),
+            pytest.param(
+                {
+                    "method": "mahalanobis",
+                    "covariance": [7000, 7000, 20, 20],
+                    "space_threshold_meters": 2.5,
+                },
+                1.0636232167792241,
+                id="diagonal_covariance",
+            ),
+            pytest.param(
+                {
+                    "method": "mahalanobis",
+                    "covariance": FULL_COVARIANCE,
+                    "space_threshold_meters": 2.5,
+                },
+                1.0636232167792241,
+                id="full_covariance_matrix",
+            ),
+        ],
+    )
+    def test_an_accepted_config_yields_its_distance_threshold(self, kwargs, expected_threshold):
+        """The chi-squared threshold is what the rest of detection actually reads.
 
-    def test_valid_diagonal_covariance(self):
-        """Test valid diagonal covariance configuration."""
-        config = JointTripConfig(
-            method="mahalanobis",
-            covariance=[7000, 7000, 20, 20],
-            space_threshold_meters=2.5,
-        )
-        assert config.method == "mahalanobis"
-        assert config.covariance == [7000, 7000, 20, 20]
+        The default 90% confidence on four dimensions is the bottom 10% of a
+        chi-squared with four degrees of freedom; the buffer method does not
+        use a statistical distance at all.
+        """
+        config = JointTripConfig(**kwargs)
 
-    def test_valid_full_covariance(self):
-        """Test valid full covariance matrix."""
-        cov = [
-            [10000, 0, 0, 0],
-            [0, 10000, 0, 0],
-            [0, 0, 100, 0],
-            [0, 0, 0, 100],
-        ]
-        config = JointTripConfig(
-            method="mahalanobis",
-            covariance=cov,
-            space_threshold_meters=2.5,
-        )
-        assert config.covariance == cov
+        assert config.covariance == kwargs.get("covariance")
+        assert config.get_distance_threshold() == pytest.approx(expected_threshold)
 
-    def test_invalid_diagonal_length(self):
-        """Test that wrong diagonal length raises error."""
-        with pytest.raises(ValueError, match="must have 4 values"):
-            JointTripConfig(
-                method="mahalanobis",
-                covariance=[10000, 10000, 100],  # Only 3 values
-            )
-
-    def test_invalid_full_matrix_shape(self):
-        """Test that non-4x4 matrix raises error."""
-        with pytest.raises(ValidationError, match="4x4"):
-            JointTripConfig(
-                method="mahalanobis",
-                covariance=[[10000, 0], [0, 10000]],  # 2x2
-            )
-
-    def test_negative_threshold(self):
-        """Test that negative thresholds raise error."""
-        with pytest.raises(ValidationError, match="greater than or equal"):
-            JointTripConfig(time_threshold_minutes=-5.0)
-
-    def test_non_symmetric_matrix(self):
-        """Test that non-symmetric matrix raises error."""
-        with pytest.raises(ValueError, match="symmetric"):
-            JointTripConfig(
-                method="mahalanobis",
-                covariance=[
-                    [10000, 100, 0, 0],  # Off-diagonal asymmetric
-                    [0, 10000, 0, 0],
-                    [0, 0, 100, 0],
-                    [0, 0, 0, 100],
-                ],
-            )
-
-    def test_negative_diagonal_values(self):
-        """Test that negative variances raise error."""
-        with pytest.raises(ValueError, match="positive"):
-            JointTripConfig(
-                method="mahalanobis",
-                covariance=[10000, -10000, 100, 100],
-            )
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            pytest.param(
+                {"method": "mahalanobis", "covariance": [10000, 10000, 100]},
+                "must have 4 values",
+                id="diagonal_of_three",
+            ),
+            pytest.param(
+                {"method": "mahalanobis", "covariance": [[10000, 0], [0, 10000]]},
+                "4x4",
+                id="two_by_two_matrix",
+            ),
+            pytest.param(
+                {"time_threshold_minutes": -5.0},
+                "greater than or equal",
+                id="negative_time_threshold",
+            ),
+            pytest.param(
+                {
+                    "method": "mahalanobis",
+                    "covariance": [
+                        [10000, 100, 0, 0],
+                        [0, 10000, 0, 0],
+                        [0, 0, 100, 0],
+                        [0, 0, 0, 100],
+                    ],
+                },
+                "symmetric",
+                id="asymmetric_off_diagonal",
+            ),
+            pytest.param(
+                {"method": "mahalanobis", "covariance": [10000, -10000, 100, 100]},
+                "positive",
+                id="negative_variance",
+            ),
+        ],
+    )
+    def test_invalid_config_is_rejected(self, kwargs, match):
+        """A covariance that cannot be inverted is caught at configuration time."""
+        with pytest.raises(ValidationError, match=match):
+            JointTripConfig(**kwargs)
 
 
 class TestSimilarityCalculations:
-    """Test similarity computation and filtering functions."""
+    """Test similarity computation and filtering functions.
+
+    The three pairs are deliberately spread: identical, ~140 m and 5 minutes
+    apart, and ~700 m and 20 minutes apart, so a filter that keeps everything
+    and a filter that keeps nothing both fail.
+    """
 
     @pytest.fixture
     def sample_trip_pairs(self):
@@ -153,165 +173,100 @@ class TestSimilarityCalculations:
         )
 
     def test_compute_pairwise_distances(self, sample_trip_pairs):
-        """Test distance computation."""
+        """Origin, destination and both time gaps, per pair."""
         result = compute_pairwise_distances(sample_trip_pairs)
-        assert "origin_dist_m" in result.columns
-        assert "dest_dist_m" in result.columns
-        assert "depart_diff_min" in result.columns
-        assert "arrive_diff_min" in result.columns
-        assert len(result) == 3
+
+        assert result["origin_dist_m"].to_list() == pytest.approx([0.0, 141.72, 708.58], abs=0.01)
+        assert result["dest_dist_m"].to_list() == pytest.approx([0.0, 141.68, 1416.77], abs=0.01)
+        assert result["depart_diff_min"].to_list() == [1, 5, 20]
+        assert result["arrive_diff_min"].to_list() == [1, 5, 20]
 
     def test_buffer_filter_strict_and(self, sample_trip_pairs):
-        """Test buffer filter with strict AND logic."""
+        """All four dimensions must pass, and the third pair fails on all four.
+
+        The second pair is ~142 m and 5 minutes off, inside both thresholds, so
+        strict AND is not the same as "only exact matches survive".
+        """
         pairs_with_dist = compute_pairwise_distances(sample_trip_pairs)
+
         filtered = apply_buffer_filter(
             pairs_with_dist,
             space_threshold_meters=200,
             time_threshold_minutes=10,
         )
-        # Only first pair should pass (small distances and times)
-        assert len(filtered) <= 2
+
+        assert filtered.select("linked_trip_id", "linked_trip_id_b").rows() == [(1, 2), (2, 3)]
 
     def test_mahalanobis_filter_diagonal(self, sample_trip_pairs):
-        """Test Mahalanobis filter with diagonal covariance."""
+        """The statistical distance is stricter here than the 200 m buffer.
+
+        Scaled by the given variances the second pair sits at 2.87, past the
+        2.5 threshold, so only the identical pair survives.
+        """
         pairs_with_dist = compute_pairwise_distances(sample_trip_pairs)
+
         filtered = apply_mahalanobis_filter(
             pairs_with_dist,
             covariance=[7000, 7000, 20, 20],
             distance_threshold=2.5,
         )
-        assert len(filtered) >= 0
+
+        assert filtered.select("linked_trip_id", "linked_trip_id_b").rows() == [(1, 2)]
 
 
-@pytest.fixture
-def two_person_household_matching_trips():
-    """Two household members with matching trips (same origin, dest, time)."""
+def _household(depart_times: list[datetime]) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """One household whose members each make the same home -> work trip.
+
+    Every field except the departure time is held constant across members, so
+    a pair that is not detected as joint failed on timing alone. Each trip
+    takes thirty minutes.
+    """
+    n = len(depart_times)
+    arrive_times = [depart + timedelta(minutes=30) for depart in depart_times]
+
     households = pl.DataFrame({"hh_id": [1], "home_lat": [37.8], "home_lon": [-122.4]})
-
     linked_trips = pl.DataFrame(
         {
-            "linked_trip_id": [1, 2],
-            "hh_id": [1, 1],
-            "day_id": [1, 1],
-            "person_id": [1, 2],
-            "travel_dow": [
-                TravelDow.WEDNESDAY.value,
-                TravelDow.WEDNESDAY.value,
-            ],
-            "o_lat": [37.8, 37.8],
-            "o_lon": [-122.4, -122.4],
-            "d_lat": [37.85, 37.85],
-            "d_lon": [-122.45, -122.45],
-            "depart_time": [
-                datetime(2024, 1, 15, 9, 0),
-                datetime(2024, 1, 15, 9, 1),
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 15, 9, 30),
-                datetime(2024, 1, 15, 9, 31),
-            ],
-            "o_purpose_category": [
-                PurposeCategory.HOME.value,
-                PurposeCategory.HOME.value,
-            ],
-            "d_purpose_category": [
-                PurposeCategory.WORK.value,
-                PurposeCategory.WORK.value,
-            ],
-            "mode_type": [ModeType.CAR.value, ModeType.CAR.value],
-            "driver": [Driver.DRIVER.value, Driver.PASSENGER.value],
-            "num_travelers": [2, 2],
-            "access_mode": [None, None],
-            "egress_mode": [None, None],
-            "duration_minutes": [30.0, 30.0],
-            "distance_meters": [5000.0, 5000.0],
-            "depart_date": [
-                datetime(2024, 1, 15),
-                datetime(2024, 1, 15),
-            ],
-            "arrive_date": [
-                datetime(2024, 1, 15),
-                datetime(2024, 1, 15),
-            ],
-            "depart_hour": [9, 9],
-            "depart_minute": [0, 1],
-            "depart_seconds": [0, 0],
-            "arrive_hour": [9, 9],
-            "arrive_minute": [30, 31],
-            "arrive_seconds": [0, 0],
-            "tour_direction": [1, 1],
-        }
+            "linked_trip_id": list(range(1, n + 1)),
+            "hh_id": [1] * n,
+            "day_id": [1] * n,
+            "person_id": list(range(1, n + 1)),
+            "travel_dow": [TravelDow.WEDNESDAY.value] * n,
+            "o_lat": [37.8] * n,
+            "o_lon": [-122.4] * n,
+            "d_lat": [37.85] * n,
+            "d_lon": [-122.45] * n,
+            "depart_time": depart_times,
+            "arrive_time": arrive_times,
+            "o_purpose_category": [PurposeCategory.HOME.value] * n,
+            "d_purpose_category": [PurposeCategory.WORK.value] * n,
+            "mode_type": [ModeType.CAR.value] * n,
+            "driver": [Driver.DRIVER.value] * n,
+            "num_travelers": [n] * n,
+            "access_mode": [None] * n,
+            "egress_mode": [None] * n,
+            "duration_minutes": [30.0] * n,
+            "distance_meters": [5000.0] * n,
+            "depart_date": [datetime(2024, 1, 15)] * n,
+            "arrive_date": [datetime(2024, 1, 15)] * n,
+            "depart_hour": [depart.hour for depart in depart_times],
+            "depart_minute": [depart.minute for depart in depart_times],
+            "depart_seconds": [0] * n,
+            "arrive_hour": [arrive.hour for arrive in arrive_times],
+            "arrive_minute": [arrive.minute for arrive in arrive_times],
+            "arrive_seconds": [0] * n,
+            "tour_direction": [1] * n,
+        },
+        schema_overrides={"access_mode": pl.Int64, "egress_mode": pl.Int64},
     )
-
     return households, linked_trips
 
 
-@pytest.fixture
-def two_person_household_non_matching_trips():
-    """Two household members with trips at different times (no overlap)."""
-    households = pl.DataFrame({"hh_id": [1], "home_lat": [37.8], "home_lon": [-122.4]})
-
-    linked_trips = pl.DataFrame(
-        {
-            "linked_trip_id": [1, 2],
-            "hh_id": [1, 1],
-            "day_id": [1, 1],
-            "person_id": [1, 2],
-            "travel_dow": [
-                TravelDow.WEDNESDAY.value,
-                TravelDow.WEDNESDAY.value,
-            ],
-            "o_lat": [37.8, 37.8],
-            "o_lon": [-122.4, -122.4],
-            "d_lat": [37.85, 37.85],
-            "d_lon": [-122.45, -122.45],
-            "depart_time": [
-                datetime(2024, 1, 15, 9, 0),
-                datetime(2024, 1, 15, 14, 0),  # Different time
-            ],
-            "arrive_time": [
-                datetime(2024, 1, 15, 9, 30),
-                datetime(2024, 1, 15, 14, 30),  # No overlap
-            ],
-            "o_purpose_category": [
-                PurposeCategory.HOME.value,
-                PurposeCategory.HOME.value,
-            ],
-            "d_purpose_category": [
-                PurposeCategory.WORK.value,
-                PurposeCategory.WORK.value,
-            ],
-            "mode_type": [ModeType.CAR.value, ModeType.CAR.value],
-            "driver": [Driver.DRIVER.value, Driver.DRIVER.value],
-            "num_travelers": [1, 1],
-            "access_mode": [None, None],
-            "egress_mode": [None, None],
-            "duration_minutes": [30.0, 30.0],
-            "distance_meters": [5000.0, 5000.0],
-            "depart_date": [
-                datetime(2024, 1, 15),
-                datetime(2024, 1, 15),
-            ],
-            "arrive_date": [
-                datetime(2024, 1, 15),
-                datetime(2024, 1, 15),
-            ],
-            "depart_hour": [9, 14],
-            "depart_minute": [0, 0],
-            "depart_seconds": [0, 0],
-            "arrive_hour": [9, 14],
-            "arrive_minute": [30, 30],
-            "arrive_seconds": [0, 0],
-            "tour_direction": [1, 1],
-        }
+def test_detect_matching_trips_buffer():
+    """Two members leaving a minute apart from the same door travel together."""
+    households, linked_trips = _household(
+        [datetime(2024, 1, 15, 9, 0), datetime(2024, 1, 15, 9, 1)]
     )
-
-    return households, linked_trips
-
-
-def test_detect_matching_trips_buffer(two_person_household_matching_trips):
-    """Test that matching trips are detected with buffer method."""
-    households, linked_trips = two_person_household_matching_trips
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
@@ -324,20 +279,19 @@ def test_detect_matching_trips_buffer(two_person_household_matching_trips):
     updated_trips = result["linked_trips"]
     joint_trips = result["joint_trips"]
 
-    # Both trips should have same joint_trip_id
-    joint_ids = updated_trips.filter(pl.col("joint_trip_id").is_not_null())[
-        "joint_trip_id"
-    ].unique()
-    assert len(joint_ids) == 1  # One joint trip group
+    # Both trips carry the same grouping id
+    assert updated_trips["joint_trip_id"].null_count() == 0
+    assert updated_trips["joint_trip_id"].n_unique() == 1
 
-    # Joint trips table should have one row
     assert len(joint_trips) == 1
     assert joint_trips["num_joint_travelers"][0] == 2
 
 
-def test_detect_non_matching_trips(two_person_household_non_matching_trips):
-    """Test that non-overlapping trips are not detected as joint."""
-    households, linked_trips = two_person_household_non_matching_trips
+def test_detect_non_matching_trips():
+    """Five hours apart is the same route at different times, not joint travel."""
+    households, linked_trips = _household(
+        [datetime(2024, 1, 15, 9, 0), datetime(2024, 1, 15, 14, 0)]
+    )
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
@@ -346,96 +300,61 @@ def test_detect_non_matching_trips(two_person_household_non_matching_trips):
     )
 
     updated_trips = result["linked_trips"]
-    joint_trips = result["joint_trips"]
 
-    # No trips should have joint_trip_id
     assert updated_trips["joint_trip_id"].null_count() == len(updated_trips)
-    assert len(joint_trips) == 0
+    assert len(result["joint_trips"]) == 0
+
+
+def test_a_chain_of_departures_is_resolved_into_one_group():
+    """Three members leaving ten minutes apart in turn cannot all be one party.
+
+    Each neighbouring pair is inside the fifteen-minute threshold but the first
+    and last are not, so the pairs overlap without forming a group of three.
+    The middle traveller can only belong to one of them, and the tie is settled
+    on the quality of the two candidate groupings rather than on row order.
+    """
+    households, linked_trips = _household(
+        [
+            datetime(2024, 1, 15, 9, 0),
+            datetime(2024, 1, 15, 9, 10),
+            datetime(2024, 1, 15, 9, 20),
+        ]
+    )
+
+    result = detect_joint_trips(
+        linked_trips=linked_trips,
+        households=households,
+        method="buffer",
+        time_threshold_minutes=15,
+        space_threshold_meters=100,
+    )
+
+    # The first two travel together; the last is left on their own
+    assert result["linked_trips"].select("person_id", "joint_trip_id").rows() == [
+        (1, 1001),
+        (2, 1001),
+        (3, None),
+    ]
+    assert result["joint_trips"]["num_joint_travelers"].to_list() == [2]
 
 
 def test_single_person_household():
-    """Test that single-person households are excluded."""
-    households = pl.DataFrame({"hh_id": [1], "home_lat": [37.8], "home_lon": [-122.4]})
-
-    linked_trips = pl.DataFrame(
-        {
-            "linked_trip_id": [1],
-            "hh_id": [1],
-            "day_id": [1],
-            "person_id": [1],
-            "travel_dow": [TravelDow.WEDNESDAY.value],
-            "o_lat": [37.8],
-            "o_lon": [-122.4],
-            "d_lat": [37.85],
-            "d_lon": [-122.45],
-            "depart_time": [datetime(2024, 1, 15, 9, 0)],
-            "arrive_time": [datetime(2024, 1, 15, 9, 30)],
-            "o_purpose_category": [PurposeCategory.HOME.value],
-            "d_purpose_category": [PurposeCategory.WORK.value],
-            "mode_type": [ModeType.CAR.value],
-            "driver": [Driver.DRIVER.value],
-            "num_travelers": [1],
-            "access_mode": [None],
-            "egress_mode": [None],
-            "duration_minutes": [30.0],
-            "distance_meters": [5000.0],
-            "depart_date": [datetime(2024, 1, 15)],
-            "arrive_date": [datetime(2024, 1, 15)],
-            "depart_hour": [9],
-            "depart_minute": [0],
-            "depart_seconds": [0],
-            "arrive_hour": [9],
-            "arrive_minute": [30],
-            "arrive_seconds": [0],
-            "tour_direction": [1],
-        }
-    )
+    """A household of one has nobody to travel with, and takes its own branch."""
+    households, linked_trips = _household([datetime(2024, 1, 15, 9, 0)])
 
     result = detect_joint_trips(linked_trips=linked_trips, households=households, method="buffer")
 
-    # Should return with no joint trips
     assert result["linked_trips"]["joint_trip_id"].null_count() == 1
     assert len(result["joint_trips"]) == 0
 
 
 def test_empty_input():
     """Test handling of empty input DataFrames."""
-    households = pl.DataFrame({"hh_id": [], "home_lat": [], "home_lon": []})
-    linked_trips = pl.DataFrame(
-        schema={
-            "linked_trip_id": pl.Int64,
-            "hh_id": pl.Int64,
-            "day_id": pl.Int64,
-            "person_id": pl.Int64,
-            "travel_dow": pl.Int64,
-            "o_lat": pl.Float64,
-            "o_lon": pl.Float64,
-            "d_lat": pl.Float64,
-            "d_lon": pl.Float64,
-            "depart_time": pl.Datetime,
-            "arrive_time": pl.Datetime,
-            "o_purpose_category": pl.Int64,
-            "d_purpose_category": pl.Int64,
-            "mode_type": pl.Int64,
-            "driver": pl.Int64,
-            "num_travelers": pl.Int64,
-            "access_mode": pl.Int64,
-            "egress_mode": pl.Int64,
-            "duration_minutes": pl.Float64,
-            "distance_meters": pl.Float64,
-            "depart_date": pl.Datetime,
-            "arrive_date": pl.Datetime,
-            "depart_hour": pl.Int64,
-            "depart_minute": pl.Int64,
-            "depart_seconds": pl.Int64,
-            "arrive_hour": pl.Int64,
-            "arrive_minute": pl.Int64,
-            "arrive_seconds": pl.Int64,
-            "tour_direction": pl.Int64,
-        }
-    )
+    households, linked_trips = _household([datetime(2024, 1, 15, 9, 0)])
 
-    result = detect_joint_trips(linked_trips=linked_trips, households=households, method="buffer")
+    result = detect_joint_trips(
+        linked_trips=linked_trips.clear(), households=households.clear(), method="buffer"
+    )
 
     # Should handle gracefully
     assert len(result["linked_trips"]) == 0
@@ -481,16 +400,16 @@ class TestGroupingMembership:
         assert len(result) == 1
         assert result["num_joint_travelers"][0] == 2
 
-    def test_one_person_travelling_twice_is_not_a_group(self):
-        """Two trips, one person: counting rows would call this joint, counting people does not."""
-        linked_trips, assignments = self._members([101, 101])
-
-        with pytest.raises(ValueError, match="fewer than 2 distinct participants"):
-            build_joint_trips_table(linked_trips, assignments)
-
-    def test_a_lone_member_is_rejected(self):
-        """A group of one is not joint travel."""
-        linked_trips, assignments = self._members([101])
+    @pytest.mark.parametrize(
+        "person_ids",
+        [
+            pytest.param([101, 101], id="one_person_travelling_twice"),
+            pytest.param([101], id="a_lone_member"),
+        ],
+    )
+    def test_a_group_needs_two_distinct_people(self, person_ids):
+        """Counting rows would call these joint; counting people does not."""
+        linked_trips, assignments = self._members(person_ids)
 
         with pytest.raises(ValueError, match="fewer than 2 distinct participants"):
             build_joint_trips_table(linked_trips, assignments)

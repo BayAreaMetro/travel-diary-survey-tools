@@ -17,6 +17,21 @@ from datetime import date, datetime
 
 import polars as pl
 
+from data_canon.codebook.days import TravelDow
+from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
+from data_canon.codebook.persons import (
+    AgeCategory,
+    CommuteFreq,
+    Employment,
+    Ethnicity,
+    Gender,
+    JobType,
+    Race,
+    SchoolType,
+    Student,
+    WorkParking,
+)
+from data_canon.codebook.trips import Driver, Mode, ModeType, Purpose, PurposeCategory
 from processing.habitual_locations import reported_habitual_locations
 
 # ---------------------------------------------------------------------------
@@ -68,35 +83,60 @@ DAY_DATE_2 = date(2024, 3, 12)  # Tuesday
 DAY_DATE_SAT = date(2024, 3, 16)  # Saturday
 
 # ---------------------------------------------------------------------------
-# Canonical enum integer values (from data_canon.codebook)
+# Canonical enum values, read from the codebook rather than typed out.
+#
+# These were hand-written integers. Nothing tied them to the enums, so a
+# renumbered code would have silently encoded the wrong thing here and the
+# baseline would then have been promoted with it.
 # ---------------------------------------------------------------------------
-FEMALE, MALE, GENDER_MISSING = 1, 2, 995
-AGE_UNDER_5, AGE_5_TO_15, AGE_16_TO_17 = 1, 2, 3
-AGE_18_TO_24, AGE_25_TO_34 = 4, 5
-AGE_35_TO_44, AGE_45_TO_54, AGE_55_TO_64 = 6, 7, 8
-AGE_65_TO_74, AGE_75_TO_84 = 9, 10
-EMP_FULLTIME, EMP_PARTTIME, EMP_SELF, EMP_NOT_LOOKING = 1, 2, 3, 5
-STU_FULLTIME, STU_PARTTIME, STU_NONSTUDENT = 0, 1, 2
-INC_UNDER_25K, INC_25_50K, INC_50_75K = 1, 2, 3
-INC_75_100K, INC_100_200K, INC_200_PLUS, INC_MISSING = 4, 5, 6, 995
-RES_SFH, RES_TOWNHOUSE, RES_MULTIFAMILY, RES_CONDO_5_50, RES_MISSING = 1, 2, 3, 4, 995
-OWN, RENT, RENT_OWN_MISSING = 1, 2, 995
-PC_HOME, PC_WORK, PC_SCHOOL = 1, 2, 4
-PC_ESCORT, PC_SHOP, PC_MEAL = 6, 7, 8
-PC_SOCIALREC, PC_ERRAND, PC_CHANGE_MODE = 9, 10, 11
-PURP_HOME, PURP_WORK = 1, 2
-MT_WALK, MT_BIKE, MT_BIKESHARE, MT_TAXI = 1, 2, 3, 5
-MT_TNC, MT_CAR, MT_SCHOOL_BUS, MT_TRANSIT = 6, 8, 10, 13
-MODE_WALK, MODE_BIKE_RENTED, MODE_BART = 1, 4, 30
-WP_FREE, WP_NOT_APPLICABLE, WP_MISSING = 1, 996, 995
+FEMALE, MALE, GENDER_MISSING = Gender.FEMALE.value, Gender.MALE.value, Gender.MISSING.value
+AGE_UNDER_5, AGE_5_TO_15 = AgeCategory.AGE_UNDER_5.value, AgeCategory.AGE_5_TO_15.value
+AGE_16_TO_17, AGE_18_TO_24 = AgeCategory.AGE_16_TO_17.value, AgeCategory.AGE_18_TO_24.value
+AGE_25_TO_34, AGE_35_TO_44 = AgeCategory.AGE_25_TO_34.value, AgeCategory.AGE_35_TO_44.value
+AGE_45_TO_54, AGE_55_TO_64 = AgeCategory.AGE_45_TO_54.value, AgeCategory.AGE_55_TO_64.value
+AGE_65_TO_74, AGE_75_TO_84 = AgeCategory.AGE_65_TO_74.value, AgeCategory.AGE_75_TO_84.value
+EMP_FULLTIME, EMP_PARTTIME = Employment.EMPLOYED_FULLTIME.value, Employment.EMPLOYED_PARTTIME.value
+EMP_SELF, EMP_NOT_LOOKING = Employment.EMPLOYED_SELF.value, Employment.UNEMPLOYED_NOT_LOOKING.value
+STU_FULLTIME, STU_PARTTIME = Student.FULLTIME_INPERSON.value, Student.PARTTIME_INPERSON.value
+STU_NONSTUDENT = Student.NONSTUDENT.value
+INC_UNDER_25K, INC_25_50K = IncomeBroad.INCOME_UNDER25.value, IncomeBroad.INCOME_25TO50.value
+INC_50_75K, INC_75_100K = IncomeBroad.INCOME_50TO75.value, IncomeBroad.INCOME_75TO100.value
+INC_100_200K, INC_200_PLUS = IncomeBroad.INCOME_100TO200.value, IncomeBroad.INCOME_200_OR_MORE.value
+INC_MISSING = IncomeBroad.MISSING.value
+RES_SFH, RES_TOWNHOUSE = ResidenceType.SFH.value, ResidenceType.TOWNHOUSE.value
+RES_MULTIFAMILY, RES_CONDO_5_50 = (
+    ResidenceType.MULTIFAMILY.value,
+    ResidenceType.CONDO_5TO50_UNITS.value,
+)
+RES_MISSING = ResidenceType.MISSING.value
+OWN, RENT = ResidenceRentOwn.OWN.value, ResidenceRentOwn.RENT.value
+RENT_OWN_MISSING = ResidenceRentOwn.MISSING.value
+PC_HOME, PC_WORK = PurposeCategory.HOME.value, PurposeCategory.WORK.value
+PC_SCHOOL, PC_ESCORT = PurposeCategory.SCHOOL.value, PurposeCategory.ESCORT.value
+PC_SHOP, PC_MEAL = PurposeCategory.SHOP.value, PurposeCategory.MEAL.value
+PC_SOCIALREC, PC_ERRAND = PurposeCategory.SOCIALREC.value, PurposeCategory.ERRAND.value
+PC_CHANGE_MODE = PurposeCategory.CHANGE_MODE.value
+PURP_HOME, PURP_WORK = Purpose.HOME.value, Purpose.WORK_VOLUNTEER.value
+MT_WALK, MT_BIKE = ModeType.WALK.value, ModeType.BIKE.value
+MT_BIKESHARE, MT_TAXI = ModeType.BIKESHARE.value, ModeType.TAXI.value
+MT_TNC, MT_CAR = ModeType.TNC.value, ModeType.CAR.value
+MT_SCHOOL_BUS, MT_TRANSIT = ModeType.SCHOOL_BUS.value, ModeType.TRANSIT.value
+MODE_WALK, MODE_BIKE_RENTED, MODE_BART = Mode.WALK.value, Mode.BIKE_RENTED.value, Mode.BART.value
+WP_FREE, WP_NOT_APPLICABLE = WorkParking.FREE.value, WorkParking.NOT_APPLICABLE.value
+WP_MISSING = WorkParking.MISSING.value
 YES, NO = 1, 0
-DOW_MONDAY, DOW_TUESDAY, DOW_SATURDAY = 1, 2, 6
-DRV_DRIVER, DRV_PASSENGER, DRV_MISSING = 1, 2, 995
-JOB_FIXED = 1
-SCH_PRESCHOOL, SCH_ELEMENTARY, SCH_HIGH_SCHOOL, SCH_4YEAR = 3, 5, 7, 12
-RACE_AFAM, RACE_ASIAN, RACE_WHITE, RACE_OTHER, RACE_PNTA = 1, 3, 5, 6, 999
-ETH_NOT_HISPANIC, ETH_MEXICAN, ETH_MISSING = 1, 2, 995
-CF_5_DAYS, CF_NEVER = 2, 996
+DOW_MONDAY, DOW_TUESDAY = TravelDow.MONDAY.value, TravelDow.TUESDAY.value
+DOW_SATURDAY = TravelDow.SATURDAY.value
+DRV_DRIVER, DRV_PASSENGER = Driver.DRIVER.value, Driver.PASSENGER.value
+DRV_MISSING = Driver.MISSING.value
+JOB_FIXED = JobType.FIXED.value
+SCH_PRESCHOOL, SCH_ELEMENTARY = SchoolType.PRESCHOOL.value, SchoolType.ELEMENTARY.value
+SCH_HIGH_SCHOOL, SCH_4YEAR = SchoolType.HIGH_SCHOOL.value, SchoolType.COLLEGE_4YEAR.value
+RACE_AFAM, RACE_ASIAN, RACE_WHITE = Race.AFAM.value, Race.ASIAN.value, Race.WHITE.value
+RACE_OTHER, RACE_PNTA = Race.OTHER.value, Race.PNTA.value
+ETH_NOT_HISPANIC, ETH_MEXICAN = Ethnicity.NOT_HISPANIC.value, Ethnicity.MEXICAN.value
+ETH_MISSING = Ethnicity.MISSING.value
+CF_5_DAYS, CF_NEVER = CommuteFreq.DAYS_5.value, CommuteFreq.NEVER.value
 
 
 # ---------------------------------------------------------------------------

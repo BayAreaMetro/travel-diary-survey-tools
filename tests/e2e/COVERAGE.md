@@ -80,17 +80,20 @@ programmatically from a set of *enabled optional steps* and parametrizes over a
 verifies that toggling an optional step off/on does **not** break the downstream steps (the
 pipeline still completes with valid, referentially-consistent output).
 
-- **Mandatory** (always run): `load_data`, `link_trips`, `detect_joint_trips`, `extract_tours`,
-  `add_zone_ids`, `write_data`.
-- **Optional** (toggled): `detect_joint_trips`, `imputation`, `format_ctramp`, `format_daysim`.
+- **Mandatory** (always run): `load_data`, `link_trips`, `detect_habitual_locations`,
+  `extract_tours`, `add_zone_ids`, `cascade_completeness`, `write_data`.
+- **Optional** (declared toggleable): `detect_joint_trips`, `imputation`, `format_ctramp`,
+  `format_daysim`, `add_existing_weights`. No profile turns `add_existing_weights` off, so
+  every run weights all three profiles from the supplied household weights.
 - Profiles: `full`, `no_joint`, `no_imputation`, `no_ctramp`, `no_daysim`.
 
 **Discovered step dependency:** `format_ctramp` consumes the `joint_trips` table (and emits
 joint-tour/joint-trip CT-RAMP outputs), so it **requires** `detect_joint_trips`. Encoded in
 `conftest._REQUIRES`; the `no_joint` profile therefore also drops `format_ctramp`. (`format_daysim`
 and `extract_tours` both tolerate an absent `joint_trips`.) Without `detect_joint_trips`,
-`format_ctramp._drop_missing_taz` raises `TypeError` on `len(joint_trips)` — a latent robustness
-gap that is never hit in production because both real configs always run joint detection.
+`format_ctramp` reads `len(joint_trips)` on a required positional argument, so an absent table
+is a `TypeError` — a latent robustness gap never hit in production, because both real configs
+always run joint detection.
 
 Feature-specific behaviours (imputation stash, edge-case coverage below) are asserted on the
 `full_result` fixture (all optional steps on).
@@ -135,7 +138,7 @@ Feature-specific behaviours (imputation stash, edge-case coverage below) are ass
 - **CT-RAMP person_type**: all 8 (FT worker, PT worker, university student, nonworker, retired, child driving-age, child non-driving, child under-5).
 - **StudentCategory**: all 3 (College or higher, Grade or high school, Not a student).
 - **activity_pattern**: M, N, H.
-- **tour_data_quality**: VALID, PARTIAL_DIARY_EDGE, NO_DESTINATION (3 of 6). OTHER_HOME, PARTIAL_DAY_SPLIT and SPATIAL_GAP need travel the generator does not produce and are unit-tested.
+- **tour_data_quality**: VALID, PARTIAL_DIARY_EDGE, NO_DESTINATION, SPATIAL_GAP (4 of 6). OTHER_HOME and PARTIAL_DAY_SPLIT need travel the generator does not produce and are unit-tested.
 - **tour_category**: COMPLETE, PARTIAL_END, PARTIAL_START, PARTIAL_BOTH (all 4).
 - **joint tour_composition**: ADULTS_ONLY, CHILDREN_ONLY, ADULTS_AND_CHILDREN (all 3).
 - **modes**: walk, bike, bikeshare, taxi, TNC, car, school-bus, transit.
@@ -156,11 +159,12 @@ Two of the four states that broke production are still unreachable from the fixt
 
 ## Intentionally NOT covered (documented gaps)
 
-- **tour_data_quality INDETERMINATE (4)** — a "cause unknown" diagnostic bucket that
-  requires a contradictory first trip (tour-start detection failing on otherwise-valid
-  data). Not representable with clean synthetic input.
-- **Single geography** — one TAZ/MAZ polygon; no cross-zone trips or out-of-region/null-zone
-  handling. Coordinates all fall in the one zone.
+- **tour_data_quality OTHER_HOME (1) and PARTIAL_DAY_SPLIT (2)** — a second home, and a
+  trip chain resuming across diary days. Neither is representable with the current
+  generator; both are unit-tested instead.
+- **Single geography** — one TAZ/MAZ polygon, so there are no cross-zone trips. Households 27
+  and 28 do sit outside it, which is what exercises the out-of-region and null-zone handling
+  in `test_e2e_zone_coverage.py`.
 - **Some canonical `tour_purpose` values** (ESCORT/SOCIALREC/ERRAND as the *primary* purpose)
   are masked by higher-priority WORK/SCHOOL stops in the current tours; they are still
   exercised as intermediate stops and via the CT-RAMP purpose segmentation.

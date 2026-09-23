@@ -53,7 +53,12 @@ def test_requires_an_explicit_choice(canon: CanonicalData, tmp_path: Path) -> No
 
 
 def test_canonical_only_drops_undeclared_columns(canon: CanonicalData, tmp_path: Path) -> None:
-    """Declared fields stay; vendor passthrough goes."""
+    """Declared fields stay; vendor passthrough and unregistered zone ids go.
+
+    Registration is what makes a generated column public -- the name alone
+    proves nothing. Pattern-matching ``*_taz`` would also swallow a genuine
+    mistake, so the step that created the column has to say so.
+    """
     out = tmp_path / "hh.csv"
     write_data(
         output_paths={"households": str(out)},
@@ -67,6 +72,7 @@ def test_canonical_only_drops_undeclared_columns(canon: CanonicalData, tmp_path:
     assert "home_lat" in written
     assert "bicycle_type_1" not in written
     assert "num_complete_tue_a" not in written
+    assert "home_taz" not in written
 
 
 def test_registered_generated_columns_survive(canon: CanonicalData, tmp_path: Path) -> None:
@@ -85,23 +91,6 @@ def test_registered_generated_columns_survive(canon: CanonicalData, tmp_path: Pa
     )
 
     assert "home_taz" in _written(out)
-
-
-def test_unregistered_generated_column_is_dropped(canon: CanonicalData, tmp_path: Path) -> None:
-    """Registration is what makes it public -- the name alone proves nothing.
-
-    Pattern-matching ``*_taz`` would also swallow a genuine mistake, so the step
-    that created the column has to say so.
-    """
-    out = tmp_path / "hh.csv"
-    write_data(
-        output_paths={"households": str(out)},
-        canonical_data=canon,
-        validate_input=False,
-        write_only_canonical=True,
-    )
-
-    assert "home_taz" not in _written(out)
 
 
 def test_dump_everything_when_asked(canon: CanonicalData, tmp_path: Path) -> None:

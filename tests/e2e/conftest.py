@@ -6,11 +6,12 @@ the step toggling and verify that turning a step on/off does not break the
 downstream steps.
 
 - Mandatory steps always run: load_data, link_trips, detect_habitual_locations,
-  extract_tours, add_zone_ids, write_data.
+  extract_tours, add_zone_ids, cascade_completeness, write_data.
 - Optional steps toggle: detect_joint_trips, imputation, format_ctramp,
-  format_daysim. (The format_* steps are terminal/parallel — nothing depends on
-  their output — so by default they are on; they are toggled only to prove
-  independence.)
+  format_daysim, add_existing_weights. (The format_* steps are terminal/parallel
+  — nothing depends on their output — so by default they are on; they are
+  toggled only to prove independence. No profile currently turns
+  add_existing_weights off, so every run weights all three profiles.)
 
 Profiles are a leave-one-out matrix ("full", and full minus each optional step)
 so each profile isolates the effect of removing one step. All data is generated
@@ -498,3 +499,23 @@ def full_input_dir():
     """
     _result, _output_dir, tmp = _get_run(PROFILES["full"])
     return Path(tmp) / "data"
+
+
+def pytest_collection_modifyitems(items):
+    """Mark every test in this package e2e and slow.
+
+    The markers exist so ``-m "not e2e"`` gives a fast unit run. Setting
+    ``pytestmark`` per module left four of the six files unmarked, and because
+    they all depend on the session-scoped pipeline fixtures, deselecting the
+    marked two still paid for the full pipeline. Marking here cannot drift as
+    files are added.
+    """
+    package_root = Path(__file__).parent
+    for item in items:
+        try:
+            in_package = package_root in Path(item.fspath).parents
+        except (AttributeError, ValueError):  # pragma: no cover - defensive
+            continue
+        if in_package:
+            item.add_marker(pytest.mark.e2e)
+            item.add_marker(pytest.mark.slow)

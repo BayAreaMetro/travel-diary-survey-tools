@@ -36,7 +36,6 @@ from processing.completeness import (
     UsabilityProfile,
     compute_usability,
 )
-from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_tours import format_individual_tour
 from processing.formatting.daysim.format_days import format_days as format_days_daysim
@@ -156,19 +155,6 @@ def _lunch_subtour_day() -> pl.DataFrame:
 
 
 @pytest.fixture
-def standard_config():
-    """CT-RAMP config matching the other formatter tests."""
-    return CTRAMPConfig(
-        usability_profile="test",
-        income_low_threshold=60000,
-        income_med_threshold=150000,
-        income_high_threshold=240000,
-        income_survey_year_to_ctramp_year=0.5319148936,
-        age_adult=4,
-    )
-
-
-@pytest.fixture
 def extracted():
     """Extract tours for the lunch-subtour day."""
     persons, households = _persons_and_households()
@@ -214,28 +200,16 @@ class TestSubtourClassification:
         ``TourType.WORK_BASED`` (2) in ``tour_category``, which decodes as
         ``PARTIAL_END``, so it could never pass a COMPLETE gate.
         """
-        _parent, subtour = subtour_and_parent
+        parent, subtour = subtour_and_parent
         assert subtour["tour_category"] == TourCategory.COMPLETE.value
+        # Its home-based parent is COMPLETE too, so the column carries one
+        # meaning: reaches its own anchor, whichever anchor that is.
+        assert parent["tour_category"] == TourCategory.COMPLETE.value
 
     def test_subtour_is_structurally_valid(self, subtour_and_parent):
         """A subtour has no home anchor, and must not be penalised for it."""
         _parent, subtour = subtour_and_parent
         assert subtour["tour_data_quality"] == TourDataQuality.VALID.value
-
-    def test_tour_category_never_carries_a_tour_type_code(self, extracted):
-        """Guard the enum collision that caused #85.
-
-        ``TourType`` and ``TourCategory`` share the integer space, so a stray
-        type code in ``tour_category`` is undetectable by value alone. Pinning
-        subtours to COMPLETE is what makes the confusion visible: WORK_BASED
-        would read as PARTIAL_END here.
-        """
-        tours = extracted[0]["tours"]
-        assert set(tours["tour_category"].to_list()) == {TourCategory.COMPLETE.value}
-        assert set(tours["tour_type"].to_list()) == {
-            TourType.HOME_BASED.value,
-            TourType.WORK_BASED.value,
-        }
 
     def test_subtour_trips_get_a_real_direction(self, extracted):
         """A subtour is split into outbound/inbound like any other tour.

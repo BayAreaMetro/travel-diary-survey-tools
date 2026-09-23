@@ -109,15 +109,24 @@ def _stamp(profiles: list[UsabilityProfile], tables: dict) -> dict[str, pl.DataF
 class TestEveryProfileAnswersEveryAxis:
     """A half-specified profile would leave a column's meaning implicit."""
 
-    def test_a_missing_axis_is_rejected(self):
-        """The whole point is that the config says what a column means."""
-        with pytest.raises(ValueError, match="does not say 'household_day_needs'"):
-            parse_usability_profiles({"p": {"tour_closes_at": PRIMARY_HOME}})
+    @pytest.mark.parametrize(
+        ("spec", "missing", "legal_value"),
+        [
+            pytest.param(
+                {"tour_closes_at": PRIMARY_HOME}, "household_day_needs", NOTHING, id="no-household"
+            ),
+            pytest.param(
+                {"household_day_needs": ALL_MEMBERS}, "tour_closes_at", ANYWHERE, id="no-tour"
+            ),
+        ],
+    )
+    def test_a_missing_axis_is_rejected(self, spec: dict, missing: str, legal_value: str):
+        """The config has to say what a column means, and be told what to write."""
+        with pytest.raises(ValueError, match=f"does not say '{missing}'") as excinfo:
+            parse_usability_profiles({"p": spec})
 
-    def test_the_error_lists_the_legal_values(self):
-        """A rejection is only useful if it says what to write instead."""
-        with pytest.raises(ValueError, match=ANYWHERE):
-            parse_usability_profiles({"p": {"household_day_needs": ALL_MEMBERS}})
+        # A rejection is only useful if it names the values that would be accepted.
+        assert legal_value in str(excinfo.value)
 
     def test_an_unknown_value_is_rejected(self):
         """A typo must stop the run, not quietly pick something."""
@@ -185,8 +194,10 @@ class TestMissingDataIsNeverAdmitted:
     def test_no_setting_admits_it(self, quality):
         """Not even the widest profile: a missing leg stays missing."""
         tables = _one_household(quality, TourCategory.PARTIAL_END)
-        out = _stamp([STRICT, SECOND_HOMES, OPEN_ENDS, WIDEST], tables)
-        for profile in (STRICT, SECOND_HOMES, OPEN_ENDS, WIDEST):
+        out = _stamp([STRICT, SECOND_HOMES, OPEN_ENDS, LOOSE_DAYS, WIDEST], tables)
+        # LOOSE_DAYS is in the list because the axes are independent: relaxing what
+        # the household-date has to show cannot admit a broken tour.
+        for profile in (STRICT, SECOND_HOMES, OPEN_ENDS, LOOSE_DAYS, WIDEST):
             assert out["tours"][profile.flag].to_list() == [True, False], (
                 f"{profile.name} admitted {quality.name}, which is missing data "
                 "rather than an open end"
@@ -206,12 +217,6 @@ class TestHouseholdDayNeeds:
         out = _stamp([STRICT, LOOSE_DAYS], tables)
         assert out["households"][STRICT.flag].to_list() == [False]
         assert out["households"][LOOSE_DAYS.flag].to_list() == [True]
-
-    def test_it_says_nothing_about_tour_structure(self):
-        """The two axes are independent: this one cannot admit a broken tour."""
-        tables = _one_household(TourDataQuality.SPATIAL_GAP, TourCategory.PARTIAL_END)
-        out = _stamp([LOOSE_DAYS], tables)
-        assert out["tours"][LOOSE_DAYS.flag].to_list() == [True, False]
 
     def test_the_household_day_column_is_recorded_either_way(self):
         """Computed for every profile, so the column means one thing everywhere.
@@ -271,3 +276,131 @@ class TestProfilesAreIndependent:
                             f"{wide.name} dropped {table} row(s) {lost} that "
                             f"{narrow.name} kept, with tour quality {quality.name}"
                         )
+
+
+# ---------------------------------------------------------------------------
+# The cascade writes wherever it is told, and reads only what it wrote.
+#
+# Which columns ``stamp_usable`` writes is a parameter, so a run stamps several
+# verdicts side by side without any of them overwriting another. That only holds
+# if the parameterisation is *total*. A single column name left hardcoded
+# anywhere in the cascade would make a second pass read the first pass's answer,
+# and the bug would be invisible: the numbers would still look plausible because
+# they would be somebody's real verdict, just not this pass's.
+#
+# So the test is an equivalence rather than a fixed expectation. The same input
+# stamped under two different names must produce identical values, column for
+# column, on every table. If a literal survives, the two disagree.
+# ---------------------------------------------------------------------------
+
+# Same standard, two names. Any hardcoded column would make them disagree.
+FIRST = UsabilityProfile("first_name", PRIMARY_HOME, ALL_MEMBERS)
+ALIAS = UsabilityProfile("second_name", PRIMARY_HOME, ALL_MEMBERS)
+
+
+def _household_with_joint_records() -> dict[str, pl.DataFrame]:
+    """A household with two people, spanning the paths the cascade takes.
+
+    Person 1 has a clean tour; person 2 has a structurally invalid one, so the
+    household-day reductions have something to fail on and the joint grouping
+    loses a member.
+    """
+    tables = _one_household(TourDataQuality.SPATIAL_GAP, TourCategory.PARTIAL_END)
+    tables["tours"] = tables["tours"].with_columns(joint_tour_id=pl.Series([100, 100]))
+    tables["linked_trips"] = pl.DataFrame(
+        {
+            "linked_trip_id": [1000, 2000],
+            "tour_id": [10, 20],
+            "day_id": [1, 2],
+            "joint_trip_id": [500, 500],
+            "survey_complete": [True, True],
+        }
+    )
+    tables["unlinked_trips"] = pl.DataFrame(
+        {
+            "unlinked_trip_id": [1, 2],
+            "tour_id": [10, 20],
+            "day_id": [1, 2],
+            "survey_complete": [True, True],
+        }
+    )
+    tables["joint_tours"] = pl.DataFrame(
+        {"joint_tour_id": [100], "day_id": [1], "survey_complete": [True]}
+    )
+    tables["joint_trips"] = pl.DataFrame(
+        {"joint_trip_id": [500], "day_id": [1], "survey_complete": [True]}
+    )
+    return tables
+
+
+@pytest.fixture
+def stamped() -> dict[str, pl.DataFrame]:
+    """Tables carrying two verdicts derived from one set of complete flags."""
+    return _stamp([FIRST, ALIAS], _household_with_joint_records())
+
+
+class TestParameterisationIsTotal:
+    """A second pass must not read the first pass's columns."""
+
+    def test_every_table_agrees_under_either_name(self, stamped):
+        """The verdict is the same whatever it is called."""
+        # Guard the guard: identical columns prove nothing if neither was written.
+        for name, df in stamped.items():
+            assert ALIAS.flag in df.columns, f"{name} never received the second verdict"
+
+        disagreed = {
+            name: (df[FIRST.flag].to_list(), df[ALIAS.flag].to_list())
+            for name, df in stamped.items()
+            if df[FIRST.flag].to_list() != df[ALIAS.flag].to_list()
+        }
+        assert not disagreed, (
+            "A hardcoded column name survives the parameterisation, so the second "
+            f"pass read the first pass's verdict: {disagreed}"
+        )
+
+        # The days table carries a second derived column, not just the flag.
+        days = stamped["days"]
+        assert days[FIRST.household_day].to_list() == days[ALIAS.household_day].to_list()
+
+
+class TestTheCascadeStillDiscriminates:
+    """An equivalence test passes trivially if everything is True.
+
+    This pins that the fixture actually exercises the rules, so the agreement
+    above is between two real verdicts rather than two constants.
+    """
+
+    def test_the_invalid_tour_is_rejected_all_the_way_down(self, stamped):
+        """Person 2's spatially gapped tour, and everything hanging off it, falls."""
+        assert stamped["tours"][FIRST.flag].to_list() == [True, False]
+
+        # Its linked and unlinked trips follow it out.
+        assert stamped["linked_trips"][FIRST.flag].to_list() == [True, False]
+        assert stamped["unlinked_trips"][FIRST.flag].to_list() == [True, False]
+
+        # One usable member is below the joint quorum, so the group falls.
+        assert stamped["joint_tours"][FIRST.flag].to_list() == [False]
+        assert stamped["joint_trips"][FIRST.flag].to_list() == [False]
+
+        # One member's day being unusable takes the whole date down.
+        assert stamped["days"][FIRST.household_day].to_list() == [False, False]
+
+
+class TestCompleteIsUntouched:
+    """The reporting flags belong to ``cascade_complete`` and never move."""
+
+    def test_a_second_usable_pass_does_not_rewrite_complete(self):
+        """Only ``cascade_complete`` writes ``survey_complete``."""
+        tables: dict[str, pl.DataFrame | None] = dict(_household_with_joint_records())
+        cascade_complete(tables)
+        before = {
+            name: df["survey_complete"].to_list() for name, df in tables.items() if df is not None
+        }
+
+        stamp_usable(tables, FIRST)
+        stamp_usable(tables, ALIAS)
+
+        after = {
+            name: df["survey_complete"].to_list() for name, df in tables.items() if df is not None
+        }
+        assert after == before

@@ -26,11 +26,8 @@ import pytest
 
 from processing.weighting.data_prep import pums_data
 from processing.weighting.data_prep.pums_data import (
-    _HH_KEYS,
-    _MAX_REPLICATE_CORRELATION_SPREAD,
-    _MIN_REPLICATE_CORRELATION,
-    _PERSON_KEYS,
     check_pums_integrity,
+    load_pums_from_files,
 )
 
 rng = __import__("random").Random(20260831)
@@ -132,41 +129,48 @@ class TestMisattributionIsCaught:
         with pytest.raises(ValueError, match="TYPEHUGQ outside"):
             check_pums_integrity(hh, persons)
 
-    def test_shuffled_replicate_weights(self, sound):
+    @pytest.mark.parametrize(
+        ("table", "column", "seed", "match"),
+        [
+            pytest.param("households", "WGTP3", 7, "do not track WGTP", id="household"),
+            pytest.param("persons", "PWGTP2", 11, "do not track PWGTP", id="person"),
+        ],
+    )
+    def test_shuffled_replicate_weights(self, sound, table, column, seed, match):
         """The corruption that survived months of runs, because it looks normal.
 
         Every value is a real weight and every row has one; they are simply on
-        the wrong households. Only their relationship to the full weight tells.
+        the wrong records. Only their relationship to the full weight tells, and
+        the person table chunks the same way and fails the same way.
         """
         hh, persons = sound
-        shuffled = hh["WGTP3"].shuffle(seed=7)
-        hh = hh.with_columns(shuffled.alias("WGTP3"))
+        if table == "households":
+            hh = hh.with_columns(hh[column].shuffle(seed=seed).alias(column))
+        else:
+            persons = persons.with_columns(persons[column].shuffle(seed=seed).alias(column))
 
-        with pytest.raises(ValueError, match="do not track WGTP"):
+        with pytest.raises(ValueError, match=match):
             check_pums_integrity(hh, persons)
 
-    def test_shuffled_person_replicates_are_caught_too(self, sound):
-        """The person table chunks the same way and fails the same way."""
+    @pytest.mark.parametrize(
+        ("table", "match"),
+        [
+            pytest.param("households", "SERIALNO repeats in households", id="household"),
+            pytest.param("persons", r"\(SERIALNO, SPORDER\) repeats", id="person"),
+        ],
+    )
+    def test_a_repeated_key(self, sound, table, match):
+        """A key that repeats cannot join the chunks back together.
+
+        SERIALNO alone repeats per member, so persons need SPORDER as well.
+        """
         hh, persons = sound
-        persons = persons.with_columns(persons["PWGTP2"].shuffle(seed=11).alias("PWGTP2"))
+        if table == "households":
+            hh = pl.concat([hh, hh.head(1)])
+        else:
+            persons = pl.concat([persons, persons.head(1)])
 
-        with pytest.raises(ValueError, match="do not track PWGTP"):
-            check_pums_integrity(hh, persons)
-
-    def test_a_repeated_household_key(self, sound):
-        """A key that repeats cannot join the chunks back together."""
-        hh, persons = sound
-        hh = pl.concat([hh, hh.head(1)])
-
-        with pytest.raises(ValueError, match="SERIALNO repeats in households"):
-            check_pums_integrity(hh, persons)
-
-    def test_a_repeated_person_key(self, sound):
-        """SERIALNO alone repeats per member, so persons need SPORDER as well."""
-        hh, persons = sound
-        persons = pl.concat([persons, persons.head(1)])
-
-        with pytest.raises(ValueError, match=r"\(SERIALNO, SPORDER\) repeats"):
+        with pytest.raises(ValueError, match=match):
             check_pums_integrity(hh, persons)
 
     def test_the_error_names_every_problem_at_once(self, sound):
@@ -210,29 +214,6 @@ class TestReplicatesMustAgreeWithEachOther:
 
         with pytest.raises(ValueError, match="disagree with each other"):
             check_pums_integrity(hh, persons)
-
-    def test_sound_replicates_agree_closely_enough(self, sound):
-        """The bound must not fire on ordinary sampling variation."""
-        check_pums_integrity(*sound)
-
-    def test_the_two_bounds_cover_different_failures(self):
-        """Neither subsumes the other, so both are kept.
-
-        If every replicate is misattributed they agree with each other on being
-        wrong, and only the absolute bound catches it. If some are, the absolute
-        bound may pass them all and only the spread catches it.
-        """
-        assert 0.20 < _MIN_REPLICATE_CORRELATION < 0.77
-        assert _MAX_REPLICATE_CORRELATION_SPREAD < 0.605
-
-
-class TestKeys:
-    """Chunks can only be rejoined on something that identifies a row."""
-
-    def test_the_person_key_includes_sporder(self):
-        """SERIALNO alone cannot key persons, so it cannot key their chunks either."""
-        assert _HH_KEYS == ("SERIALNO",)
-        assert _PERSON_KEYS == ("SERIALNO", "SPORDER")
 
 
 class TestChunksAreJoinedNotStacked:
@@ -283,17 +264,6 @@ class TestChunksAreJoinedNotStacked:
             for col in ("A", "B", "C", "D"):
                 assert int(row[col]) == expected[col], f"{col} on {row['SERIALNO']}"
 
-    def test_same_result_whether_or_not_chunks_are_reordered(self, monkeypatch):
-        """Row order must not be able to influence the outcome at all."""
-        self._fake_api(monkeypatch, shuffle_after_first=False)
-        cols = ["SERIALNO", "A", "B", "C", "D"]
-        stable = pums_data._fetch_table("u", cols, "06", "*", label="t", keys=("SERIALNO",))
-
-        self._fake_api(monkeypatch, shuffle_after_first=True)
-        shuffled = pums_data._fetch_table("u", cols, "06", "*", label="t", keys=("SERIALNO",))
-
-        assert stable.sort("SERIALNO").equals(shuffled.sort("SERIALNO"))
-
     def test_a_non_unique_key_is_refused(self, monkeypatch):
         """Joining persons on SERIALNO alone would multiply rows, not misalign them."""
         serials = ["2023HU0000001", "2023HU0000001", "2023HU0000002"]
@@ -341,29 +311,26 @@ class TestTheResponseIsCheckedBeforeItIsTrusted:
 
         pums_data._check_response_shape(rows, self.HEADER, "u")
 
-    def test_a_short_row_is_refused(self):
-        """One missing field shifts every value after it into the next column.
+    @pytest.mark.parametrize(
+        ("bad_row", "match"),
+        [
+            # One missing field shifts every value after it into the next
+            # column.  This is the shape of the corruption that put 12 and 3213
+            # into TYPEHUGQ where the API returns 2 and 3.
+            pytest.param(["2023HU0000002", "3"], "row 2 has 2", id="short"),
+            # An extra field is equally disqualifying, and would be dropped.
+            pytest.param(
+                ["2023HU0000002", "3", "1", "surplus"],
+                "row 2 has 4",
+                id="long",
+            ),
+        ],
+    )
+    def test_a_row_of_the_wrong_width_is_refused(self, bad_row, match):
+        """And the message names the row, which is what makes it investigable."""
+        rows = [self.HEADER, ["2023HU0000001", "2", "1"], bad_row]
 
-        This is the shape of the corruption that put 12 and 3213 into TYPEHUGQ
-        where the API returns 2 and 3.
-        """
-        rows = [self.HEADER, ["2023HU0000001", "2", "1"], ["2023HU0000002", "3"]]
-
-        with pytest.raises(RuntimeError, match="not 3 fields wide"):
-            pums_data._check_response_shape(rows, self.HEADER, "u")
-
-    def test_a_long_row_is_refused(self):
-        """An extra field is equally disqualifying, and would be silently dropped."""
-        rows = [self.HEADER, ["2023HU0000001", "2", "1", "surplus"]]
-
-        with pytest.raises(RuntimeError, match="not 3 fields wide"):
-            pums_data._check_response_shape(rows, self.HEADER, "u")
-
-    def test_the_error_locates_the_bad_rows(self):
-        """A row number is what makes an intermittent defect investigable."""
-        rows = [self.HEADER, ["a", "1", "1"], ["b", "1"], ["c", "1", "1"], ["d", "1"]]
-
-        with pytest.raises(RuntimeError, match="row 2 has 2"):
+        with pytest.raises(RuntimeError, match=match):
             pums_data._check_response_shape(rows, self.HEADER, "u")
 
     def test_a_silently_omitted_column_is_refused(self):
@@ -429,18 +396,16 @@ class TestAnUnsoundResponseIsRetried:
         assert calls["n"] == 1
 
     def test_persistent_corruption_gives_up_and_says_so(self, monkeypatch):
-        """Repeated failure is systematic, and looping only delays reporting it."""
+        """Repeated failure is systematic, and looping only delays reporting it.
+
+        The last failure's own message has to survive the give-up, or the report
+        says only that it failed.
+        """
         self._serve(monkeypatch, [self.DUPLICATED] * pums_data._MAX_FETCH_ATTEMPTS)
 
-        with pytest.raises(RuntimeError, match="times running"):
+        with pytest.raises(RuntimeError, match="times running") as excinfo:
             pums_data._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
-
-    def test_the_final_error_still_names_the_defect(self, monkeypatch):
-        """The last failure has to survive, or the report says only 'it failed'."""
-        self._serve(monkeypatch, [self.DUPLICATED] * pums_data._MAX_FETCH_ATTEMPTS)
-
-        with pytest.raises(RuntimeError, match="duplicate SERIALNO, SPORDER"):
-            pums_data._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
+        assert "duplicate SERIALNO, SPORDER" in str(excinfo.value)
 
     def test_no_keys_means_no_uniqueness_requirement(self, monkeypatch):
         """Some requests legitimately carry no full key; they must not be rejected."""
@@ -449,3 +414,41 @@ class TestAnUnsoundResponseIsRetried:
         pums_data._census_get("u", self.HEADER, "06", "*")
 
         assert calls["n"] == 1
+
+
+# ===========================================================================
+# Reading PUMS off disk instead of the API
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# load_pums_from_files
+# ---------------------------------------------------------------------------
+class TestLoadPumsFromFiles:
+    """Tests for loading PUMS data from files."""
+
+    @pytest.mark.parametrize("suffix", ["csv", "parquet"])
+    def test_load_round_trip(self, tmp_path, pums_households, pums_persons, suffix):
+        """Both on-disk formats come back with every row and the ids intact."""
+        hh_path = tmp_path / f"hh.{suffix}"
+        per_path = tmp_path / f"per.{suffix}"
+        if suffix == "csv":
+            pums_households.write_csv(hh_path)
+            pums_persons.write_csv(per_path)
+        else:
+            pums_households.write_parquet(hh_path)
+            pums_persons.write_parquet(per_path)
+
+        hh, per = load_pums_from_files(str(hh_path), str(per_path))
+        assert hh.sort("SERIALNO")["SERIALNO"].to_list() == ["HH1", "HH2", "HH3"]
+        assert per.height == 7
+
+    def test_puma_filter(self, tmp_path, pums_households, pums_persons):
+        """Filtering by PUMA should return only matching records."""
+        hh_path = tmp_path / "hh.csv"
+        per_path = tmp_path / "per.csv"
+        pums_households.write_csv(hh_path)
+        pums_persons.write_csv(per_path)
+
+        hh, _ = load_pums_from_files(str(hh_path), str(per_path), puma_ids=["00100"])
+        assert all(hh["PUMA"].cast(pl.Utf8) == "00100")

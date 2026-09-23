@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 from pipeline.pipeline import (
+    Pipeline,
     _check_input_paths,
     _check_roots_resolved,
     _referenced_names,
@@ -106,17 +107,12 @@ class TestOneNamespace:
 class TestAnUnsetRootIsNamed:
     """Left unresolved it renders literally and fails later as a baffling path."""
 
-    def test_a_missing_root_raises(self, monkeypatch):
-        """Rather than rendering `{{ MTC_DATA }}/Data/...` and failing on open()."""
-        for name in ("MTC_DATA", "BOX_DIR"):
-            monkeypatch.delenv(name, raising=False)
-        config = _config()
-
-        with pytest.raises(ValueError, match="not set anywhere"):
-            _check_roots_resolved(config, _template_namespace(config))
-
     def test_every_missing_root_is_named_at_once(self, monkeypatch):
-        """Otherwise it is one root per attempt: set, re-run, discover the next."""
+        """Otherwise it is one root per attempt: set, re-run, discover the next.
+
+        The message also has to say where to set them: naming the problem without
+        the remedy just relocates the guessing.
+        """
         for name in ("MTC_DATA", "BOX_DIR"):
             monkeypatch.delenv(name, raising=False)
         config = _config()
@@ -124,15 +120,10 @@ class TestAnUnsetRootIsNamed:
         with pytest.raises(ValueError, match="not set anywhere") as excinfo:
             _check_roots_resolved(config, _template_namespace(config))
 
-        assert "MTC_DATA" in str(excinfo.value)
-        assert "BOX_DIR" in str(excinfo.value)
-
-    def test_the_error_says_where_to_set_them(self):
-        """Naming the problem without the remedy just relocates the guessing."""
-        config = _config('d: "{{ NOWHERE }}/x"')
-
-        with pytest.raises(ValueError, match=r"\.env file beside the project"):
-            _check_roots_resolved(config, _template_namespace(config))
+        message = str(excinfo.value)
+        assert "MTC_DATA" in message
+        assert "BOX_DIR" in message
+        assert ".env file beside the project" in message
 
     def test_nothing_is_raised_once_they_are_set(self, monkeypatch):
         """A correct setup must be silent, or the check gets worked around."""
@@ -180,16 +171,11 @@ class TestMissingInputsFailBeforeTheRun:
         """A correct config must be silent, or the check gets bypassed."""
         _check_input_paths({"survey_dir": str(tmp_path)}, used={"survey_dir"})
 
-    def test_a_missing_directory_is_reported(self):
-        """A wrong path used to surface eight steps into a run."""
-        with pytest.raises(ValueError, match=r"director(y|ies) do(es)? not exist"):
-            _check_input_paths({"survey_dir": "Z:/nowhere/at/all"}, used={"survey_dir"})
-
     def test_every_missing_path_is_named_at_once(self):
         """Otherwise the fix-run-wait loop repeats once per wrong path."""
         config = {"survey_dir": "Z:/nowhere", "TM2_shapefile_dir": "Z:/still/nowhere"}
 
-        with pytest.raises(ValueError, match="not exist") as excinfo:
+        with pytest.raises(ValueError, match=r"director(y|ies) do(es)? not exist") as excinfo:
             _check_input_paths(config, used=set(config))
 
         for key in config:
@@ -235,3 +221,79 @@ class TestTheShippedConfigs:
 
         undocumented = sorted(root for root in roots if f"{root}=" not in example)
         assert undocumented == [], f"roots missing from example.env: {undocumented}"
+
+
+class TestShorthandsReferringToShorthands:
+    """A shorthand may refer to another shorthand.
+
+    That is how projects hang every output off one root::
+
+        survey_dir: "M:/.../WeightedDataset"
+        output_dir: "{{ survey_dir }}/pipeline_analysis"
+
+    Substituting in one pass makes that work only when the referenced shorthand
+    is declared *after* the one referring to it, so the same config resolves or
+    emits a literal ``{{ survey_dir }}`` directory depending on the order its
+    keys happen to be written in. These pin the order-independence.
+    """
+
+    @staticmethod
+    def _load(tmp_path, config: dict) -> dict:
+        """Write a config and return it as Pipeline loads it."""
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        return Pipeline(config_path=str(path), steps=[]).config
+
+    @pytest.mark.parametrize("target_first", [True, False], ids=["target-first", "reference-first"])
+    def test_resolution_does_not_depend_on_declaration_order(self, tmp_path, target_first: bool):
+        """Either declaration order gives the identical fully expanded result.
+
+        ``survey_dir`` is rooted in ``tmp_path`` rather than a literal drive
+        because this config sets ``log_file``: ``Pipeline`` creates the log's
+        parent directory on construction, so whatever this resolves to gets made
+        on disk. Pointed at ``M:/``, that means the mapped network share on a
+        Windows machine, and a FileNotFoundError on one without it.
+        """
+        survey_dir = str(tmp_path / "survey")
+        declarations = [("survey_dir", survey_dir), ("output_dir", "{{ survey_dir }}/out")]
+        if not target_first:
+            declarations.reverse()
+
+        config = self._load(
+            tmp_path,
+            dict(
+                declarations,
+                log_file="{{ output_dir }}/run.log",
+                steps=[{"name": "load_data", "params": {"out": "{{ output_dir }}/x.csv"}}],
+            ),
+        )
+
+        assert config["output_dir"] == f"{survey_dir}/out"
+        assert config["log_file"] == f"{survey_dir}/out/run.log"
+        assert config["steps"][0]["params"]["out"] == f"{survey_dir}/out/x.csv"
+
+    def test_chained_shorthands_resolve(self):
+        """A reference several links deep still bottoms out."""
+        resolved = _resolve_variables(
+            {
+                "root": "M:/data",
+                "survey_dir": "{{ root }}/survey",
+                "output_dir": "{{ survey_dir }}/analysis",
+                "log_file": "{{ output_dir }}/run.log",
+            }
+        )
+
+        assert resolved["log_file"] == "M:/data/survey/analysis/run.log"
+
+    def test_a_cycle_is_reported_rather_than_spun_on(self):
+        """Shorthands referring to each other raise instead of looping forever."""
+        with pytest.raises(ValueError, match="cycle"):
+            _resolve_variables({"a": "{{ b }}/x", "b": "{{ a }}/y"})
+
+    def test_unknown_reference_is_left_alone(self):
+        """A reference to something undeclared is not an error here.
+
+        Nothing at this layer knows which strings are meant to be paths, so an
+        unrecognised marker is passed through untouched rather than guessed at.
+        """
+        assert _resolve_variables({"a": "{{ nowhere }}/x"})["a"] == "{{ nowhere }}/x"
