@@ -103,71 +103,68 @@ def assert_subtour_invariants(legs: list[tuple[int, int]], result: pl.DataFrame)
         assert last[1] == first[0], f"subtour {num} does not return where it left: {legs}"
 
 
-def check(legs: list[tuple[int, int]], expected: list[int], anchor=LocationType.WORK) -> None:
-    """Assert the expected numbering, then the invariants that outlive it."""
-    result = _detect(legs, anchor)
-    assert result["subtour_num"].to_list() == expected
-    assert_subtour_invariants(legs, result)
-
-
-class TestTourEndsAtTheAnchor:
-    """The regression: nothing leaves the anchor after the subtour returns."""
-
-    def test_return_leg_joins_the_subtour(self):
-        """Home > Work > Lunch > Work.
-
-        Trips 2 and 3 are one round trip away from the workplace and back, so
-        both are subtour 1. Trip 1 is the commute in.
-        """
-        check([TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR], [0, 1, 1])
-
-    def test_multi_stop_subtour_keeps_its_return_leg(self):
-        """Home > Work > E1 > E2 > Work.
-
-        The round trip spans three legs -- out, between stops, back -- and all
-        three belong to the same subtour.
-        """
-        check([TO_ANCHOR, LEAVE_ANCHOR, AWAY, RETURN_TO_ANCHOR], [0, 1, 1, 1])
-
-    def test_school_anchors_the_same_way(self):
-        """Home > School > Errand > School: the anchor type does not change the rule."""
-        check(
+@pytest.mark.parametrize(
+    ("legs", "expected", "anchor"),
+    [
+        # Home > Work > Lunch > Work. Trips 2 and 3 are one round trip away
+        # from the workplace and back, so both are subtour 1; trip 1 is the
+        # commute in. This is the regression: nothing leaves the anchor after
+        # the subtour returns, so the return leg used to be skipped.
+        pytest.param(
             [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
             [0, 1, 1],
-            anchor=LocationType.SCHOOL,
-        )
-
-
-class TestCommuteLegsStayOut:
-    """The legs bounding the anchor period belong to the parent tour."""
-
-    def test_commute_out_is_not_a_subtour(self):
-        """Home > Work > Lunch > Work > Home: trip 4 is the commute home."""
-        check([TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, ANCHOR_TO_HOME], [0, 1, 1, 0])
-
-    def test_errand_on_the_way_home_is_not_a_subtour(self):
-        """Home > Work > Errand > Home.
-
-        Leaving the workplace for an errand that goes home instead of back is
-        the commute out with a stop in it, not a round trip from the anchor.
-        """
-        check([TO_ANCHOR, LEAVE_ANCHOR, AWAY], [0, 0, 0])
-
-    def test_plain_commute_has_no_subtour(self):
-        """Home > Work > Home: nothing happens at the anchor."""
-        check([TO_ANCHOR, ANCHOR_TO_HOME], [0, 0])
-
-    def test_tour_that_never_reaches_an_anchor_has_no_subtour(self):
-        """Home > Shop > Home: no anchor period exists to look inside."""
-        check([AWAY, AWAY], [0, 0])
-
-
-class TestNumbering:
-    """Subtours are numbered in the order they occur within their parent tour."""
-
-    def test_two_subtours_are_numbered_separately(self):
-        """Home > Work > Lunch > Work > Errand > Work > Home."""
-        check(
+            LocationType.WORK,
+            id="return_leg_joins_the_subtour",
+        ),
+        # Home > Work > E1 > E2 > Work. The round trip spans three legs --
+        # out, between stops, back -- and all three are the same subtour.
+        pytest.param(
+            [TO_ANCHOR, LEAVE_ANCHOR, AWAY, RETURN_TO_ANCHOR],
+            [0, 1, 1, 1],
+            LocationType.WORK,
+            id="multi_stop_subtour_keeps_its_return_leg",
+        ),
+        # Home > School > Errand > School: the anchor type does not change the rule.
+        pytest.param(
+            [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
+            [0, 1, 1],
+            LocationType.SCHOOL,
+            id="school_anchors_the_same_way",
+        ),
+        # Home > Work > Lunch > Work > Home: trip 4 is the commute home, and
+        # the legs bounding the anchor period belong to the parent tour.
+        pytest.param(
+            [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, ANCHOR_TO_HOME],
+            [0, 1, 1, 0],
+            LocationType.WORK,
+            id="commute_out_is_not_a_subtour",
+        ),
+        # Home > Work > Errand > Home. Leaving the workplace for an errand
+        # that goes home instead of back is the commute out with a stop in it,
+        # not a round trip from the anchor.
+        pytest.param(
+            [TO_ANCHOR, LEAVE_ANCHOR, AWAY],
+            [0, 0, 0],
+            LocationType.WORK,
+            id="errand_on_the_way_home_is_not_a_subtour",
+        ),
+        # Home > Work > Home: nothing happens at the anchor.
+        pytest.param(
+            [TO_ANCHOR, ANCHOR_TO_HOME],
+            [0, 0],
+            LocationType.WORK,
+            id="plain_commute_has_no_subtour",
+        ),
+        # Home > Shop > Home: no anchor period exists to look inside.
+        pytest.param(
+            [AWAY, AWAY],
+            [0, 0],
+            LocationType.WORK,
+            id="tour_that_never_reaches_an_anchor_has_no_subtour",
+        ),
+        # Home > Work > Lunch > Work > Errand > Work > Home: subtours are
+        # numbered in the order they occur within their parent tour.
+        pytest.param(
             [
                 TO_ANCHOR,
                 LEAVE_ANCHOR,
@@ -177,47 +174,37 @@ class TestNumbering:
                 ANCHOR_TO_HOME,
             ],
             [0, 1, 1, 2, 2, 0],
-        )
-
-    def test_second_subtour_survives_the_tour_ending_at_the_anchor(self):
-        """Home > Work > Lunch > Work > Errand > Work.
-
-        The same regression as the first case, reached after an earlier subtour
-        has already opened and closed.
-        """
-        check(
+            LocationType.WORK,
+            id="two_subtours_are_numbered_separately",
+        ),
+        # Home > Work > Lunch > Work > Errand > Work. The same regression as
+        # the first case, reached after an earlier subtour has opened and closed.
+        pytest.param(
             [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
             [0, 1, 1, 2, 2],
-        )
-
-
-class TestUnclosedChainsAreDiscarded:
-    """An assignment must never claim a round trip the trips do not show."""
-
-    def test_open_chain_falls_back_to_the_parent_tour(self):
-        """A trip both leaving and arriving at an anchor closes nothing.
-
-        A trip between two worksites is neither a departure nor a return, so the
-        chain reaches the end of the anchor period still open. Those trips
-        belong to the parent tour, not to a half-built subtour.
-        """
-        check([TO_ANCHOR, LEAVE_ANCHOR, AWAY, ANCHOR_TO_ANCHOR], [0, 0, 0, 0])
-
-
-class TestSubtoursReturnToTheSameAnchor:
-    """A subtour leaves one workplace or school and comes back to that one."""
-
-    def test_chain_between_two_workplaces_is_not_a_subtour(self):
-        """Home > Work 1 > Coffee > Work 2 > Home: no round trip, so no subtour."""
-        check([TO_ANCHOR, LEAVE_ANCHOR, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR], [0, 0, 0, 0])
-
-    def test_second_workplace_starts_its_own_subtours(self):
-        """Home > Work 1 > Coffee > Work 2 > Lunch > Work 2 > Home.
-
-        The coffee run arrived elsewhere and stays on the parent tour; the lunch
-        leaves work 2 and comes back to it, so it is subtour 1.
-        """
-        check(
+            LocationType.WORK,
+            id="second_subtour_survives_the_tour_ending_at_the_anchor",
+        ),
+        # A trip between two worksites is neither a departure nor a return, so
+        # the chain reaches the end of the anchor period still open. Those
+        # trips belong to the parent tour, not to a half-built subtour.
+        pytest.param(
+            [TO_ANCHOR, LEAVE_ANCHOR, AWAY, ANCHOR_TO_ANCHOR],
+            [0, 0, 0, 0],
+            LocationType.WORK,
+            id="open_chain_falls_back_to_the_parent_tour",
+        ),
+        # Home > Work 1 > Coffee > Work 2 > Home: no round trip, so no subtour.
+        pytest.param(
+            [TO_ANCHOR, LEAVE_ANCHOR, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR],
+            [0, 0, 0, 0],
+            LocationType.WORK,
+            id="chain_between_two_workplaces_is_not_a_subtour",
+        ),
+        # Home > Work 1 > Coffee > Work 2 > Lunch > Work 2 > Home. The coffee
+        # run arrived elsewhere and stays on the parent tour; the lunch leaves
+        # work 2 and comes back to it, so it is subtour 1.
+        pytest.param(
             [
                 TO_ANCHOR,
                 LEAVE_ANCHOR,
@@ -227,11 +214,11 @@ class TestSubtoursReturnToTheSameAnchor:
                 LEAVE_OTHER_ANCHOR,
             ],
             [0, 0, 0, 1, 1, 0],
-        )
-
-    def test_numbering_stays_gapless_after_a_dropped_chain(self):
-        """Home > Work 1 > Lunch > Work 1 > Coffee > Work 2 > Errand > Work 2 > Home."""
-        check(
+            LocationType.WORK,
+            id="second_workplace_starts_its_own_subtours",
+        ),
+        # Home > Work 1 > Lunch > Work 1 > Coffee > Work 2 > Errand > Work 2 > Home.
+        pytest.param(
             [
                 TO_ANCHOR,
                 LEAVE_ANCHOR,
@@ -243,7 +230,17 @@ class TestSubtoursReturnToTheSameAnchor:
                 LEAVE_OTHER_ANCHOR,
             ],
             [0, 1, 1, 0, 0, 2, 2, 0],
-        )
+            LocationType.WORK,
+            id="numbering_stays_gapless_after_a_dropped_chain",
+        ),
+    ],
+)
+def test_subtour_numbering(legs, expected, anchor):
+    """Assert the expected numbering, then the invariants that outlive it."""
+    result = _detect(legs, anchor)
+
+    assert result["subtour_num"].to_list() == expected
+    assert_subtour_invariants(legs, result)
 
 
 class TestInvariantsHoldAcrossItineraries:

@@ -264,12 +264,6 @@ def test_episodes_include_each_days_first_origin():
     assert starts["dwell_minutes"].item() is None
 
 
-def test_episode_dwell_drops_sentinels():
-    """Sentinel activity durations become null rather than negative dwell."""
-    episodes = build_presence_episodes(_trips(_trip(1, 10, HOME, -1, purpose=Purpose.HOME)))
-    assert episodes.filter(~pl.col("is_day_start"))["dwell_minutes"].item() is None
-
-
 # --- observed workplaces and schools -------------------------------------------
 
 

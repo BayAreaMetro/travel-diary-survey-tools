@@ -9,10 +9,10 @@ Work-related errands on a day they DID visit their reported workplace stay
 subtours. Work-related stops never make a workplace, however long.
 
 Covers:
-- A day worked entirely at an observed alternate site is a WORK tour anchored there
-- A long work-related stay is not a workplace, and stays work-related
-- A work-related errand on a reported-workplace day is a work-based subtour
-- The anchor switches per day between the reported workplace and an observed site
+- How long a work-related stay must be before it counts as a workplace
+- The anchor switching per day between the reported workplace and an observed
+  site, with a work-related errand on the reported-workplace day forming a
+  work-based subtour
 """
 
 from datetime import datetime
@@ -23,6 +23,7 @@ import pytest
 from data_canon.codebook.days import TravelDow
 from data_canon.codebook.generic import LocationSource, LocationType
 from data_canon.codebook.persons import AgeCategory, Employment, Student
+from data_canon.codebook.tours import TourType
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from tests.fixtures.tour_pipeline import locate_and_extract_tours
@@ -118,59 +119,30 @@ def _extract(persons, households, unlinked_trips):
     )
 
 
-def test_alternate_workplace_day_is_a_work_tour(person_and_household):
-    """A day worked away from the usual workplace is still a work tour.
-
-    The person never goes to their usual workplace; they spend the day at
-    another location they call their workplace. That location is an observed
-    workplace and, since the usual workplace was not visited, the day's anchor.
-    """
-    persons, households = person_and_household
-    unlinked_trips = _build(
-        [
-            _trip(
-                1,
-                datetime(2024, 1, 17, 8, 0),
-                datetime(2024, 1, 17, 8, 45),
-                HOME,
-                ALT_WORK,
-                PurposeCategory.HOME.value,
-                PurposeCategory.WORK.value,
-                Purpose.HOME.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-            ),
-            _trip(
-                1,
-                datetime(2024, 1, 17, 17, 0),
-                datetime(2024, 1, 17, 17, 45),
-                ALT_WORK,
-                HOME,
-                PurposeCategory.WORK.value,
-                PurposeCategory.HOME.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-                Purpose.HOME.value,
-            ),
-        ]
-    )
-
-    result = _extract(persons, households, unlinked_trips)
-    tours = result["tours"]
-    observed = result["habitual_locations"].filter(
-        (pl.col("location_type") == LocationType.WORK.value)
-        & (pl.col("source") == LocationSource.OBSERVED.value)
-    )
-
-    assert observed.height == 1, "The alternate worksite should be an observed workplace"
-    assert len(tours) == 1
-    assert tours.row(0, named=True)["tour_purpose"] == PurposeCategory.WORK.value
-
-
-def test_a_days_work_at_another_site_is_a_workplace_but_is_not_recoded(person_and_household):
-    """A full day on a work-related trip is evidence of a workplace, and keeps its purpose.
+@pytest.mark.parametrize(
+    ("leave_hour", "expected_sources"),
+    [
+        pytest.param(
+            17,
+            [LocationSource.REPORTED.value, LocationSource.OBSERVED.value],
+            id="a_days_work_at_another_site_is_a_workplace",
+        ),
+        pytest.param(
+            10,
+            [LocationSource.REPORTED.value],
+            id="a_brief_work_related_stop_is_not_a_workplace",
+        ),
+    ],
+)
+def test_how_long_a_work_related_stay_must_be_to_make_a_workplace(
+    person_and_household, leave_hour, expected_sources
+):
+    """A working day at a site makes it a workplace; a meeting there does not.
 
     Respondents describe their own workplace as work-related as readily as
     "primary workplace", so a stay the length of a working day is evidence of a
-    place of work. What they said they were doing is left alone.
+    place of work. Either way, what they said they were doing is left alone: the
+    tour keeps the WORK_RELATED purpose it was reported with.
     """
     persons, households = person_and_household
     unlinked_trips = _build(
@@ -188,8 +160,8 @@ def test_a_days_work_at_another_site_is_a_workplace_but_is_not_recoded(person_an
             ),
             _trip(
                 1,
-                datetime(2024, 1, 17, 17, 0),
-                datetime(2024, 1, 17, 17, 45),
+                datetime(2024, 1, 17, leave_hour, 0),
+                datetime(2024, 1, 17, leave_hour, 45),
                 ALT_WORK,
                 HOME,
                 PurposeCategory.WORK_RELATED.value,
@@ -205,123 +177,20 @@ def test_a_days_work_at_another_site_is_a_workplace_but_is_not_recoded(person_an
         pl.col("location_type") == LocationType.WORK.value
     )
 
-    assert workplaces["source"].to_list() == [
-        LocationSource.REPORTED.value,
-        LocationSource.OBSERVED.value,
-    ]
+    assert workplaces["source"].to_list() == expected_sources
     assert result["tours"]["tour_purpose"].to_list() == [PurposeCategory.WORK_RELATED.value]
-
-
-def test_a_brief_work_related_stop_is_not_a_workplace(person_and_household):
-    """A meeting is not a place of work, however far from the office it is."""
-    persons, households = person_and_household
-    unlinked_trips = _build(
-        [
-            _trip(
-                1,
-                datetime(2024, 1, 17, 8, 0),
-                datetime(2024, 1, 17, 8, 45),
-                HOME,
-                ALT_WORK,
-                PurposeCategory.HOME.value,
-                PurposeCategory.WORK_RELATED.value,
-                Purpose.HOME.value,
-                Purpose.WORK_ACTIVITY.value,
-            ),
-            _trip(
-                1,
-                datetime(2024, 1, 17, 10, 0),
-                datetime(2024, 1, 17, 10, 45),
-                ALT_WORK,
-                HOME,
-                PurposeCategory.WORK_RELATED.value,
-                PurposeCategory.HOME.value,
-                Purpose.WORK_ACTIVITY.value,
-                Purpose.HOME.value,
-            ),
-        ]
-    )
-
-    result = _extract(persons, households, unlinked_trips)
-    workplaces = result["habitual_locations"].filter(
-        pl.col("location_type") == LocationType.WORK.value
-    )
-
-    assert workplaces["source"].to_list() == [LocationSource.REPORTED.value]
-
-
-def test_work_related_errand_forms_a_subtour(person_and_household):
-    """A mid-day WORK_RELATED errand on an office day is a work-based subtour.
-
-    home -> work -> errand -> work -> home. The errand is away from the reported
-    workplace (which was visited today), so it is not the anchor: leaving and
-    returning forms a subtour rather than an intermediate stop.
-    """
-    persons, households = person_and_household
-    unlinked_trips = _build(
-        [
-            _trip(
-                1,
-                datetime(2024, 1, 17, 8, 0),
-                datetime(2024, 1, 17, 8, 30),
-                HOME,
-                USUAL_WORK,
-                PurposeCategory.HOME.value,
-                PurposeCategory.WORK.value,
-                Purpose.HOME.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-            ),
-            _trip(
-                1,
-                datetime(2024, 1, 17, 12, 0),
-                datetime(2024, 1, 17, 12, 15),
-                USUAL_WORK,
-                WORK_ERRAND,
-                PurposeCategory.WORK.value,
-                PurposeCategory.WORK_RELATED.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-                Purpose.WORK_ACTIVITY.value,
-            ),
-            _trip(
-                1,
-                datetime(2024, 1, 17, 13, 30),
-                datetime(2024, 1, 17, 13, 45),
-                WORK_ERRAND,
-                USUAL_WORK,
-                PurposeCategory.WORK_RELATED.value,
-                PurposeCategory.WORK.value,
-                Purpose.WORK_ACTIVITY.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-            ),
-            _trip(
-                1,
-                datetime(2024, 1, 17, 17, 0),
-                datetime(2024, 1, 17, 17, 30),
-                USUAL_WORK,
-                HOME,
-                PurposeCategory.WORK.value,
-                PurposeCategory.HOME.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-                Purpose.HOME.value,
-            ),
-        ]
-    )
-
-    tours = _extract(persons, households, unlinked_trips)["tours"]
-
-    subtours = tours.filter(pl.col("subtour_num") > 0)
-    assert len(subtours) >= 1, (
-        "The WORK_RELATED errand away from the workplace should form a work-based "
-        "subtour, not be absorbed as an intermediate stop"
-    )
 
 
 def test_anchor_switches_per_day_between_reported_and_observed(person_and_household):
     """The work anchor is resolved per day.
 
-    Day 1: at the usual workplace, with a WORK_RELATED errand -> a subtour.
+    Day 1: at the usual workplace, with a WORK_RELATED errand. The errand is
+    away from the reported workplace, which was visited today, so it is not the
+    anchor: leaving and returning forms a work-based subtour rather than an
+    intermediate stop.
+
     Day 2: never visits the usual workplace, spends the day at an observed
-    alternate worksite -> that day anchors there and is a WORK tour.
+    alternate worksite, so that day anchors there and is a WORK tour.
     """
     persons, households = person_and_household
     unlinked_trips = _build(
@@ -397,13 +266,23 @@ def test_anchor_switches_per_day_between_reported_and_observed(person_and_househ
         ]
     )
 
-    tours = _extract(persons, households, unlinked_trips)["tours"]
+    result = _extract(persons, households, unlinked_trips)
+    tours = result["tours"]
 
-    day1 = tours.filter(pl.col("day_id") == 1)
+    # The alternate worksite is the only workplace nobody reported
+    observed = result["habitual_locations"].filter(
+        (pl.col("location_type") == LocationType.WORK.value)
+        & (pl.col("source") == LocationSource.OBSERVED.value)
+    )
+    assert observed.select("lat", "lon").rows() == [ALT_WORK]
+
+    # Day 1: the commute tour plus one work-based subtour for the errand
+    day1 = tours.filter(pl.col("day_id") == 1).sort("subtour_num")
+    assert day1.select("subtour_num", "tour_type", "tour_purpose").rows() == [
+        (0, TourType.HOME_BASED.value, PurposeCategory.WORK.value),
+        (1, TourType.WORK_BASED.value, PurposeCategory.WORK_RELATED.value),
+    ]
+
+    # Day 2: one work tour, anchored at the observed site
     day2 = tours.filter(pl.col("day_id") == 2)
-    assert day1.filter(pl.col("subtour_num") > 0).height >= 1, (
-        "Day 1 (usual workplace) should have a work-based subtour for the errand"
-    )
-    assert (day2["tour_purpose"] == PurposeCategory.WORK.value).any(), (
-        "Day 2 (alternate worksite) should be a WORK tour anchored at the observed site"
-    )
+    assert day2.select("subtour_num", "tour_purpose").rows() == [(0, PurposeCategory.WORK.value)]

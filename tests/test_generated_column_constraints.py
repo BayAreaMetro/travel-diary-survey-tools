@@ -33,43 +33,37 @@ class TestTheCheck:
     """Bounds are checked over the column, since there is no field to check per row."""
 
     def test_a_value_below_the_bound_raises(self):
-        """The case that matters: a weight that expands a record negatively."""
-        df = pl.DataFrame({"w": [1.0, -0.5]})
-        with pytest.raises(DataValidationError, match="below the declared minimum"):
-            check_generated_constraints("households", df, {"w": GeneratedColumn(ge=0)})
+        """The case that matters: a weight that expands a record negatively.
 
-    def test_the_message_says_how_many_and_how_low(self):
-        """A count and the worst value, so the size of the problem is visible."""
+        The message has to carry a count and the worst value, so the size of the
+        problem is visible without re-running anything.
+        """
         df = pl.DataFrame({"w": [-3.0, -1.0, 2.0]})
         with pytest.raises(DataValidationError, match="below the declared minimum") as excinfo:
             check_generated_constraints("households", df, {"w": GeneratedColumn(ge=0)})
+
         message = str(excinfo.value)
         assert "2 of 3" in message
         assert "-3.0" in message
 
-    def test_values_at_the_bound_pass(self):
-        """Zero is a legitimate weight: the record was excluded, not corrupted."""
-        check_generated_constraints(
-            "households", pl.DataFrame({"w": [0.0, 1.0]}), {"w": GeneratedColumn(ge=0)}
-        )
-
-    def test_a_column_with_no_bound_is_not_checked(self):
-        """Most generated columns are zone ids and flags, with nothing to bound."""
-        check_generated_constraints(
-            "households", pl.DataFrame({"w": [-1.0]}), {"w": GeneratedColumn("a description")}
-        )
-
-    def test_an_absent_column_is_not_a_violation(self):
-        """A step registers what it can produce; a run may produce fewer."""
-        check_generated_constraints(
-            "households", pl.DataFrame({"other": [1]}), {"w": GeneratedColumn(ge=0)}
-        )
-
-    def test_nulls_are_not_below_the_bound(self):
-        """Null means no weight was estimated, which the bound has no opinion on."""
-        check_generated_constraints(
-            "households", pl.DataFrame({"w": [None, 1.0]}), {"w": GeneratedColumn(ge=0)}
-        )
+    @pytest.mark.parametrize(
+        ("df", "spec"),
+        [
+            # Zero is a legitimate weight: the record was excluded, not corrupted.
+            pytest.param(pl.DataFrame({"w": [0.0, 1.0]}), GeneratedColumn(ge=0), id="at-the-bound"),
+            # Most generated columns are zone ids and flags, with nothing to bound.
+            pytest.param(
+                pl.DataFrame({"w": [-1.0]}), GeneratedColumn("a description"), id="no-bound"
+            ),
+            # A step registers what it can produce; a run may produce fewer.
+            pytest.param(pl.DataFrame({"other": [1]}), GeneratedColumn(ge=0), id="column-absent"),
+            # Null means no weight was estimated, which the bound has no opinion on.
+            pytest.param(pl.DataFrame({"w": [None, 1.0]}), GeneratedColumn(ge=0), id="nulls"),
+        ],
+    )
+    def test_what_does_not_violate_the_bound(self, df: pl.DataFrame, spec: GeneratedColumn):
+        """Each of these must pass silently, or the check refuses legitimate output."""
+        check_generated_constraints("households", df, {"w": spec})
 
 
 class TestThroughValidate:
@@ -116,18 +110,18 @@ class TestWhatTheWeightingPromises:
                 assert spec.ge == 0, f"{table}.{column} carries no lower bound"
 
     def test_every_weight_column_says_what_it_counts(self):
-        """The text the declared fields used to carry to the codebook."""
-        for columns in describe_weight_columns(("ctramp",)).values():
+        """The text the declared fields used to carry to the codebook.
+
+        The joint overlay line is the one description a consumer gets wrong
+        without being told: summing a joint table and its member table double
+        counts, because the joint levels are an overlay carrying person-trips,
+        not a partition.
+        """
+        described = describe_weight_columns(("ctramp",))
+        for columns in described.values():
             for column, spec in columns.items():
                 assert spec.description, f"{column} has no description"
 
-    def test_the_joint_overlay_warning_survived(self):
-        """The one description a consumer gets wrong without being told.
-
-        Summing a joint table and its member table double counts, because the
-        joint levels are an overlay carrying person-trips, not a partition.
-        """
-        described = describe_weight_columns(("ctramp",))
         joint = described["joint_trips"]["joint_trip_weight_ctramp"].description
         assert "OVERLAYS" in joint
         assert "double counts" in joint

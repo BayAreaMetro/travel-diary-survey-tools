@@ -23,10 +23,7 @@ from .fixtures import (
     create_multi_person_household_processed,
     create_simple_work_tour_processed,
     create_transit_commute_processed,
-    multi_stop_tour_processed,
-    multi_tour_day_processed,
     process_scenario_through_pipeline,
-    simple_work_tour_processed,
 )
 from .locations import (
     BART_HOME_LOCATION,
@@ -127,12 +124,9 @@ __all__ = [
     "model_to_polars_schema",
     "multi_person_household",
     "multi_stop_tour",
-    "multi_stop_tour_processed",
     "multi_tour_day",
-    "multi_tour_day_processed",
     "process_scenario_through_pipeline",
     "simple_work_tour",
-    "simple_work_tour_processed",
     "transit_commute",
     "work_tour_no_usual_location",
 ]

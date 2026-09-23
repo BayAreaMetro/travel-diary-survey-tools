@@ -253,12 +253,9 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
 
 
 def ctramp_person_type_expression(
+    employment_category_col: str = "employment_category",
+    student_category_col: str = "student_category",
     age_col: str = "age",
-    employment_col: str = "employment",
-    student_col: str = "student",
-    school_type_col: str = "school_type",
-    employment_category_col: str | None = None,
-    student_category_col: str | None = None,
 ) -> pl.Expr:
     """Create expression to derive person category from person attributes.
 
@@ -288,16 +285,11 @@ def ctramp_person_type_expression(
           logged using log_person_type_warnings() before classification
 
     Args:
+        employment_category_col: Name of the pre-derived employment category
+            column (CTRAMPEmploymentCategory values).
+        student_category_col: Name of the pre-derived student category column
+            (CTRAMPStudentCategory values).
         age_col: Name of age column (categorical AgeCategory)
-        employment_col: Name of employment column (raw Employment enum)
-        student_col: Name of student column (raw Student enum)
-        school_type_col: Name of school_type column (raw SchoolType enum)
-        employment_category_col: Optional name of pre-derived employment category
-            column (CTRAMPEmploymentCategory values). If provided, used instead
-            of raw employment for FT/PT classification.
-        student_category_col: Optional name of pre-derived student category column
-            (CTRAMPStudentCategory values). If provided, used instead of raw
-            school_type for college/grade school classification.
 
     Returns:
         Polars expression that evaluates to CTRAMPPersonType enum value
@@ -309,10 +301,12 @@ def ctramp_person_type_expression(
         Age is a categorical variable (see AgeCategory enum):
         1=under 5, 2=5-15, 3=16-17, 4=18-24, 5=25-34, etc.
 
-        When employment_category_col and student_category_col are provided,
-        classification uses the pre-derived categories for consistency with
-        the rest of the CT-RAMP pipeline. EMPLOYED_UNPAID is treated as
-        part-time via the EMPLOYMENT_TO_CTRAMP mapping.
+        Both category columns are required. Every caller derives them first --
+        student_category via ctramp_student_category_expression, employment
+        category via EMPLOYMENT_TO_CTRAMP -- so that the rules live in one
+        place. EMPLOYED_UNPAID is treated as part-time by that mapping, and a
+        student 18 or over whose school_type is missing is resolved to
+        COLLEGE_OR_HIGHER by ctramp_student_category_expression, not here.
     """
     # Define age group categories
     senior_age = [
@@ -327,79 +321,24 @@ def ctramp_person_type_expression(
         AgeCategory.AGE_55_TO_64.value,
     ]
 
-    # Employment status indicators
-    # When employment_category_col is provided, use the pre-derived category
-    # (which maps EMPLOYED_UNPAID → Part-time). Otherwise, use raw employment.
-    if employment_category_col:
-        is_full_time = (
-            pl.col(employment_category_col) == CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value
-        )
-        is_part_time = (
-            pl.col(employment_category_col) == CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value
-        )
-    else:
-        # Fall back to raw employment column
-        # Note: EMPLOYED_SELF is always classified as full-time
-        # EMPLOYED_UNPAID is classified as part-time (consistent with EMPLOYMENT_TO_CTRAMP)
-        is_full_time = pl.col(employment_col).is_in(
-            [
-                Employment.EMPLOYED_FULLTIME.value,
-                Employment.EMPLOYED_SELF.value,
-            ]
-        )
-        is_part_time = pl.col(employment_col).is_in(
-            [
-                Employment.EMPLOYED_PARTTIME.value,
-                Employment.EMPLOYED_UNPAID.value,
-            ]
-        )
+    # Employment status indicators, from the pre-derived category
+    # (EMPLOYMENT_TO_CTRAMP maps EMPLOYED_SELF → full-time, EMPLOYED_UNPAID → part-time)
+    is_full_time = (
+        pl.col(employment_category_col) == CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value
+    )
+    is_part_time = (
+        pl.col(employment_category_col) == CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value
+    )
 
-    # Student and school status indicators
-    # When student_category_col is provided, use the pre-derived category.
-    # Otherwise, use raw student/school_type columns.
-    if student_category_col:
-        is_college = pl.col(student_category_col) == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value
-        is_high_school = (
-            pl.col(student_category_col) == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value
-        )
-        is_student_of_any_kind = is_college | is_high_school
-    else:
-        is_college = pl.col(school_type_col).is_in(
-            [
-                SchoolType.COLLEGE_2YEAR.value,
-                SchoolType.COLLEGE_4YEAR.value,
-                SchoolType.GRADUATE_SCHOOL.value,
-                SchoolType.VOCATIONAL.value,
-            ]
-        )
-        is_high_school = pl.col(school_type_col).is_in(
-            [
-                SchoolType.HOME_SCHOOL.value,
-                SchoolType.HIGH_SCHOOL.value,
-            ]
-        )
-        _is_student_raw = pl.col(student_col).is_in(
-            [
-                Student.FULLTIME_INPERSON.value,
-                Student.PARTTIME_INPERSON.value,
-                Student.PARTTIME_ONLINE.value,
-                Student.FULLTIME_ONLINE.value,
-            ]
-        )
-        is_college = is_college & _is_student_raw
-        is_high_school = is_high_school & _is_student_raw
-        is_student_of_any_kind = _is_student_raw
+    # Student and school status indicators, from the pre-derived category
+    is_college = pl.col(student_category_col) == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value
+    is_high_school = (
+        pl.col(student_category_col) == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value
+    )
 
-    # Students 18+ with MISSING school_type are assumed to be university students
-    # (only used in fallback mode without student_category_col)
-    if not student_category_col:
-        is_student_no_school_type = is_student_of_any_kind & (
-            pl.col(school_type_col) == SchoolType.MISSING.value
-        )
-    else:
-        # When student_category is pre-derived, MISSING school_type cases are
-        # already resolved to COLLEGE_OR_HIGHER by student_category_expression
-        is_student_no_school_type = pl.lit(value=False)
+    # Note: a student 18+ whose school_type is MISSING is resolved to
+    # COLLEGE_OR_HIGHER upstream by ctramp_student_category_expression, so it
+    # arrives here as is_college and needs no branch of its own.
 
     # Age indicators
     age = pl.col(age_col)
@@ -445,9 +384,6 @@ def ctramp_person_type_expression(
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
-        # Students 18+ with MISSING school_type -> assume university
-        .when(is_18_to_24 & is_student_no_school_type)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))
         .when(is_18_to_24)
@@ -459,9 +395,6 @@ def ctramp_person_type_expression(
         .when(is_working_age & is_part_time & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_college)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
-        # Students with MISSING school_type -> assume university
-        .when(is_working_age & is_student_no_school_type)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_part_time)
         .then(pl.lit(CTRAMPPersonType.PART_TIME_WORKER))

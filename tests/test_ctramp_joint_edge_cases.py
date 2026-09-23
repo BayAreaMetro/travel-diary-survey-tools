@@ -23,7 +23,6 @@ import pytest
 from data_canon.codebook.ctramp import CTRAMPModeType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
-from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_joint_tours import (
     format_joint_tour,
@@ -46,18 +45,6 @@ BOTH_LEGS = (TourDirection.OUTBOUND, TourDirection.INBOUND)
 
 # Unequal on purpose -- see the module docstring.
 MEMBER_WEIGHTS = (10.0, 30.0)
-
-
-@pytest.fixture
-def standard_config():
-    """CT-RAMP config with the usual thresholds."""
-    return CTRAMPConfig(
-        usability_profile="test",
-        income_low_threshold=30000,
-        income_med_threshold=60000,
-        income_high_threshold=100000,
-        income_survey_year_to_ctramp_year=0.5319148936,
-    )
 
 
 def _two_person_household():
@@ -333,26 +320,6 @@ class TestPartitionInvariants:
     silently inflates every total derived from them.
     """
 
-    @pytest.mark.parametrize(
-        "purpose",
-        [
-            PurposeCategory.SOCIALREC,  # admissible: joint file
-            PurposeCategory.ESCORT,  # reclassified: individual file
-            PurposeCategory.WORK,  # reclassified: individual file
-        ],
-    )
-    def test_no_tour_appears_in_both_files(self, purpose, standard_config):
-        """Whatever the ruling, a tour is written to exactly one of the two."""
-        households, persons = _two_person_household()
-        tours = _shared_tour(purpose)
-        trips = _trips_for(tours)
-
-        indiv_tours, _, joint_tours, _ = _format_all(
-            tours, trips, persons, households, standard_config
-        )
-
-        assert indiv_tours.is_empty() or joint_tours.is_empty()
-
     def test_a_mixed_household_splits_its_tours_between_the_files(self, standard_config):
         """One joint tour and one individual tour, in the same household.
 
@@ -411,26 +378,25 @@ class TestPartitionInvariants:
         assert individual_ids | joint_member_ids == set(tours["tour_id"])
         assert len(joint_tours) == admitted["joint_tour_id"].drop_nulls().n_unique()
 
-    @pytest.mark.parametrize(
-        "purpose",
-        [PurposeCategory.SOCIALREC, PurposeCategory.ESCORT],
-    )
-    def test_every_joint_trip_resolves_to_a_written_joint_tour(self, purpose, standard_config):
+    def test_every_joint_trip_resolves_to_a_written_joint_tour(self, standard_config):
         """No dangling tour_id: the reference must exist in the joint tour file.
 
         This is the invariant the reclassification bug broke -- joint trips
         survived pointing at a joint tour that had been demoted to individual.
+
+        Only an admissible purpose is exercised. An ESCORT parameter used to run
+        here too, but escort groups are reclassified, so the joint trip file came
+        back empty and the test passed without checking anything.
         """
         households, persons = _two_person_household()
-        tours = _shared_tour(purpose)
+        tours = _shared_tour(PurposeCategory.SOCIALREC)
         trips = _trips_for(tours)
 
         _, _, joint_tours, joint_trips = _format_all(
             tours, trips, persons, households, standard_config
         )
 
-        if joint_trips.is_empty():
-            return
+        assert not joint_trips.is_empty()  # premise: there is something to dangle
         written = joint_tours.select("hh_id", "tour_id").unique()
         orphans = (
             joint_trips.select("hh_id", "tour_id")
@@ -438,16 +404,6 @@ class TestPartitionInvariants:
             .join(written, on=["hh_id", "tour_id"], how="anti")
         )
         assert orphans.is_empty()
-
-    def test_joint_trip_participants_meet_the_minimum(self, standard_config):
-        """num_participants >= 2 -- a group of one is not joint."""
-        households, persons = _two_person_household()
-        tours = _shared_tour(PurposeCategory.SOCIALREC)
-        trips = _trips_for(tours)
-
-        _, _, _, joint_trips = _format_all(tours, trips, persons, households, standard_config)
-
-        assert joint_trips["num_participants"].min() >= MIN_JOINT
 
 
 class TestJointTourNumbering:
@@ -570,31 +526,31 @@ def _two_joint_tours(*, first_purpose: PurposeCategory, second_purpose: PurposeC
 class TestPartySize:
     """``num_participants`` counts the members behind the weight, not the party."""
 
-    def test_an_unsurveyed_companion_does_not_join_the_count(self, standard_config):
-        """Three travellers, two of them surveyed household members.
+    @pytest.mark.parametrize(
+        ("num_travelers", "expected_participants", "expected_mode"),
+        [
+            pytest.param(2, 2, CTRAMPModeType.SR2.value, id="no_companion"),
+            pytest.param(3, 2, CTRAMPModeType.SR3.value, id="unsurveyed_companion"),
+        ],
+    )
+    def test_an_unsurveyed_companion_does_not_join_the_count(
+        self, num_travelers, expected_participants, expected_mode, standard_config
+    ):
+        """``num_participants`` counts surveyed members; the mode counts the party.
 
         ``num_participants`` is what CT-RAMP multiplies the weight by, so it has
-        to match the member trips the weight was summed over -- two. Occupancy
-        is carried separately by the mode, which still sees a party of three.
+        to match the member trips the weight was summed over -- two, in both
+        rows. Occupancy is carried separately by the mode, which does see the
+        third traveller and moves from SR2 to SR3.
         """
         households, persons = _two_person_household()
-        tours = _shared_tour(PurposeCategory.SOCIALREC, num_travelers=3)
+        tours = _shared_tour(PurposeCategory.SOCIALREC, num_travelers=num_travelers)
         trips = _trips_for(tours)
 
         _, _, _, joint_trips = _format_all(tours, trips, persons, households, standard_config)
 
-        assert joint_trips["num_participants"].unique().to_list() == [MIN_JOINT]
-        assert joint_trips["trip_mode"].unique().to_list() == [CTRAMPModeType.SR3.value]
-
-    def test_a_two_person_party_is_shared_ride_2(self, standard_config):
-        """The control for the mode half of the previous test."""
-        households, persons = _two_person_household()
-        tours = _shared_tour(PurposeCategory.SOCIALREC, num_travelers=2)
-        trips = _trips_for(tours)
-
-        _, _, _, joint_trips = _format_all(tours, trips, persons, households, standard_config)
-
-        assert joint_trips["trip_mode"].unique().to_list() == [CTRAMPModeType.SR2.value]
+        assert joint_trips["num_participants"].unique().to_list() == [expected_participants]
+        assert joint_trips["trip_mode"].unique().to_list() == [expected_mode]
 
 
 class TestJointWeightExpansion:

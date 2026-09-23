@@ -24,7 +24,7 @@ import polars as pl
 import pytest
 
 GATED = "usable_ctramp"  # the ctramp profile, whose zone_coverage is taz
-UNGATED = "analysis"  # zone_coverage: none
+UNGATED = "usable_analysis"  # zone_coverage: none
 
 OUT_OF_REGION_HH = 27
 COMMUTES_OUT_HH = 28

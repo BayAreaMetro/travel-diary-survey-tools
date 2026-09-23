@@ -6,7 +6,6 @@ test data.
 """
 
 import polars as pl
-import pytest
 
 from data_canon.codebook.trips import PurposeCategory
 from processing.link_trips import link_trips
@@ -16,8 +15,6 @@ from .locations import lookup_location
 from .scenario_builders import (
     DEFAULT_TRANSIT_MODE_CODES,
     multi_person_household,
-    multi_stop_tour,
-    multi_tour_day,
     simple_work_tour,
     transit_commute,
 )
@@ -315,43 +312,3 @@ def process_scenario_through_pipeline(
             data_with_zones[name] = frame.with_columns(pl.lit(value=True).alias("usable_test"))
 
     return data_with_zones
-
-
-# ==============================================================================
-# Pytest Fixtures
-# ==============================================================================
-
-
-@pytest.fixture(scope="module")
-def simple_work_tour_processed():
-    """Simple work tour processed through link_trips and extract_tours.
-
-    Returns:
-        Dict with keys: households, persons, days, unlinked_trips,
-                        linked_trips, tours
-    """
-    return create_simple_work_tour_processed()
-
-
-@pytest.fixture(scope="module")
-def multi_stop_tour_processed():
-    """Multi-stop work tour processed through link_trips and extract_tours.
-
-    Returns:
-        Dict with keys: households, persons, days, unlinked_trips,
-                        linked_trips, tours
-    """
-    households, persons, days, unlinked_trips = multi_stop_tour()
-    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
-
-
-@pytest.fixture(scope="module")
-def multi_tour_day_processed():
-    """Multi-tour day processed through link_trips and extract_tours.
-
-    Returns:
-        Dict with keys: households, persons, days, unlinked_trips,
-                        linked_trips, tours
-    """
-    households, persons, days, unlinked_trips = multi_tour_day()
-    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)

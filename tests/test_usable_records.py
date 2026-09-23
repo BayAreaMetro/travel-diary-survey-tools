@@ -1,4 +1,14 @@
-"""A member whose group did not survive becomes an individual traveller, not a ghost.
+"""The gate that keeps what a usability profile admits, and decides nothing itself.
+
+``keep_usable`` reads one verdict column per consumer, stamped upstream by
+``cascade_completeness``. It filters each table on that table's own verdict, and
+repairs the references a filtered-out row leaves behind. It does not re-derive
+admissibility, and it does not cascade: both would be a second definition.
+
+The first half of this file covers the reference repair, the second the gate
+itself.
+
+A member whose group did not survive becomes an individual traveller, not a ghost.
 
 CT-RAMP requires ``num_participants >= 2``: a party of one is not a party. The
 cascade enforces that upstream -- a joint grouping is usable only while two of
@@ -19,7 +29,9 @@ trip-level group can exist where no ``joint_tour_id`` does.
 """
 
 import polars as pl
+import pytest
 
+from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.formatting.usable_records import keep_usable
 
 PROFILE = "ctramp"
@@ -83,19 +95,9 @@ class TestAJointTripIsItsOwnGrouping:
         assert kept["linked_trips"]["joint_trip_id"].to_list() == [None], (
             "the surviving member still pointed at a group that is gone"
         )
-
-    def test_the_survivors_travel_is_kept(self):
-        """Demotion, not deletion: the trip happened, it was just not joint."""
-        kept = keep_usable(
-            {
-                "tours": _tours([(1, None, True), (2, None, False)]),
-                "linked_trips": _linked_trips([(1, 1, 900, True), (2, 2, 900, False)]),
-                "joint_trips": _groups("joint_trip_id", [(900, False)]),
-            },
-            PROFILE,
+        assert kept["linked_trips"]["linked_trip_id"].to_list() == [1], (
+            "demotion, not deletion: the trip happened, it was just not joint"
         )
-
-        assert kept["linked_trips"]["linked_trip_id"].to_list() == [1]
 
 
 class TestTheTourGroupingIsSeparate:
@@ -126,23 +128,7 @@ class TestNoRecordOutlivesItsParent:
     """
 
     def test_a_person_does_not_outlive_their_household(self):
-        """The shape that reached CT-RAMP as a null HomeTAZ."""
-        kept = keep_usable(
-            {
-                "households": pl.DataFrame({"hh_id": [1, 2], FLAG: [True, False]}),
-                "persons": pl.DataFrame(
-                    {"person_id": [10, 20], "hh_id": [1, 2], FLAG: [True, True]}
-                ),
-            },
-            PROFILE,
-        )
-
-        assert kept["persons"]["person_id"].to_list() == [10], (
-            "a usable person in an unusable household has no home to report"
-        )
-
-    def test_removal_propagates_down_the_hierarchy(self):
-        """Dropping a household drops its persons, and their days with them."""
+        """The shape that reached CT-RAMP as a null HomeTAZ, and the days below it."""
         kept = keep_usable(
             {
                 "households": pl.DataFrame({"hh_id": [1, 2], FLAG: [True, False]}),
@@ -161,7 +147,12 @@ class TestNoRecordOutlivesItsParent:
             PROFILE,
         )
 
-        assert kept["days"]["day_id"].to_list() == [100]
+        assert kept["persons"]["person_id"].to_list() == [10], (
+            "a usable person in an unusable household has no home to report"
+        )
+        assert kept["days"]["day_id"].to_list() == [100], (
+            "dropping a household drops its persons, and their days with them"
+        )
 
 
 class TestTheIdIsClearedEverywhereItIsCarried:
@@ -256,3 +247,108 @@ class TestAnAdmittedGroupIsLeftAlone:
         )
 
         assert kept["linked_trips"]["joint_trip_id"].to_list() == [None]
+
+
+class TestTheGate:
+    """The formatter keeps what the profile admits, and decides nothing itself.
+
+    ``cascade_completeness`` stamps one verdict for every consumer; the
+    formatter reads the profile its config names. It does not re-derive
+    admissibility from ``tour_data_quality`` / ``tour_category``: that was a
+    second definition, it disagreed with the DaySim formatter's own version, and
+    once the profile comes from config it cannot know which one was asked for.
+
+    Nor does it cascade. Each table is filtered on its own verdict, which is
+    sound because the cascade already reconciles them -- trips inherit their
+    tour, the upward reductions are ``>= 1``, and a joint grouping needs two
+    usable members. The descriptors survive on these fixtures only because the
+    summary log still labels exclusions with them.
+    """
+
+    def _tours(self, rows: list[tuple[int, bool]]) -> pl.DataFrame:
+        return pl.DataFrame(
+            {
+                "tour_id": [r[0] for r in rows],
+                "tour_data_quality": [TourDataQuality.VALID.value] * len(rows),
+                "tour_category": [TourCategory.COMPLETE.value] * len(rows),
+                "usable_test": [r[1] for r in rows],
+            }
+        )
+
+    def _linked_trips(self, rows: list[tuple[int, bool]]) -> pl.DataFrame:
+        """One non-joint linked trip per (tour id, verdict)."""
+        return pl.DataFrame(
+            {
+                "linked_trip_id": [r[0] * 10 for r in rows],
+                "tour_id": [r[0] for r in rows],
+                "joint_trip_id": [None] * len(rows),
+                "usable_test": [r[1] for r in rows],
+            },
+            schema_overrides={"joint_trip_id": pl.Int64},
+        )
+
+    def test_it_keeps_what_the_profile_admits(self):
+        """Each table is filtered on its own verdict, not cascaded from tours."""
+        kept = keep_usable(
+            {
+                "tours": self._tours([(1, True), (2, False), (3, True), (4, False)]),
+                "linked_trips": self._linked_trips([(1, True), (2, False), (3, True), (4, False)]),
+            },
+            "test",
+        )
+
+        assert sorted(kept["tours"]["tour_id"].to_list()) == [1, 3]
+        assert sorted(kept["linked_trips"]["tour_id"].to_list()) == [1, 3]
+
+    def test_it_keeps_everything_the_profile_admits(self):
+        """Nothing is excluded when the profile admits every record."""
+        kept = keep_usable(
+            {
+                "tours": self._tours([(1, True), (2, True)]),
+                "linked_trips": self._linked_trips([(1, True), (2, True)]),
+            },
+            "test",
+        )
+
+        assert sorted(kept["tours"]["tour_id"].to_list()) == [1, 2]
+        assert sorted(kept["linked_trips"]["tour_id"].to_list()) == [1, 2]
+
+    def test_descriptors_alone_do_not_gate(self):
+        """A frame with tour descriptors but no verdict is a broken frame.
+
+        Filtering on the category alone answers a different question -- it has
+        no reporting completeness and no household-day coherence in it -- so it
+        silently kept tours the profile rejects.
+        """
+        tours = pl.DataFrame(
+            {
+                "tour_id": [1, 2],
+                "tour_category": [TourCategory.COMPLETE.value, TourCategory.PARTIAL_END.value],
+            }
+        )
+
+        with pytest.raises(ValueError, match="no 'usable_test' column"):
+            keep_usable({"tours": tours}, "test")
+
+    def test_a_missing_gate_names_what_is_present(self):
+        """The error has to be actionable: which columns *are* there.
+
+        A profile's name comes from config, so it cannot be recognised by shape;
+        silently keeping every record was the old behaviour and is the worst of
+        the options.
+        """
+        tours = pl.DataFrame({"tour_id": [1], "usable_ctramp": [True], "survey_complete": [True]})
+
+        with pytest.raises(ValueError, match="ctramp"):
+            keep_usable({"tours": tours}, "daysim")
+
+    def test_a_null_verdict_excludes_rather_than_guesses(self):
+        """A null means the cascade never reached the row -- not a licence to keep it."""
+        tours = pl.DataFrame(
+            {"tour_id": [1, 2], "usable_test": [True, None]},
+            schema_overrides={"usable_test": pl.Boolean},
+        )
+
+        kept = keep_usable({"tours": tours}, "test")
+
+        assert kept["tours"]["tour_id"].to_list() == [1]

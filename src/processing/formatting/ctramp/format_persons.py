@@ -101,21 +101,29 @@ def enrich_persons_with_person_type(
     if "person_type" not in persons_canonical.columns or "type" not in persons_canonical.columns:
         logger.info("person_type or type column missing, deriving person type from attributes")
 
-        # Determine whether pre-derived categories are available for consistency
-        has_employment_category = "employment_category" in persons_canonical.columns
-        has_student_category = "student_category" in persons_canonical.columns
-
-        expr_kwargs = {}
-        if has_employment_category:
-            expr_kwargs["employment_category_col"] = "employment_category"
-        if has_student_category:
-            expr_kwargs["student_category_col"] = "student_category"
+        # The categories carry the employment and student rules; person type reads
+        # them rather than re-deriving from the raw columns, so the rules live in
+        # one place. A caller that has not derived them is a programming error, not
+        # a case to guess at.
+        missing = [
+            col
+            for col in ("employment_category", "student_category")
+            if col not in persons_canonical.columns
+        ]
+        if missing:
+            msg = (
+                f"persons is missing {missing}, which person type is derived from. "
+                "Derive them first: student_category via "
+                "ctramp_student_category_expression, employment_category via "
+                "EMPLOYMENT_TO_CTRAMP."
+            )
+            raise ValueError(msg)
 
         persons_with_type = persons_canonical.with_columns(
             # Integer person_type code
-            ctramp_person_type_expression(**expr_kwargs).alias("person_type"),
+            ctramp_person_type_expression().alias("person_type"),
             # String type (e.g. "full_time_worker"), derived from person_type code
-            ctramp_person_type_expression(**expr_kwargs)
+            ctramp_person_type_expression()
             .replace_strict(CTRAMPPersonType.to_dict())
             .alias("type"),
         )

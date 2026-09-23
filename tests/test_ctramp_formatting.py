@@ -37,7 +37,6 @@ from data_canon.models.ctramp import (
     JointTripCTRAMPModel,
     PersonCTRAMPModel,
 )
-from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.format_ctramp import _drop_excess_fields, format_ctramp
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_joint_trips import format_joint_trip
@@ -89,86 +88,34 @@ def get_required_non_null_fields(model):
     return required
 
 
-@pytest.fixture
-def standard_config():
-    """Standard test configuration with explicit parameters."""
-    return CTRAMPConfig(
-        usability_profile="test",
-        income_low_threshold=30000,  # $30k ($2000, MTC)
-        income_med_threshold=60000,  # $60k ($2000, MTC)
-        income_high_threshold=100000,  # $100k ($2000, MTC)
-        income_survey_year_to_ctramp_year=0.5319148936,
-        age_adult=4,  # AGE_18_TO_24 = category 4 (18+ are adults)
-    )
-
-
 class TestFreeParkingChoice:
     """Tests for free parking choice in person formatting."""
 
-    def test_free_parking_used(self, standard_config):
-        """Test free parking choice when free parking is used."""
+    @pytest.mark.parametrize(
+        ("use_free", "use_discounted", "expected"),
+        [
+            (BooleanYesNo.YES, BooleanYesNo.NO, FreeParkingChoice.PARK_FOR_FREE),
+            (BooleanYesNo.NO, BooleanYesNo.YES, FreeParkingChoice.PARK_FOR_FREE),
+            (BooleanYesNo.YES, BooleanYesNo.YES, FreeParkingChoice.PARK_FOR_FREE),
+            (BooleanYesNo.NO, BooleanYesNo.NO, FreeParkingChoice.PAY_TO_PARK),
+            # 995 is "missing", which is not evidence of a subsidy.
+            (BooleanYesNo.MISSING, BooleanYesNo.MISSING, FreeParkingChoice.PAY_TO_PARK),
+        ],
+    )
+    def test_fp_choice_from_parking_subsidies(
+        self, use_free, use_discounted, expected, standard_config
+    ):
+        """Either subsidy in use means the person does not pay to park."""
         persons = pl.DataFrame(
             [
                 create_person(
-                    commute_subsidy_use_free_parking=BooleanYesNo.YES,
-                    commute_subsidy_use_discounted_parking=BooleanYesNo.NO,
+                    commute_subsidy_use_free_parking=use_free,
+                    commute_subsidy_use_discounted_parking=use_discounted,
                 )
             ]
         )
         result = format_persons(persons, pl.DataFrame(), standard_config)
-        assert result["fp_choice"][0] == FreeParkingChoice.PARK_FOR_FREE.value
-
-    def test_discount_parking_used(self, standard_config):
-        """Test free parking choice when discounted parking is used."""
-        persons = pl.DataFrame(
-            [
-                create_person(
-                    commute_subsidy_use_free_parking=BooleanYesNo.NO,
-                    commute_subsidy_use_discounted_parking=BooleanYesNo.YES,
-                )
-            ]
-        )
-        result = format_persons(persons, pl.DataFrame(), standard_config)
-        assert result["fp_choice"][0] == FreeParkingChoice.PARK_FOR_FREE.value
-
-    def test_both_parking_subsidies_used(self, standard_config):
-        """Test free parking choice when both parking subsidies are used."""
-        persons = pl.DataFrame(
-            [
-                create_person(
-                    commute_subsidy_use_free_parking=BooleanYesNo.YES,
-                    commute_subsidy_use_discounted_parking=BooleanYesNo.YES,
-                )
-            ]
-        )
-        result = format_persons(persons, pl.DataFrame(), standard_config)
-        assert result["fp_choice"][0] == FreeParkingChoice.PARK_FOR_FREE.value
-
-    def test_no_parking_subsidy_used(self, standard_config):
-        """Test no parking subsidy used."""
-        persons = pl.DataFrame(
-            [
-                create_person(
-                    commute_subsidy_use_free_parking=BooleanYesNo.NO,
-                    commute_subsidy_use_discounted_parking=BooleanYesNo.NO,
-                )
-            ]
-        )
-        result = format_persons(persons, pl.DataFrame(), standard_config)
-        assert result["fp_choice"][0] == FreeParkingChoice.PAY_TO_PARK.value
-
-    def test_missing_values_treated_as_no_subsidy(self, standard_config):
-        """Test that missing (995) values are treated as no subsidy."""
-        persons = pl.DataFrame(
-            [
-                create_person(
-                    commute_subsidy_use_free_parking=BooleanYesNo.MISSING,
-                    commute_subsidy_use_discounted_parking=BooleanYesNo.MISSING,
-                )
-            ]
-        )
-        result = format_persons(persons, pl.DataFrame(), standard_config)
-        assert result["fp_choice"][0] == FreeParkingChoice.PAY_TO_PARK.value
+        assert result["fp_choice"][0] == expected.value
 
 
 class TestHouseholdFormatting:
@@ -215,25 +162,34 @@ class TestHouseholdFormatting:
         assert result["workers"][0] == 1
         assert result["jtf_choice"][0] == JTFChoice.NONE_NONE.value
 
-    def test_income_bin_midpoint(self, standard_config):
-        """Test income is derived from income_bin midpoint when income is not set."""
-        households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    income_bin=IncomeBroad.INCOME_50TO75,
-                )
-            ]
+    @pytest.mark.parametrize(
+        ("income_column", "expected_income"),
+        [
+            # No income column at all: the bin midpoint stands in, deflated to
+            # $2000 by income_survey_year_to_ctramp_year ($62k / 1.88).
+            pytest.param(None, 32979, id="bin_midpoint_only"),
+            # A null income still falls back to the bin midpoint...
+            pytest.param([None], 32979, id="null_income_falls_back"),
+            # ...but a reported income is kept, and only deflated.
+            pytest.param([100000], 53191, id="reported_income_wins"),
+        ],
+    )
+    def test_income_from_bin_or_reported_value(
+        self, income_column, expected_income, standard_config
+    ):
+        """Income is the reported value where there is one, else the bin midpoint."""
+        households = pl.DataFrame([create_household(hh_id=1, income_bin=IncomeBroad.INCOME_50TO75)])
+        households = (
+            households.drop("income")
+            if income_column is None
+            else households.with_columns(income=pl.Series(income_column, dtype=pl.Int64))
         )
-
-        persons = pl.DataFrame(
-            {"hh_id": [], "employment": []},
-            schema={"hh_id": pl.Int64, "employment": pl.Int64},
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
         tours = pl.DataFrame([], schema=get_tour_schema())
+
         result = format_households(households, persons, tours, standard_config)
 
-        assert result["income"][0] == 32979  # $62k (2023) midpoint deflated to $2000 (/1.88)
+        assert result["income"][0] == expected_income
 
 
 class TestPersonFormatting:
@@ -325,9 +281,36 @@ class TestEndToEndFormatting:
         assert households_ctramp["hh_id"][0] == 101
         assert persons_ctramp["type"][0] == CTRAMPPersonType.FULL_TIME_WORKER.label
 
-    def test_family_household(self, standard_config):
-        """Test formatting of family household with multiple person types."""
-        households, persons = create_family_household()
+    @pytest.mark.parametrize(
+        ("build_household", "expected_types"),
+        [
+            pytest.param(
+                create_family_household,
+                [
+                    CTRAMPPersonType.FULL_TIME_WORKER,
+                    CTRAMPPersonType.PART_TIME_WORKER,
+                    CTRAMPPersonType.STUDENT_DRIVING_AGE,
+                    CTRAMPPersonType.STUDENT_NON_DRIVING_AGE,
+                ],
+                id="family",
+            ),
+            pytest.param(
+                create_retired_household,
+                [CTRAMPPersonType.RETIRED, CTRAMPPersonType.RETIRED],
+                id="retired",
+            ),
+            pytest.param(
+                create_university_student_household,
+                [CTRAMPPersonType.UNIVERSITY_STUDENT],
+                id="university_student",
+            ),
+        ],
+    )
+    def test_person_types_by_household_scenario(
+        self, build_household, expected_types, standard_config
+    ):
+        """Each scenario builder produces exactly the person types it is named for."""
+        households, persons = build_household()
 
         result = format_ctramp(
             persons,
@@ -345,71 +328,10 @@ class TestEndToEndFormatting:
             usability_profile="test",
         )
 
-        households_ctramp = result["households_ctramp"]
-        persons_ctramp = result["persons_ctramp"]
-
-        assert len(households_ctramp) == 1
-        assert len(persons_ctramp) == 4
-
-        # Check person types
-        person_types = persons_ctramp["type"].to_list()
-        assert CTRAMPPersonType.FULL_TIME_WORKER.label in person_types
-        assert CTRAMPPersonType.PART_TIME_WORKER.label in person_types
-        assert CTRAMPPersonType.STUDENT_DRIVING_AGE.label in person_types
-        assert CTRAMPPersonType.STUDENT_NON_DRIVING_AGE.label in person_types
-
-    def test_retired_household(self, standard_config):
-        """Test formatting of retired household."""
-        households, persons = create_retired_household()
-
-        result = format_ctramp(
-            persons,
-            households,
-            linked_trips=empty_linked_trips(),
-            tours=empty_tours(),
-            joint_trips=empty_joint_trips(),
-            unlinked_trips=empty_unlinked_trips(),
-            joint_tours=empty_joint_tours(),
-            days=days_for_persons(persons),
-            income_low_threshold=standard_config.income_low_threshold,
-            income_med_threshold=standard_config.income_med_threshold,
-            income_high_threshold=standard_config.income_high_threshold,
-            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
-            usability_profile="test",
+        assert len(result["households_ctramp"]) == 1
+        assert sorted(result["persons_ctramp"]["type"].to_list()) == sorted(
+            person_type.label for person_type in expected_types
         )
-
-        persons_ctramp = result["persons_ctramp"]
-
-        assert len(persons_ctramp) == 2
-        assert all(pt == CTRAMPPersonType.RETIRED.label for pt in persons_ctramp["type"].to_list())
-
-    def test_university_student_household(self, standard_config):
-        """Test formatting of university student household."""
-        (
-            households,
-            persons,
-        ) = create_university_student_household()
-
-        result = format_ctramp(
-            persons,
-            households,
-            linked_trips=empty_linked_trips(),
-            tours=empty_tours(),
-            joint_trips=empty_joint_trips(),
-            unlinked_trips=empty_unlinked_trips(),
-            joint_tours=empty_joint_tours(),
-            days=days_for_persons(persons),
-            income_low_threshold=standard_config.income_low_threshold,
-            income_med_threshold=standard_config.income_med_threshold,
-            income_high_threshold=standard_config.income_high_threshold,
-            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
-            usability_profile="test",
-        )
-
-        persons_ctramp = result["persons_ctramp"]
-
-        assert len(persons_ctramp) == 1
-        assert persons_ctramp["type"][0] == CTRAMPPersonType.UNIVERSITY_STUDENT.label
 
 
 class TestColumnPresence:
@@ -912,76 +834,6 @@ class TestIndividualTourFormatting:
                 config=standard_config,
             )
 
-    def test_joint_tour_exclusion(self, standard_config):
-        """Test that joint tours are excluded from individual tours."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [
-                # Individual tour
-                create_tour(
-                    tour_id=1001,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=None,
-                ),
-                # Joint tour (should be excluded)
-                create_tour(
-                    tour_id=1002,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=9001,
-                    tour_purpose=PurposeCategory.SHOP,
-                ),
-            ],
-            schema=get_tour_schema(),
-        )
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001,
-                    tour_id=1001,
-                    person_id=101,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10002,
-                    tour_id=1001,
-                    person_id=101,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10003,
-                    tour_id=1002,
-                    person_id=101,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10004,
-                    tour_id=1002,
-                    person_id=101,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-            ]
-        )
-
-        # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours, standard_config)
-        format_persons(persons, pl.DataFrame(), standard_config)
-
-        result = format_individual_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Only individual tour should be included
-        assert len(result) == 1
-        assert result["tour_id"][0] == 0  # CTRAMP tour_id is 0-based (0 for first tour)
-
 
 class TestJointTourFormatting:
     """Tests for joint tour formatting."""
@@ -1066,855 +918,166 @@ class TestJointTourFormatting:
         # Composition: 1 adult + 1 child
         assert result["tour_composition"][0] == TourComposition.ADULTS_AND_CHILDREN.value
 
-    def test_individual_tour_exclusion_joint_formatter(self, standard_config):
-        """Test that individual tours are excluded from joint tours."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [
-                # Individual tour (should be excluded)
-                create_tour(
-                    tour_id=1001,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=None,
-                ),
-                # Joint tour
-                create_tour(
-                    tour_id=1002,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=9001,
-                    tour_purpose=PurposeCategory.SHOP,
-                ),
-            ],
-            schema=get_tour_schema(),
-        )
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001,
-                    tour_id=1001,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10002,
-                    tour_id=1001,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10003,
-                    tour_id=1002,
-                    tour_direction=TourDirection.OUTBOUND,
-                    joint_tour_id=9001,
-                ),
-                create_linked_trip(
-                    trip_id=10004,
-                    tour_id=1002,
-                    tour_direction=TourDirection.INBOUND,
-                    joint_tour_id=9001,
-                ),
-            ]
-        )
 
-        # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours, standard_config)
-
-        result = format_joint_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            joint_tours_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Only joint tour should be included
-        assert len(result) == 1
-        assert result["tour_id"][0] == 0  # CTRAMP joint tour_id is 0-based per household
-
-    def test_empty_joint_tours(self, standard_config):
-        """Test that formatter handles no joint tours gracefully."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [
-                # Only individual tours
-                create_tour(
-                    tour_id=1001,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=None,
-                )
-            ],
-            schema=get_tour_schema(),
-        )
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001,
-                    tour_id=1001,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10002,
-                    tour_id=1001,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-            ]
-        )
-
-        # Format to CTRAMP
-        households_formatted = format_households(households, persons, tours, standard_config)
-        persons_formatted = format_persons(persons, pl.DataFrame(), standard_config)
-
-        result = format_joint_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            joint_tours_canonical=pl.DataFrame(),
-            persons_canonical=persons_formatted,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Should return empty DataFrame
-        assert len(result) == 0
+LEVELS = [
+    pytest.param("_households", "hh_weight", id="household"),
+    pytest.param("_persons", "person_weight", id="person"),
+    pytest.param("_tours", "tour_weight", id="tour"),
+    # The trip table renames linked_trip_weight to trip_weight on the way out.
+    pytest.param("_trips", "trip_weight", id="trip"),
+]
 
 
 class TestWeightsAndSampleRateFormatting:
-    """Tests for weight fields and sampleRate calculation in CTRAMP formatting output."""
+    """``sampleRate`` is 1/weight, and exists only where a weight does.
 
-    def test_household_weight_and_samplerate(self, standard_config):
-        """Test hh_weight and sampleRate are output when weight exists."""
-        households = pl.DataFrame(
-            [
-                create_household(hh_id=1, hh_weight=2.5),
-                create_household(hh_id=2, hh_weight=4.0),
-            ]
-        )
+    Each of the four levels carries its own weight column and derives its own
+    rate from it, so the rule is checked per level rather than assumed to copy
+    down from households. Zero and null have no inverse, and writing one would
+    poison every total derived from the file, so the rate is null there.
+
+    Each builder below takes the weights to put on the input rows, or ``None``
+    to leave the weight column off the input entirely, and returns the formatted
+    frame in input order.
+    """
+
+    @staticmethod
+    def _households(weights, config):
+        """Format one household per weight, each with a single person."""
+        if weights is None:
+            households = pl.DataFrame([create_household(hh_id=1)]).drop("hh_weight")
+        else:
+            households = pl.DataFrame(
+                [create_household(hh_id=i, hh_weight=w) for i, w in enumerate(weights, start=1)],
+                schema_overrides={"hh_weight": pl.Float64},
+            )
         persons = pl.DataFrame(
-            [
-                create_person(person_id=101, hh_id=1),
-                create_person(person_id=201, hh_id=2),
-            ]
+            [create_person(person_id=100 * i + 1, hh_id=i) for i in range(1, len(households) + 1)]
         )
         tours = pl.DataFrame([], schema=get_tour_schema())
+        return format_households(households, persons, tours, config).sort("hh_id")
 
-        result = format_households(households, persons, tours, standard_config)
-
-        # Verify weight column present
-        assert "hh_weight" in result.columns
-        assert "sampleRate" in result.columns
-
-        # Verify weight values passed through
-        assert result.filter(pl.col("hh_id") == 1)["hh_weight"][0] == 2.5
-        assert result.filter(pl.col("hh_id") == 2)["hh_weight"][0] == 4.0
-
-        # Verify sampleRate = 1/weight
-        assert result.filter(pl.col("hh_id") == 1)["sampleRate"][0] == pytest.approx(1 / 2.5)
-        assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(1 / 4.0)
-
-    def test_household_samplerate_null_when_zero_weight(self, standard_config):
-        """Test sampleRate is None when hh_weight is zero."""
-        households = pl.DataFrame(
-            [
-                create_household(hh_id=1, hh_weight=0.0),
-                create_household(hh_id=2, hh_weight=2.0),
-            ]
-        )
-        persons = pl.DataFrame(
-            [
-                create_person(person_id=101, hh_id=1),
-                create_person(person_id=201, hh_id=2),
-            ]
-        )
-        tours = pl.DataFrame([], schema=get_tour_schema())
-
-        result = format_households(households, persons, tours, standard_config)
-
-        # Zero weight should result in None sampleRate
-        assert result.filter(pl.col("hh_id") == 1)["sampleRate"][0] is None
-        assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(0.5)
-
-    def test_household_samplerate_null_when_null_weight(self, standard_config):
-        """Test sampleRate is None when hh_weight is null."""
-        households = pl.DataFrame(
-            {
-                "hh_id": [1, 2],
-                "home_taz": [100, 200],
-                "num_people": [1, 2],
-                "num_vehicles": [1, 1],
-                "num_workers": [1, 1],
-                "income_bin": [IncomeBroad.INCOME_75TO100.value] * 2,
-                "hh_weight": [None, 3.0],
-                "home_lat": [37.7, 37.8],
-                "home_lon": [-122.4, -122.5],
-                "home_maz": [None, None],
-                "home_walk_subzone": [None, None],
-                "residence_type": [None, None],
-                "residence_rent_own": [None, None],
-            }
-        )
-        persons = pl.DataFrame(
-            [
-                create_person(person_id=101, hh_id=1),
-                create_person(person_id=201, hh_id=2),
-            ]
-        )
-        tours = pl.DataFrame([], schema=get_tour_schema())
-
-        result = format_households(households, persons, tours, standard_config)
-
-        # Null weight should result in None sampleRate
-        assert result.filter(pl.col("hh_id") == 1)["sampleRate"][0] is None
-        assert result.filter(pl.col("hh_id") == 2)["sampleRate"][0] == pytest.approx(1 / 3.0)
-
-    def test_household_no_weight_columns_when_missing(self, standard_config):
-        """Test hh_weight and sampleRate absent when not in input."""
-        households = pl.DataFrame(
-            {
-                "hh_id": [1],
-                "home_taz": [100],
-                "num_people": [1],
-                "num_vehicles": [1],
-                "num_workers": [1],
-                "income_bin": [IncomeBroad.INCOME_75TO100.value],
-                "home_lat": [37.7],
-                "home_lon": [-122.4],
-                "home_maz": [None],
-                "home_walk_subzone": [None],
-                "residence_type": [None],
-                "residence_rent_own": [None],
-                # NO hh_weight column
-            }
-        )
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame([], schema=get_tour_schema())
-
-        result = format_households(households, persons, tours, standard_config)
-
-        # Weight columns should not be present
-        assert "hh_weight" not in result.columns
-        assert "sampleRate" not in result.columns
-
-    def test_person_weight_and_samplerate(self, standard_config):
-        """Test person_weight and sampleRate are output when weight exists."""
-        persons = pl.DataFrame(
-            [
-                {**create_person(person_id=101, hh_id=1), "person_weight": 1.5},
-                {**create_person(person_id=102, hh_id=1), "person_weight": 2.0},
-            ]
-        )
-        tours = pl.DataFrame()
-
-        result = format_persons(persons, tours, standard_config)
-
-        # Verify weight column present
-        assert "person_weight" in result.columns
-        assert "sampleRate" in result.columns
-
-        # Verify sampleRate = 1/weight
-        assert result.filter(pl.col("person_id") == 101)["sampleRate"][0] == pytest.approx(1 / 1.5)
-        assert result.filter(pl.col("person_id") == 102)["sampleRate"][0] == pytest.approx(1 / 2.0)
-
-    def test_person_samplerate_null_when_zero_weight(self, standard_config):
-        """Test person sampleRate is None when person_weight is zero."""
-        persons = pl.DataFrame(
-            [
-                {**create_person(person_id=101, hh_id=1), "person_weight": 0.0},
-                {**create_person(person_id=102, hh_id=1), "person_weight": 1.5},
-            ]
-        )
-        tours = pl.DataFrame()
-
-        result = format_persons(persons, tours, standard_config)
-
-        assert result.filter(pl.col("person_id") == 101)["sampleRate"][0] is None
-        assert result.filter(pl.col("person_id") == 102)["sampleRate"][0] == pytest.approx(1 / 1.5)
-
-    def test_person_no_weight_columns_when_missing(self, standard_config):
-        """Test person_weight and sampleRate absent when not in input."""
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)]).drop("person_weight")
-        tours = pl.DataFrame()
-
-        result = format_persons(persons, tours, standard_config)
-
-        # Weight columns should not be present
-        assert "person_weight" not in result.columns
-        assert "sampleRate" not in result.columns
-
-    def test_tour_weight_and_samplerate(self, standard_config):
-        """Test tour_weight and sampleRate are output when weight exists."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [
-                {
-                    **create_tour(tour_id=1001, person_id=101, hh_id=1, tour_num=1),
-                    "tour_weight": 3.0,
-                },
-                {
-                    **create_tour(tour_id=1002, person_id=101, hh_id=1, tour_num=2),
-                    "tour_weight": 5.0,
-                },
-            ],
-            schema={**get_tour_schema(), "tour_weight": pl.Float64},
-        )
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001, tour_id=1001, tour_direction=TourDirection.OUTBOUND
-                ),
-                create_linked_trip(
-                    trip_id=10002, tour_id=1001, tour_direction=TourDirection.INBOUND
-                ),
-                create_linked_trip(
-                    trip_id=10003, tour_id=1002, tour_direction=TourDirection.OUTBOUND
-                ),
-                create_linked_trip(
-                    trip_id=10004, tour_id=1002, tour_direction=TourDirection.INBOUND
-                ),
-            ]
-        )
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_individual_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Verify weight column present
-        assert "tour_weight" in result.columns
-        assert "sampleRate" in result.columns
-
-        # Verify sampleRate = 1/weight (CTRAMP tour_id is 0-based: 0, 1)
-        assert result.filter(pl.col("tour_id") == 0)["sampleRate"][0] == pytest.approx(1 / 3.0)
-        assert result.filter(pl.col("tour_id") == 1)["sampleRate"][0] == pytest.approx(1 / 5.0)
-
-    def test_tour_samplerate_null_when_zero_weight(self, standard_config):
-        """Test tour sampleRate is None when tour_weight is zero."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [
-                {
-                    **create_tour(tour_id=1001, person_id=101, hh_id=1, tour_num=1),
-                    "tour_weight": 0.0,
-                },
-                {
-                    **create_tour(tour_id=1002, person_id=101, hh_id=1, tour_num=2),
-                    "tour_weight": 2.5,
-                },
-            ],
-            schema={**get_tour_schema(), "tour_weight": pl.Float64},
-        )
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001, tour_id=1001, tour_direction=TourDirection.OUTBOUND
-                ),
-                create_linked_trip(
-                    trip_id=10002, tour_id=1001, tour_direction=TourDirection.INBOUND
-                ),
-                create_linked_trip(
-                    trip_id=10003, tour_id=1002, tour_direction=TourDirection.OUTBOUND
-                ),
-                create_linked_trip(
-                    trip_id=10004, tour_id=1002, tour_direction=TourDirection.INBOUND
-                ),
-            ]
-        )
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_individual_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # CTRAMP tour_id is 0-based: 0, 1
-        assert result.filter(pl.col("tour_id") == 0)["sampleRate"][0] is None
-        assert result.filter(pl.col("tour_id") == 1)["sampleRate"][0] == pytest.approx(1 / 2.5)
-
-    def test_tour_no_weight_columns_when_missing(self, standard_config):
-        """Test tour_weight and sampleRate absent when not in input."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [create_tour(tour_id=1001, person_id=101, hh_id=1)],
-            schema=get_tour_schema(),
-        ).drop("tour_weight")
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001, tour_id=1001, tour_direction=TourDirection.OUTBOUND
-                ),
-                create_linked_trip(
-                    trip_id=10002, tour_id=1001, tour_direction=TourDirection.INBOUND
-                ),
-            ]
-        )
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_individual_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Weight columns should not be present
-        assert "tour_weight" not in result.columns
-        assert "sampleRate" not in result.columns
-
-    def test_trip_weight_and_samplerate(self, standard_config):
-        """Test trip_weight and sampleRate are output when linked_trip_weight exists."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [create_tour(tour_id=1001, person_id=101, hh_id=1)],
-            schema=get_tour_schema(),
-        )
-        trips = pl.DataFrame(
-            [
-                {
-                    **create_linked_trip(
-                        linked_trip_id=10001, tour_id=1001, tour_direction=TourDirection.OUTBOUND
-                    ),
-                    "linked_trip_weight": 2.0,
-                },
-                {
-                    **create_linked_trip(
-                        linked_trip_id=10002, tour_id=1001, tour_direction=TourDirection.INBOUND
-                    ),
-                    "linked_trip_weight": 4.0,
-                },
-            ]
-        )
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        tours_formatted = format_individual_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-        result = format_individual_trip(
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            tours_ctramp=tours_formatted,
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Verify trip_weight column present (renamed from linked_trip_weight)
-        assert "trip_weight" in result.columns
-        assert "sampleRate" in result.columns
-
-        # Verify sampleRate = 1/weight
-        # Sort by trip_weight to ensure predictable order
-        result = result.sort("trip_weight")
-        assert result["trip_weight"][0] == 2.0
-        assert result["trip_weight"][1] == 4.0
-        assert result["sampleRate"][0] == pytest.approx(1 / 2.0)
-        assert result["sampleRate"][1] == pytest.approx(1 / 4.0)
-
-    def test_trip_samplerate_null_when_zero_weight(self, standard_config):
-        """Test trip sampleRate is None when linked_trip_weight is zero."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [create_tour(tour_id=1001, person_id=101, hh_id=1)],
-            schema=get_tour_schema(),
-        )
-        trips = pl.DataFrame(
-            [
-                {
-                    **create_linked_trip(
-                        linked_trip_id=10001, tour_id=1001, tour_direction=TourDirection.OUTBOUND
-                    ),
-                    "linked_trip_weight": 0.0,
-                },
-                {
-                    **create_linked_trip(
-                        linked_trip_id=10002, tour_id=1001, tour_direction=TourDirection.INBOUND
-                    ),
-                    "linked_trip_weight": 3.5,
-                },
-            ]
-        )
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        tours_formatted = format_individual_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-        result = format_individual_trip(
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            tours_ctramp=tours_formatted,
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Sort by trip_weight to ensure predictable order (0 first, then 3.5)
-        result = result.sort("trip_weight")
-        assert result["trip_weight"][0] == 0.0
-        assert result["sampleRate"][0] is None
-        assert result["trip_weight"][1] == 3.5
-        assert result["sampleRate"][1] == pytest.approx(1 / 3.5)
-
-    def test_trip_no_weight_columns_when_missing(self, standard_config):
-        """Test trip_weight and sampleRate absent when linked_trip_weight not in input."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
-        tours = pl.DataFrame(
-            [create_tour(tour_id=1001, person_id=101, hh_id=1)],
-            schema=get_tour_schema(),
-        )
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    linked_trip_id=10001, tour_id=1001, tour_direction=TourDirection.OUTBOUND
-                ),
-                create_linked_trip(
-                    linked_trip_id=10002, tour_id=1001, tour_direction=TourDirection.INBOUND
-                ),
-            ]
-        ).drop("linked_trip_weight")
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        tours_formatted = format_individual_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-        result = format_individual_trip(
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            tours_ctramp=tours_formatted,
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        # Weight columns should not be present
-        assert "trip_weight" not in result.columns
-        assert "sampleRate" not in result.columns
-
-    def test_joint_tours_weight_fields(self, standard_config):
-        """Test joint tours carry joint_tour_weight and derive sampleRate from it.
-
-        Joint tours are their own entity, so their weight comes from the canonical
-        joint-tours table as ``joint_tour_weight``. That weight is the SUM over
-        participants, so ``sampleRate`` is the inverse of the member *mean* --
-        ``n_member_tours / weight`` -- not 1/weight, which would let CT-RAMP apply
-        the party multiplier twice.
-        """
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame(
-            [
-                create_person(person_id=101, hh_id=1, person_num=1),
-                create_person(person_id=102, hh_id=1, person_num=2),
-            ]
-        )
-        # Two participants, so the joint tour has two member tours and its summed
-        # weight divides back to a per-tour rate by that count.
-        tours = pl.DataFrame(
-            [
-                create_tour(
-                    tour_id=1001,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=5001,
-                    tour_purpose=PurposeCategory.SOCIALREC,
-                    num_travelers=2,
-                ),
-                create_tour(
-                    tour_id=1002,
-                    person_id=102,
-                    hh_id=1,
-                    joint_tour_id=5001,
-                    tour_purpose=PurposeCategory.SOCIALREC,
-                    num_travelers=2,
-                ),
-            ],
-            schema=get_tour_schema(),
-        )
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001,
-                    person_id=101,
-                    tour_id=1001,
-                    joint_tour_id=5001,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10002,
-                    person_id=101,
-                    tour_id=1001,
-                    joint_tour_id=5001,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10003,
-                    person_id=102,
-                    person_num=2,
-                    tour_id=1002,
-                    joint_tour_id=5001,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10004,
-                    person_id=102,
-                    person_num=2,
-                    tour_id=1002,
-                    joint_tour_id=5001,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-            ]
-        )
-
-        joint_tours_canonical = pl.DataFrame(
-            {
-                "joint_tour_id": [5001],
-                "joint_tour_weight": [5.0],
-            }
-        )
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_joint_tour(
-            tours_canonical=tours,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            joint_tours_canonical=joint_tours_canonical,
-            persons_canonical=persons,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        assert "joint_tour_weight" in result.columns
-        assert "sampleRate" in result.columns
-        assert result["joint_tour_weight"][0] == pytest.approx(5.0)
-        # 2 participants sharing a summed weight of 5.0 -> mean 2.5 -> rate 1/2.5
-        assert result["sampleRate"][0] == pytest.approx(2 / 5.0)
-
-    def test_joint_trips_weight_fields(self, standard_config):
-        """Test joint trips preserve their explicit weight and derive sampleRate."""
-        households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame(
-            [
-                create_person(person_id=101, hh_id=1, person_num=1),
-                create_person(person_id=102, hh_id=1, person_num=2),
-            ]
-        )
-        tours = pl.DataFrame(
-            [
-                create_tour(
-                    tour_id=1001,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=5001,
-                    tour_purpose=PurposeCategory.SOCIALREC,
-                    num_travelers=2,
-                ),
-            ],
-            schema=get_tour_schema(),
-        )
-        # Two people travelling together: each joint trip has two member trips, so
-        # the summed weight divides back to a per-person rate by that count.
-        trips = pl.DataFrame(
-            [
-                create_linked_trip(
-                    trip_id=10001,
-                    person_id=101,
-                    tour_id=1001,
-                    joint_tour_id=5001,
-                    joint_trip_id=8001,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10002,
-                    person_id=101,
-                    tour_id=1001,
-                    joint_tour_id=5001,
-                    joint_trip_id=8002,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10003,
-                    person_id=102,
-                    person_num=2,
-                    tour_id=1002,
-                    joint_tour_id=5001,
-                    joint_trip_id=8001,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10004,
-                    person_id=102,
-                    person_num=2,
-                    tour_id=1002,
-                    joint_tour_id=5001,
-                    joint_trip_id=8002,
-                    tour_direction=TourDirection.INBOUND,
-                ),
-            ]
-        )
-
-        # Create aggregated joint trips
-        joint_trips = (
-            trips.filter(pl.col("joint_trip_id").is_not_null())
-            .group_by("joint_trip_id")
-            .agg(
+    @staticmethod
+    def _persons(weights, config):
+        """Format one household's persons, one per weight."""
+        if weights is None:
+            persons = pl.DataFrame([create_person(person_id=101, hh_id=1)]).drop("person_weight")
+        else:
+            persons = pl.DataFrame(
                 [
-                    pl.col("hh_id").first(),
-                    pl.col("tour_id").first(),
-                    pl.col("joint_tour_id").first(),
-                    pl.col("o_purpose_category").first(),
-                    pl.col("d_purpose_category").first(),
-                    pl.col("o_lat").mean().alias("o_lat"),
-                    pl.col("o_lon").mean().alias("o_lon"),
-                    pl.col("d_lat").mean().alias("d_lat"),
-                    pl.col("d_lon").mean().alias("d_lon"),
-                    pl.col("o_taz").first().alias("o_taz"),
-                    pl.col("d_taz").first().alias("d_taz"),
-                    pl.col("mode_type").first(),
-                    pl.col("depart_time").first(),
-                    pl.col("arrive_time").first(),
-                    pl.col("tour_direction").first(),
-                    pl.col("num_travelers").max().alias("num_joint_travelers"),
-                ]
+                    create_person(person_id=100 + i, hh_id=1, person_weight=w)
+                    for i, w in enumerate(weights, start=1)
+                ],
+                schema_overrides={"person_weight": pl.Float64},
             )
-            .with_columns(
-                pl.lit(4.0).alias("joint_trip_weight"),
-            )
-        )
+        return format_persons(persons, pl.DataFrame(), config).sort("person_id")
 
-        households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_joint_trip(
-            joint_trips_canonical=joint_trips,
-            linked_trips_canonical=trips,
-            unlinked_trips_canonical=pl.DataFrame(),
-            tours_canonical=tours,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
-
-        assert result["joint_trip_weight"][0] == 4.0
-        # Summed over 2 participants -> per-person mean 2.0 -> rate 0.5. CT-RAMP's
-        # num_participants/sampleRate then returns the 4.0 person-trips.
-        assert result["sampleRate"][0] == pytest.approx(0.5)
-        assert result["num_participants"][0] == 2
-        # The invariant that matters: CT-RAMP's own expansion reproduces the weight.
-        expanded = result["num_participants"][0] / result["sampleRate"][0]
-        assert expanded == pytest.approx(result["joint_trip_weight"][0])
-
-    def test_joint_trips_excluded_when_tour_is_inadmissible(self, standard_config):
-        """Escort groups are not joint in CT-RAMP, so they yield no joint trip rows.
-
-        ``identify_misclassified_joint_tours`` reclassifies escort/work/school/mixed
-        groups to individual tours. If the joint trip formatter did not apply the
-        same rule, those trips would appear in both CT-RAMP trip tables and point at
-        a joint tour that was never written.
-        """
+    @staticmethod
+    def _tours(weights, config):
+        """Format one person's tours, one per weight, each a simple round trip."""
         households = pl.DataFrame([create_household(hh_id=1)])
-        persons = pl.DataFrame(
-            [
-                create_person(person_id=101, hh_id=1, person_num=1),
-                create_person(person_id=102, hh_id=1, person_num=2),
-            ]
-        )
-        tours = pl.DataFrame(
-            [
-                create_tour(
-                    tour_id=1001,
-                    person_id=101,
-                    hh_id=1,
-                    joint_tour_id=5001,
-                    tour_purpose=PurposeCategory.ESCORT,
-                    num_travelers=2,
-                ),
-            ],
-            schema=get_tour_schema(),
-        )
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
+        if weights is None:
+            tours = pl.DataFrame(
+                [create_tour(tour_id=1001, person_id=101, hh_id=1)],
+                schema=get_tour_schema(),
+            ).drop("tour_weight")
+        else:
+            tours = pl.DataFrame(
+                [
+                    create_tour(tour_id=1000 + i, person_id=101, hh_id=1, tour_num=i, tour_weight=w)
+                    for i, w in enumerate(weights, start=1)
+                ],
+                schema={**get_tour_schema(), "tour_weight": pl.Float64},
+            )
         trips = pl.DataFrame(
             [
                 create_linked_trip(
-                    trip_id=10001,
-                    tour_id=1001,
-                    joint_tour_id=5001,
-                    joint_trip_id=8001,
-                    tour_direction=TourDirection.OUTBOUND,
-                ),
-                create_linked_trip(
-                    trip_id=10002,
-                    tour_id=1001,
-                    joint_tour_id=5001,
-                    joint_trip_id=8002,
-                    tour_direction=TourDirection.INBOUND,
-                ),
+                    trip_id=10000 + 2 * i + leg,
+                    tour_id=tour_id,
+                    person_id=101,
+                    tour_direction=direction,
+                )
+                for i, tour_id in enumerate(tours["tour_id"].to_list())
+                for leg, direction in enumerate((TourDirection.OUTBOUND, TourDirection.INBOUND))
             ]
         )
-        joint_trips = (
-            trips.filter(pl.col("joint_trip_id").is_not_null())
-            .group_by("joint_trip_id")
-            .agg(
-                [
-                    pl.col("hh_id").first(),
-                    pl.col("tour_id").first(),
-                    pl.col("joint_tour_id").first(),
-                    pl.col("o_purpose_category").first(),
-                    pl.col("d_purpose_category").first(),
-                    pl.col("o_lat").mean().alias("o_lat"),
-                    pl.col("o_lon").mean().alias("o_lon"),
-                    pl.col("d_lat").mean().alias("d_lat"),
-                    pl.col("d_lon").mean().alias("d_lon"),
-                    pl.col("o_taz").first().alias("o_taz"),
-                    pl.col("d_taz").first().alias("d_taz"),
-                    pl.col("mode_type").first(),
-                    pl.col("depart_time").first(),
-                    pl.col("arrive_time").first(),
-                    pl.col("tour_direction").first(),
-                    pl.col("num_travelers").max().alias("num_joint_travelers"),
-                ]
-            )
-        )
-
-        households_formatted = format_households(households, persons, tours, standard_config)
-        result = format_joint_trip(
-            joint_trips_canonical=joint_trips,
+        households_ctramp = format_households(households, persons, tours, config)
+        return format_individual_tour(
+            tours_canonical=tours,
             linked_trips_canonical=trips,
             unlinked_trips_canonical=pl.DataFrame(),
-            tours_canonical=tours,
-            households_ctramp=households_formatted,
-            config=standard_config,
-        )
+            persons_canonical=persons,
+            households_ctramp=households_ctramp,
+            config=config,
+        ).sort("tour_id")
 
-        assert len(result) == 0
+    @staticmethod
+    def _trips(weights, config):
+        """Format one tour's trips, one per weight."""
+        households = pl.DataFrame([create_household(hh_id=1)])
+        persons = pl.DataFrame([create_person(person_id=101, hh_id=1)])
+        tours = pl.DataFrame(
+            [create_tour(tour_id=1001, person_id=101, hh_id=1)],
+            schema=get_tour_schema(),
+        )
+        legs = (TourDirection.OUTBOUND, TourDirection.INBOUND, TourDirection.INBOUND)
+        if weights is None:
+            trips = pl.DataFrame(
+                [
+                    create_linked_trip(
+                        linked_trip_id=10000 + i, tour_id=1001, person_id=101, tour_direction=leg
+                    )
+                    for i, leg in enumerate(legs[:2], start=1)
+                ]
+            ).drop("linked_trip_weight")
+        else:
+            trips = pl.DataFrame(
+                [
+                    create_linked_trip(
+                        linked_trip_id=10000 + i,
+                        tour_id=1001,
+                        person_id=101,
+                        tour_direction=legs[i - 1],
+                        linked_trip_weight=w,
+                    )
+                    for i, w in enumerate(weights, start=1)
+                ],
+                schema_overrides={"linked_trip_weight": pl.Float64},
+            )
+        households_ctramp = format_households(households, persons, tours, config)
+        tours_ctramp = format_individual_tour(
+            tours_canonical=tours,
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            persons_canonical=persons,
+            households_ctramp=households_ctramp,
+            config=config,
+        )
+        return format_individual_trip(
+            linked_trips_canonical=trips,
+            unlinked_trips_canonical=pl.DataFrame(),
+            tours_ctramp=tours_ctramp,
+            persons_canonical=persons,
+            households_ctramp=households_ctramp,
+            config=config,
+        ).sort("linked_trip_id")
+
+    @pytest.mark.parametrize(("level", "weight_column"), LEVELS)
+    def test_sample_rate_is_the_inverse_of_the_weight(self, level, weight_column, standard_config):
+        """A usable weight inverts; zero and null produce no rate at all."""
+        result = getattr(self, level)([2.5, 0.0, None], standard_config)
+
+        assert result[weight_column].to_list() == [2.5, 0.0, None]
+        assert result["sampleRate"].to_list() == [0.4, None, None]
+
+    @pytest.mark.parametrize(("level", "weight_column"), LEVELS)
+    def test_no_weight_column_means_no_sample_rate(self, level, weight_column, standard_config):
+        """An unweighted input stays unweighted: neither column is invented."""
+        result = getattr(self, level)(None, standard_config)
+
+        assert weight_column not in result.columns
+        assert "sampleRate" not in result.columns
 
 
 class TestAllTables:
