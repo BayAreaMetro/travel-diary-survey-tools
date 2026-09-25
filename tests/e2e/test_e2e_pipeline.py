@@ -10,9 +10,14 @@ Two kinds of tests:
   not be required.
 
 * The remaining classes use the ``full_result`` fixture (all optional steps on)
-  to assert specific behaviours: trip linking, joint detection, tour extraction,
-  imputation stashing, and the systematic edge-case coverage matrix (see
-  tests/e2e/COVERAGE.md).
+  to assert what only a whole run can show: at-work subtours surviving the gate
+  and both formatters, DaySim tours and trips referencing each other, imputation
+  writing through its stash, and the categories the formatters branch on still
+  being present in the toy population.
+
+What is deliberately *not* here: anything a unit test already pins on a
+hand-built frame, and anything the committed baseline already fails on. The
+baseline reports that a number moved; these say which rule broke.
 """
 
 from pathlib import Path
@@ -61,13 +66,6 @@ class TestStepToggling:
         _name, _enabled, result, _out = profile_run
         assert_referential_integrity(result)
 
-    def test_tours_extracted_regardless_of_upstream(self, profile_run):
-        # extract_tours is downstream of both imputation and detect_joint_trips;
-        # it must still produce tours whether or not those upstream steps ran.
-        _name, _enabled, result, _out = profile_run
-        assert result.tours is not None
-        assert result.tours.height > 0
-
     def test_enabled_formatters_produced(self, profile_run):
         _name, enabled, result, _out = profile_run
         if "format_daysim" in enabled:
@@ -79,15 +77,6 @@ class TestStepToggling:
                 df = getattr(result, name, None)
                 assert df is not None and df.height > 0, f"CT-RAMP table '{name}' missing/empty"
 
-    def test_joint_trips_gated_on_step(self, profile_run):
-        # When detect_joint_trips is on, the joint_trips table exists; when off,
-        # the run must still have completed (asserted above) -> downstream steps
-        # tolerate its absence.
-        _name, enabled, result, _out = profile_run
-        if "detect_joint_trips" in enabled:
-            assert result.joint_trips is not None
-            assert isinstance(result.joint_trips, pl.DataFrame)
-
     def test_core_output_files_written(self, profile_run):
         _name, _enabled, _result, output_dir = profile_run
         survey = Path(output_dir) / "survey"
@@ -97,46 +86,10 @@ class TestStepToggling:
             assert path.stat().st_size > 0, f"Empty output file: {path}"
 
 
-# ── Trip linking (full profile) ───────────────────────────────────────
-
-
-class TestTripLinking:
-    def test_transit_trips_linked(self, full_result):
-        """HH2's four transit segments should merge into 2 linked trips."""
-        hh2 = full_result.linked_trips.filter(pl.col("hh_id") == 2)
-        assert hh2.height == 2, f"Expected 2 linked trips for HH2, got {hh2.height}"
-
-    def test_linked_trip_count_reasonable(self, full_result):
-        assert full_result.linked_trips.height <= full_result.unlinked_trips.height
-
-
-# ── Joint trips (full profile) ────────────────────────────────────────
-
-
-class TestJointTrips:
-    def test_joint_trips_detected(self, full_result):
-        jt = full_result.joint_trips
-        assert jt is not None
-        if jt.height > 0:
-            assert jt.filter(pl.col("hh_id") == 3).height > 0, "Expected joint trips for HH3"
-
-
 # ── Tour extraction (full profile) ────────────────────────────────────
 
 
 class TestTourExtraction:
-    def test_simple_commute_tour(self, full_result):
-        assert full_result.tours.filter(pl.col("hh_id") == 1).height >= 1
-
-    def test_multi_stop_tour(self, full_result):
-        assert full_result.tours.filter(pl.col("hh_id") == 4).height >= 1
-
-    def test_single_trip_tour_flagged(self, full_result):
-        hh7 = full_result.tours.filter(pl.col("hh_id") == 7)
-        assert hh7.height >= 1
-        if "single_trip_tour" in hh7.columns:
-            assert hh7["single_trip_tour"].to_list()[0] is True
-
     def test_at_work_subtour_extracted(self, full_result):
         # HH 6 is home -> work -> lunch -> work -> home. The lunch leg is an
         # at-work subtour: anchored at the workplace, so it never touches home
@@ -202,10 +155,6 @@ class TestDaysimTourLinkage:
         childless = tour_keys.join(trip_keys, on=self._KEY, how="anti")
         assert childless.height == 0, f"tour records with no trips:\n{childless}"
 
-    def test_half_is_only_ever_outbound_or_inbound(self, full_result):
-        halves = set(full_result.linked_trips_daysim["half"].unique().to_list())
-        assert halves <= {1, 2}, f"DaySim half must be 1 or 2, got {sorted(halves)}"
-
 
 # ── Imputation (full profile) ─────────────────────────────────────────
 # The full profile runs imputation (RF on households.income_bin); these exercise
@@ -213,9 +162,6 @@ class TestDaysimTourLinkage:
 
 
 class TestImputation:
-    def test_preimputed_stash_created(self, full_result):
-        assert "income_bin_preimputed" in full_result.households.columns
-
     def test_missing_income_bins_were_imputed(self, full_result):
         hh = full_result.households
         stashed_missing = hh.filter(pl.col("income_bin_preimputed") == _INCOME_MISSING)
@@ -229,11 +175,6 @@ class TestImputation:
         kept = hh.filter(pl.col("income_bin_preimputed") != _INCOME_MISSING)
         assert (kept["income_bin"] == kept["income_bin_preimputed"]).all()
 
-    def test_rf_feature_importance_produced(self, full_result):
-        fi = getattr(full_result, "_feature_importance", None)
-        assert fi is not None and fi.height > 0, "expected RF feature importance output"
-        assert "income_bin" in fi["column"].unique().to_list()
-
 
 # ── Edge-case coverage (full profile; enforces the classification matrix) ──
 # Assert that the synthetic data exercises each distinct classification bucket the
@@ -242,35 +183,53 @@ class TestImputation:
 
 
 class TestEdgeCaseCoverage:
-    def test_all_person_types_present(self, full_result):
-        types = set(full_result.persons_ctramp["type"].to_list())
-        expected = {
-            "Full-time worker",
-            "Part-time worker",
-            "University student",
-            "Non-worker",
-            "Retired",
-            "Student of driving age",
-            "Student of non-driving age",
-            "Child too young for school",
-        }
-        assert expected <= types, f"missing person types: {expected - types}"
+    """The toy population still spans the categories the formatters branch on.
 
-    def test_all_student_categories_present(self, full_result):
-        cats = set(full_result.mandatory_locations_ctramp["StudentCategory"].to_list())
-        assert {"College or higher", "Grade or high school", "Not student"} <= cats
+    The committed baseline pins these counts exactly, so it fails first and
+    harder if a bucket empties. These stay because the baseline says only that a
+    number moved; this says which category went missing, which is the thing a
+    reader needs.
+    """
 
-    def test_all_activity_patterns_present(self, full_result):
-        patterns = set(full_result.persons_ctramp["activity_pattern"].to_list())
-        assert {"M", "N", "H"} <= patterns, f"missing activity patterns: {patterns}"
-
-    def test_tour_data_quality_buckets_present(self, full_result):
-        # VALID(0), PARTIAL_DIARY_EDGE(3), NO_DESTINATION(4). The other three
-        # need travel the toy generator does not produce -- a chain resuming
-        # across diary days (2), a person with a second home (1), coordinates
-        # that teleport (5) -- and are covered by unit tests instead.
-        q = set(full_result.tours["tour_data_quality"].to_list())
-        assert {0, 3, 4} <= q, f"missing tour_data_quality buckets: {q}"
+    @pytest.mark.parametrize(
+        ("table", "column", "expected"),
+        [
+            (
+                "persons_ctramp",
+                "type",
+                {
+                    "Full-time worker",
+                    "Part-time worker",
+                    "University student",
+                    "Non-worker",
+                    "Retired",
+                    "Student of driving age",
+                    "Student of non-driving age",
+                    "Child too young for school",
+                },
+            ),
+            (
+                "mandatory_locations_ctramp",
+                "StudentCategory",
+                {"College or higher", "Grade or high school", "Not student"},
+            ),
+            ("persons_ctramp", "activity_pattern", {"M", "N", "H"}),
+            # VALID(0), PARTIAL_DIARY_EDGE(3), NO_DESTINATION(4), SPATIAL_GAP(5).
+            # Absent by construction: a person with a second home (1) and a chain
+            # resuming across diary days (2); both are covered by unit tests.
+            ("tours", "tour_data_quality", {0, 3, 4, 5}),
+            # COMPLETE(1), PARTIAL_END(2), PARTIAL_START(3), PARTIAL_BOTH(4).
+            ("tours", "tour_category", {1, 2, 3, 4}),
+            # ADULTS_ONLY(1), CHILDREN_ONLY(2), ADULTS_AND_CHILDREN(3).
+            ("joint_tours_ctramp", "tour_composition", {1, 2, 3}),
+        ],
+        ids=lambda v: v if isinstance(v, str) else "",
+    )
+    def test_every_category_the_formatters_branch_on_is_exercised(
+        self, full_result, table, column, expected
+    ):
+        present = set(getattr(full_result, table)[column].to_list())
+        assert expected <= present, f"{table}.{column} is missing {expected - present}"
 
     def test_no_destination_means_a_closed_tour_without_a_purpose(self, full_result):
         """The code holds exactly when that is what the tour is.
@@ -282,13 +241,3 @@ class TestEdgeCaseCoverage:
         nothing_to_anchor_on = pl.col("tour_purpose").is_null() & (pl.col("tour_category") == 1)
         assert tours.filter((pl.col("tour_data_quality") == 4) & ~nothing_to_anchor_on).is_empty()
         assert tours.filter((pl.col("tour_data_quality") != 4) & nothing_to_anchor_on).is_empty()
-
-    def test_all_tour_categories_present(self, full_result):
-        # COMPLETE(1), PARTIAL_END(2), PARTIAL_START(3), PARTIAL_BOTH(4).
-        cats = set(full_result.tours["tour_category"].to_list())
-        assert {1, 2, 3, 4} <= cats, f"missing tour_category buckets: {cats}"
-
-    def test_all_joint_compositions_present(self, full_result):
-        # ADULTS_ONLY(1), CHILDREN_ONLY(2), ADULTS_AND_CHILDREN(3).
-        comps = set(full_result.joint_tours_ctramp["tour_composition"].to_list())
-        assert {1, 2, 3} <= comps, f"missing joint tour compositions: {comps}"

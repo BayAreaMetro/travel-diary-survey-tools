@@ -1,4 +1,4 @@
-"""A tour is addressable only if every leg of it is, not just its endpoints.
+"""A tour has a zone only if every leg of it does, not just its endpoints.
 
 ``zone_coverage`` asks whether a consumer's zone system can place a record. For a
 tour, the obvious reading is its own ``o``/``d`` -- but those are its anchor and
@@ -12,7 +12,7 @@ unplaceable trips, which reached the output as null ``orig_taz``/``dest_taz`` an
 failed validation.
 
 The rule is therefore an ALL over the tour's trips -- the same shape as
-``complete``, which is also a property of the legs rather than the ends.
+``survey_complete``, which is also a property of the legs rather than the ends.
 """
 
 import polars as pl
@@ -27,13 +27,15 @@ VALID, COMPLETE = TourDataQuality.VALID.value, TourCategory.COMPLETE.value
 def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.DataFrame]:
     """One household, one person, one day, one tour, with the given trip endpoints.
 
-    The tour's own endpoints are always addressable, so only the legs can fail.
+    The tour's own endpoints always have zones, so only the legs can fail.
     """
     n = len(trip_zones)
     return {
-        "households": pl.DataFrame({"hh_id": [1], f"home_{ZONE}": [100], "complete": [True]}),
+        "households": pl.DataFrame(
+            {"hh_id": [1], f"home_{ZONE}": [100], "survey_complete": [True]}
+        ),
         "persons": pl.DataFrame(
-            {"person_id": [1], "hh_id": [1], "complete": [True], "surveyable": [True]}
+            {"person_id": [1], "hh_id": [1], "survey_complete": [True], "surveyable": [True]}
         ),
         "days": pl.DataFrame(
             {
@@ -41,7 +43,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": ["2023-01-02"],
-                "complete": [True],
+                "survey_complete": [True],
             }
         ),
         "tours": pl.DataFrame(
@@ -50,7 +52,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
                 "day_id": [1],
                 "person_id": [1],
                 "hh_id": [1],
-                "complete": [True],
+                "survey_complete": [True],
                 "tour_data_quality": [VALID],
                 "tour_category": [COMPLETE],
                 f"o_{ZONE}": [100],
@@ -62,7 +64,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
                 "linked_trip_id": list(range(1, n + 1)),
                 "tour_id": [1] * n,
                 "day_id": [1] * n,
-                "complete": [True] * n,
+                "survey_complete": [True] * n,
                 f"o_{ZONE}": [z[0] for z in trip_zones],
                 f"d_{ZONE}": [z[1] for z in trip_zones],
             },
@@ -75,17 +77,17 @@ def _verdict(trip_zones, *, coverage: str) -> bool:
     tables = _tables(trip_zones)
     profile = UsabilityProfile("u", "primary_home", "all_members", zone_coverage=coverage)
     compute_usability(tables, profile=profile)
-    return bool(tables["tours"]["u"][0])
+    return bool(tables["tours"]["usable_u"][0])
 
 
 class TestALegOutsideTheAreaCostsTheTour:
     """The ALL over legs, which the endpoints-only rule missed."""
 
-    def test_all_legs_addressable_is_usable(self):
+    def test_all_legs_with_zones_is_usable(self):
         """The baseline, or the test below proves nothing."""
         assert _verdict([(100, 200), (200, 100)], coverage=ZONE) is True
 
-    def test_an_unaddressable_middle_leg_makes_the_tour_unusable(self):
+    def test_a_middle_leg_with_no_zone_makes_the_tour_unusable(self):
         """Endpoints are fine; one stop is outside the area.
 
         This is the case the endpoints-only rule admitted, and CT-RAMP then
@@ -93,7 +95,7 @@ class TestALegOutsideTheAreaCostsTheTour:
         """
         assert _verdict([(100, None), (None, 100)], coverage=ZONE) is False
 
-    def test_the_missing_sentinel_counts_as_unaddressable(self):
+    def test_the_missing_sentinel_counts_as_no_zone(self):
         """-1 is written as a missing zone as well as null."""
         assert _verdict([(100, -1), (-1, 100)], coverage=ZONE) is False
 

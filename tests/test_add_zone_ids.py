@@ -77,40 +77,12 @@ class TestAddZoneToDataframe:
         assert result["zone"][0] == "Z1"
         assert result["zone"][1] is None  # Outside zone
 
-    def test_preserves_original_columns(self):
-        """Test that original dataframe columns are preserved."""
-        df = pl.DataFrame(
-            {
-                "id": [1, 2],
-                "name": ["Alice", "Bob"],
-                "lon": [0.5, 1.5],
-                "lat": [0.5, 1.5],
-            }
-        )
+    def test_all_numeric_zone_ids_become_int64(self):
+        """Zone ids that are all digits are cast to Int64, which admits nulls.
 
-        zones_gdf = gpd.GeoDataFrame(
-            {"zone_id": ["Z1"]},
-            geometry=[Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])],
-            crs="EPSG:4326",
-        )
-
-        result = add_zone_to_dataframe(
-            df=df,
-            df_index="id",
-            shp=zones_gdf,
-            lon_col="lon",
-            lat_col="lat",
-            zone_col_name="zone",
-            zone_id_field="zone_id",
-        )
-
-        assert "id" in result.columns
-        assert "name" in result.columns
-        assert "zone" in result.columns
-        assert result["name"][0] == "Alice"
-
-    def test_zone_id_converted_to_string(self):
-        """Test that zone IDs are converted to strings."""
+        The pair to ``test_string_zone_ids``: a zone id that is not numeric
+        stays text, because there is nothing to cast it to.
+        """
         df = pl.DataFrame(
             {
                 "id": [1],
@@ -136,7 +108,7 @@ class TestAddZoneToDataframe:
             zone_id_field="zone_id",
         )
 
-        # Should be integer
+        assert result["zone"].dtype == pl.Int64
         assert result["zone"][0] == 100
 
 
@@ -181,9 +153,9 @@ class TestAddZoneIds:
             }
         )
 
-    @pytest.fixture
-    def zone_shapefile(self, tmp_path):
-        """Create a test zone shapefile."""
+    @pytest.fixture(scope="class")
+    def zone_shapefile(self, tmp_path_factory):
+        """Create a test zone shapefile, written once for the whole class."""
         zones_gdf = gpd.GeoDataFrame(
             {"taz_id": [1, 2, 3]},
             geometry=[
@@ -194,7 +166,7 @@ class TestAddZoneIds:
             crs="EPSG:4326",
         )
 
-        shp_path = tmp_path / "zones.shp"
+        shp_path = tmp_path_factory.mktemp("zones") / "zones.shp"
         zones_gdf.to_file(shp_path)
         return str(shp_path)
 
@@ -270,11 +242,14 @@ class TestAddZoneIds:
             zone_geographies=zone_geographies,
         )
 
-        # Check both zone types were added
-        assert "home_taz" in result["households"].columns
-        assert "home_county" in result["households"].columns
-        assert "work_taz" in result["persons"].columns
-        assert "work_county" in result["persons"].columns
+        # The TAZ split runs down x=1, so the two homes fall either side of it
+        assert result["households"]["home_taz"].to_list() == ["T1", "T2"]
+        # The third workplace is north of the TAZ layer entirely, so it has none
+        assert result["persons"]["work_taz"].to_list() == ["T1", "T2", None]
+
+        # The single county covers all of it
+        assert result["households"]["home_county"].to_list() == ["C1", "C1"]
+        assert result["persons"]["work_county"].to_list() == ["C1", "C1", "C1"]
 
     def test_string_zone_ids(self, sample_households, sample_persons, sample_trips, tmp_path):
         """Test handling of non-numeric (string) zone IDs."""
@@ -336,54 +311,3 @@ class TestAddZoneIds:
         # Should have replaced the old value
         assert result["households"]["home_taz"][0] == 1
         assert result["households"]["home_taz"][0] != 999
-
-    def test_preserves_original_columns(
-        self, sample_households, sample_persons, sample_trips, zone_shapefile
-    ):
-        """Test that original columns are preserved."""
-        zone_geographies = [
-            {
-                "shapefile": zone_shapefile,
-                "zone_id_field": "taz_id",
-                "zone_name": "taz",
-            }
-        ]
-
-        result = add_zone_ids(
-            households=sample_households,
-            persons=sample_persons,
-            unlinked_trips=sample_trips,
-            zone_geographies=zone_geographies,
-        )
-
-        # Original columns should still exist
-        assert "hh_id" in result["households"].columns
-        assert "person_id" in result["persons"].columns
-        assert "unlinked_trip_id" in result["unlinked_trips"].columns
-        assert "home_lon" in result["households"].columns
-
-    def test_returns_all_three_tables(
-        self, sample_households, sample_persons, sample_trips, zone_shapefile
-    ):
-        """Test that all three tables are returned."""
-        zone_geographies = [
-            {
-                "shapefile": zone_shapefile,
-                "zone_id_field": "taz_id",
-                "zone_name": "taz",
-            }
-        ]
-
-        result = add_zone_ids(
-            households=sample_households,
-            persons=sample_persons,
-            unlinked_trips=sample_trips,
-            zone_geographies=zone_geographies,
-        )
-
-        assert "households" in result
-        assert "persons" in result
-        assert "unlinked_trips" in result
-        assert isinstance(result["households"], pl.DataFrame)
-        assert isinstance(result["persons"], pl.DataFrame)
-        assert isinstance(result["unlinked_trips"], pl.DataFrame)

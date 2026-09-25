@@ -5,12 +5,13 @@ steps, rather than from per-"year" YAML files. This lets the suite parametrize
 the step toggling and verify that turning a step on/off does not break the
 downstream steps.
 
-- Mandatory steps always run: load_data, link_trips, extract_tours, add_zone_ids,
-  write_data.
+- Mandatory steps always run: load_data, link_trips, detect_habitual_locations,
+  extract_tours, add_zone_ids, cascade_completeness, write_data.
 - Optional steps toggle: detect_joint_trips, imputation, format_ctramp,
-  format_daysim. (The format_* steps are terminal/parallel — nothing depends on
-  their output — so by default they are on; they are toggled only to prove
-  independence.)
+  format_daysim, add_existing_weights. (The format_* steps are terminal/parallel
+  — nothing depends on their output — so by default they are on; they are
+  toggled only to prove independence. No profile currently turns
+  add_existing_weights off, so every run weights all three profiles.)
 
 Profiles are a leave-one-out matrix ("full", and full minus each optional step)
 so each profile isolates the effect of removing one step. All data is generated
@@ -75,6 +76,7 @@ PROFILES = {
 _MANDATORY = {
     "load_data",
     "link_trips",
+    "detect_habitual_locations",
     "extract_tours",
     "cascade_completeness",
     "add_zone_ids",
@@ -102,11 +104,12 @@ _DAYSIM_TABLES = (
 _STEP_ORDER = (
     "load_data",
     "link_trips",
+    "detect_habitual_locations",
     "detect_joint_trips",
     "imputation",
     "extract_tours",
-    # Zones precede the cascade: a profile can gate on whether a record is
-    # addressable, which it cannot do before the zone step has run.
+    # Zones precede the cascade: a profile can gate on whether a record has a
+    # zone, which it cannot do before the zone step has run.
     "add_zone_ids",
     "cascade_completeness",
     "add_existing_weights",
@@ -201,6 +204,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                     "persons": f"{survey}/persons.parquet",
                     "days": f"{survey}/days.parquet",
                     "unlinked_trips": f"{survey}/unlinked_trips.parquet",
+                    "habitual_locations": f"{survey}/habitual_locations.parquet",
                 }
             },
         },
@@ -248,6 +252,11 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 "random_state": 42,
             },
         },
+        "detect_habitual_locations": {
+            "name": "detect_habitual_locations",
+            "validate_input": False,
+            "cache": False,
+        },
         "extract_tours": {"name": "extract_tours", "validate_input": False, "cache": False},
         "cascade_completeness": {
             "name": "cascade_completeness",
@@ -262,17 +271,17 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                     # relaxed one, so the e2e exercises the loop, per-consumer
                     # selection, and a relaxed column reaching the delivered
                     # output as a registered generated column.
-                    "ctramp_usable": {
+                    "ctramp": {
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
                     },
-                    "daysim_usable": {
+                    "daysim": {
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
                     },
-                    "analysis_usable": {
+                    "analysis": {
                         "tour_closes_at": "anywhere",
                         "household_day_needs": "nothing",
                         "zone_coverage": "none",
@@ -286,13 +295,18 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "cache": False,
             # Only household weights are supplied; everything below is derived,
             # so the run exercises the copy rule down to persons and the split
-            # rule from a person across their days. Gated on ctramp_usable, the
+            # rule from a person across their days. Gated on ctramp, the
             # strict profile, so a dropped day changes the split's divisor --
             # which is where "nothing lost" is a real question rather than a
             # tautology.
+            #
+            # Every profile a consumer names is weighted, so each formatter finds
+            # its own columns; analysis is weighted too, and it is the one
+            # that differs -- ctramp and daysim are declared
+            # identically above, so agreeing between those two proves nothing.
             "params": {
                 "derive_missing_weights": True,
-                "usability_flag_col": "ctramp_usable",
+                "weight_profiles": ["ctramp", "daysim", "analysis"],
                 "weights": {
                     "hh_weight": {"weight_path": _p(data_dir / "weights" / "hh_weights.csv")},
                 },
@@ -322,7 +336,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "validate_input": False,
             "cache": False,
             "params": {
-                "usability_flag_col": "ctramp_usable",
+                "usability_profile": "ctramp",
                 "income_low_threshold": 60000,
                 "income_med_threshold": 150000,
                 "income_high_threshold": 240000,
@@ -332,7 +346,8 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 "taz_field": "taz",
             },
         },
-        # validate_output mirrors the shipping bats_2023 config. The DaySim row
+        # validate_output stands in for the validation write_data does in the
+        # shipping bats_2023 config, which this suite turns off. The DaySim row
         # models pin the output schema (e.g. half must be 1 or 2), so a trip
         # carrying an internal sentinel instead of a real value fails here
         # rather than in a production run.
@@ -341,7 +356,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "validate_input": False,
             "validate_output": True,
             "cache": False,
-            "params": {"usability_flag_col": "daysim_usable"},
+            "params": {"usability_profile": "daysim"},
         },
         "write_data": {
             "name": "write_data",
@@ -365,6 +380,7 @@ def _run_pipeline(enabled: frozenset):
         add_existing_weights,
         add_zone_ids,
         cascade_completeness,
+        detect_habitual_locations,
         detect_joint_trips,
         extract_tours,
         format_ctramp,
@@ -388,6 +404,7 @@ def _run_pipeline(enabled: frozenset):
         add_existing_weights,
         load_data,
         link_trips,
+        detect_habitual_locations,
         detect_joint_trips,
         imputation,
         extract_tours,
@@ -482,3 +499,23 @@ def full_input_dir():
     """
     _result, _output_dir, tmp = _get_run(PROFILES["full"])
     return Path(tmp) / "data"
+
+
+def pytest_collection_modifyitems(items):
+    """Mark every test in this package e2e and slow.
+
+    The markers exist so ``-m "not e2e"`` gives a fast unit run. Setting
+    ``pytestmark`` per module left four of the six files unmarked, and because
+    they all depend on the session-scoped pipeline fixtures, deselecting the
+    marked two still paid for the full pipeline. Marking here cannot drift as
+    files are added.
+    """
+    package_root = Path(__file__).parent
+    for item in items:
+        try:
+            in_package = package_root in Path(item.fspath).parents
+        except (AttributeError, ValueError):  # pragma: no cover - defensive
+            continue
+        if in_package:
+            item.add_marker(pytest.mark.e2e)
+            item.add_marker(pytest.mark.slow)

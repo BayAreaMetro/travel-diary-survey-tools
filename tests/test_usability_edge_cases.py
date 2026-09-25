@@ -1,9 +1,9 @@
 """Degenerate and adversarial inputs to the usability cascade.
 
 The cascade's happy path is covered in ``test_usability_profiles`` (what a
-profile means) and ``test_usability_columns`` (that the naming is total). This
-file is the other half: the shapes that arrive when something upstream is
-missing, empty, null, or contradictory.
+profile means, and that the naming is total). This file is the other half: the
+shapes that arrive when something upstream is missing, empty, null, or
+contradictory.
 
 The single invariant tying them together is that **a verdict column is a
 boolean, always**. Every consumer -- the weighting, both formatters, the writer
@@ -24,7 +24,6 @@ from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
     ALL_MEMBERS,
     ANYWHERE,
-    MIN_JOINT_PARTICIPANTS,
     NO_ZONE_COVERAGE,
     NOTHING,
     PRIMARY_HOME,
@@ -35,7 +34,7 @@ from processing.completeness import (
     suggest_usability_columns,
 )
 
-STRICT = UsabilityProfile("usable", PRIMARY_HOME, ALL_MEMBERS)
+STRICT = UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS)
 WIDEST = UsabilityProfile("widest", ANYWHERE, NOTHING)
 
 DATE = datetime(2023, 5, 1)
@@ -54,16 +53,16 @@ def _one_person(**tour_overrides) -> dict:
         "tour_id": [10],
         "day_id": [1],
         "person_id": [1],
-        "complete": [True],
+        "survey_complete": [True],
         "parent_tour_id": [10],
         "tour_data_quality": [TourDataQuality.VALID.value],
         "tour_category": [TourCategory.COMPLETE.value],
     }
     tour.update(tour_overrides)
     return {
-        "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+        "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
         "persons": pl.DataFrame(
-            {"person_id": [1], "hh_id": [1], "complete": [True], "surveyable": [True]}
+            {"person_id": [1], "hh_id": [1], "survey_complete": [True], "surveyable": [True]}
         ),
         "days": pl.DataFrame(
             {
@@ -71,7 +70,7 @@ def _one_person(**tour_overrides) -> dict:
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": [DATE],
-                "complete": [True],
+                "survey_complete": [True],
             }
         ),
         "tours": pl.DataFrame(tour),
@@ -81,49 +80,48 @@ def _one_person(**tour_overrides) -> dict:
 class TestAVerdictIsAlwaysABoolean:
     """No table may leave a null in the column consumers gate on.
 
-    ``complete`` is filled before it is used, but the tour descriptors were not:
+    ``survey_complete`` is filled before it is used, but the tour descriptors were not:
     ``is_in`` propagates null, so a tour whose quality was never established came
     out null rather than rejected. That null then reached the delivered output,
     where the formatters happened to fill it and the weighting did not.
     """
 
-    def test_a_null_quality_is_rejected_not_propagated(self):
-        """``is_in`` returns null for a null input, so this term needs filling."""
-        tables = _one_person(tour_data_quality=[None])
-        assert tables["tours"]["tour_data_quality"].to_list() == [None]
+    @pytest.mark.parametrize(
+        "override",
+        [
+            # ``is_in`` returns null for a null input, so this term needs filling.
+            pytest.param({"tour_data_quality": [None]}, id="quality"),
+            # Same for the equality term, which is only live at ``primary_home``.
+            pytest.param({"tour_category": [None]}, id="category"),
+            # An unreported record is not usable, and never was ambiguous.
+            pytest.param({"survey_complete": [None]}, id="complete"),
+        ],
+    )
+    def test_a_null_descriptor_is_rejected_not_propagated(self, override: dict):
+        """An input the cascade cannot judge comes out False, never null."""
+        tables = _one_person(**override)
+        assert tables["tours"][next(iter(override))].to_list() == [None]
 
         stamped = _stamp(tables)
 
-        assert stamped["tours"]["usable"].to_list() == [False]
-
-    def test_a_null_category_is_rejected_not_propagated(self):
-        """Same for the equality term, which is only live at ``primary_home``."""
-        stamped = _stamp(_one_person(tour_category=[None]))
-
-        assert stamped["tours"]["usable"].to_list() == [False]
-
-    def test_a_null_complete_is_rejected_not_propagated(self):
-        """An unreported record is not usable, and never was ambiguous."""
-        stamped = _stamp(_one_person(complete=[None]))
-
-        assert stamped["tours"]["usable"].to_list() == [False]
+        assert stamped["tours"]["usable_test"].to_list() == [False]
 
     def test_no_table_carries_a_null_verdict(self):
         """The property itself, over every table the cascade touches."""
         tables = _one_person(tour_data_quality=[None], tour_category=[None])
         tables["linked_trips"] = pl.DataFrame(
-            {"linked_trip_id": [100], "tour_id": [10], "day_id": [1], "complete": [None]}
+            {"linked_trip_id": [100], "tour_id": [10], "day_id": [1], "survey_complete": [None]}
         )
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1], "day_id": [1], "complete": [None]}
+            {"joint_tour_id": [1], "day_id": [1], "survey_complete": [None]}
         )
 
         stamped = _stamp(tables)
 
         nulls = {
-            name: df["usable"].null_count()
+            name: df["usable_test"].null_count()
             for name, df in stamped.items()
-            if "usable" in df.columns
+            if "usable_test" in df.columns
         }
         assert nulls == dict.fromkeys(nulls, 0)
 
@@ -132,7 +130,7 @@ class TestDescriptorsThatAreNotThere:
     """A frame may predate tour extraction and carry neither descriptor.
 
     Each term is skipped rather than assumed, so the verdict falls back to
-    ``complete`` alone. That is the honest answer -- the cascade cannot judge a
+    ``survey_complete`` alone. That is the honest answer -- the cascade cannot judge a
     structure it was given no column for -- but it is *looser*, so the absence
     must never be silent at the point a consumer reads the result. That guard
     lives in the formatters; here we only pin what the cascade does.
@@ -145,16 +143,16 @@ class TestDescriptorsThatAreNotThere:
 
         stamped = _stamp(tables)
 
-        assert stamped["tours"]["usable"].to_list() == [True]
+        assert stamped["tours"]["usable_test"].to_list() == [True]
 
     def test_without_either_descriptor_the_verdict_is_complete_alone(self):
         """With both terms gone, the floor is all that is left -- and it still bites."""
-        tables = _one_person(complete=[False])
+        tables = _one_person(survey_complete=[False])
         tables["tours"] = tables["tours"].drop("tour_data_quality", "tour_category")
 
         stamped = _stamp(tables)
 
-        assert stamped["tours"]["usable"].to_list() == [False]
+        assert stamped["tours"]["usable_test"].to_list() == [False]
 
     def test_a_bad_quality_still_bites_without_the_category_column(self):
         """The terms are independent: losing one does not disarm the other."""
@@ -163,11 +161,15 @@ class TestDescriptorsThatAreNotThere:
 
         stamped = _stamp(tables)
 
-        assert stamped["tours"]["usable"].to_list() == [False]
+        assert stamped["tours"]["usable_test"].to_list() == [False]
 
 
 class TestTheCategoryTermOnlyAppliesAtPrimaryHome:
     """Past ``primary_home`` the two columns would contradict each other.
+
+    That the term is not dead at ``primary_home`` is pinned by
+    ``test_completeness::test_only_admissible_tours_are_usable``, whose third
+    tour has a valid quality and a partial category.
 
     ``tour_category`` and ``tour_data_quality`` state the same fact about where a
     tour ends. A profile admitting the partial quality codes has already decided
@@ -187,13 +189,7 @@ class TestTheCategoryTermOnlyAppliesAtPrimaryHome:
             WIDEST,
         )
 
-        assert stamped["tours"]["widest"].to_list() == [True]
-
-    def test_primary_home_still_reads_the_category(self):
-        """The term is not dead -- it just belongs to one setting."""
-        stamped = _stamp(_one_person(tour_category=[TourCategory.PARTIAL_END.value]))
-
-        assert stamped["tours"]["usable"].to_list() == [False]
+        assert stamped["tours"]["usable_widest"].to_list() == [True]
 
 
 class TestEmptyTables:
@@ -206,11 +202,11 @@ class TestEmptyTables:
     """
 
     EMPTY: ClassVar[dict[str, dict[str, pl.DataType]]] = {
-        "households": {"hh_id": pl.Int64, "complete": pl.Boolean},
+        "households": {"hh_id": pl.Int64, "survey_complete": pl.Boolean},
         "persons": {
             "person_id": pl.Int64,
             "hh_id": pl.Int64,
-            "complete": pl.Boolean,
+            "survey_complete": pl.Boolean,
             "surveyable": pl.Boolean,
         },
         "days": {
@@ -218,12 +214,12 @@ class TestEmptyTables:
             "person_id": pl.Int64,
             "hh_id": pl.Int64,
             "travel_date": pl.Datetime,
-            "complete": pl.Boolean,
+            "survey_complete": pl.Boolean,
         },
         "tours": {
             "tour_id": pl.Int64,
             "day_id": pl.Int64,
-            "complete": pl.Boolean,
+            "survey_complete": pl.Boolean,
             "parent_tour_id": pl.Int64,
             "tour_data_quality": pl.Int64,
             "tour_category": pl.Int64,
@@ -238,16 +234,13 @@ class TestEmptyTables:
     @pytest.mark.parametrize("table", list(EMPTY))
     def test_every_table_still_gains_the_column(self, stamped, table):
         """A vanished column would change the output schema on an empty run."""
-        assert "usable" in stamped[table].columns
         assert stamped[table].height == 0
-
-    def test_the_column_is_boolean_not_null_typed(self, stamped):
-        """A Null-dtype column would fail the writer's schema check downstream."""
-        assert stamped["tours"].schema["usable"] == pl.Boolean
+        # Boolean, not Null-dtype, or the writer's schema check fails downstream.
+        assert stamped[table].schema["usable_test"] == pl.Boolean
 
     def test_the_household_day_column_appears_too(self, stamped):
         """Both of a profile's columns, not just the verdict."""
-        assert "hh_day_usable" in stamped["days"].columns
+        assert stamped["days"].schema["hh_day_test"] == pl.Boolean
 
 
 class TestSurveyableMembers:
@@ -258,14 +251,14 @@ class TestSurveyableMembers:
     usability from it.
     """
 
-    def _two_members(self, surveyable: list[bool], complete: list[bool]) -> dict:
+    def _two_members(self, surveyable: list[bool], survey_complete: list[bool]) -> dict:
         return {
-            "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+            "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
             "persons": pl.DataFrame(
                 {
                     "person_id": [1, 2],
                     "hh_id": [1, 1],
-                    "complete": [True, True],
+                    "survey_complete": [True, True],
                     "surveyable": surveyable,
                 }
             ),
@@ -275,7 +268,7 @@ class TestSurveyableMembers:
                     "person_id": [1, 2],
                     "hh_id": [1, 1],
                     "travel_date": [DATE, DATE],
-                    "complete": complete,
+                    "survey_complete": survey_complete,
                 }
             ),
             "tours": pl.DataFrame(
@@ -283,7 +276,7 @@ class TestSurveyableMembers:
                     "tour_id": [10, 20],
                     "day_id": [1, 2],
                     "person_id": [1, 2],
-                    "complete": [True, True],
+                    "survey_complete": [True, True],
                     "parent_tour_id": [10, 20],
                     "tour_data_quality": [TourDataQuality.VALID.value] * 2,
                     "tour_category": [TourCategory.COMPLETE.value] * 2,
@@ -293,28 +286,20 @@ class TestSurveyableMembers:
 
     def test_an_unsurveyable_member_cannot_veto_the_date(self):
         """A roommate who files nothing must not cost the household its day."""
-        """A roommate who files nothing must not cost the household its day."""
         stamped = _stamp(self._two_members([True, False], [True, False]))
 
-        assert stamped["days"]["hh_day_complete"].to_list() == [True, False]
-        assert stamped["days"]["usable"].to_list() == [True, False]
-        assert stamped["households"]["usable"].to_list() == [True]
-
-    def test_an_unsurveyable_member_does_not_inherit_the_date(self):
-        """Their own row keeps its own verdict rather than borrowing the good one."""
-        """Their own row keeps its own verdict rather than borrowing the good one."""
-        stamped = self._two_members([True, False], [True, False])
-        stamped = _stamp(stamped)
-
-        assert stamped["days"]["hh_day_usable"].to_list() == [True, False]
+        assert stamped["days"]["hh_day_survey_complete"].to_list() == [True, False]
+        assert stamped["days"]["usable_test"].to_list() == [True, False]
+        assert stamped["households"]["usable_test"].to_list() == [True]
+        # Their own row keeps its own verdict rather than borrowing the good one.
+        assert stamped["days"]["hh_day_test"].to_list() == [True, False]
 
     def test_a_date_with_no_surveyable_member_carries_no_usable_day(self):
         """Vacuously coherent, but there is no surveyable day to gain from it."""
-        """Vacuously coherent, but there is no surveyable day to gain from it."""
         stamped = _stamp(self._two_members([False, False], [False, False]))
 
-        assert stamped["days"]["usable"].to_list() == [False, False]
-        assert stamped["households"]["usable"].to_list() == [False]
+        assert stamped["days"]["usable_test"].to_list() == [False, False]
+        assert stamped["households"]["usable_test"].to_list() == [False]
 
     def test_a_contradictory_unsurveyable_day_is_believed_not_overruled(self):
         """An unsurveyable person marked complete keeps that verdict.
@@ -325,7 +310,7 @@ class TestSurveyableMembers:
         """
         stamped = _stamp(self._two_members([True, False], [False, True]))
 
-        assert stamped["days"]["usable"].to_list() == [False, True]
+        assert stamped["days"]["usable_test"].to_list() == [False, True]
 
 
 class TestSubtoursWhoseParentIsMissing:
@@ -335,7 +320,7 @@ class TestSubtoursWhoseParentIsMissing:
         """Dropping it here would hide the missing parent behind a usability zero."""
         stamped = _stamp(_one_person(parent_tour_id=[99]))
 
-        assert stamped["tours"]["usable"].to_list() == [True]
+        assert stamped["tours"]["usable_test"].to_list() == [True]
 
     def test_a_subtour_still_falls_when_its_parent_is_present_and_fails(self):
         """The parent rule is real; only its *absence* is treated as someone else's bug."""
@@ -345,7 +330,7 @@ class TestSubtoursWhoseParentIsMissing:
                 "tour_id": [10, 11],
                 "day_id": [1, 1],
                 "person_id": [1, 1],
-                "complete": [True, True],
+                "survey_complete": [True, True],
                 "parent_tour_id": [10, 10],
                 "tour_data_quality": [
                     TourDataQuality.SPATIAL_GAP.value,
@@ -357,7 +342,7 @@ class TestSubtoursWhoseParentIsMissing:
 
         stamped = _stamp(tables)
 
-        assert stamped["tours"].sort("tour_id")["usable"].to_list() == [False, False]
+        assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [False, False]
 
 
 class TestJointQuorum:
@@ -366,12 +351,12 @@ class TestJointQuorum:
     def _joint_tour(self, member_qualities: list[TourDataQuality]) -> dict:
         n = len(member_qualities)
         return {
-            "households": pl.DataFrame({"hh_id": [1], "complete": [True]}),
+            "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
             "persons": pl.DataFrame(
                 {
                     "person_id": list(range(1, n + 1)),
                     "hh_id": [1] * n,
-                    "complete": [True] * n,
+                    "survey_complete": [True] * n,
                     "surveyable": [True] * n,
                 }
             ),
@@ -381,7 +366,7 @@ class TestJointQuorum:
                     "person_id": list(range(1, n + 1)),
                     "hh_id": [1] * n,
                     "travel_date": [DATE] * n,
-                    "complete": [True] * n,
+                    "survey_complete": [True] * n,
                 }
             ),
             "tours": pl.DataFrame(
@@ -390,24 +375,25 @@ class TestJointQuorum:
                     "day_id": list(range(1, n + 1)),
                     "person_id": list(range(1, n + 1)),
                     "joint_tour_id": [1] * n,
-                    "complete": [True] * n,
+                    "survey_complete": [True] * n,
                     "parent_tour_id": [10 + i for i in range(n)],
                     "tour_data_quality": [q.value for q in member_qualities],
                     "tour_category": [TourCategory.COMPLETE.value] * n,
                 }
             ),
-            "joint_tours": pl.DataFrame({"joint_tour_id": [1], "day_id": [1], "complete": [True]}),
+            "joint_tours": pl.DataFrame(
+                {"joint_tour_id": [1], "day_id": [1], "survey_complete": [True]}
+            ),
         }
 
     def test_exactly_the_minimum_survives(self):
         """The boundary itself: two usable members is still joint."""
-        assert MIN_JOINT_PARTICIPANTS == 2
         qualities = [TourDataQuality.VALID] * 2 + [TourDataQuality.SPATIAL_GAP]
 
         stamped = _stamp(self._joint_tour(qualities), WIDEST)
 
-        assert stamped["tours"]["widest"].to_list()[:2] == [True, True]
-        assert stamped["joint_tours"]["widest"].to_list() == [True]
+        assert stamped["tours"]["usable_widest"].to_list()[:2] == [True, True]
+        assert stamped["joint_tours"]["usable_widest"].to_list() == [True]
 
     def test_one_below_the_minimum_is_no_longer_joint(self):
         """A one-participant joint tour would violate CT-RAMP's num_participants."""
@@ -415,18 +401,18 @@ class TestJointQuorum:
 
         stamped = _stamp(self._joint_tour(qualities), WIDEST)
 
-        assert stamped["joint_tours"]["widest"].to_list() == [False]
+        assert stamped["joint_tours"]["usable_widest"].to_list() == [False]
 
     def test_a_grouping_with_no_members_at_all_falls_to_its_own_complete(self):
         """A member table that was never supplied is a legitimate partial call."""
         tables = _one_person()
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1, 2], "day_id": [1, 1], "complete": [True, False]}
+            {"joint_tour_id": [1, 2], "day_id": [1, 1], "survey_complete": [True, False]}
         )
 
         stamped = _stamp(tables)
 
-        assert stamped["joint_tours"]["usable"].to_list() == [True, False]
+        assert stamped["joint_tours"]["usable_test"].to_list() == [True, False]
 
 
 class TestStampingTwice:
@@ -439,22 +425,15 @@ class TestStampingTwice:
     def test_a_repeated_pass_is_idempotent(self):
         """Re-running the step on resume must not compound its own output."""
         tables = _stamp(self._mixed())
-        first = {name: df["usable"].to_list() for name, df in tables.items()}
+        first = {name: df["usable_test"].to_list() for name, df in tables.items()}
+        columns_before = {name: df.columns for name, df in tables.items()}
 
         working: dict[str, pl.DataFrame | None] = dict(tables)
         stamp_usable(working, STRICT)
 
-        assert {name: working[name]["usable"].to_list() for name in first} == first
-
-    def test_a_repeated_pass_adds_no_column(self):
-        """A second pass writes the same two names, never a suffixed copy."""
-        tables = _stamp(self._mixed())
-        before = {name: df.columns for name, df in tables.items()}
-
-        working: dict[str, pl.DataFrame | None] = dict(tables)
-        stamp_usable(working, STRICT)
-
-        assert {name: working[name].columns for name in before} == before
+        assert {name: working[name]["usable_test"].to_list() for name in first} == first
+        # The second pass writes the same two names, never a suffixed copy.
+        assert {name: working[name].columns for name in columns_before} == columns_before
 
     def _mixed(self) -> dict:
         """One tour the profile admits and one it does not, so drift would show."""
@@ -464,7 +443,7 @@ class TestStampingTwice:
                 "tour_id": [10, 11],
                 "day_id": [1, 1],
                 "person_id": [1, 1],
-                "complete": [True, True],
+                "survey_complete": [True, True],
                 "parent_tour_id": [10, 11],
                 "tour_data_quality": [
                     TourDataQuality.VALID.value,
@@ -476,13 +455,14 @@ class TestStampingTwice:
         return tables
 
 
-class TestNamesThatWriteTheSameColumn:
-    """Distinct profile names are not enough; their columns must differ too.
+class TestTheFamilyPrefixesCannotCollide:
+    """A profile writes two columns, and the families they belong to are disjoint.
 
-    Each profile derives a second column from its name, so a profile called
-    ``hh_day_x`` writes its verdict into the column ``x`` derives for its
-    household-day reduction. Whichever ran second would win, and the loser would
-    look like it simply disagreed.
+    This used to be a guarded failure. A profile derived its verdict column from
+    its bare name, so one called ``hh_day_ctramp`` wrote into the column
+    ``ctramp`` derived for its household-day reduction, and whichever ran second
+    won silently. Prefixing each family removed the overlap rather than policing
+    it, so the guard was retired -- this records why it is safe to be gone.
     """
 
     def _axes(self, closes_at: str = PRIMARY_HOME, household: str = ALL_MEMBERS) -> dict:
@@ -492,32 +472,37 @@ class TestNamesThatWriteTheSameColumn:
             "zone_coverage": NO_ZONE_COVERAGE,
         }
 
-    def test_a_profile_may_not_shadow_another_s_household_day_column(self):
-        """The collision the two-column derivation makes possible."""
-        spec = {"ctramp_usable": self._axes(), "hh_day_ctramp_usable": self._axes()}
+    # Names chosen to collide under the old scheme, plus the family prefixes
+    # themselves, which are the other way anyone might trip it.
+    ADVERSARIAL = (
+        "a",
+        "hh_day_a",
+        "usable_a",
+        "usable",
+        "hh_day",
+        "hh_day_usable_a",
+        "usable_hh_day_a",
+    )
 
-        with pytest.raises(ValueError, match="both write the column"):
-            parse_usability_profiles(spec)
+    def test_no_two_adversarial_names_share_a_column(self):
+        """Every name writes two columns, all distinct, one per family prefix."""
+        profiles = parse_usability_profiles({n: self._axes() for n in self.ADVERSARIAL})
 
-    def test_the_error_names_both_profiles_and_the_column(self):
-        """Naming only the column would leave the reader hunting for the other profile."""
-        spec = {"a": self._axes(), "hh_day_a": self._axes()}
+        written = [c for p in profiles for c in (p.flag, p.household_day)]
+        assert len(set(written)) == len(written) == 2 * len(self.ADVERSARIAL)
 
-        with pytest.raises(ValueError, match=r"'a' and 'hh_day_a'.*'hh_day_a'"):
-            parse_usability_profiles(spec)
+        # The reason, stated rather than merely demonstrated: the two families
+        # are prefixed, so neither can reach the other's namespace.
+        assert all(p.flag.startswith("usable_") for p in profiles)
+        assert all(p.household_day.startswith("hh_day_") for p in profiles)
 
-    def test_the_collision_is_caught_whichever_order_they_are_declared(self):
-        """Declaration order decides only which one would have won, not whether it is a bug."""
-        spec = {"hh_day_a": self._axes(), "a": self._axes()}
-
-        with pytest.raises(ValueError, match="both write the column"):
-            parse_usability_profiles(spec)
-
-    def test_an_hh_day_prefix_alone_is_fine(self):
-        """It only collides with a profile that is actually declared."""
-        profiles = parse_usability_profiles({"hh_day_a": self._axes()})
-
-        assert [p.name for p in profiles] == ["hh_day_a"]
+        # `a` and `hh_day_a` wrote the same column before the prefix existed.
+        by_name = {p.name: p for p in profiles}
+        assert (by_name["a"].flag, by_name["a"].household_day) == ("usable_a", "hh_day_a")
+        assert (by_name["hh_day_a"].flag, by_name["hh_day_a"].household_day) == (
+            "usable_hh_day_a",
+            "hh_day_hh_day_a",
+        )
 
 
 class TestTheDidYouMeanLine:
@@ -530,28 +515,24 @@ class TestTheDidYouMeanLine:
     at a glance, where a confident empty answer sends them to the wrong step.
     """
 
-    def test_a_freely_named_profile_is_offered(self):
-        """No suffix, no prefix, nothing to pattern-match -- still listed."""
-        frame = pl.DataFrame({"tour_id": [1], "keep_for_ctramp": [True]})
+    def test_every_boolean_is_offered_in_order(self):
+        """Freely named profiles included, non-booleans excluded, sorted by name.
 
-        assert "keep_for_ctramp" in suggest_usability_columns(frame)
-
-    def test_unrelated_booleans_are_offered_too_and_that_is_the_deal(self):
-        """Accepted noise. The alternative is guessing, which fails silently."""
-        frame = pl.DataFrame({"tour_id": [1], "complete": [True], "is_subtour": [False]})
-
-        line = suggest_usability_columns(frame)
-
-        assert "complete" in line
-        assert "is_subtour" in line
-
-    def test_non_booleans_are_not_offered(self):
-        """A column that could never hold a verdict is not a candidate."""
-        frame = pl.DataFrame({"tour_id": [1], "tour_purpose": ["work"], "usable": [True]})
+        Column order is an accident of the frame; the message should not be.
+        """
+        frame = pl.DataFrame(
+            {
+                "zeta": [True],
+                "tour_id": [1],
+                "keep_for_ctramp": [True],
+                "tour_purpose": ["work"],
+                "alpha": [True],
+            }
+        )
 
         line = suggest_usability_columns(frame)
 
-        assert "usable" in line
+        assert line.endswith("alpha, keep_for_ctramp, zeta.")
         assert "tour_purpose" not in line
         assert "tour_id" not in line
 
@@ -560,9 +541,3 @@ class TestTheDidYouMeanLine:
         frame = pl.DataFrame({"tour_id": [1], "tour_purpose": ["work"]})
 
         assert suggest_usability_columns(frame) == "It carries no boolean columns at all."
-
-    def test_the_candidates_are_ordered(self):
-        """Column order is an accident of the frame; the message should not be."""
-        frame = pl.DataFrame({"zeta": [True], "alpha": [True], "mid": [True]})
-
-        assert suggest_usability_columns(frame).endswith("alpha, mid, zeta.")

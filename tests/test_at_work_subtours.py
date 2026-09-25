@@ -36,13 +36,11 @@ from processing.completeness import (
     UsabilityProfile,
     compute_usability,
 )
-from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_tours import format_individual_tour
 from processing.formatting.daysim.format_days import format_days as format_days_daysim
 from processing.formatting.daysim.format_tours import format_tours as format_tours_daysim
 from processing.formatting.usable_records import keep_usable
-from processing.tours.extraction import extract_tours
 from tests.fixtures import (
     create_household,
     create_linked_trip,
@@ -51,6 +49,7 @@ from tests.fixtures import (
 )
 from tests.fixtures.fixtures import process_scenario_through_pipeline
 from tests.fixtures.scenario_builders import multi_stop_tour
+from tests.fixtures.tour_pipeline import locate_and_extract_tours
 from tests.fixtures.tour_records import get_tour_schema
 
 HOME = (37.80, -122.40)
@@ -156,19 +155,6 @@ def _lunch_subtour_day() -> pl.DataFrame:
 
 
 @pytest.fixture
-def standard_config():
-    """CT-RAMP config matching the other formatter tests."""
-    return CTRAMPConfig(
-        usability_flag_col="usable",
-        income_low_threshold=60000,
-        income_med_threshold=150000,
-        income_high_threshold=240000,
-        income_survey_year_to_ctramp_year=0.5319148936,
-        age_adult=4,
-    )
-
-
-@pytest.fixture
 def extracted():
     """Extract tours for the lunch-subtour day."""
     persons, households = _persons_and_households()
@@ -181,7 +167,9 @@ def extracted():
     linked_trips = link_result["linked_trips"].with_columns(
         pl.lit(None).cast(pl.Int64).alias("joint_trip_id")
     )
-    result = extract_tours(persons, households, link_result["unlinked_trips"], linked_trips)
+    result = locate_and_extract_tours(
+        persons, households, link_result["unlinked_trips"], linked_trips
+    )
     return result, persons, households
 
 
@@ -212,28 +200,16 @@ class TestSubtourClassification:
         ``TourType.WORK_BASED`` (2) in ``tour_category``, which decodes as
         ``PARTIAL_END``, so it could never pass a COMPLETE gate.
         """
-        _parent, subtour = subtour_and_parent
+        parent, subtour = subtour_and_parent
         assert subtour["tour_category"] == TourCategory.COMPLETE.value
+        # Its home-based parent is COMPLETE too, so the column carries one
+        # meaning: reaches its own anchor, whichever anchor that is.
+        assert parent["tour_category"] == TourCategory.COMPLETE.value
 
     def test_subtour_is_structurally_valid(self, subtour_and_parent):
         """A subtour has no home anchor, and must not be penalised for it."""
         _parent, subtour = subtour_and_parent
         assert subtour["tour_data_quality"] == TourDataQuality.VALID.value
-
-    def test_tour_category_never_carries_a_tour_type_code(self, extracted):
-        """Guard the enum collision that caused #85.
-
-        ``TourType`` and ``TourCategory`` share the integer space, so a stray
-        type code in ``tour_category`` is undetectable by value alone. Pinning
-        subtours to COMPLETE is what makes the confusion visible: WORK_BASED
-        would read as PARTIAL_END here.
-        """
-        tours = extracted[0]["tours"]
-        assert set(tours["tour_category"].to_list()) == {TourCategory.COMPLETE.value}
-        assert set(tours["tour_type"].to_list()) == {
-            TourType.HOME_BASED.value,
-            TourType.WORK_BASED.value,
-        }
 
     def test_subtour_trips_get_a_real_direction(self, extracted):
         """A subtour is split into outbound/inbound like any other tour.
@@ -268,13 +244,13 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": [datetime(2024, 1, 17)],
-                "complete": [True],
+                "survey_complete": [True],
             }
         ),
-        "tours": tours.with_columns(pl.lit(value=True).alias("complete")),
+        "tours": tours.with_columns(pl.lit(value=True).alias("survey_complete")),
     }
-    compute_usability(tables, profile=UsabilityProfile("usable", PRIMARY_HOME, ALL_MEMBERS))
-    return dict(zip(*tables["tours"].select("tour_id", "usable"), strict=True))
+    compute_usability(tables, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
+    return dict(zip(*tables["tours"].select("tour_id", "usable_test"), strict=True))
 
 
 class TestSubtourModelUsability:
@@ -319,13 +295,13 @@ class TestSubtourReachesCtramp:
         parent, subtour = subtour_and_parent
         usable = _gate(extracted[0]["tours"])
         tours = extracted[0]["tours"].with_columns(
-            pl.col("tour_id").replace_strict(usable).alias("usable")
+            pl.col("tour_id").replace_strict(usable).alias("usable_test")
         )
         linked_trips = extracted[0]["linked_trips"].with_columns(
-            pl.col("tour_id").replace_strict(usable).alias("usable")
+            pl.col("tour_id").replace_strict(usable).alias("usable_test")
         )
 
-        kept = keep_usable({"tours": tours, "linked_trips": linked_trips}, "usable")
+        kept = keep_usable({"tours": tours, "linked_trips": linked_trips}, "test")
 
         assert sorted(kept["tours"]["tour_id"].to_list()) == sorted(
             [parent["tour_id"], subtour["tour_id"]]

@@ -14,6 +14,8 @@ from typing import NamedTuple
 import numpy as np
 import polars as pl
 
+from processing.completeness import usable_col_for
+
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
@@ -106,9 +108,15 @@ class IncidenceBundle:
 
 @dataclass
 class ImputationSummary:
-    """Per-control imputation metadata for diagnostics.
+    """Per-control fractional seed imputation metadata for diagnostics.
 
-    One entry per control target, regardless of whether imputation was
+    Describes what [`fill_null_incidence`]
+    [processing.weighting.data_prep.fractional_impute.fill_null_incidence]
+    filled in the seed incidence matrix -- never the survey ``imputation``
+    step, which writes discrete values to canonical data and is reported
+    separately.
+
+    One entry per control target, regardless of whether any filling was
     needed.  Controls with no nulls have ``n_null == 0`` and ``None``
     for the RF metrics.
     """
@@ -228,6 +236,51 @@ class ImportanceConfig:
     default: float = 100.0
 
 
+def resolve_fitted_profiles(
+    usability_profile: str | None,
+    weight_profiles: tuple[str, ...] | list[str] | None,
+) -> tuple[str | None, ...]:
+    """The profiles to weight: one entry per weight column set to be written.
+
+    Shared by both weighting entry points so they cannot disagree about what
+    naming a flag, a profile list, or both is supposed to mean.
+
+    Args:
+        usability_profile: A single profile to weight without suffixing its
+            columns -- today's behaviour, and what a project keeps by changing
+            nothing.
+        weight_profiles: Profiles to weight, each writing its own suffixed
+            column set.
+
+    Returns:
+        ``(None,)`` for the un-suffixed single set, else one entry per profile.
+
+    Raises:
+        ValueError: If both or neither is given, or a profile is named twice.
+    """
+    profiles = tuple(weight_profiles or ())
+    if usability_profile and profiles:
+        msg = (
+            "Name either usability_profile (one un-suffixed weight set) or "
+            "weight_profiles (one column set per profile), not both. Got "
+            f"usability_profile={usability_profile!r} and weight_profiles={list(profiles)}."
+        )
+        raise ValueError(msg)
+    if not usability_profile and not profiles:
+        msg = (
+            "The weighting needs a universe: name usability_profile, or "
+            "weight_profiles to write one weight set per profile."
+        )
+        raise ValueError(msg)
+
+    duplicates = sorted({p for p in profiles if profiles.count(p) > 1})
+    if duplicates:
+        msg = f"weight_profiles names the same profile twice: {duplicates}"
+        raise ValueError(msg)
+
+    return profiles or (None,)
+
+
 @dataclass
 class WeightingConfig:
     """Top-level configuration for the weighting pipeline.
@@ -242,10 +295,12 @@ class WeightingConfig:
     geography: dict
     state_fips: str
     pums_year: int
-    # Which usability profile decides who carries weight. Required: with
-    # several stamped there is no defensible default, and picking silently
-    # would weight a different universe than the formatters emit.
-    usability_flag_col: str
+    # Which usability profile decides who carries weight. One of these two is
+    # required: with several profiles stamped there is no defensible default, and
+    # picking silently would weight a different universe than the formatters emit.
+    usability_profile: str | None = None
+    weight_profiles: tuple[str, ...] = ()
+    max_unplaceable_share: float = 0.01
     pums_households: str | None = None
     pums_persons: str | None = None
     sample_plan: str | None = None
@@ -253,6 +308,42 @@ class WeightingConfig:
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
     exclude_incompletes: bool = True
+    _fitted_profiles: tuple[str | None, ...] = field(default=(), init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Reject a weighting universe that is unstated, stated twice, or ungated."""
+        self._fitted_profiles = resolve_fitted_profiles(
+            self.usability_profile, self.weight_profiles
+        )
+
+        if self.weight_profiles and not self.exclude_incompletes:
+            # Without the gate every fit sees the same seed, so the profiles would
+            # differ in name only -- weights indistinguishable from fitted ones
+            # that expand a universe nobody asked for.
+            msg = (
+                "weight_profiles requires exclude_incompletes: true. With the gate off, "
+                "every profile is fitted to the same seed and the suffixed columns would "
+                "be identical copies under different names."
+            )
+            raise ValueError(msg)
+
+    @property
+    def fitted_profiles(self) -> tuple[str | None, ...]:
+        """One entry per balancing run; ``(None,)`` for a single un-suffixed set."""
+        return self._fitted_profiles
+
+    def flag_for(self, profile: str | None) -> str:
+        """The verdict column the fit for *profile* is gated on.
+
+        A profile names both its gate and its weights -- ``usable_<profile>`` and
+        ``hh_weight_<profile>`` -- so there is no second setting to disagree with
+        the first.
+        """
+        named = profile if profile is not None else self.usability_profile
+        if named is None:  # pragma: no cover - __post_init__ forbids it
+            msg = "No usability_profile configured"
+            raise ValueError(msg)
+        return usable_col_for(named)
 
 
 @dataclass
@@ -404,3 +495,74 @@ class ZoneResult(NamedTuple):
 
     weights: pl.DataFrame
     status: ZoneStatus
+
+
+# ==============================================================================
+# Per-profile fits
+# ==============================================================================
+
+
+class GeographyCoverage(NamedTuple):
+    """How much of one profile's universe the control geography can place.
+
+    A household the control polygons do not contain belongs to no balancing zone,
+    so no fit can give it a weight. That is a bound on what the weighting can
+    answer, not a defect in the household, and it is counted so a reader sees the
+    bound rather than inferring it from nulls.
+    """
+
+    profile: str | None
+    n_universe: int
+    n_placed: int
+
+    @property
+    def n_unplaceable(self) -> int:
+        """Households in the profile that the control geography cannot place."""
+        return self.n_universe - self.n_placed
+
+    @property
+    def unplaceable_share(self) -> float:
+        """Unplaceable households as a share of the profile's universe."""
+        return self.n_unplaceable / self.n_universe if self.n_universe else 0.0
+
+
+@dataclass
+class ProfileFit:
+    """Everything one balancing run produced.
+
+    A run may fit several profiles over the same survey. Holding each fit's
+    products here rather than on the pipeline keeps them from overwriting one
+    another -- otherwise the last profile's seed silently becomes the one the
+    diagnostics describe and the checks read.
+
+    Attributes:
+        profile: Usability profile fitted, or None for a single un-suffixed set.
+            Suffixes every weight column this fit writes.
+        usability_flag_col: The column that gated the seed and will gate the
+            propagation. Equal to *profile* whenever a profile was named.
+        seed_incidence: The seed this fit was solved from, carrying its own
+            ``base_weight`` once balancing has run.
+        pre_imputation_incidence: The same seed before null imputation, for the
+            diagnostics report.
+        imputation_summary: Per-control imputation metadata for this seed.
+        coverage: How much of the profile's universe had a control geography.
+        weights: Balancer output, keyed by ``hh_id``, carrying the *base* weight
+            column name -- the suffix is applied where it is joined on.
+        statuses: Per-zone convergence diagnostics.
+        grid_results: Expansion-factor grid points, when a grid was configured.
+    """
+
+    profile: str | None
+    usability_flag_col: str
+    seed_incidence: pl.DataFrame
+    pre_imputation_incidence: pl.DataFrame
+    imputation_summary: list[ImputationSummary]
+    coverage: GeographyCoverage
+    weights: pl.DataFrame | None = None
+    statuses: list[ZoneStatus] = field(default_factory=list)
+    grid_results: list[GridPoint] | None = None
+
+    @property
+    def unconverged_zones(self) -> int:
+        """Zones this fit failed to converge."""
+        return sum(not s.converged for s in self.statuses)

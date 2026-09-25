@@ -13,6 +13,7 @@ from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory, TNCTyp
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
 from pipeline.decoration import step
 from pipeline.step_registry import get_all_required_fields
+from processing.habitual_locations import reported_habitual_locations
 from utils.helpers import expr_haversine
 
 logger = logging.getLogger(__name__)
@@ -395,6 +396,9 @@ def clean_days(
         travel_dow=pl.col("travel_date_dow"),
         # Create day_id as (person_id * 100 + day_num)
         day_id=(pl.col("person_id") * 100 + pl.col("day_num")),
+        # 2019 did not ask where the day began or ended.
+        begin_day=pl.lit(None, dtype=pl.Int64),
+        end_day=pl.lit(None, dtype=pl.Int64),
     )
 
     # Add day entries for surveyable persons without any days recorded.
@@ -790,7 +794,7 @@ def flag_measured_completeness(
     Both are facts the vendor recorded, so they are the project's to set. The
     trip leaf matters as much as the day one: tours are built from trips, and
     ``cascade_completeness`` broadcasts a day's verdict onto the records that sit
-    on it rather than inventing one, so a trip table with no ``complete`` leaves
+    on it rather than inventing one, so a trip table with no ``survey_complete`` leaves
     tours with none either and the usability pass has nothing to stand on.
 
     Args:
@@ -798,11 +802,11 @@ def flag_measured_completeness(
         unlinked_trips: Trips carrying ``survey_complete_trip``.
 
     Returns:
-        Tuple of (days, unlinked_trips), each carrying ``complete``, plus the
+        Tuple of (days, unlinked_trips), each carrying ``survey_complete``, plus the
         per-day trip counts kept for debugging.
     """
     unlinked_trips = unlinked_trips.with_columns(
-        (pl.col("survey_complete_trip") == 1).alias("complete")
+        (pl.col("survey_complete_trip") == 1).alias("survey_complete")
     )
 
     # Add num_complete_trips column to help with debugging and weighting later
@@ -831,7 +835,7 @@ def flag_measured_completeness(
         pl.when(pl.col("survey_complete_day").is_null())
         .then(pl.lit(value=False))
         .otherwise(pl.col("survey_complete_day") == 1)
-        .alias("complete"),
+        .alias("survey_complete"),
     )
     return days, unlinked_trips
 
@@ -922,4 +926,8 @@ def clean_2019_bats(
         # Final check
         check_fields(results[df_name], df_name, models[df_name])
 
+    # 2019 reports home, work and school only; there are no further locations.
+    results["habitual_locations"] = reported_habitual_locations(
+        results["households"], results["persons"]
+    )
     return results

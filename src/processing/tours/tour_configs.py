@@ -7,8 +7,8 @@ This module implements a flexible tour extraction algorithm with configurable
 behavior for different use cases. Key design decisions:
 
 1. LOCATION CLASSIFICATION:
-   Uses hybrid strategy: matches location if EITHER purpose code OR distance
-   indicates the location. This handles both precise GPS and imprecise cases.
+   A trip end is at a habitual location when it is within one buffer of it AND
+   its purpose agrees (see processing.habitual_locations).
 
 2. TOUR COMPLETENESS:
    Incomplete tours are allowed (e.g., missing return home), but are flagged
@@ -38,34 +38,20 @@ from typing import Literal
 import polars as pl
 from pydantic import BaseModel, Field
 
-from data_canon.codebook.generic import LocationType
 from data_canon.codebook.persons import AgeCategory, Employment, SchoolType, Student
 from data_canon.codebook.tours import PersonCategory
 from data_canon.codebook.trips import ModeType, PurposeCategory
-from processing.tours.habitual_locations import HabitualLocationConfig
+from processing.habitual_locations import MatchConfig
 
 
 class TourConfig(BaseModel):
     """Configuration model for tour building parameters.
 
     This config uses Pydantic for validation and provides type-safe access
-    to tour building parameters including distance thresholds, mode
-    hierarchies, and purpose priorities.
+    to tour building parameters including mode hierarchies and purpose
+    priorities. The one distance that decides whether a trip end is at a place
+    lives in ``habitual_locations``.
     """
-
-    # Distance thresholds for location matching (in meters)
-    distance_thresholds: dict[LocationType, float] = Field(
-        default={
-            LocationType.HOME: 100.0,
-            LocationType.WORK: 100.0,
-            LocationType.SCHOOL: 100.0,
-        },
-        description=(
-            "Distance thresholds in meters for matching trip ends "
-            "to known locations (also used to identify multiple visits "
-            "to primary destination)"
-        ),
-    )
 
     # Mode hierarchy: position in list determines priority
     # (later in list = higher priority for tour mode assignment)
@@ -300,17 +286,19 @@ class TourConfig(BaseModel):
             "A tour is flagged SPATIAL_GAP when any internal junction has a "
             "gap greater than this (meters) between one trip's destination and "
             "the next trip's origin - i.e. a missing leg the tour extractor "
-            "would otherwise silently weld into one 'complete' tour. Default "
+            "would otherwise silently weld into one 'survey_complete' tour. Default "
             "1 km catches genuine teleports while ignoring same-place geocoding "
             "jitter."
         ),
     )
 
-    habitual_locations: HabitualLocationConfig = Field(
-        default_factory=HabitualLocationConfig,
+    habitual_locations: MatchConfig = Field(
+        default_factory=MatchConfig,
         description=(
-            "Rules for promoting observed places into habitual locations, and "
-            "the radius within which two points are treated as the same place."
+            "The rule for whether a trip end is at a habitual location. Its "
+            "buffer must be the one detect_habitual_locations used, and is also "
+            "the distance within which a trip end returns to a tour's primary "
+            "destination."
         ),
     )
 

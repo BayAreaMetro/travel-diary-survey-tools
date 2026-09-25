@@ -5,6 +5,9 @@ Source: populationsim/balancing/balancers_numba.py
 Commit: 7826bbfa9cd2801cdbed9af0492a7308672c0ef2
 
 Only np_balancer_numba and the constants it references are included.
+
+Local change: ``nogil=True``. Without it the function holds the GIL, and the
+threads that balance zones in parallel run one at a time.
 """
 
 import logging
@@ -28,7 +31,7 @@ ALT_MAX_DELTA = 1.0e-14
 logger = logging.getLogger(__name__)
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True, nogil=True)
 def np_balancer_numba(
     sample_count: int,
     control_count: int,

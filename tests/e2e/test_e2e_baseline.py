@@ -63,8 +63,16 @@ class TestOutputIsUnchanged:
 
         committed = baseline.load(PROFILE)
         if committed is None:
+            # Not a skip. A snapshot test that writes the answer and passes is no
+            # gate at all: deleting or renaming the committed file would turn this
+            # green. Writing it for the author to inspect is still the useful
+            # behaviour, so do that, then fail.
             path = baseline.save(PROFILE, current)
-            pytest.skip(f"no baseline yet; wrote {path}. Commit it and re-run.")
+            pytest.fail(
+                f"no committed baseline for {PROFILE!r}. Wrote {path} from this run. "
+                f"Inspect it, and if it is right, commit it. To rewrite an existing "
+                f"baseline deliberately, re-run with {baseline.UPDATE_ENV}=1."
+            )
 
         differences = baseline.diff(committed, current)
         assert not differences, baseline.report(PROFILE, differences)

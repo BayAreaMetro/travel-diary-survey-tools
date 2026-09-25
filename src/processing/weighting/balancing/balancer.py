@@ -157,22 +157,26 @@ def grid_search_expansion_factor(
 
     This is a **diagnostics-only** function — it does not modify the
     production weights.
+
+    Grid points are independent, so with ``balancing.n_workers > 1`` they run
+    in parallel, each balancing its zones in turn. That keeps the thread count
+    at ``n_workers`` while using it fully: a run has few zones, and zone-level
+    parallelism alone left most workers idle.
     """
     bal = balancing or BalancingConfig()
     grid = sorted(set(ef_grid) | {selected_ef})
     if not grid:
         return []
 
-    results: list[GridPoint] = []
-    for i, ef in enumerate(grid, 1):
-        logger.info("Grid search: EF=%.1f (%d/%d)", ef, i, len(grid))
+    def run(ef: float) -> GridPoint:
+        # Zones run one at a time here; the grid points share the worker pool
         ef_bal = BalancingConfig(
             max_expansion_factor=ef,
             min_expansion_factor=bal.min_expansion_factor,
             min_weight=bal.min_weight,
             max_weight=bal.max_weight,
             max_iterations=bal.max_iterations,
-            n_workers=bal.n_workers,
+            n_workers=1,
         )
         weights, statuses = balance_weights(
             seed,
@@ -204,20 +208,22 @@ def grid_search_expansion_factor(
         else:
             cv, ess_pct = 0.0, 0.0
 
-        results.append(
-            GridPoint(
-                max_expansion_factor=ef,
-                converged_zones=sum(s.converged for s in statuses),
-                total_zones=len(statuses),
-                mape=mape,
-                p90=p90,
-                max_error=max_error,
-                cv=cv,
-                ess_pct=ess_pct,
-            )
+        return GridPoint(
+            max_expansion_factor=ef,
+            converged_zones=sum(s.converged for s in statuses),
+            total_zones=len(statuses),
+            mape=mape,
+            p90=p90,
+            max_error=max_error,
+            cv=cv,
+            ess_pct=ess_pct,
         )
 
-    return results
+    logger.info("Grid search: EF %s on %d worker(s)", grid, bal.n_workers)
+    if bal.n_workers > 1 and len(grid) > 1:
+        with ThreadPoolExecutor(max_workers=bal.n_workers) as pool:
+            return list(pool.map(run, grid))
+    return [run(ef) for ef in grid]
 
 
 # -- Zone preparation -------------------------------------------------------

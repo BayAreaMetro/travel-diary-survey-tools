@@ -2,10 +2,9 @@
 
 This test module ensures joint tour identification correctly handles:
 - Tours where all trips are joint with same stable group (2+ people)
-- Tours with partial joint trips (some joint, some individual)
 - Partial dropoffs (3 people start, 1 drops off, remaining 2 form joint tour)
-- Single-person tours (no joint tours)
-- Multiple joint tour groups within same household
+- Tours with a solo leg, which are not joint
+- The same group on two occasions, which are two joint tours
 - Tours without any joint trips
 """
 
@@ -24,11 +23,21 @@ from data_canon.codebook.persons import (
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.joint_trips import detect_joint_trips
-from processing.tours.extraction import extract_tours
 from processing.tours.joint_tour_helpers import (
     _validate_joint_tours_have_joint_trips,
     identify_joint_tours,
 )
+from tests.fixtures.tour_pipeline import locate_and_extract_tours
+
+HH_ID = 23000075
+P1 = 23000075001
+P2 = 23000075002
+P3 = 23000075003
+PERSON_IDS = [P1, P2, P3]
+DAY_IDS = [2300007500101, 2300007500201, 2300007500301]
+
+HOME = (37.8, -122.4)
+SHOP = (37.82, -122.42)
 
 
 @pytest.fixture
@@ -36,8 +45,8 @@ def basic_household_data():
     """Create basic household and person data for 3-person household."""
     persons = pl.DataFrame(
         {
-            "person_id": [23000075001, 23000075002, 23000075003],
-            "hh_id": [23000075, 23000075, 23000075],
+            "person_id": PERSON_IDS,
+            "hh_id": [HH_ID] * 3,
             "age": [
                 AgeCategory.AGE_35_TO_44.value,
                 AgeCategory.AGE_35_TO_44.value,
@@ -61,13 +70,7 @@ def basic_household_data():
         }
     )
 
-    households = pl.DataFrame(
-        {
-            "hh_id": [23000075],
-            "home_lat": [37.8],
-            "home_lon": [-122.4],
-        }
-    )
+    households = pl.DataFrame({"hh_id": [HH_ID], "home_lat": [HOME[0]], "home_lon": [HOME[1]]})
 
     return persons, households
 
@@ -108,312 +111,100 @@ def link_and_detect_joint_trips(
     return unlinked_trips_with_ids, linked_trips_with_joints, joint_trips
 
 
+def _tours_from(persons, households, unlinked_trips) -> pl.DataFrame:
+    """Run the whole link -> joint trips -> tours path and return the tours."""
+    (
+        unlinked_trips_with_ids,
+        linked_trips,
+        joint_trips,
+    ) = link_and_detect_joint_trips(unlinked_trips, households)
+
+    result = locate_and_extract_tours(
+        persons=persons,
+        households=households,
+        unlinked_trips=unlinked_trips_with_ids,
+        linked_trips=linked_trips,
+        joint_trips=joint_trips,
+    )
+    return result["tours"]
+
+
+def _out_and_back(n_people: int, stagger_hours: int = 0) -> pl.DataFrame:
+    """``n_people`` household members each go home -> shop -> home.
+
+    With ``stagger_hours`` at zero every member's two trips share their
+    departure time, arrival time and both endpoints, so the buffer detector
+    sees one group on each leg. Staggering pushes each later member clear of
+    the one before, which leaves nobody travelling together.
+    """
+    n = n_people
+    departures = [datetime(2024, 1, 15, 10 + stagger_hours * person, 0, 0) for person in range(n)]
+    return pl.DataFrame(
+        {
+            "unlinked_trip_id": list(range(1, 2 * n + 1)),
+            "day_id": [day for day in DAY_IDS[:n] for _ in range(2)],
+            "person_id": [person for person in PERSON_IDS[:n] for _ in range(2)],
+            "hh_id": [HH_ID] * (2 * n),
+            "travel_dow": [TravelDow.SATURDAY.value] * (2 * n),
+            "depart_time": [
+                time
+                for depart in departures
+                for time in (depart, depart.replace(hour=depart.hour + 1))
+            ],
+            "arrive_time": [
+                time
+                for depart in departures
+                for time in (
+                    depart.replace(minute=15),
+                    depart.replace(hour=depart.hour + 1, minute=15),
+                )
+            ],
+            "o_purpose_category": [
+                PurposeCategory.HOME.value,
+                PurposeCategory.SHOP.value,
+            ]
+            * n,
+            "d_purpose_category": [
+                PurposeCategory.SHOP.value,
+                PurposeCategory.HOME.value,
+            ]
+            * n,
+            "o_purpose": [Purpose.HOME.value, Purpose.GROCERY.value] * n,
+            "d_purpose": [Purpose.GROCERY.value, Purpose.HOME.value] * n,
+            "mode_type": [ModeType.CAR.value] * (2 * n),
+            "o_lat": [HOME[0], SHOP[0]] * n,
+            "o_lon": [HOME[1], SHOP[1]] * n,
+            "d_lat": [SHOP[0], HOME[0]] * n,
+            "d_lon": [SHOP[1], HOME[1]] * n,
+            "unlinked_trip_weight": [1.0] * (2 * n),
+            "distance_meters": [2000.0] * (2 * n),
+            "duration_minutes": [15.0] * (2 * n),
+            "num_travelers": [n] * (2 * n),
+            "driver": [Driver.DRIVER.value] * (2 * n),
+        }
+    )
+
+
 class TestFullyJointTour:
     """Test tours where all trips involve the same group of people."""
 
-    def test_two_person_joint_tour(self, basic_household_data):
-        """Two people travel together for entire tour."""
+    @pytest.mark.parametrize(
+        "n_people", [pytest.param(2, id="two_people"), pytest.param(3, id="three_people")]
+    )
+    def test_a_whole_tour_taken_together_is_one_joint_tour(self, basic_household_data, n_people):
+        """Each traveller keeps their own tour; the group shares one joint id."""
         persons, households = basic_household_data
 
-        # Two adults make a joint tour: home -> shop -> home
-        unlinked_trips = pl.DataFrame(
-            {
-                "unlinked_trip_id": [1, 2, 3, 4],
-                "day_id": [
-                    2300007500101,
-                    2300007500101,
-                    2300007500201,
-                    2300007500201,
-                ],
-                "person_id": [
-                    23000075001,
-                    23000075001,
-                    23000075002,
-                    23000075002,
-                ],
-                "hh_id": [23000075, 23000075, 23000075, 23000075],
-                "travel_dow": [TravelDow.SATURDAY.value] * 4,
-                "depart_time": [
-                    datetime(2024, 1, 15, 10, 0, 0),
-                    datetime(2024, 1, 15, 11, 0, 0),
-                    datetime(2024, 1, 15, 10, 0, 0),
-                    datetime(2024, 1, 15, 11, 0, 0),
-                ],
-                "arrive_time": [
-                    datetime(2024, 1, 15, 10, 15, 0),
-                    datetime(2024, 1, 15, 11, 15, 0),
-                    datetime(2024, 1, 15, 10, 15, 0),
-                    datetime(2024, 1, 15, 11, 15, 0),
-                ],
-                "o_purpose_category": [
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.SHOP.value,
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.SHOP.value,
-                ],
-                "d_purpose_category": [
-                    PurposeCategory.SHOP.value,
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.SHOP.value,
-                    PurposeCategory.HOME.value,
-                ],
-                "o_purpose": [
-                    Purpose.HOME.value,
-                    Purpose.GROCERY.value,
-                    Purpose.HOME.value,
-                    Purpose.GROCERY.value,
-                ],
-                "d_purpose": [
-                    Purpose.GROCERY.value,
-                    Purpose.HOME.value,
-                    Purpose.GROCERY.value,
-                    Purpose.HOME.value,
-                ],
-                "mode_type": [ModeType.CAR.value] * 4,
-                "o_lat": [37.8, 37.82, 37.8, 37.82],
-                "o_lon": [-122.4, -122.42, -122.4, -122.42],
-                "d_lat": [37.82, 37.8, 37.82, 37.8],
-                "d_lon": [-122.42, -122.4, -122.42, -122.4],
-                "unlinked_trip_weight": [1.0] * 4,
-                "distance_meters": [2000.0] * 4,
-                "duration_minutes": [15.0] * 4,
-                "num_travelers": [2, 2, 2, 2],
-                "driver": [Driver.DRIVER.value, Driver.DRIVER.value] * 2,
-            }
-        )
+        tours = _tours_from(persons, households, _out_and_back(n_people))
 
-        # Link trips and detect joint trips
-        (
-            unlinked_trips_with_ids,
-            linked_trips,
-            joint_trips,
-        ) = link_and_detect_joint_trips(unlinked_trips, households)
+        assert len(tours) == n_people, "One tour per person"
 
-        # Extract tours
-        tour_result = extract_tours(
-            persons=persons,
-            households=households,
-            unlinked_trips=unlinked_trips_with_ids,
-            linked_trips=linked_trips,
-            joint_trips=joint_trips,
-        )
-        tours = tour_result["tours"]
-
-        # Verify both persons have tours
-        assert len(tours) == 2, "Should have 2 tours (one per person)"
-
-        # Verify joint_tour_id is assigned and both tours share it
         joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
-        assert len(joint_tours) == 2, "Both tours should be marked as joint"
+        assert len(joint_tours) == n_people, "Every tour should be marked joint"
+        assert joint_tours["joint_tour_id"].n_unique() == 1, "All of them share one id"
 
-        joint_tour_ids = joint_tours["joint_tour_id"].unique()
-        assert len(joint_tour_ids) == 1, "Both tours should share same joint_tour_id"
-
-        # Verify joint_tour_id format (hh_id + 2 digits)
-        joint_tour_id = int(joint_tour_ids[0])
-        expected_prefix = 23000075  # hh_id
-        assert joint_tour_id // 100 == expected_prefix, (
-            f"joint_tour_id {joint_tour_id} should start with hh_id {expected_prefix}"
-        )
-
-    def test_three_person_joint_tour(self, basic_household_data):
-        """Three people travel together for entire tour."""
-        persons, households = basic_household_data
-
-        # All three people make a joint tour: home -> restaurant -> home
-        unlinked_trips = pl.DataFrame(
-            {
-                "unlinked_trip_id": [1, 2, 3, 4, 5, 6],
-                "day_id": [2300007500101] * 2 + [2300007500201] * 2 + [2300007500301] * 2,
-                "person_id": [
-                    23000075001,
-                    23000075001,
-                    23000075002,
-                    23000075002,
-                    23000075003,
-                    23000075003,
-                ],
-                "hh_id": [23000075] * 6,
-                "travel_dow": [TravelDow.SUNDAY.value] * 6,
-                "depart_time": [
-                    datetime(2024, 1, 15, 18, 0, 0),
-                    datetime(2024, 1, 15, 20, 0, 0),
-                ]
-                * 3,
-                "arrive_time": [
-                    datetime(2024, 1, 15, 18, 15, 0),
-                    datetime(2024, 1, 15, 20, 15, 0),
-                ]
-                * 3,
-                "o_purpose_category": [
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.MEAL.value,
-                ]
-                * 3,
-                "d_purpose_category": [
-                    PurposeCategory.MEAL.value,
-                    PurposeCategory.HOME.value,
-                ]
-                * 3,
-                "o_purpose": [Purpose.HOME.value, Purpose.DINING.value] * 3,
-                "d_purpose": [Purpose.DINING.value, Purpose.HOME.value] * 3,
-                "mode_type": [ModeType.CAR.value] * 6,
-                "o_lat": [37.8, 37.83] * 3,
-                "o_lon": [-122.4, -122.43] * 3,
-                "d_lat": [37.83, 37.8] * 3,
-                "d_lon": [-122.43, -122.4] * 3,
-                "unlinked_trip_weight": [1.0] * 6,
-                "distance_meters": [3000.0] * 6,
-                "duration_minutes": [15.0] * 6,
-                "num_travelers": [3] * 6,
-                "driver": [Driver.DRIVER.value, Driver.DRIVER.value] * 3,
-            }
-        )
-
-        # Link trips and detect joint trips
-        (
-            unlinked_trips_with_ids,
-            linked_trips,
-            joint_trips,
-        ) = link_and_detect_joint_trips(unlinked_trips, households)
-
-        # Extract tours
-        tour_result = extract_tours(
-            persons=persons,
-            households=households,
-            unlinked_trips=unlinked_trips_with_ids,
-            linked_trips=linked_trips,
-            joint_trips=joint_trips,
-        )
-        tours = tour_result["tours"]
-
-        # Verify all three persons have tours
-        assert len(tours) == 3, "Should have 3 tours (one per person)"
-
-        # Verify all marked as joint with same ID
-        joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
-        assert len(joint_tours) == 3, "All three tours should be marked as joint"
-
-        joint_tour_ids = joint_tours["joint_tour_id"].unique()
-        assert len(joint_tour_ids) == 1, "All tours should share same joint_tour_id"
-
-
-class TestPartialJointTour:
-    """Test tours where only some trips are joint."""
-
-    def test_tour_with_one_joint_trip(self, basic_household_data):
-        """Tour has one joint trip and one individual trip.
-
-        Should NOT be joint tour.
-        """
-        persons, households = basic_household_data
-
-        # Person 1: home -> shop (joint) -> restaurant (individual) -> home
-        # Person 2: home -> shop (joint) -> home
-        unlinked_trips = pl.DataFrame(
-            {
-                "unlinked_trip_id": [1, 2, 3, 4, 5, 6],
-                "day_id": [2300007500101] * 3
-                + [2300007500201] * 2
-                + [2300007500101],  # P1 has 3 trips same day
-                "person_id": [
-                    23000075001,
-                    23000075001,
-                    23000075001,
-                    23000075002,
-                    23000075002,
-                    23000075001,
-                ],
-                "hh_id": [23000075] * 6,
-                "travel_dow": [TravelDow.SATURDAY.value] * 6,
-                "depart_time": [
-                    datetime(2024, 1, 15, 10, 0, 0),  # P1: home -> shop
-                    datetime(2024, 1, 15, 11, 0, 0),  # P1: shop -> restaurant
-                    datetime(2024, 1, 15, 12, 0, 0),  # P1: restaurant -> home
-                    datetime(2024, 1, 15, 10, 0, 0),  # P2: home -> shop
-                    datetime(2024, 1, 15, 11, 0, 0),  # P2: shop -> home
-                    datetime(2024, 1, 15, 10, 0, 0),  # Duplicate for validation
-                ],
-                "arrive_time": [
-                    datetime(2024, 1, 15, 10, 15, 0),
-                    datetime(2024, 1, 15, 11, 15, 0),
-                    datetime(2024, 1, 15, 12, 15, 0),
-                    datetime(2024, 1, 15, 10, 15, 0),
-                    datetime(2024, 1, 15, 11, 15, 0),
-                    datetime(2024, 1, 15, 10, 15, 0),
-                ],
-                "o_purpose_category": [
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.SHOP.value,
-                    PurposeCategory.MEAL.value,
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.SHOP.value,
-                    PurposeCategory.HOME.value,
-                ],
-                "d_purpose_category": [
-                    PurposeCategory.SHOP.value,
-                    PurposeCategory.MEAL.value,
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.SHOP.value,
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.SHOP.value,
-                ],
-                "o_purpose": [
-                    Purpose.HOME.value,
-                    Purpose.GROCERY.value,
-                    Purpose.DINING.value,
-                    Purpose.HOME.value,
-                    Purpose.GROCERY.value,
-                    Purpose.HOME.value,
-                ],
-                "d_purpose": [
-                    Purpose.GROCERY.value,
-                    Purpose.DINING.value,
-                    Purpose.HOME.value,
-                    Purpose.GROCERY.value,
-                    Purpose.HOME.value,
-                    Purpose.GROCERY.value,
-                ],
-                "mode_type": [ModeType.CAR.value] * 6,
-                "o_lat": [37.8, 37.82, 37.83, 37.8, 37.82, 37.8],
-                "o_lon": [-122.4, -122.42, -122.43, -122.4, -122.42, -122.4],
-                "d_lat": [37.82, 37.83, 37.8, 37.82, 37.8, 37.82],
-                "d_lon": [-122.42, -122.43, -122.4, -122.42, -122.4, -122.42],
-                "unlinked_trip_weight": [1.0] * 6,
-                "distance_meters": [2000.0] * 6,
-                "duration_minutes": [15.0] * 6,
-                "num_travelers": [
-                    2,
-                    1,
-                    1,
-                    2,
-                    1,
-                    2,
-                ],  # First trip joint, rest individual
-                "driver": [Driver.DRIVER.value] * 6,
-            }
-        )
-
-        # Link trips and detect joint trips
-        (
-            unlinked_trips_with_ids,
-            linked_trips,
-            joint_trips,
-        ) = link_and_detect_joint_trips(unlinked_trips, households)
-
-        # Extract tours
-        tour_result = extract_tours(
-            persons=persons,
-            households=households,
-            unlinked_trips=unlinked_trips_with_ids,
-            linked_trips=linked_trips,
-            joint_trips=joint_trips,
-        )
-        tours = tour_result["tours"]
-
-        # Neither person should have joint_tour_id (tour not fully joint)
-        joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
-        assert len(joint_tours) == 0, "No tours should be marked as joint (not stable throughout)"
+        # joint_tour_id is the household id plus a two-digit sequence
+        assert int(joint_tours["joint_tour_id"][0]) // 100 == HH_ID
 
 
 class TestPartialDropoff:
@@ -422,7 +213,9 @@ class TestPartialDropoff:
     def test_three_start_one_drops_off(self, basic_household_data):
         """Three people start, one drops off.
 
-        Remaining two should have joint tour.
+        The stable group is the people on *every* joint trip of the tour, so
+        the two parents who carry on to the shop and home are joint and the
+        child who stays at school is not.
         """
         persons, households = basic_household_data
 
@@ -431,9 +224,9 @@ class TestPartialDropoff:
         unlinked_trips = pl.DataFrame(
             {
                 "unlinked_trip_id": list(range(1, 10)),
-                "day_id": [2300007500101] * 3 + [2300007500201] * 3 + [2300007500301] * 3,
-                "person_id": [23000075001] * 3 + [23000075002] * 3 + [23000075003] * 3,
-                "hh_id": [23000075] * 9,
+                "day_id": [DAY_IDS[0]] * 3 + [DAY_IDS[1]] * 3 + [DAY_IDS[2]] * 3,
+                "person_id": [P1] * 3 + [P2] * 3 + [P3] * 3,
+                "hh_id": [HH_ID] * 9,
                 "travel_dow": [TravelDow.MONDAY.value] * 9,
                 "depart_time": [
                     # Person 1: home -> school -> shop -> home
@@ -527,48 +320,18 @@ class TestPartialDropoff:
             }
         )
 
-        # Link trips and detect joint trips
-        (
-            unlinked_trips_with_ids,
-            linked_trips,
-            joint_trips,
-        ) = link_and_detect_joint_trips(unlinked_trips, households)
+        tours = _tours_from(persons, households, unlinked_trips)
 
-        # Extract tours
-        tour_result = extract_tours(
-            persons=persons,
-            households=households,
-            unlinked_trips=unlinked_trips_with_ids,
-            linked_trips=linked_trips,
-            joint_trips=joint_trips,
-        )
-        tours = tour_result["tours"]
-
-        # Parents should have joint_tour_id (stable pair through entire tour)
-        # Child should NOT (different tour pattern)
-        parent_tours = tours.filter(pl.col("person_id").is_in([23000075001, 23000075002]))
-        child_tours = tours.filter(pl.col("person_id") == 23000075003)
+        parent_tours = tours.filter(pl.col("person_id").is_in([P1, P2]))
+        child_tours = tours.filter(pl.col("person_id") == P3)
 
         parent_joint = parent_tours.filter(pl.col("joint_tour_id").is_not_null())
         assert len(parent_joint) == 2, "Both parents should have joint tours"
+        assert parent_joint["joint_tour_id"].n_unique() == 1, "Parents share one joint_tour_id"
 
-        # Parents should share same joint_tour_id
-        parent_joint_ids = parent_joint["joint_tour_id"].unique()
-        assert len(parent_joint_ids) == 1, "Parents should share same joint_tour_id"
-
-        # Child should not have joint_tour_id for this tour
-        child_joint = child_tours.filter(pl.col("joint_tour_id").is_not_null())
-        # Child might have separate tour, but shouldn't share parents'
-        # joint_tour_id
-        if len(child_joint) > 0:
-            assert child_joint["joint_tour_id"][0] != parent_joint_ids[0], (
-                "Child should not share parents' joint_tour_id"
-            )
-
-
-HH_ID = 23000075
-P1 = 23000075001
-P2 = 23000075002
+        # The child left the group at school, so no tour of theirs is joint
+        assert not child_tours.is_empty(), "The child still has a tour of their own"
+        assert child_tours["joint_tour_id"].null_count() == len(child_tours)
 
 
 def _build_joint_tour_frames(
@@ -661,93 +424,50 @@ class TestJointTourOccasions:
 class TestNoJointTours:
     """Test cases where no joint tours should be identified."""
 
-    def test_no_joint_trips(self, basic_household_data):
-        """Individual trips only - no joint tours."""
+    @pytest.mark.parametrize(
+        "trips",
+        [
+            pytest.param(
+                [
+                    (1, P1, 101, None),
+                    (2, P1, 101, None),
+                    (3, P2, 201, None),
+                    (4, P2, 201, None),
+                ],
+                id="nobody_shared_a_trip_all_day",
+            ),
+            pytest.param(
+                [
+                    (1, P1, 101, 1001),
+                    (2, P1, 101, None),
+                    (3, P2, 201, 1002),
+                    (4, P2, 201, None),
+                ],
+                id="every_tour_has_a_solo_leg",
+            ),
+        ],
+    )
+    def test_no_joint_trips(self, trips):
+        """Two people out on their own: nothing for the tours to intersect on."""
+        linked_trips, tours = _build_joint_tour_frames(trips)
+
+        _, tours_out = identify_joint_tours(linked_trips, tours)
+
+        assert tours_out["joint_tour_id"].null_count() == len(tours_out)
+
+    def test_the_whole_pipeline_survives_a_day_with_no_joint_trips(self, basic_household_data):
+        """Two members shopping five hours apart never travel together.
+
+        Tour extraction has its own branch for the case where joint trip
+        detection came back with nothing, so it is worth reaching from the top
+        rather than only through ``identify_joint_tours``.
+        """
         persons, households = basic_household_data
 
-        # Each person makes independent tour
-        unlinked_trips = pl.DataFrame(
-            {
-                "unlinked_trip_id": [1, 2, 3, 4],
-                "day_id": [
-                    2300007500101,
-                    2300007500101,
-                    2300007500201,
-                    2300007500201,
-                ],
-                "person_id": [
-                    23000075001,
-                    23000075001,
-                    23000075002,
-                    23000075002,
-                ],
-                "hh_id": [23000075] * 4,
-                "travel_dow": [TravelDow.MONDAY.value] * 4,
-                "depart_time": [
-                    datetime(2024, 1, 15, 8, 0, 0),
-                    datetime(2024, 1, 15, 17, 0, 0),
-                    datetime(2024, 1, 15, 9, 0, 0),
-                    datetime(2024, 1, 15, 18, 0, 0),
-                ],
-                "arrive_time": [
-                    datetime(2024, 1, 15, 8, 30, 0),
-                    datetime(2024, 1, 15, 17, 30, 0),
-                    datetime(2024, 1, 15, 9, 30, 0),
-                    datetime(2024, 1, 15, 18, 30, 0),
-                ],
-                "o_purpose_category": [
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.WORK.value,
-                ]
-                * 2,
-                "d_purpose_category": [
-                    PurposeCategory.WORK.value,
-                    PurposeCategory.HOME.value,
-                ]
-                * 2,
-                "o_purpose": [
-                    Purpose.HOME.value,
-                    Purpose.PRIMARY_WORKPLACE.value,
-                ]
-                * 2,
-                "d_purpose": [
-                    Purpose.PRIMARY_WORKPLACE.value,
-                    Purpose.HOME.value,
-                ]
-                * 2,
-                "mode_type": [ModeType.CAR.value] * 4,
-                "o_lat": [37.8, 37.85, 37.8, 37.82],
-                "o_lon": [-122.4, -122.45, -122.4, -122.48],
-                "d_lat": [37.85, 37.8, 37.82, 37.8],
-                "d_lon": [-122.45, -122.4, -122.48, -122.4],
-                "unlinked_trip_weight": [1.0] * 4,
-                "distance_meters": [5000.0] * 4,
-                "duration_minutes": [30.0] * 4,
-                "num_travelers": [1] * 4,
-                "driver": [Driver.DRIVER.value] * 4,
-            }
-        )
+        tours = _tours_from(persons, households, _out_and_back(2, stagger_hours=5))
 
-        # Link trips and detect joint trips
-        (
-            unlinked_trips_with_ids,
-            linked_trips,
-            joint_trips,
-        ) = link_and_detect_joint_trips(unlinked_trips, households)
-
-        # Extract tours
-        tour_result = extract_tours(
-            persons=persons,
-            households=households,
-            unlinked_trips=unlinked_trips_with_ids,
-            linked_trips=linked_trips,
-            joint_trips=joint_trips,
-        )
-        tours = tour_result["tours"]
-
-        # No joint tours should be identified
-        joint_tours = tours.filter(pl.col("joint_tour_id").is_not_null())
-        assert len(joint_tours) == 0, "No joint tours should be identified"
+        assert len(tours) == 2
+        assert tours["joint_tour_id"].null_count() == 2
 
 
 class TestAJointTourHoldsAJointTrip:
@@ -758,6 +478,20 @@ class TestAJointTourHoldsAJointTrip:
     half-shared tour -- a parent dropping a child, then driving on to work -- and
     widening the id to cover those should not have to revisit this check.
     """
+
+    @staticmethod
+    def _frame(joint_trip_ids: list[int | None], joint_tour_ids: list[int | None]) -> pl.DataFrame:
+        n = len(joint_trip_ids)
+        return pl.DataFrame(
+            {
+                "linked_trip_id": list(range(1, n + 1)),
+                "person_id": [P1] * n,
+                "tour_id": [101] * n,
+                "joint_trip_id": joint_trip_ids,
+                "joint_tour_id": joint_tour_ids,
+            },
+            schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
+        )
 
     def test_a_solo_leg_stops_the_tour_being_joint(self):
         """Today's stricter rule: a tour with one non-joint leg is left individual."""
@@ -776,64 +510,32 @@ class TestAJointTourHoldsAJointTrip:
 
     def test_the_guard_rejects_a_joint_tour_with_no_joint_trip(self):
         """The tripwire, on a frame the public path cannot currently produce."""
-        broken = pl.DataFrame(
-            {
-                "linked_trip_id": [1, 2],
-                "person_id": [P1, P1],
-                "tour_id": [101, 101],
-                "joint_trip_id": [None, None],
-                "joint_tour_id": [9001, 9001],
-            },
-            schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
-        )
+        broken = self._frame([None, None], [9001, 9001])
 
         with pytest.raises(ValueError, match="hold no joint trip"):
             _validate_joint_tours_have_joint_trips(broken)
 
-    def test_a_partly_shared_tour_is_allowed_through(self):
-        """The point of the weakening: one shared leg is enough for canonical.
+    @pytest.mark.parametrize(
+        ("joint_trip_ids", "joint_tour_ids"),
+        [
+            pytest.param(
+                [1001, None],
+                [9001, 9001],
+                id="a_partly_shared_tour_is_allowed_through",
+            ),
+            pytest.param(
+                [1001, 1002],
+                [9001, 9001],
+                id="the_guard_passes_when_every_leg_is_joint",
+            ),
+            pytest.param([None], [None], id="a_trip_with_no_joint_tour_is_not_policed"),
+        ],
+    )
+    def test_the_guard_admits_the_rest(self, joint_trip_ids, joint_tour_ids):
+        """One shared leg is enough for canonical, and a solo trip is not policed.
 
-        CT-RAMP cannot represent this and rejects it in its own formatter, but
-        the survey can record it and canonical should not forbid it.
+        CT-RAMP cannot represent a half-shared tour and rejects it in its own
+        formatter, but the survey can record one and canonical should not
+        forbid it.
         """
-        partly_shared = pl.DataFrame(
-            {
-                "linked_trip_id": [1, 2],
-                "person_id": [P1, P1],
-                "tour_id": [101, 101],
-                "joint_trip_id": [1001, None],  # dropped the child, drove on alone
-                "joint_tour_id": [9001, 9001],
-            },
-            schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
-        )
-
-        _validate_joint_tours_have_joint_trips(partly_shared)
-
-    def test_the_guard_passes_when_every_leg_is_joint(self):
-        """The control: all legs joint raises nothing."""
-        fine = pl.DataFrame(
-            {
-                "linked_trip_id": [1, 2],
-                "person_id": [P1, P1],
-                "tour_id": [101, 101],
-                "joint_trip_id": [1001, 1002],
-                "joint_tour_id": [9001, 9001],
-            }
-        )
-
-        _validate_joint_tours_have_joint_trips(fine)
-
-    def test_a_trip_with_no_joint_tour_is_not_policed(self):
-        """An ordinary individual trip has neither id and is none of the guard's business."""
-        individual = pl.DataFrame(
-            {
-                "linked_trip_id": [1],
-                "person_id": [P1],
-                "tour_id": [101],
-                "joint_trip_id": [None],
-                "joint_tour_id": [None],
-            },
-            schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
-        )
-
-        _validate_joint_tours_have_joint_trips(individual)
+        _validate_joint_tours_have_joint_trips(self._frame(joint_trip_ids, joint_tour_ids))

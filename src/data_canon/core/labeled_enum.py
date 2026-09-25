@@ -204,15 +204,25 @@ class LabeledEnum(Enum, metaclass=LabeledEnumMeta):
         source: type,
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
-        """Pydantic v2 schema: accept an existing member, a value, or a label."""
+        """Pydantic v2 schema: accept an existing member, a value, or a label.
+
+        Lookups go through dicts built once here rather than ``from_value``'s
+        linear scan, which ran once per enum field per row and dominated
+        table validation time.
+        """
+        by_value = {member.value: member for member in cls}
+        by_label = {member.label: member for member in cls}
 
         def validate(v: object) -> "LabeledEnum":
             if isinstance(v, cls):
                 return v
-            member = cls.from_value(v, strict=False)
+            try:
+                member = by_value.get(v)
+            except TypeError:  # unhashable input
+                member = None
             if member is not None:
                 return member
-            member = cls.from_label(str(v), strict=False)
+            member = by_label.get(str(v))
             if member is not None:
                 return member
             msg = f"Cannot convert {v!r} to {cls.__name__}"

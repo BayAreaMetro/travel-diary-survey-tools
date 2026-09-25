@@ -73,6 +73,10 @@ Core data models used in the processing pipeline for households, persons, days, 
 
 ::: data_canon.models.survey.JointTripModel
 
+::: data_canon.models.survey.HabitualLocationModel
+
+::: data_canon.models.survey.HabitualLocationDayModel
+
 ## Travel Model-formatted Data Models
 
 ### [DaySim Models](daysim.md)

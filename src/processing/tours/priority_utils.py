@@ -129,7 +129,7 @@ def add_activity_duration_column(
 def add_purpose_score_column(
     df: pl.DataFrame,
     config: TourConfig,
-    purpose_col: str = "_d_purpose_effective",
+    purpose_col: str = "d_purpose_category",
     duration_col: str = "_activity_duration",
     person_category_col: str = "person_category",
     alias: str = "purpose_score",
@@ -150,7 +150,7 @@ def add_purpose_score_column(
     Args:
         df: Trip data with the purpose, duration and person-category columns.
         config: TourConfig carrying the weight and half-max tables.
-        purpose_col: Column holding the (effective) purpose category value.
+        purpose_col: Column holding the purpose category value.
         duration_col: Column holding the activity duration in minutes.
         person_category_col: Column holding the PersonCategory string.
         alias: Name for the score column to add.

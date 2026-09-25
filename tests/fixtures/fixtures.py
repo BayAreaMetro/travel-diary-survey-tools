@@ -6,22 +6,19 @@ test data.
 """
 
 import polars as pl
-import pytest
 
 from data_canon.codebook.trips import PurposeCategory
 from processing.link_trips import link_trips
-from processing.tours import extract_tours
 
 from .base_records import create_day
 from .locations import lookup_location
 from .scenario_builders import (
     DEFAULT_TRANSIT_MODE_CODES,
     multi_person_household,
-    multi_stop_tour,
-    multi_tour_day,
     simple_work_tour,
     transit_commute,
 )
+from .tour_pipeline import locate_and_extract_tours
 from .trip_records import create_unlinked_trip
 
 # ==============================================================================
@@ -288,7 +285,7 @@ def process_scenario_through_pipeline(
     unlinked_trips = link_result["unlinked_trips"]  # Use updated unlinked trips with linked_trip_id
 
     # Extract tours (using config.yaml defaults)
-    tour_result = extract_tours(
+    tour_result = locate_and_extract_tours(
         persons=persons,
         households=households,
         unlinked_trips=unlinked_trips,
@@ -311,47 +308,7 @@ def process_scenario_through_pipeline(
     # fixtures mean: they exist to exercise formatting, not gating. A test about
     # gating stamps its own values.
     for name, frame in data_with_zones.items():
-        if "usable" not in frame.columns:
-            data_with_zones[name] = frame.with_columns(pl.lit(value=True).alias("usable"))
+        if "usable_test" not in frame.columns:
+            data_with_zones[name] = frame.with_columns(pl.lit(value=True).alias("usable_test"))
 
     return data_with_zones
-
-
-# ==============================================================================
-# Pytest Fixtures
-# ==============================================================================
-
-
-@pytest.fixture(scope="module")
-def simple_work_tour_processed():
-    """Simple work tour processed through link_trips and extract_tours.
-
-    Returns:
-        Dict with keys: households, persons, days, unlinked_trips,
-                        linked_trips, tours
-    """
-    return create_simple_work_tour_processed()
-
-
-@pytest.fixture(scope="module")
-def multi_stop_tour_processed():
-    """Multi-stop work tour processed through link_trips and extract_tours.
-
-    Returns:
-        Dict with keys: households, persons, days, unlinked_trips,
-                        linked_trips, tours
-    """
-    households, persons, days, unlinked_trips = multi_stop_tour()
-    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
-
-
-@pytest.fixture(scope="module")
-def multi_tour_day_processed():
-    """Multi-tour day processed through link_trips and extract_tours.
-
-    Returns:
-        Dict with keys: households, persons, days, unlinked_trips,
-                        linked_trips, tours
-    """
-    households, persons, days, unlinked_trips = multi_tour_day()
-    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)

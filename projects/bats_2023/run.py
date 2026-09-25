@@ -3,10 +3,10 @@
 import argparse
 import logging
 import os
-import shutil
 from pathlib import Path
 
 import polars as pl
+import yaml
 from clean_bats_2023 import clean_2023_bats
 from dotenv import load_dotenv
 
@@ -23,6 +23,7 @@ from processing import (
     add_zone_ids,
     cascade_completeness,
     compute_weights,
+    detect_habitual_locations,
     detect_joint_trips,
     extract_tours,
     format_ctramp,
@@ -97,6 +98,7 @@ processing_steps = [
     clean_2023_bats,
     add_zone_ids,
     link_trips,
+    detect_habitual_locations,
     detect_joint_trips,
     imputation,
     extract_tours,
@@ -161,7 +163,10 @@ if __name__ == "__main__":
     if output_dir:
         saved_config = Path(output_dir) / "pipeline_2023.yaml"
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        shutil.copy2(config_path, saved_config)
+        # The resolved config, not the file. Copying the source would record
+        # "{{ MTC_DATA }}/Data/..." as the input used, which is a template
+        # rather than a path and says nothing about what this run actually read.
+        saved_config.write_text(yaml.safe_dump(pipeline.config, sort_keys=False), encoding="utf-8")
         logger.info("Saved config copy to %s", saved_config)
 
     # Clear cache if requested

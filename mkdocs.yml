@@ -62,6 +62,7 @@ nav:
       - Cleaning: pipeline_steps/cleaning.md
       - Imputation: pipeline_steps/imputation.md
       - Link Trips: pipeline_steps/link_trips.md
+      - Detect Habitual Locations: pipeline_steps/detect_habitual_locations.md
       - Detect Joint Trips: pipeline_steps/detect_joint_trips.md
       - Extract Tours: pipeline_steps/extract_tours.md
       - Completeness & Usability: pipeline_steps/usability.md

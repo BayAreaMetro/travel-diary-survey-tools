@@ -8,14 +8,66 @@ import pytest
 from data_canon.codebook.days import TravelDow
 from data_canon.codebook.persons import AgeCategory, Gender
 from data_canon.codebook.tours import TourDataQuality
-from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory
+from data_canon.codebook.trips import ModeType, PurposeCategory
 from data_canon.core.dataclass import CanonicalData
 from data_canon.core.exceptions import DataValidationError
 from data_canon.validation.custom import (
     check_trip_spatial_continuity,
     check_valid_tours_are_complete,
 )
-from tests.fixtures import create_household, create_person
+from tests.fixtures import create_household, create_person, create_unlinked_trip
+
+# The same two-household, two-person block is what every structural rule below
+# needs; only the defect changes, so each test states just its own defect.
+HOUSEHOLD_KWARGS = [
+    {"hh_id": 1, "home_taz": 100, "income": 50000, "num_vehicles": 1},
+    {
+        "hh_id": 2,
+        "home_taz": 200,
+        "home_lat": 37.8,
+        "home_lon": -122.5,
+        "income": 75000,
+        "num_vehicles": 2,
+    },
+    {
+        "hh_id": 3,
+        "home_taz": 300,
+        "home_lat": 37.9,
+        "home_lon": -122.6,
+        "income": 100000,
+        "num_vehicles": 2,
+    },
+]
+
+
+def _households(hh_ids: list[int], *, num_people: int = 1) -> pl.DataFrame:
+    """Households by id, drawn from a fixed block so the ids are the only variable."""
+    by_id = {kwargs["hh_id"]: kwargs for kwargs in HOUSEHOLD_KWARGS}
+    return pl.DataFrame(
+        [create_household(**by_id[hh_id], num_people=num_people) for hh_id in hh_ids]
+    )
+
+
+def _persons(hh_ids: list[int]) -> pl.DataFrame:
+    """One person per entry, numbered 101 upwards, in the household named."""
+    return pl.DataFrame(
+        [
+            create_person(
+                person_id=101 + i,
+                hh_id=hh_id,
+                age=AgeCategory.AGE_5_TO_15,
+                gender=Gender.MALE if i % 2 == 0 else Gender.FEMALE,
+            )
+            for i, hh_id in enumerate(hh_ids)
+        ]
+    )
+
+
+def _linked(households: list[int], persons: list[int]) -> CanonicalData:
+    data = CanonicalData()
+    data.households = _households(households)
+    data.persons = _persons(persons)
+    return data
 
 
 class TestUniqueConstraints:
@@ -24,254 +76,37 @@ class TestUniqueConstraints:
     def test_unique_passes(self):
         """Should pass with unique IDs."""
         data = CanonicalData()
-        data.households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    home_taz=100,
-                    income=50000,
-                    num_people=2,
-                    num_vehicles=1,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=200,
-                    home_lat=37.8,
-                    home_lon=-122.5,
-                    income=75000,
-                    num_people=3,
-                    num_vehicles=2,
-                ),
-                create_household(
-                    hh_id=3,
-                    home_taz=300,
-                    home_lat=37.9,
-                    home_lon=-122.6,
-                    income=100000,
-                    num_people=4,
-                    num_vehicles=2,
-                ),
-            ]
-        )
+        data.households = _households([1, 2, 3], num_people=2)
         data.validate("households", step="link_trips")
 
     def test_unique_fails_with_duplicates(self):
         """Should fail with duplicate IDs."""
         data = CanonicalData()
-        data.households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    home_taz=100,
-                    income=50000,
-                    num_people=2,
-                    num_vehicles=1,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=200,
-                    home_lat=37.8,
-                    home_lon=-122.5,
-                    income=75000,
-                    num_people=3,
-                    num_vehicles=2,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=300,
-                    home_lat=37.9,
-                    home_lon=-122.6,
-                    income=100000,
-                    num_people=4,
-                    num_vehicles=2,
-                ),
-            ]
-        )
+        data.households = pl.concat([_households([1, 2], num_people=2), _households([2])])
         with pytest.raises(DataValidationError) as exc:
             data.validate("households", step="link_trips")
         assert exc.value.rule == "unique_constraint"
 
 
 class TestForeignKeys:
-    """Tests for FK validation."""
+    """Tests for FK validation, in both directions."""
 
-    def test_fk_passes(self):
-        """Should pass with valid FKs."""
-        data = CanonicalData()
-        data.households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    home_taz=100,
-                    income=50000,
-                    num_people=1,
-                    num_vehicles=1,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=200,
-                    home_lat=37.8,
-                    home_lon=-122.5,
-                    income=75000,
-                    num_people=1,
-                    num_vehicles=2,
-                ),
-            ]
-        )
-        data.persons = pl.DataFrame(
-            [
-                create_person(
-                    person_id=101,
-                    hh_id=1,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.MALE,
-                ),
-                create_person(
-                    person_id=102,
-                    hh_id=2,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.FEMALE,
-                ),
-            ]
-        )
+    def test_fk_and_required_children_pass(self):
+        """Every person has a household, and every household has a person."""
+        data = _linked(households=[1, 2], persons=[1, 2])
         data.validate("persons", step="link_trips")
+        data.validate("households", step="link_trips")
 
     def test_fk_fails_with_orphans(self):
         """Should fail with orphaned FKs."""
-        data = CanonicalData()
-        data.households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    home_taz=100,
-                    income=50000,
-                    num_people=1,
-                    num_vehicles=1,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=200,
-                    home_lat=37.8,
-                    home_lon=-122.5,
-                    income=75000,
-                    num_people=1,
-                    num_vehicles=2,
-                ),
-            ]
-        )
-        data.persons = pl.DataFrame(
-            [
-                create_person(
-                    person_id=101,
-                    hh_id=1,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.MALE,
-                ),
-                create_person(
-                    person_id=102,
-                    hh_id=999,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.FEMALE,
-                ),
-            ]
-        )
+        data = _linked(households=[1, 2], persons=[1, 999])
         with pytest.raises(DataValidationError) as exc:
             data.validate("persons", step="link_trips")
         assert exc.value.rule == "foreign_key"
 
-
-class TestRequiredChildren:
-    """Tests for bidirectional FK validation."""
-
-    def test_required_children_passes(self):
-        """Should pass when all parents have children."""
-        data = CanonicalData()
-        data.households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    home_taz=100,
-                    income=50000,
-                    num_people=1,
-                    num_vehicles=1,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=200,
-                    home_lat=37.8,
-                    home_lon=-122.5,
-                    income=75000,
-                    num_people=1,
-                    num_vehicles=2,
-                ),
-            ]
-        )
-        data.persons = pl.DataFrame(
-            [
-                create_person(
-                    person_id=101,
-                    hh_id=1,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.MALE,
-                ),
-                create_person(
-                    person_id=102,
-                    hh_id=2,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.FEMALE,
-                ),
-            ]
-        )
-        data.validate("households", step="link_trips")
-
     def test_required_children_fails(self):
         """Should fail when parent missing children."""
-        data = CanonicalData()
-        data.households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    home_taz=100,
-                    income=50000,
-                    num_people=1,
-                    num_vehicles=1,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=200,
-                    home_lat=37.8,
-                    home_lon=-122.5,
-                    income=75000,
-                    num_people=1,
-                    num_vehicles=2,
-                ),
-                create_household(
-                    hh_id=3,
-                    home_taz=300,
-                    home_lat=37.9,
-                    home_lon=-122.6,
-                    income=100000,
-                    num_people=1,
-                    num_vehicles=2,
-                ),
-            ]
-        )
-        data.persons = pl.DataFrame(
-            [
-                create_person(
-                    person_id=101,
-                    hh_id=1,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.MALE,
-                ),
-                create_person(
-                    person_id=102,
-                    hh_id=2,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.FEMALE,
-                ),
-            ]
-        )
+        data = _linked(households=[1, 2, 3], persons=[1, 2])
         with pytest.raises(DataValidationError) as exc:
             data.validate("households", step="link_trips")
         assert exc.value.rule == "required_children"
@@ -352,79 +187,37 @@ class TestCustomValidators:
         @data_obj.register_validator("unlinked_trips")
         def check_trip_duration(unlinked_trips: pl.DataFrame) -> list[str]:
             """Check that trips are not unreasonably long (>4 hours)."""
-            errors = []
-            unlinked_trips = unlinked_trips.with_columns(
-                ((pl.col("arrive_time") - pl.col("depart_time")).dt.total_seconds() / 3600).alias(
-                    "duration_hours"
-                )
-            )
-            long_trips = unlinked_trips.filter(pl.col("duration_hours") > 4)
+            hours = (pl.col("arrive_time") - pl.col("depart_time")).dt.total_seconds() / 3600
+            long_trips = unlinked_trips.filter(hours > 4)
             if len(long_trips) > 0:
                 trip_ids = long_trips["unlinked_trip_id"].to_list()[:5]
-                errors.append(f"Found {len(long_trips)} trips longer than 4 hours: {trip_ids}")
-            return errors
+                return [f"Found {len(long_trips)} trips longer than 4 hours: {trip_ids}"]
+            return []
 
-        # Include all required fields for UnlinkedTripModel
+        def trip(trip_id: int, depart: datetime, arrive: datetime) -> dict:
+            return create_unlinked_trip(
+                unlinked_trip_id=trip_id,
+                day_id=10101,
+                depart_time=depart,
+                arrive_time=arrive,
+                duration_minutes=(arrive - depart).total_seconds() / 60,
+                o_lat=37.7749,
+                o_lon=-122.4194,
+                d_lat=37.7849,
+                d_lon=-122.4094,
+                o_purpose_category=PurposeCategory.HOME,
+                d_purpose_category=PurposeCategory.WORK,
+                mode_type=ModeType.WALK,
+            )
+
+        day = datetime(2024, 1, 15)
         data_obj.unlinked_trips = pl.DataFrame(
-            {
-                "unlinked_trip_id": [1, 2, 3],
-                "person_id": [101, 101, 101],
-                "hh_id": [1, 1, 1],
-                "day_id": [10101, 10101, 10101],
-                "depart_date": ["2024-01-15", "2024-01-15", "2024-01-15"],
-                "depart_hour": [10, 11, 8],
-                "depart_minute": [0, 0, 0],
-                "depart_seconds": [0, 0, 0],
-                "arrive_date": ["2024-01-15", "2024-01-15", "2024-01-15"],
-                "arrive_hour": [10, 11, 18],  # Third trip is 10 hours long
-                "arrive_minute": [30, 30, 0],
-                "arrive_seconds": [0, 0, 0],
-                "o_lon": [-122.4194, -122.4194, -122.4194],
-                "o_lat": [37.7749, 37.7749, 37.7749],
-                "d_lon": [-122.4094, -122.4094, -122.4094],
-                "d_lat": [37.7849, 37.7849, 37.7849],
-                "o_purpose": [
-                    Purpose.HOME.value,
-                    Purpose.PRIMARY_WORKPLACE.value,
-                    Purpose.HOME.value,
-                ],
-                "d_purpose": [
-                    Purpose.PRIMARY_WORKPLACE.value,
-                    Purpose.HOME.value,
-                    Purpose.HOME.value,
-                ],
-                "o_purpose_category": [
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.WORK.value,
-                    PurposeCategory.HOME.value,
-                ],
-                "d_purpose_category": [
-                    PurposeCategory.WORK.value,
-                    PurposeCategory.HOME.value,
-                    PurposeCategory.HOME.value,
-                ],
-                "mode_type": [
-                    ModeType.WALK.value,
-                    ModeType.BIKE.value,
-                    ModeType.WALK.value,
-                ],
-                "duration_minutes": [
-                    30.0,
-                    30.0,
-                    600.0,
-                ],  # 10 hours = 600 minutes
-                "distance_miles": [5.0, 10.0, 50.0],
-                "depart_time": [
-                    datetime(2024, 1, 15, 10, 0, 0),
-                    datetime(2024, 1, 15, 11, 0, 0),
-                    datetime(2024, 1, 15, 8, 0, 0),
-                ],
-                "arrive_time": [
-                    datetime(2024, 1, 15, 10, 30, 0),
-                    datetime(2024, 1, 15, 11, 30, 0),
-                    datetime(2024, 1, 15, 18, 0, 0),  # 10 hours later!
-                ],
-            }
+            [
+                trip(1, day.replace(hour=10), day.replace(hour=10, minute=30)),
+                trip(2, day.replace(hour=11), day.replace(hour=11, minute=30)),
+                # Ten hours long: the one the validator is meant to catch.
+                trip(3, day.replace(hour=8), day.replace(hour=18)),
+            ]
         )
         with pytest.raises(DataValidationError) as exc:
             data_obj.validate("unlinked_trips", step="link_trips")
@@ -446,42 +239,8 @@ class TestCustomValidators:
                 return ["Size mismatch"]
             return []
 
-        data.households = pl.DataFrame(
-            [
-                create_household(
-                    hh_id=1,
-                    home_taz=100,
-                    income=50000,
-                    num_people=1,
-                    num_vehicles=1,
-                ),
-                create_household(
-                    hh_id=2,
-                    home_taz=200,
-                    home_lat=37.8,
-                    home_lon=-122.5,
-                    income=75000,
-                    num_people=1,
-                    num_vehicles=2,
-                ),
-            ]
-        )
-        data.persons = pl.DataFrame(
-            [
-                create_person(
-                    person_id=101,
-                    hh_id=1,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.MALE,
-                ),
-                create_person(
-                    person_id=102,
-                    hh_id=2,
-                    age=AgeCategory.AGE_5_TO_15,
-                    gender=Gender.FEMALE,
-                ),
-            ]
-        )
+        data.households = _households([1, 2])
+        data.persons = _persons([1, 2])
         data.validate("persons", step="link_trips")
 
 
@@ -505,32 +264,45 @@ class TestValidToursAreComplete:
             },
         )
 
-    def test_valid_complete_tour_passes(self):
-        """A VALID tour that is not single-trip and has a purpose is clean."""
-        tours = self._tours(
-            TourDataQuality.VALID.value, single_trip=False, purpose=PurposeCategory.WORK.value
+    @pytest.mark.parametrize(
+        ("quality", "single_trip", "purpose", "n_errors", "says"),
+        [
+            pytest.param(
+                TourDataQuality.VALID.value,
+                False,
+                PurposeCategory.WORK.value,
+                0,
+                "",
+                id="valid-and-complete",
+            ),
+            # A single-trip tour flagged non-VALID is allowed to lack a purpose.
+            pytest.param(
+                TourDataQuality.NO_DESTINATION.value, True, None, 0, "", id="invalid-single-trip"
+            ),
+            pytest.param(
+                TourDataQuality.VALID.value,
+                True,
+                PurposeCategory.WORK.value,
+                1,
+                "VALID",
+                id="valid-but-single-trip",
+            ),
+            pytest.param(
+                TourDataQuality.VALID.value, False, None, 1, "VALID", id="valid-but-null-purpose"
+            ),
+        ],
+    )
+    def test_valid_tours_must_be_complete(
+        self, quality: int, single_trip: bool, purpose: int | None, n_errors: int, says: str
+    ):
+        """A tour labelled VALID has to hold a real, multi-trip, purposeful tour."""
+        errors = check_valid_tours_are_complete(
+            self._tours(quality, single_trip=single_trip, purpose=purpose)
         )
-        assert check_valid_tours_are_complete(tours) == []
 
-    def test_single_trip_flagged_invalid_passes(self):
-        """A single-trip tour flagged non-VALID is allowed to lack a purpose."""
-        tours = self._tours(TourDataQuality.NO_DESTINATION.value, single_trip=True, purpose=None)
-        assert check_valid_tours_are_complete(tours) == []
-
-    def test_valid_but_single_trip_fails(self):
-        """A tour mislabeled VALID but holding a single trip is reported."""
-        tours = self._tours(
-            TourDataQuality.VALID.value, single_trip=True, purpose=PurposeCategory.WORK.value
-        )
-        errors = check_valid_tours_are_complete(tours)
-        assert len(errors) == 1
-        assert "VALID" in errors[0]
-
-    def test_valid_but_null_purpose_fails(self):
-        """A tour marked VALID with a null purpose is reported."""
-        tours = self._tours(TourDataQuality.VALID.value, single_trip=False, purpose=None)
-        errors = check_valid_tours_are_complete(tours)
-        assert len(errors) == 1
+        assert len(errors) == n_errors
+        if says:
+            assert says in errors[0]
 
     def test_missing_quality_column_is_noop(self):
         """Frames without tour_data_quality produce no errors."""
