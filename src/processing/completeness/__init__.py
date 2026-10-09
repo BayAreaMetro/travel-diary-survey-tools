@@ -84,6 +84,7 @@ Modules:
 - ``zone_coverage``: whether a record's locations have a zone.
 - ``usable_tours``: the tour fuse, where a verdict is decided.
 - ``usable_cascade``: that verdict, walked across every table.
+- ``kept_records``: which records survive a verdict once references are restored.
 - ``descriptions``: what each stamped column means, in words.
 - ``cascade_completeness``: the pipeline step.
 """
