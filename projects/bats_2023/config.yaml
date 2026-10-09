@@ -130,6 +130,10 @@ steps:
     cache: true
     params:
       buffer_meters: "{{ habitual_buffer_meters }}"
+      # Also add homes found where days were said to begin or end, beside the
+      # reported ones. A "home" answer away from the reported home then counts
+      # as another home. No default: state the choice.
+      include_observed_homes: true
 
   - name: detect_joint_trips
     validate_input: false

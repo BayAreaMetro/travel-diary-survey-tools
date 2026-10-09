@@ -256,6 +256,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "name": "detect_habitual_locations",
             "validate_input": False,
             "cache": False,
+            "params": {"include_observed_homes": True},
         },
         "extract_tours": {"name": "extract_tours", "validate_input": False, "cache": False},
         "cascade_completeness": {

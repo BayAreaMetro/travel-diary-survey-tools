@@ -58,6 +58,7 @@ def locate_and_extract_tours(
         habitual_locations=reported_habitual_locations(households, persons, extra=extra),
         linked_trips=linked_trips,
         days=days,
+        include_observed_homes=True,
     )
     tours = extract_tours(
         persons=persons,

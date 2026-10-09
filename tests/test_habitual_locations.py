@@ -147,13 +147,14 @@ def _not_asked(trips: pl.DataFrame) -> pl.DataFrame:
     return _days(*((d, None, None) for d in sorted(set(trips["day_id"].to_list()))))
 
 
-def _build(trips, days=None, extra=None, persons=None, **config):
+def _build(trips, days=None, extra=None, persons=None, *, observed_homes=True, **config):
     """Deliver the table for the standard two people, then detect."""
     return add_observed_locations(
         _delivered(extra, persons),
         trips,
         days if days is not None else _not_asked(trips),
         HabitualLocationConfig(**config),
+        include_observed_homes=observed_homes,
     )
 
 
@@ -216,7 +217,7 @@ def test_detection_refuses_a_delivered_observed_row():
     )
     trips = _trips(_trip(1, 10, ALT_WORK, 200))
     with pytest.raises(ValueError, match="not REPORTED"):
-        add_observed_locations(delivered, trips, _not_asked(trips))
+        add_observed_locations(delivered, trips, _not_asked(trips), include_observed_homes=True)
 
 
 def test_detection_refuses_two_primaries_of_one_kind():
@@ -226,7 +227,7 @@ def test_detection_refuses_two_primaries_of_one_kind():
     )
     trips = _trips(_trip(1, 10, ALT_WORK, 200))
     with pytest.raises(ValueError, match="more than one primary"):
-        add_observed_locations(delivered, trips, _not_asked(trips))
+        add_observed_locations(delivered, trips, _not_asked(trips), include_observed_homes=True)
 
 
 @pytest.mark.parametrize(
@@ -364,6 +365,27 @@ def test_day_ending_at_a_home_away_from_the_reported_one_is_another_home(answer)
     assert homes["source"].to_list() == [REPORTED, OBSERVED]
     assert homes["is_primary"].to_list() == [True, False]
     assert abs(homes["lat"][1] - OTHER_HOME[0]) < 1e-9
+
+
+@pytest.mark.parametrize("answer", [BeginEndDay.OTHER_HOME, BeginEndDay.HOME])
+def test_observed_homes_off_keeps_only_the_reported_homes(answer):
+    """Off, a stated day end adds no home; workplaces are still found."""
+    trips = _trips(
+        _trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19),
+        _trip(1, 11, ALT_WORK, 200),
+    )
+    locations, _days_table = _build(
+        trips, _days((10, None, answer), (11, None, None)), observed_homes=False
+    )
+    assert _of(locations, 1, LocationType.HOME)["source"].to_list() == [REPORTED]
+    assert OBSERVED in _of(locations, 1, LocationType.WORK)["source"].to_list()
+
+
+def test_observed_homes_has_no_default():
+    """Whether to trust stated day ends is the analyst's call, so it must be stated."""
+    trips = _trips(_trip(1, 10, ALT_WORK, 200))
+    with pytest.raises(TypeError, match="include_observed_homes"):
+        add_observed_locations(_delivered(), trips, _not_asked(trips))
 
 
 def test_day_beginning_at_another_home_places_it_at_the_first_origin():
