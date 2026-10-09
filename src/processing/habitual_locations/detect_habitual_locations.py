@@ -47,6 +47,8 @@ def add_observed_locations(
     linked_trips: pl.DataFrame,
     days: pl.DataFrame,
     config: HabitualLocationConfig | None = None,
+    *,
+    include_observed_homes: bool,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Append observed locations to the delivered ones, and build the day table.
 
@@ -56,6 +58,9 @@ def add_observed_locations(
             ``d_activity_duration``.
         days: Days with ``day_id``, ``begin_day`` and ``end_day``.
         config: Detection and matching rules (defaults if not given).
+        include_observed_homes: Whether to add homes found from where days
+            were said to begin or end. Off, the only homes are the reported
+            ones.
 
     Returns:
         ``(habitual_locations, habitual_location_days)``: the delivered rows
@@ -75,9 +80,10 @@ def add_observed_locations(
     episodes = build_presence_episodes(linked_trips)
 
     # Identify observed habitual locations meeting criteria
+    homes = [observed_homes(episodes, days, delivered, config)] if include_observed_homes else []
     found = pl.concat(
         [
-            observed_homes(episodes, days, delivered, config),
+            *homes,
             *(
                 observed_locations(episodes, delivered, location_type, config)
                 for location_type in OBSERVED_KINDS
@@ -142,6 +148,7 @@ def detect_habitual_locations(
     habitual_locations: pl.DataFrame,
     linked_trips: pl.DataFrame,
     days: pl.DataFrame,
+    include_observed_homes: bool,
     **kwargs: Any,  # noqa: ANN401
 ) -> dict[str, pl.DataFrame]:
     """Find observed homes, workplaces and schools, and record presence per day.
@@ -155,6 +162,10 @@ def detect_habitual_locations(
         habitual_locations: The delivered table, reported locations only.
         linked_trips: Linked trips.
         days: Days with ``begin_day``/``end_day``.
+        include_observed_homes: Whether to add homes found from where days were
+            said to begin or end, beside the reported ones. An analyst's choice
+            with no default: a "home" answer away from the reported home becomes
+            another home, and tours touching it are graded ``OTHER_HOME``.
         **kwargs: ``HabitualLocationConfig`` fields, including ``buffer_meters``,
             which ``extract_tours`` must match.
 
@@ -162,6 +173,10 @@ def detect_habitual_locations(
         ``habitual_locations`` and ``habitual_location_days``.
     """
     locations, location_days = add_observed_locations(
-        habitual_locations, linked_trips, days, HabitualLocationConfig(**kwargs)
+        habitual_locations,
+        linked_trips,
+        days,
+        HabitualLocationConfig(**kwargs),
+        include_observed_homes=include_observed_homes,
     )
     return {"habitual_locations": locations, "habitual_location_days": location_days}
