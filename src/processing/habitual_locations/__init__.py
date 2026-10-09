@@ -32,9 +32,11 @@ row. Tour extraction and everything after only read it.
 
 Observed locations:
 
-- Observed homes: days the respondent said began or ended at home or at their
-  other home, placed where that day's travel began or ended. Away from every
-  reported home, such a place is another home of theirs.
+- Observed homes, only when ``include_observed_homes`` is on (it has no
+  default): days the respondent said began or ended at home or at their other
+  home, placed where that day's travel began or ended. Away from every reported
+  home, such a place is another home of theirs. Off, the only homes are the
+  reported ones.
 - Observed workplaces and schools: places the person went for that purpose and
   stayed long enough. Work-related stops count towards a workplace at their own
   longer cutoff: their median is under an hour, a meeting or a delivery, but a

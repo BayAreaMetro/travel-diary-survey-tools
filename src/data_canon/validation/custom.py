@@ -96,6 +96,8 @@ def check_trip_count_matches_quality(tours: pl.DataFrame, linked_trips: pl.DataF
     definition: a *closed* tour that aggregation found no purpose for. A partial
     tour may also lack a purpose -- half of it went unobserved -- and is graded
     on its open end instead, so a null purpose alone does not imply the code.
+    A closed tour without a purpose may also be ``OTHER_HOME``: a move between
+    two of the person's homes, where the move is the reason there is no stop.
 
     Args:
         tours: Tour records with trip_count, tour_data_quality and tour_purpose
@@ -120,18 +122,21 @@ def check_trip_count_matches_quality(tours: pl.DataFrame, linked_trips: pl.DataF
         )
 
     if {"tour_purpose", "tour_category"} <= set(tours.columns):
-        no_dest = pl.col("tour_data_quality") == TourDataQuality.NO_DESTINATION.value
+        quality = pl.col("tour_data_quality")
+        no_dest = quality == TourDataQuality.NO_DESTINATION.value
+        moved_home = quality == TourDataQuality.OTHER_HOME.value
         nothing_to_anchor_on = pl.col("tour_purpose").is_null() & (
             pl.col("tour_category") == TourCategory.COMPLETE.value
         )
         drifted = joined.filter(
-            (no_dest & ~nothing_to_anchor_on) | (~no_dest & nothing_to_anchor_on)
+            (no_dest & ~nothing_to_anchor_on) | (nothing_to_anchor_on & ~no_dest & ~moved_home)
         )
         if len(drifted) > 0:
             tour_ids = drifted["tour_id"].to_list()[:5]
             errors.append(
                 f"Found {len(drifted)} tours where NO_DESTINATION disagrees with "
-                f"being a closed tour without a purpose. Sample tour IDs: {tour_ids}"
+                f"being a closed tour without a purpose (other than a move between "
+                f"homes, OTHER_HOME). Sample tour IDs: {tour_ids}"
             )
 
     return errors

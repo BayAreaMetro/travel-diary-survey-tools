@@ -37,8 +37,12 @@ The primary rows repeat the coordinate columns (`home_lat/lon`, `work_*`,
 |---|---|---|
 | Workplace | Stops with a work purpose | 90 min or longer for the primary-workplace purpose, 4 h for work-related, clustered within the buffer |
 | School | Stops with a school purpose | 90 min or longer (college 45), clustered within the buffer |
-| Home | Days the respondent said began or ended at home or their other home | Placed at that day's first origin or last destination, clustered within the buffer |
+| Home | Days the respondent said began or ended at home or their other home | Only with `include_observed_homes: true`. Placed at that day's first origin or last destination, clustered within the buffer |
 
+- Observed homes are an analyst's choice, with no default. Off, the only homes
+  are the reported primary and second homes. On, a "home" answer away from the
+  reported home becomes another home too, and tours touching it are graded
+  `OTHER_HOME`.
 - A cluster within the buffer of a reported location of the same kind is that
   location, and is not added.
 - Homes are never found from travel alone.
@@ -77,6 +81,7 @@ steps:
   - name: detect_habitual_locations
     params:
       buffer_meters: "{{ habitual_buffer_meters }}"
+      include_observed_homes: true  # required: add homes from stated day starts/ends
       # at_address_meters: 100
       # min_dwell_minutes: 90
       # min_dwell_minutes_by_purpose: {COLLEGE: 45, WORK_ACTIVITY: 240}
