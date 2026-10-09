@@ -4,10 +4,11 @@ A person's other home is known only from the respondent: a vendor's
 second-home address, or a day they said began or ended at home somewhere other
 than their reported home. Travel alone never makes one.
 
-Covers, through the pipeline's three stages (delivery, detection, tours):
+Covers, through the pipeline's three stages (delivery, detection, tours), and
+the validation write_data runs on the result:
 - A round trip from the second home is a closed tour, graded OTHER_HOME
 - The drive straight from the primary home to the second is OTHER_HOME, not
-  NO_DESTINATION
+  NO_DESTINATION, and passes validation
 - A tour from the primary home is untouched
 - A stated day end locates the second home just as the vendor address does
 - Without either, the second home is just a place, and the tour to it stays open
@@ -29,6 +30,7 @@ from data_canon.codebook.trips import (
     PurposeCategory,
     PurposeToCategoryMap,
 )
+from data_canon.validation.custom import check_trip_count_matches_quality
 from processing import link_trips
 from tests.fixtures.tour_pipeline import locate_and_extract_tours
 
@@ -182,6 +184,24 @@ def test_second_home_bounds_tours(person_and_household, days, supplied):
     ]
     homes = result["habitual_locations"].filter(pl.col("location_type") == LocationType.HOME.value)
     assert homes.height == 2
+    # The drive between homes is closed and has no purpose; validation accepts it.
+    assert check_trip_count_matches_quality(tours, result["linked_trips"]) == []
+
+
+def test_validation_still_rejects_a_closed_tour_without_a_purpose_otherwise():
+    """Only NO_DESTINATION or a move between homes explains a closed tour with no purpose."""
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1],
+            "trip_count": [1],
+            "tour_category": [TourCategory.COMPLETE.value],
+            "tour_purpose": [None],
+            "tour_data_quality": [TourDataQuality.VALID.value],
+        },
+        schema_overrides={"tour_purpose": pl.Int64},
+    )
+    errors = check_trip_count_matches_quality(tours, pl.DataFrame({"tour_id": [1]}))
+    assert len(errors) == 1
 
 
 def test_without_a_report_the_second_home_is_just_a_place(person_and_household):
