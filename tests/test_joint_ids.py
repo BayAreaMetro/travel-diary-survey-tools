@@ -211,3 +211,48 @@ class TestTheColumnIsPerProfile:
         assert tours[LOOSE.joint_tour_id].to_list() == [100, 100, 100]
         # The survey's own record of the group is untouched.
         assert tours["joint_tour_id"].to_list() == [100, 100, 100]
+
+
+class TestAGroupOfOneDissolves:
+    """Whatever the profile, an id with one record left on it is nulled."""
+
+    def test_partial_nulls_the_id_when_the_other_tour_is_unusable(self):
+        """Two tours in the survey's group; one fails on its own. The other is alone."""
+        tables = _household({1: [500], 2: [500]})
+        tables["tours"] = tables["tours"].with_columns(
+            pl.when(pl.col("person_id") == 2)
+            .then(pl.lit(TourDataQuality.SPATIAL_GAP.value))
+            .otherwise(pl.col("tour_data_quality"))
+            .alias("tour_data_quality")
+        )
+        loose = UsabilityProfile("loose_days", PRIMARY_HOME, "nothing")
+        out = _stamp(loose, tables)
+        assert out["tours"][loose.joint_tour_id].to_list() == [None, None]
+        assert out["linked_trips"][loose.joint_trip_id].to_list() == [None, None]
+        assert out["joint_tours"][loose.flag].to_list() == [False]
+        assert out["joint_trips"][loose.flag].to_list() == [False]
+
+
+class TestAJointRecordInheritsItsOwnDay:
+    """A joint tour names a day; it is no more usable than that day is."""
+
+    def test_an_unusable_day_takes_the_joint_record_with_it(self):
+        """Both tours are fine, but the joint tour's own day row is not usable."""
+        tables = _household({1: [500], 2: [500]})
+        tables["joint_tours"] = tables["joint_tours"].with_columns(day_id=pl.Series([3]))
+        tables["days"] = pl.concat(
+            [
+                tables["days"],
+                pl.DataFrame(
+                    {
+                        "day_id": [3],
+                        "person_id": [1],
+                        "hh_id": [1],
+                        "travel_date": [datetime(2023, 5, 2)],
+                        "survey_complete": [False],
+                    }
+                ),
+            ]
+        )
+        out = _stamp(LOOSE, tables)
+        assert out["joint_tours"][LOOSE.flag].to_list() == [False]

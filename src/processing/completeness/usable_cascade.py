@@ -101,6 +101,10 @@ def _flag_joint_groupings(
             continue
 
         base = pl.col("survey_complete").fill_null(value=False)
+        # A joint record names one household and one day of its own. The
+        # consumer reads it through those, so it is no more usable than they are.
+        df, inherited = _join_parent_verdicts(df, tables, cols)
+        base = base & inherited
         members = tables.get(member_table)
 
         if members is not None and cols.flag not in members.columns:
@@ -112,7 +116,9 @@ def _flag_joint_groupings(
             raise ValueError(msg)
 
         if members is None or key not in members.columns or key not in df.columns:
-            tables[joint_table] = df.with_columns(base.alias(cols.flag))
+            tables[joint_table] = df.with_columns(base.alias(cols.flag)).drop(
+                "_parent_usable", strict=False
+            )
             continue
 
         # The profile's own copy of the id, where decided, is the stricter count:
@@ -131,8 +137,39 @@ def _flag_joint_groupings(
                     cols.flag
                 )
             )
-            .drop("_n_usable_members")
+            .drop("_n_usable_members", "_parent_usable", strict=False)
         )
+
+
+def _join_parent_verdicts(
+    df: pl.DataFrame,
+    tables: dict[str, pl.DataFrame | None],
+    cols: UsabilityProfile,
+) -> tuple[pl.DataFrame, pl.Expr]:
+    """Join the usable flag of *df*'s household and day as ``_parent_usable``.
+
+    Returns the frame with the column added and the expression to AND into the
+    verdict. Where neither reference can be followed the expression is True and
+    no column is added, so the caller's ``drop(strict=False)`` is a no-op.
+    """
+    verdict = pl.lit(value=True)
+    added = False
+    for parent, key in (("households", "hh_id"), ("days", "day_id")):
+        parent_df = tables.get(parent)
+        if parent_df is None or cols.flag not in parent_df.columns:
+            continue
+        if key not in df.columns or key not in parent_df.columns:
+            continue
+        flag = parent_df.select(key, pl.col(cols.flag).alias(f"_{parent}_usable"))
+        df = df.join(flag, on=key, how="left")
+        verdict = verdict & pl.col(f"_{parent}_usable").fill_null(value=False)
+        added = True
+    if added:
+        df = df.with_columns(verdict.alias("_parent_usable")).drop(
+            "_households_usable", "_days_usable", strict=False
+        )
+        return df, pl.col("_parent_usable")
+    return df, verdict
 
 
 def _flag_joint_ids(
@@ -184,6 +221,9 @@ def _flag_joint_ids(
             raise ValueError(msg)
         tables["tours"] = _fully_joint_tours(tours, trips, cols)
 
+    # A joint tour with one tour left on it is nobody's joint tour.
+    tables["tours"] = _dissolve_undersized(tables["tours"], tour_col)
+
     # Both trip tables carry their tour's answer.
     on_tour = tables["tours"].select("tour_id", pl.col(tour_col).alias("_on_tour"))
     for name in _TOUR_MEMBER_TABLES:
@@ -218,8 +258,34 @@ def _flag_joint_trip_ids(
     on_trip = pl.col(cols.flag).fill_null(value=False)
     if cols.requires_fully_joint and cols.joint_tour_id in trips.columns:
         on_trip = on_trip & pl.col(cols.joint_tour_id).is_not_null()
-    tables["linked_trips"] = trips.with_columns(
+    trips = trips.with_columns(
         pl.when(on_trip).then(pl.col("joint_trip_id")).otherwise(None).alias(trip_col)
+    )
+    tables["linked_trips"] = _dissolve_undersized(trips, trip_col)
+
+
+def _dissolve_undersized(df: pl.DataFrame, id_col: str) -> pl.DataFrame:
+    """Null *id_col* wherever fewer than two records share its value.
+
+    A group the profile has reduced to one record is no group. Nulling the id
+    here, for every profile, is what lets a consumer trust that any record still
+    carrying the id has company -- so the formatter checks that rather than
+    repairing it.
+    """
+    counts = (
+        df.filter(pl.col(id_col).is_not_null())
+        .group_by(id_col)
+        .len(name="_n_on_it")
+        .filter(pl.col("_n_on_it") < MIN_JOINT_PARTICIPANTS)
+    )
+    if counts.is_empty():
+        return df
+    alone = counts[id_col]
+    return df.with_columns(
+        pl.when(pl.col(id_col).is_in(alone.implode()))
+        .then(None)
+        .otherwise(pl.col(id_col))
+        .alias(id_col)
     )
 
 
