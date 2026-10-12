@@ -183,22 +183,22 @@
    },
    "usable_ctramp": {
     "counts": {
-     "False": 13,
-     "True": 38
+     "False": 16,
+     "True": 35
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "043b902a95fe7bfc",
+    "hash": "926bfc0ac0eea504",
     "nulls": 0
    },
    "usable_daysim": {
     "counts": {
-     "False": 13,
-     "True": 38
+     "False": 16,
+     "True": 35
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "043b902a95fe7bfc",
+    "hash": "926bfc0ac0eea504",
     "nulls": 0
    }
   },
@@ -2973,22 +2973,22 @@
    },
    "usable_ctramp": {
     "counts": {
-     "False": 20,
-     "True": 88
+     "False": 26,
+     "True": 82
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "bf9776ef0044c55d",
+    "hash": "7a271913c05b7084",
     "nulls": 0
    },
    "usable_daysim": {
     "counts": {
-     "False": 20,
-     "True": 88
+     "False": 26,
+     "True": 82
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "bf9776ef0044c55d",
+    "hash": "7a271913c05b7084",
     "nulls": 0
    }
   },
@@ -3886,22 +3886,22 @@
    },
    "usable_ctramp": {
     "counts": {
-     "False": 9,
-     "True": 36
+     "False": 12,
+     "True": 33
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "c75295d3551d8274",
+    "hash": "4b1d2481f5f4a96e",
     "nulls": 0
    },
    "usable_daysim": {
     "counts": {
-     "False": 9,
-     "True": 36
+     "False": 12,
+     "True": 33
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "c75295d3551d8274",
+    "hash": "4b1d2481f5f4a96e",
     "nulls": 0
    },
    "work_lat": {
@@ -4886,22 +4886,22 @@
    },
    "usable_ctramp": {
     "counts": {
-     "False": 13,
-     "True": 40
+     "False": 16,
+     "True": 37
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "959617c25e488985",
+    "hash": "52d026d132d2e64c",
     "nulls": 0
    },
    "usable_daysim": {
     "counts": {
-     "False": 13,
-     "True": 40
+     "False": 16,
+     "True": 37
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "959617c25e488985",
+    "hash": "52d026d132d2e64c",
     "nulls": 0
    }
   },
@@ -5726,22 +5726,22 @@
    },
    "usable_ctramp": {
     "counts": {
-     "False": 20,
-     "True": 90
+     "False": 26,
+     "True": 84
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "05bf584e5c1a4886",
+    "hash": "ac27c5d402ec1460",
     "nulls": 0
    },
    "usable_daysim": {
     "counts": {
-     "False": 20,
-     "True": 90
+     "False": 26,
+     "True": 84
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "05bf584e5c1a4886",
+    "hash": "ac27c5d402ec1460",
     "nulls": 0
    }
   },
