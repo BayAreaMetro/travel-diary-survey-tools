@@ -950,8 +950,8 @@ def _build_records():
         )
 
     # HH 24 - two children travel together with no adult. The morning school run is
-    # a *mandatory* joint tour, which CT-RAMP cannot represent: it is reclassified to
-    # individual tours by identify_misclassified_joint_tours (negative control). The
+    # a *mandatory* joint tour, which CT-RAMP cannot represent: under a fully_joint
+    # profile the cascade keeps it off any joint tour (negative control). The
     # afternoon shop tour is non-mandatory and admissible, so it is what actually
     # exercises joint composition CHILDREN_ONLY.
     s.household(24, "home_f", income=INC_75_100K, npeople=2, nworkers=0)

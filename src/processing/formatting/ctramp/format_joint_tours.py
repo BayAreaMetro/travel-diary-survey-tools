@@ -12,7 +12,6 @@ from data_canon.codebook.ctramp import (
 )
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
-from data_canon.codebook.trips import PurposeCategory
 
 from .ctramp_config import CTRAMPConfig
 from .joint_representative import representative_person_per_tour
@@ -36,7 +35,6 @@ def format_joint_tour(
 ) -> pl.DataFrame:
     """Format canonical joint tours to CT-RAMP's household-level schema."""
     logger.info("Formatting joint tour data for CT-RAMP")
-    tours_canonical = identify_misclassified_joint_tours(tours_canonical)
 
     if tours_canonical.is_empty():
         logger.info("No tours provided")
@@ -355,54 +353,6 @@ def joint_weight_columns(
         .otherwise(None)
         .alias("sampleRate"),
     ]
-
-
-def identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.DataFrame:
-    """Convert inadmissible joint-tour groups to individual tours.
-
-    CT-RAMP joint tours cannot be work, school, escort, or groups whose members
-    have different purposes. Clearing ``joint_tour_id`` preserves that travel as
-    individual tours instead of dropping it.
-    """
-    if tours_canonical.is_empty() or "joint_tour_id" not in tours_canonical.columns:
-        return tours_canonical
-
-    joint_tours = tours_canonical.filter(pl.col("joint_tour_id").is_not_null())
-    if joint_tours.is_empty():
-        return tours_canonical
-
-    misclassified_joint_ids = (
-        joint_tours.group_by("joint_tour_id")
-        .agg(
-            [
-                pl.col("tour_purpose").n_unique().alias("_n_unique_purposes"),
-                (pl.col("tour_purpose") == PurposeCategory.WORK.value).any().alias("_has_work"),
-                (pl.col("tour_purpose") == PurposeCategory.SCHOOL.value).any().alias("_has_school"),
-                (pl.col("tour_purpose") == PurposeCategory.ESCORT.value).any().alias("_has_escort"),
-            ]
-        )
-        .filter(
-            pl.col("_has_work")
-            | pl.col("_has_school")
-            | pl.col("_has_escort")
-            | (pl.col("_n_unique_purposes") > 1)
-        )
-        .select("joint_tour_id")
-    )
-
-    if misclassified_joint_ids.is_empty():
-        return tours_canonical
-
-    logger.info(
-        "Reclassifying %d misclassified joint tours to individual tours",
-        len(misclassified_joint_ids),
-    )
-    return tours_canonical.with_columns(
-        pl.when(pl.col("joint_tour_id").is_in(misclassified_joint_ids["joint_tour_id"].implode()))
-        .then(pl.lit(None).cast(tours_canonical.schema["joint_tour_id"]))
-        .otherwise(pl.col("joint_tour_id"))
-        .alias("joint_tour_id")
-    )
 
 
 def _validate_joint_tours_are_wholly_joint(linked_trips: pl.DataFrame) -> None:

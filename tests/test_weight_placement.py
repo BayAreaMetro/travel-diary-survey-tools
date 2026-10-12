@@ -70,9 +70,10 @@ class TestItRaises:
         """Person 3 passes on their own, carries 4, and their household does not pass.
 
         Every per-table flag is satisfied. Only running the formatter's own
-        record selection shows the 4 will never reach the output.
+        record selection shows it: the person references a household the
+        profile does not keep, which the cascade should have carried down.
         """
-        with pytest.raises(ValueError, match=r"put 4.0000 on records the formatter will leave out"):
+        with pytest.raises(ValueError, match=r"1 persons record\(s\) .* reference a households"):
             check_weight_placement(
                 _tables(person_flags=[True, True, True], person_weights=[5.0, 5.0, 4.0]),
                 FLAG,

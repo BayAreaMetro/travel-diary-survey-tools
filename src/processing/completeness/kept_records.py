@@ -1,18 +1,20 @@
-"""Decide which records survive a usability profile, across every table.
+"""Which records a usability profile admits, read off every table at once.
 
-A profile's flag is stamped per table, and filtering each table on its own flag
-is *not* enough. Most of the cascade does agree -- member trips inherit their
-tour's verdict, and the upward reductions to day and person are `>= 1`, so a
-usable tour implies a usable day and person. The household is the exception: a
-profile requiring a whole household-day reduces over *dates on which every member
-was usable*, not over usable days, so a person can be usable while their
-household is not. Those records are orphaned by an independent filter and are
-removed by following the schema's references, which is why the ledger counts
-them separately rather than trusting an invariant that does not hold.
+Nothing here removes a record from the canonical data. ``keep_records``
+returns *filtered copies* of the tables it is given -- the rows whose verdict
+column is true -- and leaves the inputs as they were. Only a formatter ever
+writes fewer records than the survey holds, and it writes exactly these.
 
-This is the one place that decision is made. The formatters gate on it, and the
-weighting must place weight on exactly the records it keeps -- weight left on a
-record removed here leaves the output short of the total it was weighted to.
+Filtering each table on its own verdict is enough because the cascade already
+made the verdicts agree: it carries the household's verdict down to every
+record in it, voids the joint ids of any grouping it rejects, and dissolves
+any grouping left with one record. What this module adds is the proof. After
+filtering it follows every reference the schema declares and raises on the
+first one that no longer resolves, so a cascade that stops agreeing with
+itself fails here, loudly, rather than being quietly patched.
+
+The formatters gate on this, and the weighting runs it as a check: weight on
+a record the filter excludes is weight the output would lose.
 """
 
 import logging
@@ -24,7 +26,7 @@ from data_canon.core.dataclass import CANONICAL_MODELS
 from data_canon.validation.relational import foreign_key_edges
 
 from .descriptions import suggest_usability_columns
-from .usable_cascade import MIN_JOINT_PARTICIPANTS
+from .joint_groupings import MIN_JOINT_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
 
@@ -55,31 +57,28 @@ _GROUPINGS = (
     ("joint_trip_id", "linked_trips", "joint_trips"),
 )
 
-# Reconciliation is iterated because each rule can trigger another: dropping a
-# household drops its persons, which can leave a joint group short, which voids a
-# reference. The bound guards against a cycle rather than counting expected work;
-# drops only shrink and voids only remove references, so it settles quickly.
-_MAX_RECONCILE_PASSES = 10
+# Every column a profile writes its own copy of, per table: the weight, and
+# the joint ids saying which joint tour or joint trip a record is on.
+_PROFILE_COLUMNS: dict[str, tuple[str, ...]] = {
+    "households": ("hh_weight",),
+    "persons": ("person_weight",),
+    "days": ("day_weight",),
+    "tours": ("tour_weight", "joint_tour_id"),
+    "linked_trips": ("linked_trip_weight", "joint_tour_id", "joint_trip_id"),
+    "unlinked_trips": ("unlinked_trip_weight", "joint_tour_id"),
+    "joint_trips": ("joint_trip_weight",),
+    "joint_tours": ("joint_tour_weight",),
+}
+
+# Rows of a failing check to name before summarising the rest.
+_MAX_REPORTED = 5
 
 
 @dataclass
 class KeepLedger:
-    """What each rule removed, per table, accumulated across passes.
-
-    Kept because the per-rule log read alarmingly out of context: a stream of
-    "dropped 953 persons" lines invites the reader to think the formatter is
-    making judgements of its own, when every one of those persons left because
-    their household did not pass the profile. Naming the reason next to the count
-    is the difference between a ledger and a list of casualties.
-
-    Voided references are tracked separately from removals because they are not
-    losses at all -- the record stays in the output, only its grouping is gone.
-    """
+    """How many rows each table lost to the profile's verdict."""
 
     excluded: dict[str, int] = field(default_factory=dict)
-    orphaned: dict[str, int] = field(default_factory=dict)
-    undersized: dict[str, int] = field(default_factory=dict)
-    unjointed: dict[str, int] = field(default_factory=dict)
 
     def add(self, bucket: dict[str, int], key: str, n: int) -> None:
         """Add *n* to *key* in *bucket*."""
@@ -90,19 +89,22 @@ def keep_records(
     tables: dict[str, pl.DataFrame],
     usability_flag_col: str,
 ) -> tuple[dict[str, pl.DataFrame], KeepLedger]:
-    """Keep the records *usability_flag_col* admits, and restore what that breaks.
+    """Keep the records *usability_flag_col* admits, and prove nothing dangles.
 
     Args:
-        tables: Canonical tables, keyed by name.
+        tables: Canonical tables, keyed by name, carrying the profile's joint
+            ids under the bare names (the formatter resolves them first).
         usability_flag_col: The stamped verdict to gate on.
 
     Returns:
-        The kept tables, and a ledger of what each rule removed. Tables absent
-        from the input stay absent.
+        The kept tables, and a ledger of what each lost. Tables absent from the
+        input stay absent.
 
     Raises:
         ValueError: If a gated table carries no verdict, which means
-            `cascade_completeness` did not run or stamped a different profile.
+            `cascade_completeness` did not run or stamped a different profile;
+            or if the kept records do not agree with one another, which means
+            the cascade did.
     """
     missing = [
         name
@@ -131,181 +133,168 @@ def keep_records(
         kept[name] = before.filter(keep)
         ledger.add(ledger.excluded, name, before.height - kept[name].height)
 
-    _reconcile(kept, ledger)
+    check_kept_records_agree(kept, usability_flag_col)
     return kept, ledger
 
 
-def _reconcile(tables: dict[str, pl.DataFrame], ledger: KeepLedger) -> None:
-    """Restore the relationships filtering broke, in place.
+def select_profile_columns(
+    tables: dict[str, pl.DataFrame],
+    usability_profile: str,
+    *,
+    only: tuple[str, ...] | None = None,
+) -> dict[str, pl.DataFrame]:
+    """Resolve this consumer's per-profile columns to their base names.
 
-    Three rules, each stated once and applied until nothing changes. Iterating
-    matters because they feed each other: dropping a household drops its
-    persons, which can leave a joint group below quorum, which voids a reference
-    on a trip.
+    The weighting writes one weight column per profile, and the cascade one
+    copy of each joint id per profile, each suffixed with the profile's name. A
+    consumer already names the profile it reads, and the suffix *is* that name,
+    so one setting answers every question and there is no second one to
+    disagree with it.
 
-    Raises:
-        RuntimeError: If the rules have not settled within
-            :data:`_MAX_RECONCILE_PASSES`, which would mean two of them disagree
-            rather than that the data is large.
-    """
-    for _ in range(_MAX_RECONCILE_PASSES):
-        changed = _cascade_references(tables, ledger)
-        changed = _demote_undersized_groups(tables, ledger) or changed
-        changed = _unjoint_tours_with_individual_trips(tables, ledger) or changed
-        if not changed:
-            return
+    Renaming here rather than at each use is what keeps every downstream read --
+    ``sampleRate``, ``hhexpfac``, which tours are joint -- correct without
+    knowing profiles exist at all.
 
-    msg = (
-        f"Record reconciliation did not settle in {_MAX_RECONCILE_PASSES} passes. "
-        "Two rules are undoing each other rather than converging."
-    )
-    raise RuntimeError(msg)
-
-
-def _cascade_references(tables: dict[str, pl.DataFrame], ledger: KeepLedger) -> bool:
-    """Follow every declared reference whose target is gone, in place.
-
-    The schema already says what to do. A *required* reference means the child
-    cannot exist without its parent, so the child goes: a person with no
-    household has no home to report and reaches the model as a null home zone. An
-    *optional* reference means the child stands on its own and only the reference
-    is void, so it is nulled: a trip that stops being joint is still a trip.
+    Args:
+        tables: Canonical tables, keyed by name.
+        usability_profile: The profile this consumer reads.
+        only: Base columns to resolve, for a caller that wants the joint ids
+            but not the weights; every column a profile writes, by default.
 
     Returns:
-        Whether anything changed, so the caller can iterate to a fixed point.
+        The same mapping with this profile's columns under the base names. A
+        table with no suffixed column at all is returned untouched, which is the
+        single-weight-set case.
+
+    Raises:
+        ValueError: If a table carries suffixed columns but none for this
+            profile. The bare column would then be read instead -- whatever it
+            happens to hold -- and a formatter would publish another universe's
+            expansion factors or joint tours.
     """
-    changed = False
+    resolved: dict[str, pl.DataFrame] = dict(tables)
+    read_from: list[str] = []
+
+    for name, table in tables.items():
+        df = table
+        for base in _PROFILE_COLUMNS.get(name, ()):
+            if only is not None and base not in only:
+                continue
+            mine = f"{base}_{usability_profile}"
+            # Another profile's copy is not ours to deliver, and leaving it
+            # beside the base name invites reading the wrong one.
+            others = [c for c in df.columns if c.startswith(f"{base}_") and c != mine]
+            if mine not in df.columns:
+                if others:
+                    found = sorted(c.removeprefix(f"{base}_") for c in others)
+                    what = "weights" if base.endswith("_weight") else base
+                    msg = (
+                        f"{name} carries {what} for {found} but not for "
+                        f"{usability_profile!r}, the profile this consumer reads. Add it to "
+                        f"the weighting step's weight_profiles and cascade_completeness's "
+                        f"usability_profiles; falling back to {base!r} would publish another "
+                        "universe's expansion factors or joint tours, or none."
+                    )
+                    raise ValueError(msg)
+                continue
+            if base in df.columns and base.endswith("_weight"):
+                logger.warning(
+                    "%s carries both %s and %s; reading %s, since that is the profile "
+                    "this consumer gates on.",
+                    name,
+                    base,
+                    mine,
+                    mine,
+                )
+            df = df.drop(base, *others, strict=False).rename({mine: base})
+            read_from.append(f"{name}.{base} <- {mine}")
+        resolved[name] = df
+
+    if read_from:
+        logger.info("Columns read for %s: %s", usability_profile, ", ".join(sorted(read_from)))
+    return resolved
+
+
+def check_kept_records_agree(tables: dict[str, pl.DataFrame], usability_flag_col: str) -> None:
+    """Raise if the kept records do not form a consistent set.
+
+    Three things, each once a repair this module made silently:
+
+    1. Every reference the schema declares resolves. A required one that does
+       not is a record whose household, person or day the profile rejected;
+       an optional one is a joint id the profile should have voided.
+    2. No joint id is carried by fewer than two records.
+    3. Every leg of a tour on a joint tour is itself a joint trip.
+
+    Each is something the cascade guarantees, so a failure names a cascade
+    bug -- or, for the third, a consumer reading a ``partial`` profile when a
+    model needs ``fully_joint``.
+
+    Args:
+        tables: The kept tables.
+        usability_flag_col: The verdict they were gated on, for the message.
+
+    Raises:
+        ValueError: On the first check that fails.
+    """
     for child, column, parent, parent_column, optional in _EDGES:
         c, p = tables.get(child), tables.get(parent)
         if c is None or p is None or column not in c.columns or parent_column not in p.columns:
             continue
-
-        dangling = pl.col(column).is_not_null() & ~pl.col(column).is_in(p[parent_column].implode())
-        n_dangling = c.filter(dangling).height
-        if not n_dangling:
+        dangling = c.filter(
+            pl.col(column).is_not_null() & ~pl.col(column).is_in(p[parent_column].implode())
+        )
+        if dangling.is_empty():
             continue
+        why = (
+            "the cascade voids a grouping's ids when it rejects the grouping"
+            if optional
+            else "the cascade carries a verdict down to everything inside it"
+        )
+        msg = (
+            f"{dangling.height} {child} record(s) admitted by {usability_flag_col} reference "
+            f"a {parent} record it does not admit ({child}.{column} -> {parent}.{parent_column}), "
+            f"though {why}. Sample {column}: {dangling[column].head(_MAX_REPORTED).to_list()}."
+        )
+        logger.error(msg)
+        raise ValueError(msg)
 
-        changed = True
-        if optional:
-            tables[child] = c.with_columns(
-                pl.when(dangling).then(None).otherwise(pl.col(column)).alias(column)
-            )
-            ledger.add(ledger.unjointed, f"{child}.{column}", n_dangling)
-            logger.debug("  voided %d %s.%s: no matching %s", n_dangling, child, column, parent)
-        else:
-            tables[child] = c.filter(~dangling)
-            ledger.add(ledger.orphaned, child, n_dangling)
-            logger.debug(
-                "  dropped %d %s: %s.%s is required and had no matching %s",
-                n_dangling,
-                child,
-                child,
-                column,
-                parent,
-            )
-    return changed
-
-
-def _demote_undersized_groups(tables: dict[str, pl.DataFrame], ledger: KeepLedger) -> bool:
-    """Un-joint any grouping left with fewer than two members, in place.
-
-    The cascade already refuses a grouping whose members are not usable, so this
-    is not a second opinion on that. It is the consequence: rejecting a member
-    leaves the others carrying the group's id, and a group of one is not a party.
-
-    Only the group's own row is removed here. Voiding the members' references to
-    it is left to :func:`_cascade_references`, which does that for every table
-    carrying a copy rather than the ones remembered at this call site.
-
-    Returns:
-        Whether any group was removed.
-    """
-    changed = False
     for id_col, member_table, group_table in _GROUPINGS:
-        members, groups = tables.get(member_table), tables.get(group_table)
-        if members is None or groups is None:
+        members = tables.get(member_table)
+        if members is None or id_col not in members.columns:
             continue
-        if id_col not in members.columns or id_col not in groups.columns:
-            continue
-
-        surviving = (
+        alone = (
             members.filter(pl.col(id_col).is_not_null())
             .group_by(id_col)
-            .agg(pl.len().alias("_n"))
-            .filter(pl.col("_n") >= MIN_JOINT_PARTICIPANTS)[id_col]
+            .len(name="_n")
+            .filter(pl.col("_n") < MIN_JOINT_PARTICIPANTS)
         )
-        undersized = groups.filter(~pl.col(id_col).is_in(surviving.implode()))
-        if undersized.is_empty():
+        if alone.is_empty():
             continue
-
-        changed = True
-        ledger.add(ledger.undersized, group_table, undersized.height)
-        logger.debug(
-            "  demoted %d %s: fewer than %d members survived",
-            undersized.height,
-            group_table,
-            MIN_JOINT_PARTICIPANTS,
+        msg = (
+            f"{alone.height} {group_table} id(s) are carried by a single {member_table} record "
+            f"under {usability_flag_col}, though the cascade dissolves a grouping left with "
+            f"one. Sample {id_col}: {alone[id_col].head(_MAX_REPORTED).to_list()}."
         )
-        tables[group_table] = groups.filter(pl.col(id_col).is_in(surviving.implode()))
-    return changed
+        logger.error(msg)
+        raise ValueError(msg)
 
-
-def _unjoint_tours_with_individual_trips(
-    tables: dict[str, pl.DataFrame], ledger: KeepLedger
-) -> bool:
-    """Clear ``joint_tour_id`` where any of a tour's trips is not joint, in place.
-
-    The fully-joint rule: activity-based models represent a joint tour as one
-    whose every member shares every trip, so a single non-joint leg disqualifies
-    the whole tour. A formatter refuses such a tour outright, because that leg
-    would reach neither the individual nor the joint trip output.
-
-    A leg loses its group when the group falls below quorum, which can happen
-    while the tour itself still has two members and survives. The tour then
-    becomes individual travel: the trips are all still real, they are simply no
-    longer recorded as shared.
-
-    Returns:
-        Whether any tour was un-jointed.
-    """
-    tours, trips = tables.get("tours"), tables.get("linked_trips")
-    if tours is None or trips is None:
-        return False
-    if "joint_tour_id" not in trips.columns or "joint_trip_id" not in trips.columns:
-        return False
-
+    trips = tables.get("linked_trips")
+    if trips is None or not {"joint_tour_id", "joint_trip_id"} <= set(trips.columns):
+        return
     # A frame recording no trip-level sharing at all is not claiming these tours
-    # are partly shared -- it simply never had joint trips. The same judgement
-    # _validate_joint_tours_are_wholly_joint makes before refusing one.
+    # are partly shared -- it simply never had joint trips.
     if trips["joint_trip_id"].null_count() == trips.height:
-        return False
-
-    partly = (
-        trips.filter(pl.col("joint_tour_id").is_not_null() & pl.col("joint_trip_id").is_null())[
-            "joint_tour_id"
-        ]
-        .unique()
-        .implode()
+        return
+    partly = trips.filter(pl.col("joint_tour_id").is_not_null() & pl.col("joint_trip_id").is_null())
+    if partly.is_empty():
+        return
+    msg = (
+        f"{partly.height} linked trip(s) on a joint tour are not joint trips under "
+        f"{usability_flag_col}, so the tour is only partly joint. A model draws one set of "
+        "trips for everyone on a joint tour: this consumer needs a profile declaring "
+        "joint_tours: fully_joint, under which the cascade keeps no such tour. "
+        f"Sample joint_tour_id: {partly['joint_tour_id'].unique().head(_MAX_REPORTED).to_list()}."
     )
-    is_partly = pl.col("joint_tour_id").is_in(partly)
-    if trips.filter(is_partly).is_empty():
-        return False
-
-    n_tours = 0
-    for name in ("tours", "linked_trips", "unlinked_trips"):
-        df = tables.get(name)
-        if df is None or "joint_tour_id" not in df.columns:
-            continue
-        if name == "tours":
-            n_tours = df.filter(is_partly)["joint_tour_id"].n_unique()
-        ledger.add(ledger.unjointed, f"{name}.joint_tour_id", df.filter(is_partly).height)
-        tables[name] = df.with_columns(
-            pl.when(is_partly).then(None).otherwise(pl.col("joint_tour_id")).alias("joint_tour_id")
-        )
-
-    logger.debug(
-        "  un-jointed %d tours: a leg of each is no longer shared, and a joint "
-        "tour must be joint on every leg",
-        n_tours,
-    )
-    return True
+    logger.error(msg)
+    raise ValueError(msg)

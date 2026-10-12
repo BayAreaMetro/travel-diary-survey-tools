@@ -12,7 +12,7 @@ describing.
 import polars as pl
 import pytest
 
-from processing.formatting.usable_records import select_profile_weights
+from processing.formatting.usable_records import select_profile_columns
 from processing.weighting.core.hierarchy import (
     HIERARCHY,
     LEVELS,
@@ -209,12 +209,12 @@ class TestResolution:
         """
         tables = _households(**{f"hh_weight_{STRICT}": [7.0], f"hh_weight_{RELAXED}": [9.0]})
 
-        strict = select_profile_weights(tables, STRICT)["households"]
+        strict = select_profile_columns(tables, STRICT)["households"]
         assert strict["hh_weight"].to_list() == [7.0]
         assert f"hh_weight_{STRICT}" not in strict.columns
         assert f"hh_weight_{RELAXED}" not in strict.columns
 
-        relaxed = select_profile_weights(tables, RELAXED)["households"]
+        relaxed = select_profile_columns(tables, RELAXED)["households"]
         assert relaxed["hh_weight"].to_list() == [9.0]
         assert f"hh_weight_{STRICT}" not in relaxed.columns
         assert f"hh_weight_{RELAXED}" not in relaxed.columns
@@ -225,14 +225,14 @@ class TestResolution:
             "days": pl.DataFrame({"day_id": [1], f"day_weight_{STRICT}": [3.0]}),
             "tours": pl.DataFrame({"tour_id": [1], f"tour_weight_{STRICT}": [4.0]}),
         }
-        out = select_profile_weights(tables, STRICT)
+        out = select_profile_columns(tables, STRICT)
         assert out["days"]["day_weight"].to_list() == [3.0]
         assert out["tours"]["tour_weight"].to_list() == [4.0]
 
     def test_the_input_is_not_mutated(self):
         """The caller's frames are left alone, as everywhere else in the gate."""
         tables = _households(**{f"hh_weight_{STRICT}": [7.0]})
-        select_profile_weights(tables, STRICT)
+        select_profile_columns(tables, STRICT)
         assert f"hh_weight_{STRICT}" in tables["households"].columns
 
 
@@ -242,18 +242,18 @@ class TestNoSuffixedColumns:
     def test_a_bare_column_is_left_alone(self):
         """Nothing to resolve, and nothing that needs resolving."""
         tables = _households(hh_weight=[5.0])
-        out = select_profile_weights(tables, STRICT)["households"]
+        out = select_profile_columns(tables, STRICT)["households"]
         assert out["hh_weight"].to_list() == [5.0]
 
     def test_a_table_with_no_weight_at_all_is_left_alone(self):
         """A table can reach the gate before any weighting step ran."""
         tables = _households()
-        assert select_profile_weights(tables, STRICT)["households"].columns == ["hh_id"]
+        assert select_profile_columns(tables, STRICT)["households"].columns == ["hh_id"]
 
     def test_a_non_weight_table_is_ignored(self):
         """Only the levels that carry weights are considered."""
         tables = {"zones": pl.DataFrame({"taz": [1], "hh_weight_x": [1.0]})}
-        assert "hh_weight_x" in select_profile_weights(tables, STRICT)["zones"].columns
+        assert "hh_weight_x" in select_profile_columns(tables, STRICT)["zones"].columns
 
 
 class TestTheUnweightedProfile:
@@ -268,7 +268,7 @@ class TestTheUnweightedProfile:
         """
         tables = _households(**{f"hh_weight_{RELAXED}": [9.0]})
         with pytest.raises(ValueError, match="but not for 'ctramp'") as excinfo:
-            select_profile_weights(tables, STRICT)
+            select_profile_columns(tables, STRICT)
         # and the message names what was weighted, so the fix is obvious
         message = str(excinfo.value)
         assert RELAXED in message
@@ -278,12 +278,12 @@ class TestTheUnweightedProfile:
         """A bare column beside another profile's is still not this profile's."""
         tables = _households(hh_weight=[1.0], **{f"hh_weight_{RELAXED}": [9.0]})
         with pytest.raises(ValueError, match="but not for"):
-            select_profile_weights(tables, STRICT)
+            select_profile_columns(tables, STRICT)
 
     def test_both_present_prefers_the_profile_and_warns(self, caplog):
         """A bare column can be legitimate loader input, so this is not fatal."""
         tables = _households(hh_weight=[1.0], **{f"hh_weight_{STRICT}": [7.0]})
         with caplog.at_level("WARNING"):
-            out = select_profile_weights(tables, STRICT)["households"]
+            out = select_profile_columns(tables, STRICT)["households"]
         assert out["hh_weight"].to_list() == [7.0]
         assert any("carries both" in record.message for record in caplog.records)

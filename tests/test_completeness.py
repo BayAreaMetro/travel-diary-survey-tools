@@ -14,7 +14,8 @@ from processing.completeness import (
     rollup_completeness,
     rollup_household_complete,
 )
-from processing.completeness.usable_cascade import _flag_households, _flag_joint_groupings
+from processing.completeness.joint_groupings import _flag_joint_groupings
+from processing.completeness.usable_cascade import _flag_households
 
 
 class TestRollupCompleteness:

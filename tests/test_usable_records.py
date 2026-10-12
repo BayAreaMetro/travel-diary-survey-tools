@@ -1,31 +1,12 @@
 """The gate that keeps what a usability profile admits, and decides nothing itself.
 
 ``keep_usable`` reads one verdict column per consumer, stamped upstream by
-``cascade_completeness``. It filters each table on that table's own verdict, and
-repairs the references a filtered-out row leaves behind. It does not re-derive
-admissibility, and it does not cascade: both would be a second definition.
-
-The first half of this file covers the reference repair, the second the gate
-itself.
-
-A member whose group did not survive becomes an individual traveller, not a ghost.
-
-CT-RAMP requires ``num_participants >= 2``: a party of one is not a party. The
-cascade enforces that upstream -- a joint grouping is usable only while two of
-its members are -- so by the time a formatter runs, no under-quorum group is
-admitted.
-
-What the formatter still has to handle is the member left behind. Rejecting a
-group does not reject its one usable member, and that member still carries the
-group's id. Downstream the id resolves to nothing and the record falls through
-both doors: individual tours take only tours whose ``joint_tour_id`` is null,
-and the joint tables are built from the group rows that survived. The traveller
-would vanish from the output altogether.
-
-So the gate clears those ids. That repairs a reference; it does not make a
-decision. Both groupings need it, because a joint trip is not merely a part of a
-joint tour -- members can travel together on tours that were never joint, so a
-trip-level group can exist where no ``joint_tour_id`` does.
+``cascade_completeness``, and this profile's own copy of every joint id. It
+filters each table on that table's verdict and then *checks* -- never repairs
+-- that what survived agrees with itself: every reference resolves, no joint id
+is carried alone, every leg of a joint tour is a joint trip, and every weight
+that came in is still there. Each of those is something the cascade and the
+weighting guarantee, so a failure is a bug upstream and is raised, not patched.
 """
 
 import polars as pl
@@ -70,156 +51,149 @@ def _groups(name: str, rows: list[tuple[int, bool]]) -> pl.DataFrame:
     )
 
 
-class TestAJointTripIsItsOwnGrouping:
-    """The case a rule keyed on the tour structurally cannot see."""
+class TestTheProfilesJointIdsAreRead:
+    """``joint_tour_id_<profile>`` becomes ``joint_tour_id``, on every table carrying it."""
 
-    def test_a_survivor_of_a_rejected_trip_group_is_demoted(self):
-        """Its joint_tour_id is null, so only a trip-level rule reaches it.
-
-        The second member leaves because its *tour* is unusable, which is the
-        only way a member can depart. A tour's ``survey_complete`` is the ALL over its
-        member trips, so an incomplete trip makes its own tour incomplete and
-        therefore unusable -- a usable tour never holds an unusable trip. On
-        BATS 2023 that holds for all 324,965 linked trips, zero exceptions.
-        """
+    def test_the_bare_id_is_replaced_by_this_profiles_copy(self):
+        """The survey grouped three tours; this profile keeps two on the joint tour."""
         kept = keep_usable(
             {
-                "tours": _tours([(1, None, True), (2, None, False)]),
-                "linked_trips": _linked_trips([(1, 1, 900, True), (2, 2, 900, False)]),
-                "joint_trips": _groups("joint_trip_id", [(900, False)]),
-            },
-            PROFILE,
-        )
-
-        assert kept["joint_trips"].height == 0, "the under-quorum group must not be emitted"
-        assert kept["linked_trips"]["joint_trip_id"].to_list() == [None], (
-            "the surviving member still pointed at a group that is gone"
-        )
-        assert kept["linked_trips"]["linked_trip_id"].to_list() == [1], (
-            "demotion, not deletion: the trip happened, it was just not joint"
-        )
-
-
-class TestTheTourGroupingIsSeparate:
-    """Neither grouping's rule stands in for the other's."""
-
-    def test_a_survivor_of_a_rejected_tour_group_is_demoted(self):
-        """Otherwise it is in neither the individual nor the joint tour table."""
-        kept = keep_usable(
-            {
-                "tours": _tours([(1, 500, True), (2, 500, False)]),
-                "joint_tours": _groups("joint_tour_id", [(500, False)]),
-            },
-            PROFILE,
-        )
-
-        assert kept["joint_tours"].height == 0
-        assert kept["tours"]["joint_tour_id"].to_list() == [None]
-
-
-class TestNoRecordOutlivesItsParent:
-    """The cascade's verdicts do not imply one another downward.
-
-    A household is usable only on a date where *every* member was; a person needs
-    just one usable day of their own. So a person can pass while their household
-    does not. Keeping that person hands CT-RAMP a record with no household to
-    read a home zone from, which arrives as a null HomeTAZ -- 1,512 rows of it on
-    BATS 2023.
-    """
-
-    def test_a_person_does_not_outlive_their_household(self):
-        """The shape that reached CT-RAMP as a null HomeTAZ, and the days below it."""
-        kept = keep_usable(
-            {
-                "households": pl.DataFrame({"hh_id": [1, 2], FLAG: [True, False]}),
-                "persons": pl.DataFrame(
-                    {"person_id": [10, 20], "hh_id": [1, 2], FLAG: [True, True]}
-                ),
-                "days": pl.DataFrame(
+                "tours": pl.DataFrame(
                     {
-                        "day_id": [100, 200],
-                        "person_id": [10, 20],
-                        "hh_id": [1, 2],
-                        FLAG: [True, True],
+                        "tour_id": [1, 2, 3],
+                        "joint_tour_id": [500, 500, 500],
+                        "joint_tour_id_ctramp": [500, 500, None],
+                        "joint_tour_id_analysis": [500, 500, 500],
+                        FLAG: [True, True, True],
                     }
                 ),
-            },
-            PROFILE,
-        )
-
-        assert kept["persons"]["person_id"].to_list() == [10], (
-            "a usable person in an unusable household has no home to report"
-        )
-        assert kept["days"]["day_id"].to_list() == [100], (
-            "dropping a household drops its persons, and their days with them"
-        )
-
-
-class TestTheIdIsClearedEverywhereItIsCarried:
-    """The ids are denormalised, and clearing only some of them is worse than none.
-
-    ``joint_tour_id`` sits on tours, linked_trips and unlinked_trips. Clear it on
-    tours alone and a trip is left claiming a joint tour while carrying no joint
-    trip -- exactly what ``_validate_joint_tours_are_wholly_joint`` refuses,
-    because such a leg reaches neither output file: the individual trip file
-    excludes joint tours, and the joint trip file needs a ``joint_trip_id``.
-
-    On BATS 2023 that omission stranded 64 trips across 24 joint tours.
-    """
-
-    def test_a_demoted_tour_clears_the_id_on_its_trips_too(self):
-        """The exact shape that failed on real data."""
-        kept = keep_usable(
-            {
-                "tours": _tours([(1, 500, True), (2, 500, False)]),
                 "linked_trips": pl.DataFrame(
                     {
-                        "linked_trip_id": [10, 20],
-                        "tour_id": [1, 2],
-                        "joint_tour_id": [500, 500],
-                        "joint_trip_id": [900, 900],
-                        FLAG: [True, False],
-                    },
-                    schema_overrides={"joint_tour_id": pl.Int64, "joint_trip_id": pl.Int64},
+                        "linked_trip_id": [10, 20, 30],
+                        "tour_id": [1, 2, 3],
+                        "joint_tour_id": [500, 500, 500],
+                        "joint_tour_id_ctramp": [500, 500, None],
+                        "joint_trip_id": [900, 900, 900],
+                        "joint_trip_id_ctramp": [900, 900, None],
+                        FLAG: [True, True, True],
+                    }
                 ),
-                "joint_tours": _groups("joint_tour_id", [(500, False)]),
-                "joint_trips": _groups("joint_trip_id", [(900, False)]),
-            },
-            PROFILE,
-        )
-
-        trips = kept["linked_trips"]
-        assert trips["joint_tour_id"].to_list() == [None], (
-            "a trip still naming a demoted joint tour reaches neither output file"
-        )
-        assert trips["joint_trip_id"].to_list() == [None], (
-            "a tour that is no longer joint cannot keep joint trips on it"
-        )
-
-    def test_a_demoted_tour_clears_the_id_on_unlinked_trips(self):
-        """Unlinked trips carry the tour id as well, and are written out too."""
-        kept = keep_usable(
-            {
-                "tours": _tours([(1, 500, True), (2, 500, False)]),
                 "unlinked_trips": pl.DataFrame(
                     {
-                        "unlinked_trip_id": [100, 200],
-                        "tour_id": [1, 2],
-                        "joint_tour_id": [500, 500],
-                        FLAG: [True, False],
-                    },
-                    schema_overrides={"joint_tour_id": pl.Int64},
+                        "unlinked_trip_id": [100, 200, 300],
+                        "tour_id": [1, 2, 3],
+                        "joint_tour_id": [500, 500, 500],
+                        "joint_tour_id_ctramp": [500, 500, None],
+                        FLAG: [True, True, True],
+                    }
                 ),
-                "joint_tours": _groups("joint_tour_id", [(500, False)]),
+                "joint_tours": _groups("joint_tour_id", [(500, True)]),
+                "joint_trips": _groups("joint_trip_id", [(900, True)]),
             },
             PROFILE,
         )
 
-        assert kept["unlinked_trips"]["joint_tour_id"].to_list() == [None]
+        for name in ("tours", "linked_trips", "unlinked_trips"):
+            assert kept[name]["joint_tour_id"].to_list() == [500, 500, None], name
+            assert "joint_tour_id_ctramp" not in kept[name].columns
+            assert "joint_tour_id_analysis" not in kept[name].columns
+        assert kept["linked_trips"]["joint_trip_id"].to_list() == [900, 900, None]
+
+    def test_a_table_without_a_copy_is_read_as_is(self):
+        """The single-profile case: no suffixed column, the bare id stands."""
+        kept = keep_usable(
+            {
+                "tours": _tours([(1, 500, True), (2, 500, True)]),
+                "joint_tours": _groups("joint_tour_id", [(500, True)]),
+            },
+            PROFILE,
+        )
+        assert kept["tours"]["joint_tour_id"].to_list() == [500, 500]
+
+
+class TestTheKeptRecordsMustAgree:
+    """What the cascade guarantees, the gate verifies and refuses to patch."""
+
+    def test_a_person_in_a_household_the_profile_rejects_raises(self):
+        """A required reference to a record that is gone: the cascade did not carry down."""
+        with pytest.raises(ValueError, match=r"1 persons record\(s\) .* reference a households"):
+            keep_usable(
+                {
+                    "households": pl.DataFrame({"hh_id": [1, 2], FLAG: [True, False]}),
+                    "persons": pl.DataFrame(
+                        {"person_id": [10, 20], "hh_id": [1, 2], FLAG: [True, True]}
+                    ),
+                },
+                PROFILE,
+            )
+
+    def test_a_trip_still_naming_a_rejected_joint_trip_raises(self):
+        """An optional reference to a grouping that is gone: the cascade did not void it."""
+        with pytest.raises(ValueError, match=r"linked_trips\.joint_trip_id -> joint_trips"):
+            keep_usable(
+                {
+                    "tours": _tours([(1, None, True), (2, None, True)]),
+                    "linked_trips": _linked_trips([(1, 1, 900, True), (2, 2, 900, True)]),
+                    "joint_trips": _groups("joint_trip_id", [(900, False)]),
+                },
+                PROFILE,
+            )
+
+    def test_a_tour_still_naming_a_rejected_joint_tour_raises(self):
+        """The same, one level up: a tour whose joint tour the profile rejected."""
+        with pytest.raises(ValueError, match=r"tours\.joint_tour_id -> joint_tours"):
+            keep_usable(
+                {
+                    "tours": _tours([(1, 500, True), (2, 500, True)]),
+                    "joint_tours": _groups("joint_tour_id", [(500, False)]),
+                },
+                PROFILE,
+            )
+
+    def test_a_joint_id_carried_by_one_record_raises(self):
+        """A group of one: the cascade did not dissolve it."""
+        with pytest.raises(ValueError, match="carried by a single tours record"):
+            keep_usable(
+                {
+                    "tours": _tours([(1, 500, True), (2, 500, False)]),
+                    "joint_tours": _groups("joint_tour_id", [(500, True)]),
+                },
+                PROFILE,
+            )
+
+    def test_a_partly_joint_tour_raises_and_names_the_setting(self):
+        """A leg of a joint tour that is not a joint trip: this consumer needs fully_joint."""
+        with pytest.raises(ValueError, match="joint_tours: fully_joint"):
+            keep_usable(
+                {
+                    "tours": _tours([(1, 500, True), (2, 500, True)]),
+                    "linked_trips": pl.DataFrame(
+                        {
+                            "linked_trip_id": [10, 11, 20],
+                            "tour_id": [1, 1, 2],
+                            "joint_tour_id": [500, 500, 500],
+                            "joint_trip_id": [900, None, 900],
+                            FLAG: [True, True, True],
+                        },
+                        schema_overrides={"joint_trip_id": pl.Int64},
+                    ),
+                    "joint_tours": _groups("joint_tour_id", [(500, True)]),
+                    "joint_trips": _groups("joint_trip_id", [(900, True)]),
+                },
+                PROFILE,
+            )
+
+    def test_weight_on_an_excluded_record_raises(self):
+        """The total in must be the total out; the weighting put 4 on a rejected tour."""
+        tours = _tours([(1, None, True), (2, None, False)]).with_columns(
+            tour_weight=pl.Series([10.0, 4.0])
+        )
+        with pytest.raises(ValueError, match=r"tours: tour_weight sums to 14\.0000 .* 10\.0000"):
+            keep_usable({"tours": tours}, PROFILE)
 
 
 class TestAnAdmittedGroupIsLeftAlone:
-    """Repair applies to broken references only."""
+    """A consistent set goes through untouched."""
 
     def test_members_of_a_surviving_group_keep_their_id(self):
         """The cascade admitted it, so two members are usable and it stays joint."""
@@ -236,7 +210,7 @@ class TestAnAdmittedGroupIsLeftAlone:
         assert kept["linked_trips"]["joint_trip_id"].to_list() == [900, 900]
 
     def test_an_individual_trip_is_untouched(self):
-        """A null group id was never a reference to repair."""
+        """A null group id was never a reference to check."""
         kept = keep_usable(
             {
                 "tours": _tours([(1, None, True)]),
@@ -247,6 +221,14 @@ class TestAnAdmittedGroupIsLeftAlone:
         )
 
         assert kept["linked_trips"]["joint_trip_id"].to_list() == [None]
+
+    def test_excluded_records_carrying_nothing_pass_the_total_check(self):
+        """Zero on a rejected record is the weighting doing its job."""
+        tours = _tours([(1, None, True), (2, None, False)]).with_columns(
+            tour_weight=pl.Series([10.0, 0.0])
+        )
+        kept = keep_usable({"tours": tours}, PROFILE)
+        assert kept["tours"]["tour_weight"].to_list() == [10.0]
 
 
 class TestTheGate:
@@ -260,9 +242,10 @@ class TestTheGate:
 
     Nor does it cascade. Each table is filtered on its own verdict, which is
     sound because the cascade already reconciles them -- trips inherit their
-    tour, the upward reductions are ``>= 1``, and a joint grouping needs two
-    usable members. The descriptors survive on these fixtures only because the
-    summary log still labels exclusions with them.
+    tour, the upward reductions are ``>= 1``, the household's verdict is
+    carried down, and a joint grouping needs two records on it. The descriptors
+    survive on these fixtures only because the summary log still labels
+    exclusions with them.
     """
 
     def _tours(self, rows: list[tuple[int, bool]]) -> pl.DataFrame:

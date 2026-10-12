@@ -46,7 +46,7 @@ trip .................................   direct    trip_survey_complete (measure
     └ household-day ..................   ALL       all surveyable members complete that date
        └ household ...................   >=1       has >=1 complete household-day
 
-USABLE -- rolls down from the tour fuse      op        rule
+USABLE, UP (_cascade_up) -- counts from the tour fuse   op   rule
 ------------------------------------------------------------------------
 household ...........................   >=1       has >=1 usable household-day
  ├ household-day ....................   ALL       all surveyable members' days usable that date
@@ -55,18 +55,25 @@ household ...........................   >=1       has >=1 usable household-day
        └ tour .......................   fuse      complete AND admitted-quality AND
                                                      hh-day complete AND has a zone
                                                      (the last three are the axes)
-          ├ linked trip .............   inherit   takes its tour's verdict
-          |  └ unlinked trip ........   inherit   takes its linked trip's verdict
-          ├ joint tour ..............   >=2       >=2 tours on it (joint ids, below)
-          └ joint trip ..............   >=2       >=2 linked trips on it
 
-then DOWN, household -> person -> day -> tour:   inherit   a record is unusable if the
-                                                           one it belongs to is
+USABLE, DOWN (_cascade_down) -- inherits from the household   op   rule
+------------------------------------------------------------------------
+household -> person -> day -> tour ..   inherit   unusable if the one it belongs to is
+ └ linked trip / unlinked trip ......   inherit   takes its tour's verdict
+
+JOINT (_flag_joint) -- judged beside the chain, after it     op   rule
+------------------------------------------------------------------------
+joint tour ..........................   >=2       >=2 tours on it, and its own
+                                                  household and day usable
+joint trip ..........................   >=2       >=2 linked trips on it, likewise;
+                                                  judged again after rejected joint
+                                                  tours void their ids
 
 JOINT IDS -- joint_tour_id_<profile> on tours and both trip tables, and
 joint_trip_id_<profile> on linked trips: the bare id where the record is on it,
-null where it is not. Read by the joint groupings above, the weighting and
-the formatters; the bare id is the survey's own answer and is never edited.
+null where it is not. Decided first within _flag_joint, read by the groupings
+above, the weighting and the formatters; the bare id is the survey's own
+answer and is never edited.
 ------------------------------------------------------------------------
 partial .............................   direct    usable and in a survey-detected group
 fully_joint .........................   class     usable, not work/school/escort, and
@@ -100,7 +107,8 @@ Modules:
 - ``household_day``: the household-date reduction, for both kinds of flag.
 - ``zone_coverage``: whether a record's locations have a zone.
 - ``usable_tours``: the tour fuse, where a verdict is decided.
-- ``usable_cascade``: that verdict, walked across every table.
+- ``usable_cascade``: that verdict, walked up and then down every table.
+- ``joint_groupings``: which records are on a joint tour or joint trip, per profile.
 - ``kept_records``: which records survive a verdict once references are restored.
 - ``descriptions``: what each stamped column means, in words.
 - ``cascade_completeness``: the pipeline step.
@@ -109,6 +117,7 @@ Modules:
 from .cascade_completeness import cascade_completeness
 from .descriptions import suggest_usability_columns
 from .household_day import flag_household_day_complete, flag_household_day_usable
+from .joint_groupings import MIN_JOINT_PARTICIPANTS
 from .profiles import (
     ALL_MEMBERS,
     ANY_HOME,
@@ -129,7 +138,7 @@ from .profiles import (
     usable_col_for,
 )
 from .survey_complete import cascade_complete, rollup_completeness, rollup_household_complete
-from .usable_cascade import MIN_JOINT_PARTICIPANTS, compute_usability, stamp_usable
+from .usable_cascade import compute_usability, stamp_usable
 
 __all__ = [
     "ALL_MEMBERS",

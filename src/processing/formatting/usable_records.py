@@ -6,21 +6,20 @@ the profile the config names and keeps what it admits.
 
 That is the whole of it, and the reason is arithmetic rather than tidiness. The
 weighting sums over the records a profile admits, so anything the formatter
-removed *afterwards* left a weight standing for members that are not in the
-output -- a joint group's `num_participants` counted from survivors while its
-weight was summed over more of them. Filtering on the same verdict the weighting
-used makes the two agree by construction.
+removed *afterwards* would leave a weight standing for records that are not in
+the output. Filtering on the same verdict the weighting used, and checking that
+the records kept carry every weight that came in, makes the two agree.
 
-Filtering each table independently is *not* enough on its own: a person can be
-usable while their household is not. Which records survive is decided by
-[`keep_records`][processing.completeness.kept_records.keep_records], which
-lives beside the cascade so the weighting can read the same answer.
+Which records survive is decided by
+[`keep_records`][processing.completeness.kept_records.keep_records], which lives
+beside the cascade so the weighting can read the same answer.
 
-Weights are read for the profile this consumer names, so its universe and its
-weights are the same universe. Where a record still carries no weight it is
-reported, not removed: a zero means its scope kept no usable record to share the
-parent's claim among, a null means no weight was ever estimated for it, and both
-are recoverable in a way that deleting the record is not.
+Weights and joint ids are read for the profile this consumer names, so its
+universe, its weights and its joint tours are the same universe. Where a record
+still carries no weight it is reported, not removed: a zero means its scope
+kept no usable record to share the parent's claim among, a null means no
+weight was ever estimated for it, and both are recoverable in a way that
+deleting the record is not.
 """
 
 import logging
@@ -29,11 +28,16 @@ import polars as pl
 
 from data_canon.codebook.tours import TourDataQuality
 from processing.completeness import usable_col_for
-from processing.completeness.kept_records import GATED_TABLES, KeepLedger, keep_records
+from processing.completeness.kept_records import (
+    GATED_TABLES,
+    KeepLedger,
+    keep_records,
+    select_profile_columns,
+)
 
 logger = logging.getLogger(__name__)
 
-# What each table's weight is called, for the zero-weight report.
+# What each table's weight is called, for the zero-weight report and the total check.
 _WEIGHT_COLUMNS = {
     "households": "hh_weight",
     "persons": "person_weight",
@@ -45,120 +49,29 @@ _WEIGHT_COLUMNS = {
     "joint_tours": "joint_tour_weight",
 }
 
+# A table's weight must reach the output to this relative precision; anything
+# beyond floating-point drift is weight on a record the profile left out.
+_TOTAL_REL_TOL = 1e-6
+
 
 def _log_ledger(
     ledger: KeepLedger,
     kept: dict[str, pl.DataFrame],
     usability_flag_col: str,
 ) -> None:
-    """Log one row per table, with a column per reason and the survivors.
-
-    The profile's own column sits beside the consequential ones on purpose. A
-    reader wondering whether too much was removed should be looking at the
-    profile, since the other columns record bookkeeping that follows from it and
-    decide nothing.
-    """
+    """Log one row per table: what the profile excluded, and what survived."""
     rows = [name for name in GATED_TABLES if name in kept]
     if not rows:
         return
-
     lines = [
         f"Records kept for the model, gated on {usability_flag_col}:",
         "",
-        f"  {'table':<16}{'not ' + usability_flag_col:>22}"
-        f"{'parent dropped':>18}{'below quorum':>15}{'kept':>12}",
+        f"  {'table':<16}{'not ' + usability_flag_col:>22}{'kept':>12}",
     ]
     for name in rows:
         excluded = ledger.excluded.get(name, 0)
-        orphaned = ledger.orphaned.get(name, 0)
-        undersized = ledger.undersized.get(name, 0)
-        lines.append(
-            f"  {name:<16}{-excluded:>22,}{-orphaned:>18,}"
-            f"{-undersized if undersized else 0:>15,}{kept[name].height:>12,}"
-        )
-
-    if ledger.unjointed:
-        lines += ["", "  no longer joint (records kept, only the grouping removed):"]
-        for reference, n in sorted(ledger.unjointed.items()):
-            lines.append(f"    {reference:<34}{n:>10,}")
-
+        lines.append(f"  {name:<16}{-excluded:>22,}{kept[name].height:>12,}")
     logger.info("\n".join(lines))
-
-
-def select_profile_weights(
-    tables: dict[str, pl.DataFrame],
-    usability_profile: str,
-) -> dict[str, pl.DataFrame]:
-    """Resolve this consumer's weight columns to their base names.
-
-    When the weighting fits several profiles it writes one column set per
-    profile, suffixed with the profile's name. A consumer already names the
-    profile it reads, and the suffix *is* that name, so one setting answers both
-    questions and there is no second one to disagree with it.
-
-    Renaming here rather than at each use is what keeps every downstream read --
-    ``sampleRate``, ``hhexpfac``, ``pdexpfac`` and the rest -- correct without
-    knowing profiles exist at all.
-
-    Args:
-        tables: Canonical tables, keyed by name.
-        usability_profile: The profile this consumer reads.
-
-    Returns:
-        The same mapping with this profile's weights under the base names. A
-        table with no suffixed column at all is returned untouched, which is the
-        single-weight-set case.
-
-    Raises:
-        ValueError: If the weighting wrote suffixed columns but none for this
-            profile. The bare column would then be read instead -- whatever it
-            happens to hold -- and a formatter would publish expansion factors
-            for a universe it is not describing.
-    """
-    resolved: dict[str, pl.DataFrame] = dict(tables)
-    read_from: dict[str, str] = {}
-
-    for name, df in tables.items():
-        base = _WEIGHT_COLUMNS.get(name)
-        if base is None:
-            continue
-        mine = f"{base}_{usability_profile}"
-
-        # Another profile's copy is not ours to deliver, and leaving it beside
-        # the base name invites reading the wrong one.
-        others = [col for col in df.columns if col.startswith(f"{base}_") and col != mine]
-
-        if mine not in df.columns:
-            if others:
-                weighted = sorted(col.removeprefix(f"{base}_") for col in others)
-                msg = (
-                    f"{name} carries weights for {weighted} but not for "
-                    f"{usability_profile!r}, the profile this consumer reads. Add it to "
-                    f"the weighting step's weight_profiles; falling back to {base!r} would "
-                    f"publish another universe's expansion factors, or none."
-                )
-                raise ValueError(msg)
-            continue
-
-        if base in df.columns:
-            logger.warning(
-                "%s carries both %s and %s; reading %s, since that is the profile "
-                "this consumer gates on.",
-                name,
-                base,
-                mine,
-                mine,
-            )
-        resolved[name] = df.drop(base, *others, strict=False).rename({mine: base})
-        read_from[name] = mine
-
-    if read_from:
-        logger.info(
-            "Weights read for %s: %s",
-            usability_profile,
-            ", ".join(f"{name} <- {col}" for name, col in sorted(read_from.items())),
-        )
-    return resolved
 
 
 def keep_usable(
@@ -181,14 +94,45 @@ def keep_usable(
         ValueError: If a gated table carries no verdict, which means
             `cascade_completeness` did not run or stamped a different profile.
     """
-    tables = select_profile_weights(tables, usability_profile)
+    tables = select_profile_columns(tables, usability_profile)
     usability_flag_col = usable_col_for(usability_profile)
 
     kept, ledger = keep_records(tables, usability_flag_col)
+    _check_totals_kept(tables, kept, usability_flag_col)
     _log_ledger(ledger, kept, usability_flag_col)
     _log_exclusion_summary(tables.get("tours"), tables.get("linked_trips"), usability_flag_col)
     _warn_zero_weight(kept, usability_flag_col)
     return kept
+
+
+def _check_totals_kept(
+    before: dict[str, pl.DataFrame],
+    kept: dict[str, pl.DataFrame],
+    usability_flag_col: str,
+) -> None:
+    """Raise if any table's weight did not all reach the kept records.
+
+    The weighting placed every weight on a record this profile admits, and
+    checked so. This is the same identity from the other side: whatever the
+    gate left out carried nothing, so the total in is the total out.
+
+    Raises:
+        ValueError: Naming the table and how much went missing.
+    """
+    for name, col in _WEIGHT_COLUMNS.items():
+        if name not in before or name not in kept or col not in before[name].columns:
+            continue
+        total_in = before[name].select(pl.col(col).sum()).item() or 0.0
+        total_out = kept[name].select(pl.col(col).sum()).item() or 0.0
+        if abs(total_in - total_out) > _TOTAL_REL_TOL * max(abs(total_in), 1.0):
+            msg = (
+                f"{name}: {col} sums to {total_in:.4f} on the way in and {total_out:.4f} on "
+                f"the records {usability_flag_col} keeps; {total_in - total_out:.4f} sat on "
+                "records this consumer never receives. The weighting and the cascade disagree "
+                "on who is in the model."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
 
 
 def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) -> None:

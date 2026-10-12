@@ -8,7 +8,12 @@ import logging
 
 import polars as pl
 
-from processing.completeness.kept_records import GATED_TABLES, keep_records
+from processing.completeness import profile_of
+from processing.completeness.kept_records import (
+    GATED_TABLES,
+    keep_records,
+    select_profile_columns,
+)
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.core.hierarchy import (
@@ -175,6 +180,25 @@ def check_weight_placement(
             logger.error(msg)
             raise ValueError(msg)
 
+    _check_kept_records_carry_everything(tables, usability_flag_col, weights)
+    logger.info(
+        "  Weight placement under %s: OK (%s)", usability_flag_col, ", ".join(sorted(weights))
+    )
+
+
+def _check_kept_records_carry_everything(
+    tables: dict[str, pl.DataFrame],
+    usability_flag_col: str,
+    weights: dict[str, str],
+) -> None:
+    """Run the formatter's own record selection and require no weight left behind.
+
+    Skipped, with a debug line, when a gated table carries no verdict: that is
+    a partial call rather than a run.
+
+    Raises:
+        ValueError: Naming the table and the weight that would not reach it.
+    """
     unflagged = [
         t for t in GATED_TABLES if t in tables and usability_flag_col not in tables[t].columns
     ]
@@ -185,9 +209,15 @@ def check_weight_placement(
             usability_flag_col,
         )
         return
-    kept, _ = keep_records(
-        {t: df for t, df in tables.items() if t in GATED_TABLES}, usability_flag_col
-    )
+    # The formatter reads the profile's own joint ids under the bare names; so
+    # must the check, or a trip in a group this profile dissolved looks dangling.
+    gated_tables = {t: df for t, df in tables.items() if t in GATED_TABLES}
+    named = profile_of(usability_flag_col)
+    if named is not None:
+        gated_tables = select_profile_columns(
+            gated_tables, named, only=("joint_tour_id", "joint_trip_id")
+        )
+    kept, _ = keep_records(gated_tables, usability_flag_col)
     for table, col in weights.items():
         if table not in kept:
             continue
@@ -201,9 +231,6 @@ def check_weight_placement(
             )
             logger.error(msg)
             raise ValueError(msg)
-    logger.info(
-        "  Weight placement under %s: OK (%s)", usability_flag_col, ", ".join(sorted(weights))
-    )
 
 
 # ---------------------------------------------------------------------------

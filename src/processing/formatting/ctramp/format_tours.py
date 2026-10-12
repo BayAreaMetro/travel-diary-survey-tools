@@ -27,10 +27,7 @@ from processing.formatting.ctramp.purpose_mappings import ctramp_purpose_categor
 from processing.formatting.ctramp.student_mappings import ctramp_student_category_expression
 
 from .ctramp_config import CTRAMPConfig
-from .format_joint_tours import (
-    format_joint_tour,
-    identify_misclassified_joint_tours,
-)
+from .format_joint_tours import format_joint_tour
 from .format_persons import enrich_persons_with_person_type
 
 logger = logging.getLogger(__name__)
@@ -54,7 +51,6 @@ def _prepare_individual_tours(
     already are, for the unified All* output. Nothing is exploded: a joint tour's
     participants each hold their own tour row and their own ``tour_weight``.
     """
-    tours = identify_misclassified_joint_tours(tours)
     if "person_type" not in persons.columns or "type" not in persons.columns:
         logger.info("Deriving person_type for tour formatting")
         if "student_category" not in persons.columns:
