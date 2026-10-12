@@ -412,6 +412,7 @@ class TestCascadeCompletenessStep:
                     "tour_closes_at": "primary_home",
                     "household_day_needs": "all_members",
                     "zone_coverage": "none",
+                    "joint_tours": "partial",
                 }
             },
         )

@@ -175,7 +175,7 @@ steps:
     validate_input: false
     cache: true
     params:
-      # One boolean column per profile, on two axes, both answered explicitly.
+      # One boolean column per profile, on four axes, all answered explicitly.
       # See the bats_2023 config for the full vocabulary; the same three
       # profiles are declared here so the two survey years are gated alike and
       # can be compared without asking which standard each was built under.
@@ -184,14 +184,17 @@ steps:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: TAZ1454
+          joint_tours: fully_joint
         daysim:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: taz
+          joint_tours: fully_joint
         analysis:
           tour_closes_at: anywhere
           household_day_needs: nothing
           zone_coverage: none
+          joint_tours: partial
 
   # - name: weighting
   #   validate_input: true

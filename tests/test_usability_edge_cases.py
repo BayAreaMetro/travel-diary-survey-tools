@@ -26,6 +26,7 @@ from processing.completeness import (
     ANYWHERE,
     NO_ZONE_COVERAGE,
     NOTHING,
+    PARTIAL,
     PRIMARY_HOME,
     UsabilityProfile,
     cascade_complete,
@@ -470,6 +471,7 @@ class TestTheFamilyPrefixesCannotCollide:
             "tour_closes_at": closes_at,
             "household_day_needs": household,
             "zone_coverage": NO_ZONE_COVERAGE,
+            "joint_tours": PARTIAL,
         }
 
     # Names chosen to collide under the old scheme, plus the family prefixes

@@ -42,23 +42,29 @@ def cascade_completeness(
     * one column per usability profile -- the subset of ``survey_complete`` that
       profile admits.
 
-    A profile states its standard on two axes: which home has to close a tour,
-    and what the household-date has to show. Several can be stamped in one run
+    A profile states its standard on four axes: which home has to close a tour,
+    what the household-date has to show, which zone system must hold every
+    location, and what a joint tour has to be. Several can be stamped in one run
     so different consumers can hold different standards -- a joint-tour model
-    needs whole households, a trip-level estimation does not:
+    needs whole households and fully joint tours, a trip-level estimation does
+    not:
 
     ```yaml
     usability_profiles:
       ctramp:
         tour_closes_at: primary_home
         household_day_needs: all_members
+        zone_coverage: taz
+        joint_tours: fully_joint
       analysis:
         tour_closes_at: anywhere
         household_day_needs: nothing
+        zone_coverage: none
+        joint_tours: partial
     ```
 
     Nothing is implicit: every column stamped is named in config and every
-    profile answers both axes. Consumers then choose which to honour by name
+    profile answers every axis. Consumers then choose which to honour by name
     (``usability_flag_col``, in the weighting and both formatters), and none of
     them re-derive completeness or tour validity -- the formatters read the
     column and raise if it is absent. ``survey_complete`` is always available as the
@@ -77,8 +83,9 @@ def cascade_completeness(
         joint_trips: Aggregated joint trips.
         tours: Canonical tours (with ``tour_data_quality`` / ``tour_category``).
         joint_tours: Aggregated joint tours.
-        usability_profiles: Profile name -> ``{tour_closes_at, household_day_needs}``.
-            Required, and every profile answers both axes: there is no default
+        usability_profiles: Profile name -> ``{tour_closes_at, household_day_needs,
+            zone_coverage, joint_tours}``.
+            Required, and every profile answers every axis: there is no default
             at either level, so a verdict never appears unasked and a column's
             meaning is never implicit.
         canonical_data: Injected by the pipeline. Profile columns are named from

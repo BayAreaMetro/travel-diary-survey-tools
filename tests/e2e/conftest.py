@@ -276,16 +276,19 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
+                        "joint_tours": "fully_joint",
                     },
                     "daysim": {
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
+                        "joint_tours": "fully_joint",
                     },
                     "analysis": {
                         "tour_closes_at": "anywhere",
                         "household_day_needs": "nothing",
                         "zone_coverage": "none",
+                        "joint_tours": "partial",
                     },
                 }
             },

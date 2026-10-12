@@ -1,9 +1,9 @@
 """What a usability profile is, and how config states one.
 
-A profile answers three axes explicitly -- which home has to close a tour, what
-the household-date has to show, and which zone system has to hold every one of
-the record's locations. Nothing here touches a table; it is the vocabulary the
-rest of the package is written against.
+A profile answers four axes explicitly -- which home has to close a tour, what
+the household-date has to show, which zone system has to hold every one of the
+record's locations, and what a joint tour has to be. Nothing here touches a
+table; it is the vocabulary the rest of the package is written against.
 """
 
 from dataclasses import dataclass
@@ -27,10 +27,17 @@ ALL_MEMBERS = "all_members"  # every surveyable member's day complete
 NOTHING = "nothing"  # no household-date requirement
 HOUSEHOLD_DAY_NEEDS = (ALL_MEMBERS, NOTHING)
 
-# Which zone system has to be able to address the record. Unlike the other two
+# Which zone system has to be able to address the record. Unlike the other
 # axes this vocabulary is open: the value names a zone geography the zone step
 # produced, so the legal set is whatever that step was configured to build.
 NO_ZONE_COVERAGE = "none"  # no geographic requirement
+
+# What a joint tour has to be. Activity-based models draw a joint tour's trips
+# once for every member, so a member who leaves for a leg is not on the same
+# tour; the survey's own groups need no such thing.
+FULLY_JOINT = "fully_joint"  # every member shares every leg; work/school/escort never joint
+PARTIAL = "partial"  # the groups the survey detected, as they are
+JOINT_TOURS = (FULLY_JOINT, PARTIAL)
 
 # A profile is a name -- `ctramp`, `analysis` -- and every column belonging to it
 # is that name suffixed onto a family: `usable_ctramp` for the verdict,
@@ -80,11 +87,12 @@ _ADMITTED_QUALITY: dict[str, tuple[TourDataQuality, ...]] = {
 
 @dataclass(frozen=True)
 class UsabilityProfile:
-    """One usability standard, stated on both axes, and the columns it writes.
+    """One usability standard, stated on every axis, and the columns it writes.
 
     A profile says which home has to close a tour, what the household-date has
-    to show, and which zone system has to be able to address the record. Config
-    gives all three explicitly; none may be left implicit there.
+    to show, which zone system has to be able to address the record, and what a
+    joint tour has to be. Config gives all four explicitly; none may be left
+    implicit there.
 
     Coverage is an axis rather than a universal because the zone systems differ:
     a trip outside one model's area may sit comfortably inside another's, so
@@ -110,6 +118,9 @@ class UsabilityProfile:
     # profile that omits it. The default serves in-process construction only,
     # where saying nothing about geography means asking nothing of it.
     zone_coverage: str = NO_ZONE_COVERAGE
+    # Same standing as zone_coverage: config must say it, in-process callers may
+    # leave it, and leaving it asks nothing of the survey's joint groups.
+    joint_tours: str = PARTIAL
 
     @property
     def flag(self) -> str:
@@ -136,10 +147,16 @@ class UsabilityProfile:
         """Whether a date must show every surveyable member's day complete."""
         return self.household_day_needs == ALL_MEMBERS
 
+    @property
+    def requires_fully_joint(self) -> bool:
+        """Whether a joint tour's members must share every leg of it."""
+        return self.joint_tours == FULLY_JOINT
+
 
 _AXES: dict[str, tuple[str, ...]] = {
     "tour_closes_at": TOUR_CLOSES_AT,
     "household_day_needs": HOUSEHOLD_DAY_NEEDS,
+    "joint_tours": JOINT_TOURS,
 }
 
 # The axis whose values come from the zone step's configuration rather than a
@@ -252,4 +269,5 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
         tour_closes_at=axes["tour_closes_at"],
         household_day_needs=axes["household_day_needs"],
         zone_coverage=coverage,
+        joint_tours=axes["joint_tours"],
     )

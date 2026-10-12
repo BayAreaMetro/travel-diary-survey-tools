@@ -32,6 +32,7 @@ from processing.completeness import (
     ANYWHERE,
     NO_ZONE_COVERAGE,
     NOTHING,
+    PARTIAL,
     PRIMARY_HOME,
     UsabilityProfile,
     cascade_complete,
@@ -55,6 +56,7 @@ def _axes(closes_at: str, household: str, zones: str = NO_ZONE_COVERAGE) -> dict
         "tour_closes_at": closes_at,
         "household_day_needs": household,
         "zone_coverage": zones,
+        "joint_tours": PARTIAL,
     }
 
 

@@ -9,11 +9,12 @@ surveyed, and each tour's structural validity:
 * one column per **usability profile** -- can the model consume it? Fuses each
   tour's structure with its household-day coherence, then gates the rest.
 
-A profile states a standard on three axes -- which home has to close a tour,
-what the household-date has to show, and which zone system has to be able to
-address the record -- and a run may stamp several, so different consumers can
-hold different standards. A joint-tour model needs whole households; a
-trip-level estimation does not, and needs no model geography at all.
+A profile states a standard on four axes -- which home has to close a tour,
+what the household-date has to show, which zone system has to be able to
+address the record, and what a joint tour has to be -- and a run may stamp
+several, so different consumers can hold different standards. A joint-tour
+model needs whole households and fully joint tours; a trip-level estimation
+does not, and needs no model geography at all.
 
 Every profile is named in config and answers every axis, so a column's meaning
 reads off the config without knowing a base rule, and no verdict appears that
@@ -99,9 +100,12 @@ from .profiles import (
     ALL_MEMBERS,
     ANY_HOME,
     ANYWHERE,
+    FULLY_JOINT,
     HOUSEHOLD_DAY_NEEDS,
+    JOINT_TOURS,
     NO_ZONE_COVERAGE,
     NOTHING,
+    PARTIAL,
     PRIMARY_HOME,
     SURVEY_COMPLETE,
     TOUR_CLOSES_AT,
@@ -117,10 +121,13 @@ __all__ = [
     "ALL_MEMBERS",
     "ANYWHERE",
     "ANY_HOME",
+    "FULLY_JOINT",
     "HOUSEHOLD_DAY_NEEDS",
+    "JOINT_TOURS",
     "MIN_JOINT_PARTICIPANTS",
     "NOTHING",
     "NO_ZONE_COVERAGE",
+    "PARTIAL",
     "PRIMARY_HOME",
     "SURVEY_COMPLETE",
     "TOUR_CLOSES_AT",
