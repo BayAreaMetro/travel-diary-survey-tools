@@ -125,6 +125,7 @@ from .profiles import (
     USABLE_FAMILY,
     UsabilityProfile,
     parse_usability_profiles,
+    profile_of,
     usable_col_for,
 )
 from .survey_complete import cascade_complete, rollup_completeness, rollup_household_complete
@@ -152,6 +153,7 @@ __all__ = [
     "flag_household_day_complete",
     "flag_household_day_usable",
     "parse_usability_profiles",
+    "profile_of",
     "rollup_completeness",
     "rollup_household_complete",
     "stamp_usable",

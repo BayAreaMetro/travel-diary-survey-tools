@@ -69,6 +69,20 @@ def usable_col_for(profile: str) -> str:
     return f"{USABLE_FAMILY}_{profile}"
 
 
+def profile_of(usability_flag_col: str) -> str | None:
+    """The profile a verdict column belongs to, or None for one outside the family.
+
+    The inverse of :func:`usable_col_for`: ``usable_ctramp`` -> ``ctramp``.
+    ``survey_complete``, or a hand-written flag, names no profile, so a reader
+    looking for that profile's other columns (``joint_tour_id_<profile>``) gets
+    None and falls back to the bare column.
+    """
+    prefix = f"{USABLE_FAMILY}_"
+    if usability_flag_col.startswith(prefix) and len(usability_flag_col) > len(prefix):
+        return usability_flag_col[len(prefix) :]
+    return None
+
+
 # Quality codes each closure setting admits, cumulatively. NO_DESTINATION and
 # SPATIAL_GAP appear nowhere: they are not open ends but missing data -- no
 # tolerance for a tour that stops somewhere unexpected makes a missing leg

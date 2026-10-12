@@ -236,10 +236,14 @@ def _check_joint_sums(
         if level.key not in source.columns:
             continue
 
+        # Summed by the same column the propagation summed by, so a tour that
+        # left its joint tour for this profile is not expected in the total.
+        member_key = level.member_key_for(usability_flag_col, source.columns)
         members = (
-            source.filter(pl.col(level.key).is_not_null() & pl.col(src_weight).is_not_null())
-            .group_by(level.key)
+            source.filter(pl.col(member_key).is_not_null() & pl.col(src_weight).is_not_null())
+            .group_by(member_key)
             .agg(pl.col(src_weight).sum().alias("member_sum"))
+            .rename({member_key: level.key})
         )
         checked = target.filter(pl.col(target_wt).is_not_null())
         if usability_flag_col in checked.columns:
