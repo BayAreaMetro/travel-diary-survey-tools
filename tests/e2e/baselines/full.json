@@ -1053,18 +1053,17 @@
    },
    "jtf_choice": {
     "counts": {
-     "1": 17,
+     "1": 19,
      "16": 1,
-     "21": 2,
      "7": 2
     },
-    "distinct": 4,
+    "distinct": 3,
     "dtype": "Int64",
-    "hash": "d453fe219dbfca65",
-    "max": 21.0,
+    "hash": "419cdde2ca0e1f52",
+    "max": 16.0,
     "min": 1.0,
     "nulls": 0,
-    "sum": 89.0
+    "sum": 49.0
    },
    "sampleRate": {
     "distinct": 20,
@@ -1886,22 +1885,22 @@
     "sum": 2999.32377
    },
    "joint_tour_weight_ctramp": {
-    "distinct": 5,
+    "distinct": 4,
     "dtype": "Float64",
-    "hash": "e2bd32c1ea5fdd5b",
+    "hash": "b075e95c86532f1f",
     "max": 1282.111257,
-    "min": 396.259162,
+    "min": 0.0,
     "nulls": 0,
-    "sum": 4637.21466
+    "sum": 2670.655759
    },
    "joint_tour_weight_daysim": {
-    "distinct": 5,
+    "distinct": 4,
     "dtype": "Float64",
-    "hash": "e2bd32c1ea5fdd5b",
+    "hash": "b075e95c86532f1f",
     "max": 1282.111257,
-    "min": 396.259162,
+    "min": 0.0,
     "nulls": 0,
-    "sum": 4637.21466
+    "sum": 2670.655759
    },
    "num_participants": {
     "counts": {
@@ -1936,20 +1935,22 @@
    },
    "usable_ctramp": {
     "counts": {
-     "True": 6
+     "False": 3,
+     "True": 3
     },
-    "distinct": 1,
+    "distinct": 2,
     "dtype": "Boolean",
-    "hash": "6dbbb186940093d9",
+    "hash": "73c3566ddaddc08a",
     "nulls": 0
    },
    "usable_daysim": {
     "counts": {
-     "True": 6
+     "False": 3,
+     "True": 3
     },
-    "distinct": 1,
+    "distinct": 2,
     "dtype": "Boolean",
-    "hash": "6dbbb186940093d9",
+    "hash": "73c3566ddaddc08a",
     "nulls": 0
    }
   },
@@ -2166,22 +2167,22 @@
     "sum": 7652.67819
    },
    "joint_trip_weight_ctramp": {
-    "distinct": 7,
+    "distinct": 4,
     "dtype": "Float64",
-    "hash": "f8c913045c5acd0c",
+    "hash": "83a61a60c67b2ad2",
     "max": 1282.111257,
     "min": 0.0,
     "nulls": 0,
-    "sum": 10227.41623
+    "sum": 5852.191099
    },
    "joint_trip_weight_daysim": {
-    "distinct": 7,
+    "distinct": 4,
     "dtype": "Float64",
-    "hash": "f8c913045c5acd0c",
+    "hash": "83a61a60c67b2ad2",
     "max": 1282.111257,
     "min": 0.0,
     "nulls": 0,
-    "sum": 10227.41623
+    "sum": 5852.191099
    },
    "num_joint_travelers": {
     "counts": {
@@ -2216,22 +2217,22 @@
    },
    "usable_ctramp": {
     "counts": {
-     "False": 2,
-     "True": 14
+     "False": 9,
+     "True": 7
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "f3b31b31de4d3e7a",
+    "hash": "2ef9ad36b1a46b59",
     "nulls": 0
    },
    "usable_daysim": {
     "counts": {
-     "False": 2,
-     "True": 14
+     "False": 9,
+     "True": 7
     },
     "distinct": 2,
     "dtype": "Boolean",
-    "hash": "f3b31b31de4d3e7a",
+    "hash": "2ef9ad36b1a46b59",
     "nulls": 0
    }
   },
@@ -2647,6 +2648,54 @@
     "nulls": 80,
     "sum": 49432.0
    },
+   "joint_tour_id_analysis": {
+    "counts": {
+     "2301": 6,
+     "2401": 4,
+     "2402": 4,
+     "2601": 4,
+     "301": 4,
+     "801": 6,
+     "None": 80
+    },
+    "distinct": 7,
+    "dtype": "Int64",
+    "hash": "5d5c87ecca9a5afe",
+    "max": 2601.0,
+    "min": 301.0,
+    "nulls": 80,
+    "sum": 49432.0
+   },
+   "joint_tour_id_ctramp": {
+    "counts": {
+     "2301": 6,
+     "2402": 4,
+     "801": 6,
+     "None": 92
+    },
+    "distinct": 4,
+    "dtype": "Int64",
+    "hash": "7987e64ddd4b995d",
+    "max": 2402.0,
+    "min": 801.0,
+    "nulls": 92,
+    "sum": 28220.0
+   },
+   "joint_tour_id_daysim": {
+    "counts": {
+     "2301": 6,
+     "2402": 4,
+     "801": 6,
+     "None": 92
+    },
+    "distinct": 4,
+    "dtype": "Int64",
+    "hash": "7987e64ddd4b995d",
+    "max": 2402.0,
+    "min": 801.0,
+    "nulls": 92,
+    "sum": 28220.0
+   },
    "joint_trip_id": {
     "distinct": 17,
     "dtype": "Int64",
@@ -2655,6 +2704,53 @@
     "min": 3001.0,
     "nulls": 74,
     "sum": 616063.0
+   },
+   "joint_trip_id_analysis": {
+    "distinct": 17,
+    "dtype": "Int64",
+    "hash": "1613d9590907967d",
+    "max": 30001.0,
+    "min": 3001.0,
+    "nulls": 74,
+    "sum": 616063.0
+   },
+   "joint_trip_id_ctramp": {
+    "counts": {
+     "23001": 3,
+     "23002": 3,
+     "24003": 2,
+     "24004": 2,
+     "8001": 2,
+     "8002": 2,
+     "8003": 2,
+     "None": 92
+    },
+    "distinct": 8,
+    "dtype": "Int64",
+    "hash": "5988232dc7200e37",
+    "max": 24004.0,
+    "min": 8001.0,
+    "nulls": 92,
+    "sum": 282035.0
+   },
+   "joint_trip_id_daysim": {
+    "counts": {
+     "23001": 3,
+     "23002": 3,
+     "24003": 2,
+     "24004": 2,
+     "8001": 2,
+     "8002": 2,
+     "8003": 2,
+     "None": 92
+    },
+    "distinct": 8,
+    "dtype": "Int64",
+    "hash": "5988232dc7200e37",
+    "max": 24004.0,
+    "min": 8001.0,
+    "nulls": 92,
+    "sum": 282035.0
    },
    "linked_trip_id": {
     "distinct": 108,
@@ -4591,6 +4687,54 @@
     "nulls": 40,
     "sum": 23915.0
    },
+   "joint_tour_id_analysis": {
+    "counts": {
+     "2301": 3,
+     "2401": 2,
+     "2402": 2,
+     "2601": 2,
+     "301": 2,
+     "801": 2,
+     "None": 40
+    },
+    "distinct": 7,
+    "dtype": "Int64",
+    "hash": "694ab5528e382de7",
+    "max": 2601.0,
+    "min": 301.0,
+    "nulls": 40,
+    "sum": 23915.0
+   },
+   "joint_tour_id_ctramp": {
+    "counts": {
+     "2301": 3,
+     "2402": 2,
+     "801": 2,
+     "None": 46
+    },
+    "distinct": 4,
+    "dtype": "Int64",
+    "hash": "39d0f118dc576e36",
+    "max": 2402.0,
+    "min": 801.0,
+    "nulls": 46,
+    "sum": 13309.0
+   },
+   "joint_tour_id_daysim": {
+    "counts": {
+     "2301": 3,
+     "2402": 2,
+     "801": 2,
+     "None": 46
+    },
+    "distinct": 4,
+    "dtype": "Int64",
+    "hash": "39d0f118dc576e36",
+    "max": 2402.0,
+    "min": 801.0,
+    "nulls": 46,
+    "sum": 13309.0
+   },
    "o_lat": {
     "distinct": 21,
     "dtype": "Float64",
@@ -5452,6 +5596,54 @@
     "min": 301.0,
     "nulls": 82,
     "sum": 49432.0
+   },
+   "joint_tour_id_analysis": {
+    "counts": {
+     "2301": 6,
+     "2401": 4,
+     "2402": 4,
+     "2601": 4,
+     "301": 4,
+     "801": 6,
+     "None": 82
+    },
+    "distinct": 7,
+    "dtype": "Int64",
+    "hash": "08e8419ea7bcde83",
+    "max": 2601.0,
+    "min": 301.0,
+    "nulls": 82,
+    "sum": 49432.0
+   },
+   "joint_tour_id_ctramp": {
+    "counts": {
+     "2301": 6,
+     "2402": 4,
+     "801": 6,
+     "None": 94
+    },
+    "distinct": 4,
+    "dtype": "Int64",
+    "hash": "7b91be4d4d8c5a38",
+    "max": 2402.0,
+    "min": 801.0,
+    "nulls": 94,
+    "sum": 28220.0
+   },
+   "joint_tour_id_daysim": {
+    "counts": {
+     "2301": 6,
+     "2402": 4,
+     "801": 6,
+     "None": 94
+    },
+    "distinct": 4,
+    "dtype": "Int64",
+    "hash": "7b91be4d4d8c5a38",
+    "max": 2402.0,
+    "min": 801.0,
+    "nulls": 94,
+    "sum": 28220.0
    },
    "linked_trip_id": {
     "distinct": 108,

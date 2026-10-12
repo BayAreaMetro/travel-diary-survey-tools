@@ -33,9 +33,9 @@ HOUSEHOLD_DAY_NEEDS = (ALL_MEMBERS, NOTHING)
 NO_ZONE_COVERAGE = "none"  # no geographic requirement
 
 # What a joint tour has to be. Activity-based models draw a joint tour's trips
-# once for every member, so a member who leaves for a leg is not on the same
+# once for everyone on it, so a person who leaves for a leg is not on the same
 # tour; the survey's own groups need no such thing.
-FULLY_JOINT = "fully_joint"  # every member shares every leg; work/school/escort never joint
+FULLY_JOINT = "fully_joint"  # everyone shares every leg; work/school/escort never joint
 PARTIAL = "partial"  # the groups the survey detected, as they are
 JOINT_TOURS = (FULLY_JOINT, PARTIAL)
 
@@ -138,6 +138,16 @@ class UsabilityProfile:
         return f"hh_day_{self.name}"
 
     @property
+    def joint_tour_id(self) -> str:
+        """``joint_tour_id`` as this profile sees it: the id where the tour is on it, else null."""
+        return f"joint_tour_id_{self.name}"
+
+    @property
+    def joint_trip_id(self) -> str:
+        """``joint_trip_id`` as this profile sees it: the id where the trip is on it, else null."""
+        return f"joint_trip_id_{self.name}"
+
+    @property
     def admitted_quality(self) -> tuple[TourDataQuality, ...]:
         """Tour quality codes this profile's closure setting admits."""
         return _ADMITTED_QUALITY[self.tour_closes_at]
@@ -149,7 +159,7 @@ class UsabilityProfile:
 
     @property
     def requires_fully_joint(self) -> bool:
-        """Whether a joint tour's members must share every leg of it."""
+        """Whether everyone on a joint tour must share every leg of it."""
         return self.joint_tours == FULLY_JOINT
 
 

@@ -57,11 +57,24 @@ household ...........................   >=1       has >=1 usable household-day
                                                      (the last three are the axes)
           ├ linked trip .............   inherit   takes its tour's verdict
           |  └ unlinked trip ........   inherit   takes its linked trip's verdict
-          ├ joint tour ..............   >=2       >=2 usable member tours
-          └ joint trip ..............   >=2       >=2 usable member linked trips
+          ├ joint tour ..............   >=2       >=2 tours on it (joint ids, below)
+          └ joint trip ..............   >=2       >=2 linked trips on it
 
 then DOWN, household -> person -> day -> tour:   inherit   a record is unusable if the
                                                            one it belongs to is
+
+JOINT IDS -- joint_tour_id_<profile> on tours and both trip tables, and
+joint_trip_id_<profile> on linked trips: the bare id where the record is on it,
+null where it is not. Read by the joint groupings above, the weighting and
+the formatters; the bare id is the survey's own answer and is never edited.
+------------------------------------------------------------------------
+partial .............................   direct    usable and in a survey-detected group
+fully_joint .........................   class     usable, not work/school/escort, and
+                                                  made the same joint trips as the
+                                                  others (largest class of identical
+                                                  legs); then the tour needs >=2 such
+                                                  people and one purpose, or everyone
+                                                  on it travels alone
 
 declared no-travel: num_reasons_no_travel >= 1, OR proxy_complete (a proxy filled the day in --
   this is how children, who file no trips themselves, still get a complete day).

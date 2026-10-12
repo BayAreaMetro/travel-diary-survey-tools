@@ -8,6 +8,8 @@ read the member tables flagged above them.
 
 import polars as pl
 
+from data_canon.codebook.trips import PurposeCategory
+
 from .household_day import flag_household_day_usable
 from .profiles import UsabilityProfile
 from .survey_complete import cascade_complete
@@ -25,6 +27,13 @@ MIN_JOINT_PARTICIPANTS = 2
 _JOINT_GROUPINGS = (
     ("joint_trips", "linked_trips", "joint_trip_id"),
     ("joint_tours", "tours", "joint_tour_id"),
+)
+
+# Purposes a model never draws jointly, so a tour with one is never on a joint tour.
+_NEVER_JOINT_PURPOSES = (
+    PurposeCategory.WORK.value,
+    PurposeCategory.SCHOOL.value,
+    PurposeCategory.ESCORT.value,
 )
 
 
@@ -106,8 +115,12 @@ def _flag_joint_groupings(
             tables[joint_table] = df.with_columns(base.alias(cols.flag))
             continue
 
+        # The profile's own copy of the id, where decided, is the stricter count:
+        # a usable tour that left its group for a leg is not on it.
+        own = cols.joint_tour_id if key == "joint_tour_id" else cols.joint_trip_id
+        on_it = pl.col(own).is_not_null() if own in members.columns else pl.col(cols.flag)
         usable_members = (
-            members.filter(pl.col(key).is_not_null() & pl.col(cols.flag))
+            members.filter(pl.col(key).is_not_null() & on_it)
             .group_by(key)
             .agg(pl.len().alias("_n_usable_members"))
         )
@@ -120,6 +133,163 @@ def _flag_joint_groupings(
             )
             .drop("_n_usable_members")
         )
+
+
+def _flag_joint_ids(
+    tables: dict[str, pl.DataFrame | None],
+    cols: UsabilityProfile,
+) -> None:
+    """Stamp ``joint_tour_id_<profile>`` and ``joint_trip_id_<profile>``, in place.
+
+    ``joint_tour_id`` and ``joint_trip_id`` record the groups the survey
+    detected, once, for every profile. Whether a tour is *on* its joint tour is
+    a profile's call, so each profile gets its own copy of the id: the same
+    value where the tour is on it, null where it is not. Nothing edits the bare
+    id.
+
+    Under ``partial`` a usable tour in a group is on it. Under ``fully_joint``
+    the model draws one set of trips for everyone on the tour, so a tour is on
+    it only if it is usable, not work, school or escort, and made the same
+    joint trips as the others: tours are grouped by the joint trips their legs
+    belong to, and the largest such class is the joint tour. A group then needs
+    two tours and one purpose, or it is no group and everyone on it travels
+    alone. A linked trip is on its joint trip only while its tour is on its
+    joint tour, and both trip tables carry the tour's answer too.
+
+    Requires the usable flag on tours and linked trips; a linked trips table
+    present but unflagged raises rather than silently passing every leg.
+
+    Raises:
+        ValueError: If linked trips are present but not yet flagged.
+    """
+    tours = tables.get("tours")
+    trips = tables.get("linked_trips")
+    if tours is None or cols.flag not in tours.columns:
+        return
+    tour_col = cols.joint_tour_id
+    usable = pl.col(cols.flag).fill_null(value=False)
+
+    if "joint_tour_id" not in tours.columns:
+        tables["tours"] = tours.with_columns(pl.lit(None, dtype=pl.Int64).alias(tour_col))
+    elif not cols.requires_fully_joint:
+        tables["tours"] = tours.with_columns(
+            pl.when(usable).then(pl.col("joint_tour_id")).otherwise(None).alias(tour_col)
+        )
+    else:
+        if trips is not None and cols.flag not in trips.columns:
+            msg = (
+                f"Cannot decide joint tours: linked_trips has no {cols.flag} column "
+                "yet. Flag linked trips first, otherwise every leg silently counts."
+            )
+            raise ValueError(msg)
+        tables["tours"] = _fully_joint_tours(tours, trips, cols)
+
+    # Both trip tables carry their tour's answer.
+    on_tour = tables["tours"].select("tour_id", pl.col(tour_col).alias("_on_tour"))
+    for name in _TOUR_MEMBER_TABLES:
+        df = tables.get(name)
+        if df is None or cols.flag not in df.columns:
+            continue
+        if "tour_id" in df.columns:
+            df = df.join(on_tour, on="tour_id", how="left").rename({"_on_tour": tour_col})
+        else:
+            df = df.with_columns(pl.lit(None, dtype=pl.Int64).alias(tour_col))
+        tables[name] = df
+
+    _flag_joint_trip_ids(tables, cols)
+
+
+def _flag_joint_trip_ids(
+    tables: dict[str, pl.DataFrame | None],
+    cols: UsabilityProfile,
+) -> None:
+    """Stamp ``joint_trip_id_<profile>`` on linked trips, in place.
+
+    A usable trip in a joint trip is on it; under ``fully_joint`` only while its
+    tour is on its joint tour, which ``joint_tour_id_<profile>`` already says.
+    """
+    trips = tables.get("linked_trips")
+    if trips is None or cols.flag not in trips.columns:
+        return
+    trip_col = cols.joint_trip_id
+    if "joint_trip_id" not in trips.columns:
+        tables["linked_trips"] = trips.with_columns(pl.lit(None, dtype=pl.Int64).alias(trip_col))
+        return
+    on_trip = pl.col(cols.flag).fill_null(value=False)
+    if cols.requires_fully_joint and cols.joint_tour_id in trips.columns:
+        on_trip = on_trip & pl.col(cols.joint_tour_id).is_not_null()
+    tables["linked_trips"] = trips.with_columns(
+        pl.when(on_trip).then(pl.col("joint_trip_id")).otherwise(None).alias(trip_col)
+    )
+
+
+def _fully_joint_tours(
+    tours: pl.DataFrame,
+    trips: pl.DataFrame | None,
+    cols: UsabilityProfile,
+) -> pl.DataFrame:
+    """Return *tours* with ``joint_tour_id_<profile>`` under the fully-joint rule.
+
+    Tours are matched by their **leg signature**: the joint trips a tour's
+    usable legs belong to, in order. Tours that made identical trips have the
+    same signature, and that is what the model means by a joint tour. Within a
+    survey group, the largest class of identical signatures is the joint tour
+    (ties go to the class holding the lowest tour id, so the answer is stable);
+    everyone outside it travels alone. A tour with any leg that is not a joint
+    trip went somewhere alone and is in no class.
+
+    Without a linked trips table there are no legs to compare, so the answer
+    stops at the tour's own standing: usable, in a group, and never work,
+    school or escort.
+    """
+    tour_col = cols.joint_tour_id
+    on_tour = pl.col(cols.flag).fill_null(value=False) & pl.col("joint_tour_id").is_not_null()
+    if "tour_purpose" in tours.columns:
+        on_tour = on_tour & ~pl.col("tour_purpose").is_in(_NEVER_JOINT_PURPOSES)
+
+    if trips is not None and {"tour_id", "joint_trip_id"} <= set(trips.columns):
+        signatures = (
+            trips.filter(pl.col(cols.flag).fill_null(value=False))
+            .group_by("tour_id")
+            .agg(
+                pl.col("joint_trip_id").is_null().any().alias("_solo_leg"),
+                pl.col("joint_trip_id").sort().alias("_signature"),
+            )
+        )
+        classes = (
+            tours.filter(on_tour)
+            .select("tour_id", "joint_tour_id")
+            .join(signatures, on="tour_id", how="inner")
+            .filter(~pl.col("_solo_leg"))
+            .group_by("joint_tour_id", "_signature")
+            .agg(pl.col("tour_id").alias("_tours"), pl.len().alias("_n_tours"))
+            .with_columns(pl.col("_tours").list.min().alias("_first"))
+            .sort("joint_tour_id", "_n_tours", "_first", descending=[False, True, False])
+            .unique("joint_tour_id", keep="first", maintain_order=True)
+            .filter(pl.col("_n_tours") >= MIN_JOINT_PARTICIPANTS)
+        )
+        in_class = classes.select(pl.col("_tours").explode().alias("tour_id"))["tour_id"]
+        on_tour = on_tour & pl.col("tour_id").is_in(in_class.implode())
+
+    tours = tours.with_columns(
+        pl.when(on_tour).then(pl.col("joint_tour_id")).otherwise(None).alias(tour_col)
+    )
+
+    # No group of one, and no group of mixed purpose.
+    aggs = [pl.len().alias("_n_tours")]
+    if "tour_purpose" in tours.columns:
+        aggs.append(pl.col("tour_purpose").n_unique().alias("_n_purposes"))
+    groups = tours.filter(pl.col(tour_col).is_not_null()).group_by(tour_col).agg(aggs)
+    dissolve = pl.col("_n_tours") < MIN_JOINT_PARTICIPANTS
+    if "_n_purposes" in groups.columns:
+        dissolve = dissolve | (pl.col("_n_purposes") > 1)
+    dissolved = groups.filter(dissolve)[tour_col]
+    return tours.with_columns(
+        pl.when(pl.col(tour_col).is_in(dissolved.implode()))
+        .then(None)
+        .otherwise(pl.col(tour_col))
+        .alias(tour_col)
+    )
 
 
 def _flag_households(
@@ -313,7 +483,10 @@ def stamp_usable(
         else:
             tables[name] = df.with_columns(base.alias(cols.flag))
 
-    # -- Joint groupings (need two surviving members to still be joint) -------
+    # -- Which joint tour and joint trip each record is on, for this profile ---
+    _flag_joint_ids(tables, cols)
+
+    # -- Joint groupings (need two tours or trips on them to still be joint) --
     # Last: they read the member tables flagged above.
     _flag_joint_groupings(tables, cols)
 

@@ -67,7 +67,7 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
         else ", asking nothing of geography"
     )
     joint = (
-        "; a joint tour only where every member shares every leg and none is work, school or escort"
+        "; a joint tour only where everyone shares every leg and none is work, school or escort"
         if profile.requires_fully_joint
         else "; joint tours as the survey detected them"
     )
@@ -88,7 +88,33 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
             "recorded so a dropped household can still be traced to the dates that "
             "cost it."
         )
-    return {profile.flag: gate, profile.household_day: hh_day}
+    joint_tour_id = (
+        f"joint_tour_id as the '{profile.name}' profile sees it: the id where this "
+        "record is on its joint tour, null where it is not. "
+        + (
+            "On it only where usable, where everyone on the tour made the same joint "
+            "trips, and where the tour has two or more such people with one purpose "
+            "that is not work, school or escort; a person who leaves for a leg "
+            "travels alone, as an individual tour."
+            if profile.requires_fully_joint
+            else "On it where usable and the survey put it in a joint tour."
+        )
+    )
+    joint_trip_id = (
+        f"joint_trip_id as the '{profile.name}' profile sees it: the id where this "
+        "trip is on its joint trip, null where it is not. "
+        + (
+            "On it only where usable and where its tour is on its joint tour."
+            if profile.requires_fully_joint
+            else "On it where usable and the survey put it in a joint trip."
+        )
+    )
+    return {
+        profile.flag: gate,
+        profile.household_day: hh_day,
+        profile.joint_tour_id: joint_tour_id,
+        profile.joint_trip_id: joint_trip_id,
+    }
 
 
 def _log_gate_summary(
