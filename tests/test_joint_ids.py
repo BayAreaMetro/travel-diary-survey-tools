@@ -15,17 +15,26 @@ import pytest
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.codebook.trips import PurposeCategory
 from processing.completeness import (
-    ALL_MEMBERS,
-    FULLY_JOINT,
-    PARTIAL,
-    PRIMARY_HOME,
+    HouseholdDayNeeds,
+    JointTours,
+    TourClosesAt,
     UsabilityProfile,
     cascade_complete,
     stamp_usable,
 )
 
-STRICT = UsabilityProfile("strict", PRIMARY_HOME, ALL_MEMBERS, joint_tours=FULLY_JOINT)
-LOOSE = UsabilityProfile("loose", PRIMARY_HOME, ALL_MEMBERS, joint_tours=PARTIAL)
+STRICT = UsabilityProfile(
+    "strict",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    joint_tours=JointTours.FULLY_JOINT,
+)
+LOOSE = UsabilityProfile(
+    "loose",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    joint_tours=JointTours.PARTIAL,
+)
 
 SHOP = PurposeCategory.SHOP.value
 
@@ -190,8 +199,8 @@ class TestPartial:
             .otherwise(pl.col("tour_data_quality"))
             .alias("tour_data_quality")
         )
-        out = _stamp(UsabilityProfile("loose_days", PRIMARY_HOME, "nothing"), tables)
-        on = _on_tour(out, UsabilityProfile("loose_days", PRIMARY_HOME, "nothing"))
+        out = _stamp(UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, "nothing"), tables)
+        on = _on_tour(out, UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, "nothing"))
         assert on == {1: True, 2: True, 3: False}
 
 
@@ -225,7 +234,7 @@ class TestAGroupOfOneDissolves:
             .otherwise(pl.col("tour_data_quality"))
             .alias("tour_data_quality")
         )
-        loose = UsabilityProfile("loose_days", PRIMARY_HOME, "nothing")
+        loose = UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, "nothing")
         out = _stamp(loose, tables)
         assert out["tours"][loose.joint_tour_id].to_list() == [None, None]
         assert out["linked_trips"][loose.joint_trip_id].to_list() == [None, None]

@@ -12,7 +12,7 @@ import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
 
-from .profiles import ANY_HOME, ANYWHERE, PRIMARY_HOME, UsabilityProfile
+from .profiles import TourClosesAt, UsabilityProfile
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,12 @@ def suggest_usability_columns(frame: pl.DataFrame) -> str:
 
 
 _CLOSURE_TEXT = {
-    PRIMARY_HOME: "returning to the home it left",
-    ANY_HOME: (
+    TourClosesAt.PRIMARY_HOME: "returning to the home it left",
+    TourClosesAt.ANY_HOME: (
         "returning to any home this person is known to have, so a tour closing "
         "at a second residence counts"
     ),
-    ANYWHERE: (
+    TourClosesAt.ANYWHERE: (
         "ending anywhere, so a tour cut by the diary edge or resuming the next "
         "day counts; its trips are whole even though it does not close"
     ),

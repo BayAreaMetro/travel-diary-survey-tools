@@ -9,7 +9,7 @@ import polars as pl
 
 from data_canon.codebook.tours import TourCategory
 
-from .profiles import _ADMITTED_QUALITY, PRIMARY_HOME, UsabilityProfile
+from .profiles import _ADMITTED_QUALITY, TourClosesAt, UsabilityProfile
 from .zone_coverage import _home_zone_ok, _trips_with_zones_per_tour, _zone_expr
 
 
@@ -148,7 +148,7 @@ def _tour_usable_expr(
     Args:
         has_quality: Whether the frame carries ``tour_data_quality``.
         has_category: Whether the frame carries ``tour_category``.
-        closes_at: One of :data:`TOUR_CLOSES_AT`.
+        closes_at: One of :class:`TourClosesAt`.
     """
     admitted = [q.value for q in _ADMITTED_QUALITY[closes_at]]
 
@@ -159,7 +159,7 @@ def _tour_usable_expr(
     structural = pl.lit(value=True)
     if has_quality:
         structural = structural & pl.col("tour_data_quality").is_in(admitted).fill_null(value=False)
-    if has_category and closes_at == PRIMARY_HOME:
+    if has_category and closes_at == TourClosesAt.PRIMARY_HOME:
         structural = structural & (
             (pl.col("tour_category") == TourCategory.COMPLETE.value).fill_null(value=False)
         )

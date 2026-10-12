@@ -27,24 +27,23 @@ import pytest
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
-    ALL_MEMBERS,
-    ANY_HOME,
-    ANYWHERE,
     NO_ZONE_COVERAGE,
-    NOTHING,
-    PARTIAL,
-    PRIMARY_HOME,
+    HouseholdDayNeeds,
+    JointTours,
+    TourClosesAt,
     UsabilityProfile,
     cascade_complete,
     parse_usability_profiles,
     stamp_usable,
 )
 
-STRICT = UsabilityProfile("strict", PRIMARY_HOME, ALL_MEMBERS)
-SECOND_HOMES = UsabilityProfile("second_homes", ANY_HOME, ALL_MEMBERS)
-OPEN_ENDS = UsabilityProfile("open_ends", ANYWHERE, ALL_MEMBERS)
-LOOSE_DAYS = UsabilityProfile("loose_days", PRIMARY_HOME, NOTHING)
-WIDEST = UsabilityProfile("widest", ANYWHERE, NOTHING)
+STRICT = UsabilityProfile("strict", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
+SECOND_HOMES = UsabilityProfile(
+    "second_homes", TourClosesAt.ANY_HOME, HouseholdDayNeeds.ALL_MEMBERS
+)
+OPEN_ENDS = UsabilityProfile("open_ends", TourClosesAt.ANYWHERE, HouseholdDayNeeds.ALL_MEMBERS)
+LOOSE_DAYS = UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+WIDEST = UsabilityProfile("widest", TourClosesAt.ANYWHERE, HouseholdDayNeeds.NOTHING)
 
 # Codes marking a hole in the tour rather than an unexpected end. No setting of
 # either axis admits these.
@@ -56,7 +55,7 @@ def _axes(closes_at: str, household: str, zones: str = NO_ZONE_COVERAGE) -> dict
         "tour_closes_at": closes_at,
         "household_day_needs": household,
         "zone_coverage": zones,
-        "joint_tours": PARTIAL,
+        "joint_tours": JointTours.PARTIAL,
     }
 
 
@@ -125,10 +124,16 @@ class TestEveryProfileAnswersEveryAxis:
         ("spec", "missing", "legal_value"),
         [
             pytest.param(
-                {"tour_closes_at": PRIMARY_HOME}, "household_day_needs", NOTHING, id="no-household"
+                {"tour_closes_at": TourClosesAt.PRIMARY_HOME},
+                "household_day_needs",
+                HouseholdDayNeeds.NOTHING,
+                id="no-household",
             ),
             pytest.param(
-                {"household_day_needs": ALL_MEMBERS}, "tour_closes_at", ANYWHERE, id="no-tour"
+                {"household_day_needs": HouseholdDayNeeds.ALL_MEMBERS},
+                "tour_closes_at",
+                TourClosesAt.ANYWHERE,
+                id="no-tour",
             ),
         ],
     )
@@ -143,11 +148,16 @@ class TestEveryProfileAnswersEveryAxis:
     def test_an_unknown_value_is_rejected(self):
         """A typo must stop the run, not quietly pick something."""
         with pytest.raises(ValueError, match="not one of"):
-            parse_usability_profiles({"p": _axes("primry_home", ALL_MEMBERS)})
+            parse_usability_profiles({"p": _axes("primry_home", HouseholdDayNeeds.ALL_MEMBERS)})
 
     def test_an_unknown_axis_is_rejected(self):
         """A misspelled axis would otherwise be silently ignored."""
-        spec = {"p": {**_axes(PRIMARY_HOME, ALL_MEMBERS), "tour_closes": ANY_HOME}}
+        spec = {
+            "p": {
+                **_axes(TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+                "tour_closes": TourClosesAt.ANY_HOME,
+            }
+        }
         with pytest.raises(ValueError, match="unknown axis"):
             parse_usability_profiles(spec)
 
@@ -160,11 +170,16 @@ class TestEveryProfileAnswersEveryAxis:
     def test_a_profile_cannot_take_a_reporting_column_name(self, reserved):
         """Reporting flags are survey facts; a profile must not overwrite one."""
         with pytest.raises(ValueError, match="collides"):
-            parse_usability_profiles({reserved: _axes(PRIMARY_HOME, ALL_MEMBERS)})
+            parse_usability_profiles(
+                {reserved: _axes(TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)}
+            )
 
     def test_declaration_order_is_preserved(self):
         """Profiles are stamped in the order the config names them."""
-        spec = {name: _axes(PRIMARY_HOME, ALL_MEMBERS) for name in ("a", "b", "c")}
+        spec = {
+            name: _axes(TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
+            for name in ("a", "b", "c")
+        }
         assert [p.name for p in parse_usability_profiles(spec)] == ["a", "b", "c"]
 
 
@@ -308,8 +323,8 @@ class TestProfilesAreIndependent:
 # ---------------------------------------------------------------------------
 
 # Same standard, two names. Any hardcoded column would make them disagree.
-FIRST = UsabilityProfile("first_name", PRIMARY_HOME, ALL_MEMBERS)
-ALIAS = UsabilityProfile("second_name", PRIMARY_HOME, ALL_MEMBERS)
+FIRST = UsabilityProfile("first_name", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
+ALIAS = UsabilityProfile("second_name", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
 
 
 def _household_with_joint_records() -> dict[str, pl.DataFrame]:

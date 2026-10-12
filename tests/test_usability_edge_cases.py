@@ -22,12 +22,10 @@ import pytest
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
-    ALL_MEMBERS,
-    ANYWHERE,
     NO_ZONE_COVERAGE,
-    NOTHING,
-    PARTIAL,
-    PRIMARY_HOME,
+    HouseholdDayNeeds,
+    JointTours,
+    TourClosesAt,
     UsabilityProfile,
     cascade_complete,
     parse_usability_profiles,
@@ -35,8 +33,8 @@ from processing.completeness import (
     suggest_usability_columns,
 )
 
-STRICT = UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS)
-WIDEST = UsabilityProfile("widest", ANYWHERE, NOTHING)
+STRICT = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
+WIDEST = UsabilityProfile("widest", TourClosesAt.ANYWHERE, HouseholdDayNeeds.NOTHING)
 
 DATE = datetime(2023, 5, 1)
 
@@ -466,12 +464,16 @@ class TestTheFamilyPrefixesCannotCollide:
     it, so the guard was retired -- this records why it is safe to be gone.
     """
 
-    def _axes(self, closes_at: str = PRIMARY_HOME, household: str = ALL_MEMBERS) -> dict:
+    def _axes(
+        self,
+        closes_at: str = TourClosesAt.PRIMARY_HOME,
+        household: str = HouseholdDayNeeds.ALL_MEMBERS,
+    ) -> dict:
         return {
             "tour_closes_at": closes_at,
             "household_day_needs": household,
             "zone_coverage": NO_ZONE_COVERAGE,
-            "joint_tours": PARTIAL,
+            "joint_tours": JointTours.PARTIAL,
         }
 
     # Names chosen to collide under the old scheme, plus the family prefixes
