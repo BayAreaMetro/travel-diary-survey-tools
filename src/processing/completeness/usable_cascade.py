@@ -177,6 +177,45 @@ def _flag_households(
     )
 
 
+def _carry_verdict_down(
+    tables: dict[str, pl.DataFrame | None],
+    cols: UsabilityProfile,
+) -> None:
+    """Make every record unusable whose household, person or day is, in place.
+
+    The upward counts above can leave a person usable inside a household that is
+    not: a whole-household-day profile judges the household over dates on which
+    *every* member passed, while the person only needs one day of their own. A
+    consumer takes nothing from a household it does not take, so the household's
+    verdict is the ceiling on everything in it. Walked in order, so a day
+    inherits a person that already inherited its household.
+    """
+    for table, parent, key in (
+        ("persons", "households", "hh_id"),
+        ("days", "persons", "person_id"),
+        ("tours", "days", "day_id"),
+    ):
+        df, parent_df = tables.get(table), tables.get(parent)
+        if df is None or parent_df is None or cols.flag not in df.columns:
+            continue
+        if (
+            cols.flag not in parent_df.columns
+            or key not in df.columns
+            or key not in parent_df.columns
+        ):
+            continue
+        verdict = parent_df.select(key, pl.col(cols.flag).alias("_parent_usable"))
+        tables[table] = (
+            df.join(verdict, on=key, how="left")
+            .with_columns(
+                (pl.col(cols.flag) & pl.col("_parent_usable").fill_null(value=False)).alias(
+                    cols.flag
+                )
+            )
+            .drop("_parent_usable")
+        )
+
+
 def stamp_usable(
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
@@ -252,6 +291,10 @@ def stamp_usable(
     #    household = >=1 usable household-day.
     flag_household_day_usable(tables, cols)
     _flag_households(tables, cols)
+
+    # -- Down: nothing is usable inside a household that is not ---------------
+    _carry_verdict_down(tables, cols)
+    tours = tables.get("tours")
 
     # -- Member trips follow their tour --------------------------------------
     tour_usable = None

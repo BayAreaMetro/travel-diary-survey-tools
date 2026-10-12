@@ -59,6 +59,9 @@ household ...........................   >=1       has >=1 usable household-day
           ├ joint tour ..............   >=2       >=2 usable member tours
           └ joint trip ..............   >=2       >=2 usable member linked trips
 
+then DOWN, household -> person -> day -> tour:   inherit   a record is unusable if the
+                                                           one it belongs to is
+
 declared no-travel: num_reasons_no_travel >= 1, OR proxy_complete (a proxy filled the day in --
   this is how children, who file no trips themselves, still get a complete day).
 surveyable: persons whose travel the survey could collect at all. Unsurveyable persons
