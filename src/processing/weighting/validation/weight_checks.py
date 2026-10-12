@@ -8,6 +8,7 @@ import logging
 
 import polars as pl
 
+from processing.completeness.kept_records import GATED_TABLES, keep_records
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.core.hierarchy import (
@@ -17,12 +18,17 @@ from processing.weighting.core.hierarchy import (
     levels_with_flow,
     seed_col_for,
     weight_col_for,
+    weight_columns_for,
 )
 from processing.weighting.core.specs import ControlSpec, ControlTotals
 
 logger = logging.getLogger(__name__)
 
 _HIERARCHY_ABS_TOL = 0.01
+
+# A table's total must survive the redistribution and the formatter to this
+# relative precision; anything beyond floating-point drift is weight going missing.
+_TOTAL_REL_TOL = 1e-6
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +102,108 @@ def weight_sanity_checks(
 
     _check_hierarchy(tables, usability_flag_col, profile)
     _check_joint_sums(tables, usability_flag_col, profile)
+    check_weight_placement(tables, usability_flag_col, profile)
+
+
+def check_weight_placement(
+    tables: dict[str, pl.DataFrame],
+    usability_flag_col: str,
+    profile: str | None = None,
+    *,
+    supplied_totals: dict[str, float] | None = None,
+) -> None:
+    """Verify every weight sits on a record its consumer will receive, or raise.
+
+    Three things, each a way weight has gone missing before:
+
+    1. No weight on a record the profile does not admit. The propagation zeroes
+       those, so a non-zero here means a table the usability pass never reached.
+    2. Each supplied table still sums to what was joined, so redistributing
+       onto the usable records moved the vendor's total rather than shrinking
+       it. Checked only where the caller supplies totals (the vendor path).
+    3. What the formatter will keep carries the whole total. [`keep_records`]
+       [processing.completeness.kept_records.keep_records] is the formatter's
+       own answer, so running it here and comparing totals proves the weighting
+       and the formatter agree before any file is written. Skipped only when a
+       table present carries no verdict, which is a partial call rather than
+       a run.
+
+    Args:
+        tables: Weighted canonical tables.
+        usability_flag_col: The flag the weighting was gated on.
+        profile: Usability profile whose weight columns to read, or None for the
+            un-suffixed set.
+        supplied_totals: table -> the total that was joined from a weight file,
+            for the tables that had one.
+
+    Raises:
+        ValueError: On the first table that fails any of the three.
+    """
+    weights = {
+        table: col
+        for table, col in weight_columns_for(profile).items()
+        if table in tables and col in tables[table].columns
+    }
+    gated = [t for t in weights if t in GATED_TABLES and usability_flag_col in tables[t].columns]
+
+    for table in gated:
+        col = weights[table]
+        misplaced = tables[table].filter(
+            ~pl.col(usability_flag_col).fill_null(value=False)
+            & pl.col(col).is_not_null()
+            & (pl.col(col) != 0)
+        )
+        if misplaced.height:
+            msg = (
+                f"{misplaced.height} {table} record(s) not admitted by {usability_flag_col} "
+                f"carry a non-zero {col} (total {misplaced[col].sum():.4f}). Weight on a "
+                "record the consumer never receives is weight the output loses."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+    for table, supplied in (supplied_totals or {}).items():
+        if table not in weights:
+            continue
+        placed = tables[table].select(pl.col(weights[table]).sum()).item() or 0.0
+        if abs(placed - supplied) > _TOTAL_REL_TOL * max(abs(supplied), 1.0):
+            msg = (
+                f"{table}: {weights[table]} sums to {placed:.4f} but {supplied:.4f} was "
+                f"supplied. The redistribution onto {usability_flag_col} records did not "
+                "keep the total."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+    unflagged = [
+        t for t in GATED_TABLES if t in tables and usability_flag_col not in tables[t].columns
+    ]
+    if unflagged:
+        logger.debug(
+            "Skipping the kept-records total check: %s carry no %s",
+            ", ".join(unflagged),
+            usability_flag_col,
+        )
+        return
+    kept, _ = keep_records(
+        {t: df for t, df in tables.items() if t in GATED_TABLES}, usability_flag_col
+    )
+    for table, col in weights.items():
+        if table not in kept:
+            continue
+        before = tables[table].select(pl.col(col).sum()).item() or 0.0
+        after = kept[table].select(pl.col(col).sum()).item() or 0.0
+        if abs(before - after) > _TOTAL_REL_TOL * max(abs(before), 1.0):
+            msg = (
+                f"{table}: {col} sums to {before:.4f} but the records a consumer of "
+                f"{usability_flag_col} keeps carry {after:.4f}. The weighting put "
+                f"{before - after:.4f} on records the formatter will leave out."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+    logger.info(
+        "  Weight placement under %s: OK (%s)", usability_flag_col, ", ".join(sorted(weights))
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -50,9 +50,11 @@ from processing.weighting.core.propagation import (
     distribute_within_scope,
     drop_unsuffixed_weights,
     is_usable,
+    non_null_tables,
     propagate_weights,
 )
 from processing.weighting.core.specs import resolve_fitted_profiles
+from processing.weighting.validation.weight_checks import check_weight_placement
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +201,7 @@ def _apply_usability(
     has_weight: dict[str, str],
     *,
     usability_flag_col: str,
-) -> None:
+) -> dict[str, float]:
     """Redistribute supplied weights onto usable records, preserving each total.
 
     Unlike the computed path, the vendor's anchor cannot be re-balanced: their
@@ -216,13 +218,19 @@ def _apply_usability(
         usability_flag_col: Boolean column deciding which records may carry weight
             -- a usability profile stamped upstream, or ``survey_complete`` to weight the
             whole valid survey.
+
+    Returns:
+        table -> the supplied total, for the placement check to hold each
+        table to.
     """
+    supplied_totals: dict[str, float] = {}
     for table_name, weight_col in has_weight.items():
         df = tables.get(table_name)
         if df is None or usability_flag_col not in df.columns:
             continue
 
         supplied_total = df.select(pl.col(weight_col).sum()).item() or 0.0
+        supplied_totals[table_name] = supplied_total
         scope = LEVELS[table_name].scope
 
         if scope is None:
@@ -266,6 +274,7 @@ def _apply_usability(
             )
 
         tables[table_name] = df
+    return supplied_totals
 
 
 def _attach_supplied(
@@ -555,7 +564,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
         # Redistribute each supplied weight onto the usable records, preserving
         # the supplied total. Usability is stamped upstream by
         # ``cascade_completeness``.
-        _apply_usability(tables, has_weight, usability_flag_col=flag)
+        supplied_totals = _apply_usability(tables, has_weight, usability_flag_col=flag)
 
         # Derive missing weights if requested
         if derive_missing_weights:
@@ -568,6 +577,11 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
             )
 
         _warn_null_weights(tables, profile)
+        # Every supplied total still there, and all of it on records the
+        # formatter will keep -- or the run stops here, not in the model.
+        check_weight_placement(
+            non_null_tables(tables), flag, profile, supplied_totals=supplied_totals
+        )
 
     drop_unsuffixed_weights(tables, profiles)
 

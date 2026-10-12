@@ -489,16 +489,20 @@ class TestSuppliedTotalPreserved:
                 usability_profile="survey_complete",
             )
 
-    def test_no_usable_record_is_safe(self, tmp_path):
-        """If nothing is usable there is nowhere to put the weight; no error."""
+    def test_no_usable_record_loses_the_total_and_raises(self, tmp_path):
+        """If nothing is usable there is nowhere to put the weight, and the run stops.
+
+        The supplied 30 cannot land anywhere, so the table's total would be
+        lost. That is the exact failure the placement check exists to catch.
+        """
         households = pl.DataFrame(
             {"hh_id": [1, 2], "hh_size": [2, 3], "survey_complete": [False, False]}
         )
         weight_file = tmp_path / "hh_weights.csv"
         pl.DataFrame({"hh_id": [1, 2], "hh_weight": [10.0, 20.0]}).write_csv(weight_file)
-        result = add_existing_weights(
-            weights={"hh_weight": {"weight_path": str(weight_file)}},
-            households=households,
-            usability_profile="survey_complete",
-        )
-        assert result["households"]["hh_weight"].to_list() == [0.0, 0.0]
+        with pytest.raises(ValueError, match="did not keep the total"):
+            add_existing_weights(
+                weights={"hh_weight": {"weight_path": str(weight_file)}},
+                households=households,
+                usability_profile="survey_complete",
+            )
