@@ -218,17 +218,18 @@ def select_profile_columns(
 def check_kept_records_agree(tables: dict[str, pl.DataFrame], usability_flag_col: str) -> None:
     """Raise if the kept records do not form a consistent set.
 
-    Three things, each once a repair this module made silently:
+    Two things, each once a repair this module made silently:
 
     1. Every reference the schema declares resolves. A required one that does
        not is a record whose household, person or day the profile rejected;
        an optional one is a joint id the profile should have voided.
     2. No joint id is carried by fewer than two records.
-    3. Every leg of a tour on a joint tour is itself a joint trip.
 
-    Each is something the cascade guarantees, so a failure names a cascade
-    bug -- or, for the third, a consumer reading a ``partial`` profile when a
-    model needs ``fully_joint``.
+    Each is something the cascade guarantees under every profile, so a failure
+    names a cascade bug. A rule that holds under some profiles only -- such as
+    every leg of a joint tour being a joint trip, which ``partial`` does not
+    promise -- belongs to the consumer that needs it, since this function
+    receives a column name and cannot know the profile's settings.
 
     Args:
         tables: The kept tables.
@@ -278,23 +279,3 @@ def check_kept_records_agree(tables: dict[str, pl.DataFrame], usability_flag_col
         )
         logger.error(msg)
         raise ValueError(msg)
-
-    trips = tables.get("linked_trips")
-    if trips is None or not {"joint_tour_id", "joint_trip_id"} <= set(trips.columns):
-        return
-    # A frame recording no trip-level sharing at all is not claiming these tours
-    # are partly shared -- it simply never had joint trips.
-    if trips["joint_trip_id"].null_count() == trips.height:
-        return
-    partly = trips.filter(pl.col("joint_tour_id").is_not_null() & pl.col("joint_trip_id").is_null())
-    if partly.is_empty():
-        return
-    msg = (
-        f"{partly.height} linked trip(s) on a joint tour are not joint trips under "
-        f"{usability_flag_col}, so the tour is only partly joint. A model draws one set of "
-        "trips for everyone on a joint tour: this consumer needs a profile declaring "
-        "joint_tours: fully_joint, under which the cascade keeps no such tour. "
-        f"Sample joint_tour_id: {partly['joint_tour_id'].unique().head(_MAX_REPORTED).to_list()}."
-    )
-    logger.error(msg)
-    raise ValueError(msg)

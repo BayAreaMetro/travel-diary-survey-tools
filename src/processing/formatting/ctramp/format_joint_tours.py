@@ -363,11 +363,11 @@ def _validate_joint_tours_are_wholly_joint(linked_trips: pl.DataFrame) -> None:
     made one tour, part of it together -- so this is a constraint of the output
     rather than of the data, and is enforced here rather than upstream.
 
-    Today the canonical rule is stricter than CT-RAMP needs and this cannot
-    fire. It exists so that widening ``joint_tour_id`` to cover partly-shared
-    tours fails loudly here, rather than silently dropping the unshared leg:
-    the individual trip file excludes joint tours and the joint trip file needs
-    a ``joint_trip_id``, so such a leg would reach neither.
+    A profile declaring ``joint_tours: fully_joint`` keeps no such tour, so this
+    fires only when the config points CT-RAMP at a ``partial`` profile. Failing
+    loudly beats the alternative: the individual trip file excludes joint tours
+    and the joint trip file needs a ``joint_trip_id``, so the unshared leg would
+    reach neither.
 
     Raises:
         ValueError: If a trip on a joint tour carries no ``joint_trip_id``.
@@ -391,8 +391,9 @@ def _validate_joint_tours_are_wholly_joint(linked_trips: pl.DataFrame) -> None:
     preview = tour_ids[:10]
     msg = (
         f"{len(stray)} trip(s) across {len(tour_ids)} joint tour(s) are not joint trips. "
-        f"CT-RAMP cannot represent a partly-shared tour, so such a tour must be split or "
-        f"reclassified before formatting. Joint tour IDs: {preview}"
+        f"CT-RAMP cannot represent a partly-shared tour: point it at a usability profile "
+        f"declaring joint_tours: fully_joint, under which the cascade keeps no such tour. "
+        f"Joint tour IDs: {preview}"
         f"{'...' if len(tour_ids) > len(preview) else ''}"
     )
     raise ValueError(msg)

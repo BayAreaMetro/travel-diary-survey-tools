@@ -4,9 +4,9 @@
 ``cascade_completeness``, and this profile's own copy of every joint id. It
 filters each table on that table's verdict and then *checks* -- never repairs
 -- that what survived agrees with itself: every reference resolves, no joint id
-is carried alone, every leg of a joint tour is a joint trip, and every weight
-that came in is still there. Each of those is something the cascade and the
-weighting guarantee, so a failure is a bug upstream and is raised, not patched.
+is carried alone, and every weight that came in is still there. Each of those
+is something the cascade and the weighting guarantee, so a failure is a bug
+upstream and is raised, not patched.
 """
 
 import polars as pl
@@ -161,27 +161,38 @@ class TestTheKeptRecordsMustAgree:
                 PROFILE,
             )
 
-    def test_a_partly_joint_tour_raises_and_names_the_setting(self):
-        """A leg of a joint tour that is not a joint trip: this consumer needs fully_joint."""
-        with pytest.raises(ValueError, match="joint_tours: fully_joint"):
-            keep_usable(
-                {
-                    "tours": _tours([(1, 500, True), (2, 500, True)]),
-                    "linked_trips": pl.DataFrame(
-                        {
-                            "linked_trip_id": [10, 11, 20],
-                            "tour_id": [1, 1, 2],
-                            "joint_tour_id": [500, 500, 500],
-                            "joint_trip_id": [900, None, 900],
-                            FLAG: [True, True, True],
-                        },
-                        schema_overrides={"joint_trip_id": pl.Int64},
-                    ),
-                    "joint_tours": _groups("joint_tour_id", [(500, True)]),
-                    "joint_trips": _groups("joint_trip_id", [(900, True)]),
-                },
-                PROFILE,
-            )
+    def test_a_partly_joint_tour_passes_the_gate(self):
+        """A leg of a joint tour that is not a joint trip is a consistent set.
+
+        A ``partial`` profile keeps such a tour on purpose. Whether a consumer
+        can represent it is that consumer's rule: the CT-RAMP formatter refuses
+        it (``TestPartlySharedToursAreRejectedHere``); the shared gate cannot
+        know the profile's settings, so it must not.
+        """
+        kept = keep_usable(
+            {
+                "tours": _tours([(1, 500, True), (2, 500, True)]).rename({FLAG: "usable_analysis"}),
+                "linked_trips": pl.DataFrame(
+                    {
+                        "linked_trip_id": [10, 11, 20],
+                        "tour_id": [1, 1, 2],
+                        "joint_tour_id": [500, 500, 500],
+                        "joint_trip_id": [900, None, 900],
+                        "usable_analysis": [True, True, True],
+                    },
+                    schema_overrides={"joint_trip_id": pl.Int64},
+                ),
+                "joint_tours": _groups("joint_tour_id", [(500, True)]).rename(
+                    {FLAG: "usable_analysis"}
+                ),
+                "joint_trips": _groups("joint_trip_id", [(900, True)]).rename(
+                    {FLAG: "usable_analysis"}
+                ),
+            },
+            "analysis",
+        )
+
+        assert kept["linked_trips"]["joint_trip_id"].to_list() == [900, None, 900]
 
     def test_weight_on_an_excluded_record_raises(self):
         """The total in must be the total out; the weighting put 4 on a rejected tour."""

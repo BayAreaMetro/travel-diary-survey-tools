@@ -612,7 +612,7 @@ class TestPartlySharedToursAreRejectedHere:
             .alias("joint_trip_id")
         )
 
-        with pytest.raises(ValueError, match="partly-shared tour"):
+        with pytest.raises(ValueError, match=r"partly-shared tour.*joint_tours: fully_joint"):
             _format_all(tours, trips, persons, households, standard_config)
 
     def test_a_frame_with_no_joint_trips_at_all_is_not_judged(self, standard_config):
