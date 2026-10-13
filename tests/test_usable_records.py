@@ -359,3 +359,24 @@ class TestTheGate:
         kept = keep_usable({"tours": tours}, "test")
 
         assert kept["tours"]["tour_id"].to_list() == [1]
+
+
+class TestZeroWeightIsReportedWithItsCauses:
+    """A kept record with zero weight is reported, not dropped, and the reasons are named.
+
+    The formatter cannot tell which weighting step ran, so the message lists the
+    causes rather than asserting one: supplied weights of 0 are kept as given,
+    and the weighting may have had no weight to pass to a record.
+    """
+
+    def test_the_message_names_the_supplied_zero_and_the_weighting(self, caplog):
+        """Tour 2 is kept with weight 0: it stays, and the warning says why it might be."""
+        tours = _tours([(1, None, True), (2, None, True)]).with_columns(
+            tour_weight=pl.Series([10.0, 0.0])
+        )
+        with caplog.at_level("WARNING"):
+            kept = keep_usable({"tours": tours}, PROFILE)
+        assert kept["tours"]["tour_id"].to_list() == [1, 2]
+        assert "1 tours admitted by usable_ctramp carry a zero tour_weight" in caplog.text
+        assert "supplied weights gave them 0" in caplog.text
+        assert "parent" not in caplog.text

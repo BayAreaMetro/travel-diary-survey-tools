@@ -160,11 +160,13 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
     Zero and null are different findings and have different fixes, so they are
     reported apart:
 
-    * **zero** -- a *stranded scope*. `min_weight` puts a floor of 1 under
-      anything the balancer weighted, so a fitted record cannot be zero. It means
-      the parent's claim had no usable child to share it among, and the weighting
-      deliberately left that claim unrepresented rather than pool it across other
-      parents. `_check_hierarchy` logs the matching shortfall.
+    * **zero** -- the record has nothing to expand by. This step cannot tell
+      which weighting step ran, so the message names the causes rather than one:
+      supplied weights of 0, which ``add_existing_weights`` keeps as given (a
+      vendor's weekend days, say); a person with no weighted day, or a household
+      no member can carry, whose weight went to others; or, under
+      ``compute_weights``, a household, person or day that kept nothing usable to
+      share its weight among. The weighting step's log counts each case.
     * **null** -- no weight was ever estimated. Either the control geography could
       not place the household, so it belonged to no balancing zone, or no
       weighting step ran at all.
@@ -182,9 +184,12 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
 
         if n_zero:
             logger.warning(
-                "%d %s admitted by %s carry a zero %s: their scope kept no usable "
-                "record to share the parent's weight among, so it stays unrepresented "
-                "rather than being pooled onto another parent's children.",
+                "%d %s admitted by %s carry a zero %s. They stay in the output with "
+                "nothing to expand by. Either the supplied weights gave them 0, which "
+                "is kept as given, or the weighting had no weight to pass them: a "
+                "person with no weighted day, a household no member can carry, or a "
+                "household, person or day that kept nothing usable to share its weight "
+                "among. The weighting step's log counts each case.",
                 n_zero,
                 name,
                 usability_flag_col,
