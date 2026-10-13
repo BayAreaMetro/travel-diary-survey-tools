@@ -31,8 +31,8 @@ from data_canon.codebook.tours import (
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.completeness import (
-    ALL_MEMBERS,
-    PRIMARY_HOME,
+    HouseholdDayNeeds,
+    TourClosesAt,
     UsabilityProfile,
     compute_usability,
 )
@@ -249,7 +249,10 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
         ),
         "tours": tours.with_columns(pl.lit(value=True).alias("survey_complete")),
     }
-    compute_usability(tables, profile=UsabilityProfile("test", PRIMARY_HOME, ALL_MEMBERS))
+    compute_usability(
+        tables,
+        profile=UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+    )
     return dict(zip(*tables["tours"].select("tour_id", "usable_test"), strict=True))
 
 

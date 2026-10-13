@@ -121,10 +121,16 @@ def _days(end_day_1: BeginEndDay | None = None) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "day_id": [1, 2],
+            "travel_date": [_at(1, 0).date(), _at(2, 0).date()],
             "begin_day": [None, None],
             "end_day": [end_day_1.value if end_day_1 else None, None],
         },
-        schema={"day_id": pl.Int64, "begin_day": pl.Int64, "end_day": pl.Int64},
+        schema={
+            "day_id": pl.Int64,
+            "travel_date": pl.Date,
+            "begin_day": pl.Int64,
+            "end_day": pl.Int64,
+        },
     )
 
 

@@ -235,6 +235,8 @@ def days_for_persons(
             (pl.col("person_id") * 100 + day_num).cast(pl.Int64).alias("day_id"),
             pl.col("person_id"),
             pl.col("hh_id"),
+            # One shared date per day number, so a household's members share it.
+            pl.lit(datetime(2024, 1, day_num).date()).alias("travel_date"),
         )
         .unique()
         .with_columns(pl.lit(value=True).alias(usability_flag_col))

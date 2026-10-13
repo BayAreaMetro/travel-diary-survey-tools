@@ -1,33 +1,54 @@
 """What a usability profile is, and how config states one.
 
-A profile answers three axes explicitly -- which home has to close a tour, what
-the household-date has to show, and which zone system has to hold every one of
-the record's locations. Nothing here touches a table; it is the vocabulary the
-rest of the package is written against.
+A profile answers four axes explicitly -- which home has to close a tour, what
+the household-date has to show, which zone system has to hold every one of the
+record's locations, and what a joint tour has to be. Nothing here touches a
+table; it is the vocabulary the rest of the package is written against.
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from data_canon.codebook.tours import TourDataQuality
 
 # --- Profile axes ------------------------------------------------------------
 # A profile answers every one, explicitly. There is no default for any: a column
 # whose meaning depends on a value nobody wrote is the thing profiles exist to
-# stop.
+# stop. Each closed axis is an enum whose values are the words config writes.
 
-# Which home has to close a tour. The quality codes divide into other-home
-# anchors, open ends and missing data, and this axis walks down the first two.
-PRIMARY_HOME = "primary_home"  # VALID only
-ANY_HOME = "any_home"  # + OTHER_HOME
-ANYWHERE = "anywhere"  # + PARTIAL_DAY_SPLIT, PARTIAL_DIARY_EDGE
-TOUR_CLOSES_AT = (PRIMARY_HOME, ANY_HOME, ANYWHERE)
 
-# What the household-date has to show.
-ALL_MEMBERS = "all_members"  # every surveyable member's day complete
-NOTHING = "nothing"  # no household-date requirement
-HOUSEHOLD_DAY_NEEDS = (ALL_MEMBERS, NOTHING)
+class TourClosesAt(StrEnum):
+    """Which home has to close a tour.
 
-# Which zone system has to be able to address the record. Unlike the other two
+    The quality codes divide into other-home anchors, open ends and missing
+    data, and this axis walks down the first two. No setting admits missing data.
+    """
+
+    PRIMARY_HOME = "primary_home"  # VALID only
+    ANY_HOME = "any_home"  # + OTHER_HOME
+    ANYWHERE = "anywhere"  # + PARTIAL_DAY_SPLIT, PARTIAL_DIARY_EDGE
+
+
+class HouseholdDayNeeds(StrEnum):
+    """What the household-date has to show."""
+
+    ALL_MEMBERS = "all_members"  # every surveyable member's day complete
+    NOTHING = "nothing"  # no household-date requirement
+
+
+class JointTours(StrEnum):
+    """What a joint tour has to be.
+
+    Activity-based models draw a joint tour's trips once for everyone on it, so
+    a person who leaves for a leg is not on the same tour; the survey's own
+    groups need no such thing.
+    """
+
+    FULLY_JOINT = "fully_joint"  # everyone shares every leg; work/school/escort never joint
+    PARTIAL = "partial"  # the groups the survey detected, as they are
+
+
+# Which zone system has to be able to address the record. Unlike the other
 # axes this vocabulary is open: the value names a zone geography the zone step
 # produced, so the legal set is whatever that step was configured to build.
 NO_ZONE_COVERAGE = "none"  # no geographic requirement
@@ -62,14 +83,28 @@ def usable_col_for(profile: str) -> str:
     return f"{USABLE_FAMILY}_{profile}"
 
 
+def profile_of(usability_flag_col: str) -> str | None:
+    """The profile a verdict column belongs to, or None for one outside the family.
+
+    The inverse of :func:`usable_col_for`: ``usable_ctramp`` -> ``ctramp``.
+    ``survey_complete``, or a hand-written flag, names no profile, so a reader
+    looking for that profile's other columns (``joint_tour_id_<profile>``) gets
+    None and falls back to the bare column.
+    """
+    prefix = f"{USABLE_FAMILY}_"
+    if usability_flag_col.startswith(prefix) and len(usability_flag_col) > len(prefix):
+        return usability_flag_col[len(prefix) :]
+    return None
+
+
 # Quality codes each closure setting admits, cumulatively. NO_DESTINATION and
 # SPATIAL_GAP appear nowhere: they are not open ends but missing data -- no
 # tolerance for a tour that stops somewhere unexpected makes a missing leg
 # present, or an activity that never happened happen.
-_ADMITTED_QUALITY: dict[str, tuple[TourDataQuality, ...]] = {
-    PRIMARY_HOME: (TourDataQuality.VALID,),
-    ANY_HOME: (TourDataQuality.VALID, TourDataQuality.OTHER_HOME),
-    ANYWHERE: (
+_ADMITTED_QUALITY: dict[TourClosesAt, tuple[TourDataQuality, ...]] = {
+    TourClosesAt.PRIMARY_HOME: (TourDataQuality.VALID,),
+    TourClosesAt.ANY_HOME: (TourDataQuality.VALID, TourDataQuality.OTHER_HOME),
+    TourClosesAt.ANYWHERE: (
         TourDataQuality.VALID,
         TourDataQuality.OTHER_HOME,
         TourDataQuality.PARTIAL_DAY_SPLIT,
@@ -80,11 +115,12 @@ _ADMITTED_QUALITY: dict[str, tuple[TourDataQuality, ...]] = {
 
 @dataclass(frozen=True)
 class UsabilityProfile:
-    """One usability standard, stated on both axes, and the columns it writes.
+    """One usability standard, stated on every axis, and the columns it writes.
 
     A profile says which home has to close a tour, what the household-date has
-    to show, and which zone system has to be able to address the record. Config
-    gives all three explicitly; none may be left implicit there.
+    to show, which zone system has to be able to address the record, and what a
+    joint tour has to be. Config gives all four explicitly; none may be left
+    implicit there.
 
     Coverage is an axis rather than a universal because the zone systems differ:
     a trip outside one model's area may sit comfortably inside another's, so
@@ -104,12 +140,15 @@ class UsabilityProfile:
     """
 
     name: str
-    tour_closes_at: str
-    household_day_needs: str
+    tour_closes_at: TourClosesAt
+    household_day_needs: HouseholdDayNeeds
     # Config must state this like any other axis -- ``_one_profile`` rejects a
     # profile that omits it. The default serves in-process construction only,
     # where saying nothing about geography means asking nothing of it.
     zone_coverage: str = NO_ZONE_COVERAGE
+    # Same standing as zone_coverage: config must say it, in-process callers may
+    # leave it, and leaving it asks nothing of the survey's joint groups.
+    joint_tours: JointTours = JointTours.PARTIAL
 
     @property
     def flag(self) -> str:
@@ -127,19 +166,36 @@ class UsabilityProfile:
         return f"hh_day_{self.name}"
 
     @property
+    def joint_tour_id(self) -> str:
+        """``joint_tour_id`` as this profile sees it: the id where the tour is on it, else null."""
+        return f"joint_tour_id_{self.name}"
+
+    @property
+    def joint_trip_id(self) -> str:
+        """``joint_trip_id`` as this profile sees it: the id where the trip is on it, else null."""
+        return f"joint_trip_id_{self.name}"
+
+    @property
     def admitted_quality(self) -> tuple[TourDataQuality, ...]:
         """Tour quality codes this profile's closure setting admits."""
-        return _ADMITTED_QUALITY[self.tour_closes_at]
+        return _ADMITTED_QUALITY[TourClosesAt(self.tour_closes_at)]
 
     @property
     def needs_whole_household_day(self) -> bool:
         """Whether a date must show every surveyable member's day complete."""
-        return self.household_day_needs == ALL_MEMBERS
+        return self.household_day_needs == HouseholdDayNeeds.ALL_MEMBERS
+
+    @property
+    def requires_fully_joint(self) -> bool:
+        """Whether everyone on a joint tour must share every leg of it."""
+        return self.joint_tours == JointTours.FULLY_JOINT
 
 
-_AXES: dict[str, tuple[str, ...]] = {
-    "tour_closes_at": TOUR_CLOSES_AT,
-    "household_day_needs": HOUSEHOLD_DAY_NEEDS,
+# The closed axes, by the key config writes them under.
+_AXES: dict[str, type[StrEnum]] = {
+    "tour_closes_at": TourClosesAt,
+    "household_day_needs": HouseholdDayNeeds,
+    "joint_tours": JointTours,
 }
 
 # The axis whose values come from the zone step's configuration rather than a
@@ -205,6 +261,7 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
         )
         raise ValueError(msg)  # noqa: TRY004 - malformed config, not a caller type error
 
+    chosen: dict[str, StrEnum] = {}
     for axis, allowed in _AXES.items():
         if axis not in axes:
             msg = (
@@ -213,12 +270,14 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
                 f"config alone. Legal values: {', '.join(allowed)}."
             )
             raise ValueError(msg)
-        if axes[axis] not in allowed:
+        try:
+            chosen[axis] = allowed(axes[axis])
+        except ValueError:
             msg = (
                 f"usability_profile '{name}' sets {axis}: '{axes[axis]}', which is "
                 f"not one of {', '.join(allowed)}."
             )
-            raise ValueError(msg)
+            raise ValueError(msg) from None
 
     # Coverage names a geography the zone step builds, so its legal values are
     # not knowable here. It is still required: silently defaulting to "no
@@ -249,7 +308,8 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
 
     return UsabilityProfile(
         name=name,
-        tour_closes_at=axes["tour_closes_at"],
-        household_day_needs=axes["household_day_needs"],
+        tour_closes_at=TourClosesAt(chosen["tour_closes_at"]),
+        household_day_needs=HouseholdDayNeeds(chosen["household_day_needs"]),
         zone_coverage=coverage,
+        joint_tours=JointTours(chosen["joint_tours"]),
     )

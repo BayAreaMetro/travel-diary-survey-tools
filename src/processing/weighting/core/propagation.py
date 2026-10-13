@@ -377,7 +377,16 @@ def _aggregate_up(
         raise ValueError(msg)
 
     src_weight = has_weight[level.parent]  # type: ignore[index]
-    logger.info("Deriving %s from %s of %s", weight_col, level.agg.name.lower(), src_weight)
+    # The profile's own copy of the grouping id, where there is one: a tour that
+    # left its joint tour for this profile is null there and so not summed.
+    member_key = level.member_key_for(usability_flag_col, source_df.columns)
+    logger.info(
+        "Deriving %s from %s of %s by %s",
+        weight_col,
+        level.agg.name.lower(),
+        src_weight,
+        member_key,
+    )
 
     # Members that carried weight in. A zero-weight member was already re-homed
     # onto its own scope's usable records, so it is neither averaged nor counted.
@@ -386,7 +395,12 @@ def _aggregate_up(
     )
     combine = carried.sum() if level.agg is Agg.SUM else carried.mean()
 
-    agg = source_df.group_by(level.key).agg(combine.fill_null(0).alias(weight_col))
+    agg = (
+        source_df.filter(pl.col(member_key).is_not_null())
+        .group_by(member_key)
+        .agg(combine.fill_null(0).alias(weight_col))
+        .rename({member_key: level.key})  # type: ignore[dict-item]
+    )
     target_df = safe_join_weight(target_df, agg, level.key)  # type: ignore[arg-type]
 
     # A grouping is never more usable than its members: an unusable record

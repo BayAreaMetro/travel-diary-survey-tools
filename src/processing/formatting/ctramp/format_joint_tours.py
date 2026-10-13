@@ -12,7 +12,6 @@ from data_canon.codebook.ctramp import (
 )
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
-from data_canon.codebook.trips import PurposeCategory
 
 from .ctramp_config import CTRAMPConfig
 from .joint_representative import representative_person_per_tour
@@ -36,7 +35,6 @@ def format_joint_tour(
 ) -> pl.DataFrame:
     """Format canonical joint tours to CT-RAMP's household-level schema."""
     logger.info("Formatting joint tour data for CT-RAMP")
-    tours_canonical = identify_misclassified_joint_tours(tours_canonical)
 
     if tours_canonical.is_empty():
         logger.info("No tours provided")
@@ -357,54 +355,6 @@ def joint_weight_columns(
     ]
 
 
-def identify_misclassified_joint_tours(tours_canonical: pl.DataFrame) -> pl.DataFrame:
-    """Convert inadmissible joint-tour groups to individual tours.
-
-    CT-RAMP joint tours cannot be work, school, escort, or groups whose members
-    have different purposes. Clearing ``joint_tour_id`` preserves that travel as
-    individual tours instead of dropping it.
-    """
-    if tours_canonical.is_empty() or "joint_tour_id" not in tours_canonical.columns:
-        return tours_canonical
-
-    joint_tours = tours_canonical.filter(pl.col("joint_tour_id").is_not_null())
-    if joint_tours.is_empty():
-        return tours_canonical
-
-    misclassified_joint_ids = (
-        joint_tours.group_by("joint_tour_id")
-        .agg(
-            [
-                pl.col("tour_purpose").n_unique().alias("_n_unique_purposes"),
-                (pl.col("tour_purpose") == PurposeCategory.WORK.value).any().alias("_has_work"),
-                (pl.col("tour_purpose") == PurposeCategory.SCHOOL.value).any().alias("_has_school"),
-                (pl.col("tour_purpose") == PurposeCategory.ESCORT.value).any().alias("_has_escort"),
-            ]
-        )
-        .filter(
-            pl.col("_has_work")
-            | pl.col("_has_school")
-            | pl.col("_has_escort")
-            | (pl.col("_n_unique_purposes") > 1)
-        )
-        .select("joint_tour_id")
-    )
-
-    if misclassified_joint_ids.is_empty():
-        return tours_canonical
-
-    logger.info(
-        "Reclassifying %d misclassified joint tours to individual tours",
-        len(misclassified_joint_ids),
-    )
-    return tours_canonical.with_columns(
-        pl.when(pl.col("joint_tour_id").is_in(misclassified_joint_ids["joint_tour_id"].implode()))
-        .then(pl.lit(None).cast(tours_canonical.schema["joint_tour_id"]))
-        .otherwise(pl.col("joint_tour_id"))
-        .alias("joint_tour_id")
-    )
-
-
 def _validate_joint_tours_are_wholly_joint(linked_trips: pl.DataFrame) -> None:
     """Raise when a joint tour has a leg that is not itself a joint trip.
 
@@ -413,11 +363,11 @@ def _validate_joint_tours_are_wholly_joint(linked_trips: pl.DataFrame) -> None:
     made one tour, part of it together -- so this is a constraint of the output
     rather than of the data, and is enforced here rather than upstream.
 
-    Today the canonical rule is stricter than CT-RAMP needs and this cannot
-    fire. It exists so that widening ``joint_tour_id`` to cover partly-shared
-    tours fails loudly here, rather than silently dropping the unshared leg:
-    the individual trip file excludes joint tours and the joint trip file needs
-    a ``joint_trip_id``, so such a leg would reach neither.
+    A profile declaring ``joint_tours: fully_joint`` keeps no such tour, so this
+    fires only when the config points CT-RAMP at a ``partial`` profile. Failing
+    loudly beats the alternative: the individual trip file excludes joint tours
+    and the joint trip file needs a ``joint_trip_id``, so the unshared leg would
+    reach neither.
 
     Raises:
         ValueError: If a trip on a joint tour carries no ``joint_trip_id``.
@@ -441,8 +391,9 @@ def _validate_joint_tours_are_wholly_joint(linked_trips: pl.DataFrame) -> None:
     preview = tour_ids[:10]
     msg = (
         f"{len(stray)} trip(s) across {len(tour_ids)} joint tour(s) are not joint trips. "
-        f"CT-RAMP cannot represent a partly-shared tour, so such a tour must be split or "
-        f"reclassified before formatting. Joint tour IDs: {preview}"
+        f"CT-RAMP cannot represent a partly-shared tour: point it at a usability profile "
+        f"declaring joint_tours: fully_joint, under which the cascade keeps no such tour. "
+        f"Joint tour IDs: {preview}"
         f"{'...' if len(tour_ids) > len(preview) else ''}"
     )
     raise ValueError(msg)

@@ -133,7 +133,7 @@ logger = logging.getLogger(__name__)
             "lon",
             "source",
         },
-        "days": {"day_id", "begin_day", "end_day"},
+        "days": {"day_id", "travel_date", "begin_day", "end_day"},
     },
     produces={
         "unlinked_trips": {"tour_id"},
@@ -276,7 +276,7 @@ def extract_tours(
 
     # Step 9: Collapse the member tours into the canonical joint_tours table, so
     # the group is a record in its own right rather than a grouping key.
-    joint_tours = build_joint_tours_table(tours)
+    joint_tours = build_joint_tours_table(tours, days)
 
     return {
         "unlinked_trips": unlinked_trips_with_tour_ids,

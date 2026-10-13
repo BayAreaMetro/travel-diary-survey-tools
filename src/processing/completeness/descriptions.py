@@ -12,7 +12,7 @@ import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
 
-from .profiles import ANY_HOME, ANYWHERE, PRIMARY_HOME, UsabilityProfile
+from .profiles import TourClosesAt, UsabilityProfile
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,12 @@ def suggest_usability_columns(frame: pl.DataFrame) -> str:
 
 
 _CLOSURE_TEXT = {
-    PRIMARY_HOME: "returning to the home it left",
-    ANY_HOME: (
+    TourClosesAt.PRIMARY_HOME: "returning to the home it left",
+    TourClosesAt.ANY_HOME: (
         "returning to any home this person is known to have, so a tour closing "
         "at a second residence counts"
     ),
-    ANYWHERE: (
+    TourClosesAt.ANYWHERE: (
         "ending anywhere, so a tour cut by the diary edge or resuming the next "
         "day counts; its trips are whole even though it does not close"
     ),
@@ -66,10 +66,15 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
         if profile.requires_zones
         else ", asking nothing of geography"
     )
+    joint = (
+        "; a joint tour only where everyone shares every leg and none is work, school or escort"
+        if profile.requires_fully_joint
+        else "; joint tours as the survey detected them"
+    )
     gate = (
         f"Usable under the '{profile.name}' profile: survey-complete, a tour "
-        f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}. Never "
-        "admits a tour with a missing leg or no activity to anchor on."
+        f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}{joint}. "
+        "Never admits a tour with a missing leg or no activity to anchor on."
     )
     if profile.needs_whole_household_day:
         hh_day = (
@@ -83,7 +88,33 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
             "recorded so a dropped household can still be traced to the dates that "
             "cost it."
         )
-    return {profile.flag: gate, profile.household_day: hh_day}
+    joint_tour_id = (
+        f"joint_tour_id as the '{profile.name}' profile sees it: the id where this "
+        "record is on its joint tour, null where it is not. "
+        + (
+            "On it only where usable, where everyone on the tour made the same joint "
+            "trips, and where the tour has two or more such people with one purpose "
+            "that is not work, school or escort; a person who leaves for a leg "
+            "travels alone, as an individual tour."
+            if profile.requires_fully_joint
+            else "On it where usable and the survey put it in a joint tour."
+        )
+    )
+    joint_trip_id = (
+        f"joint_trip_id as the '{profile.name}' profile sees it: the id where this "
+        "trip is on its joint trip, null where it is not. "
+        + (
+            "On it only where usable and where its tour is on its joint tour."
+            if profile.requires_fully_joint
+            else "On it where usable and the survey put it in a joint trip."
+        )
+    )
+    return {
+        profile.flag: gate,
+        profile.household_day: hh_day,
+        profile.joint_tour_id: joint_tour_id,
+        profile.joint_trip_id: joint_trip_id,
+    }
 
 
 def _log_gate_summary(

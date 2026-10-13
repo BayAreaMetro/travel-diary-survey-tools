@@ -9,11 +9,12 @@ surveyed, and each tour's structural validity:
 * one column per **usability profile** -- can the model consume it? Fuses each
   tour's structure with its household-day coherence, then gates the rest.
 
-A profile states a standard on three axes -- which home has to close a tour,
-what the household-date has to show, and which zone system has to be able to
-address the record -- and a run may stamp several, so different consumers can
-hold different standards. A joint-tour model needs whole households; a
-trip-level estimation does not, and needs no model geography at all.
+A profile states a standard on four axes -- which home has to close a tour,
+what the household-date has to show, which zone system has to be able to
+address the record, and what a joint tour has to be -- and a run may stamp
+several, so different consumers can hold different standards. A joint-tour
+model needs whole households and fully joint tours; a trip-level estimation
+does not, and needs no model geography at all.
 
 Every profile is named in config and answers every axis, so a column's meaning
 reads off the config without knowing a base rule, and no verdict appears that
@@ -45,7 +46,7 @@ trip .................................   direct    trip_survey_complete (measure
     └ household-day ..................   ALL       all surveyable members complete that date
        └ household ...................   >=1       has >=1 complete household-day
 
-USABLE -- rolls down from the tour fuse      op        rule
+USABLE, UP (_cascade_up) -- counts from the tour fuse   op   rule
 ------------------------------------------------------------------------
 household ...........................   >=1       has >=1 usable household-day
  ├ household-day ....................   ALL       all surveyable members' days usable that date
@@ -54,10 +55,33 @@ household ...........................   >=1       has >=1 usable household-day
        └ tour .......................   fuse      complete AND admitted-quality AND
                                                      hh-day complete AND has a zone
                                                      (the last three are the axes)
-          ├ linked trip .............   inherit   takes its tour's verdict
-          |  └ unlinked trip ........   inherit   takes its linked trip's verdict
-          ├ joint tour ..............   >=2       >=2 usable member tours
-          └ joint trip ..............   >=2       >=2 usable member linked trips
+
+USABLE, DOWN (_cascade_down) -- inherits from the household   op   rule
+------------------------------------------------------------------------
+household -> person -> day -> tour ..   inherit   unusable if the one it belongs to is
+ └ linked trip / unlinked trip ......   inherit   takes its tour's verdict
+
+JOINT (_flag_joint) -- judged beside the chain, after it     op   rule
+------------------------------------------------------------------------
+joint tour ..........................   >=2       >=2 tours on it, and its
+                                                  household usable
+joint trip ..........................   >=2       >=2 linked trips on it, likewise;
+                                                  judged again after rejected joint
+                                                  tours void their ids
+
+JOINT IDS -- joint_tour_id_<profile> on tours and both trip tables, and
+joint_trip_id_<profile> on linked trips: the bare id where the record is on it,
+null where it is not. Decided first within _flag_joint, read by the groupings
+above, the weighting and the formatters; the bare id is the survey's own
+answer and is never edited.
+------------------------------------------------------------------------
+partial .............................   direct    usable and in a survey-detected group
+fully_joint .........................   class     usable, not work/school/escort, and
+                                                  made the same joint trips as the
+                                                  others (largest class of identical
+                                                  legs); then the tour needs >=2 such
+                                                  people and one purpose, or everyone
+                                                  on it travels alone
 
 declared no-travel: num_reasons_no_travel >= 1, OR proxy_complete (a proxy filled the day in --
   this is how children, who file no trips themselves, still get a complete day).
@@ -83,7 +107,9 @@ Modules:
 - ``household_day``: the household-date reduction, for both kinds of flag.
 - ``zone_coverage``: whether a record's locations have a zone.
 - ``usable_tours``: the tour fuse, where a verdict is decided.
-- ``usable_cascade``: that verdict, walked across every table.
+- ``usable_cascade``: that verdict, walked up and then down every table.
+- ``joint_groupings``: which records are on a joint tour or joint trip, per profile.
+- ``kept_records``: which records survive a verdict once references are restored.
 - ``descriptions``: what each stamped column means, in words.
 - ``cascade_completeness``: the pipeline step.
 """
@@ -91,36 +117,30 @@ Modules:
 from .cascade_completeness import cascade_completeness
 from .descriptions import suggest_usability_columns
 from .household_day import flag_household_day_complete, flag_household_day_usable
+from .joint_groupings import MIN_JOINT_PARTICIPANTS
 from .profiles import (
-    ALL_MEMBERS,
-    ANY_HOME,
-    ANYWHERE,
-    HOUSEHOLD_DAY_NEEDS,
     NO_ZONE_COVERAGE,
-    NOTHING,
-    PRIMARY_HOME,
     SURVEY_COMPLETE,
-    TOUR_CLOSES_AT,
     USABLE_FAMILY,
+    HouseholdDayNeeds,
+    JointTours,
+    TourClosesAt,
     UsabilityProfile,
     parse_usability_profiles,
+    profile_of,
     usable_col_for,
 )
 from .survey_complete import cascade_complete, rollup_completeness, rollup_household_complete
-from .usable_cascade import MIN_JOINT_PARTICIPANTS, compute_usability, stamp_usable
+from .usable_cascade import compute_usability, stamp_usable
 
 __all__ = [
-    "ALL_MEMBERS",
-    "ANYWHERE",
-    "ANY_HOME",
-    "HOUSEHOLD_DAY_NEEDS",
     "MIN_JOINT_PARTICIPANTS",
-    "NOTHING",
     "NO_ZONE_COVERAGE",
-    "PRIMARY_HOME",
     "SURVEY_COMPLETE",
-    "TOUR_CLOSES_AT",
     "USABLE_FAMILY",
+    "HouseholdDayNeeds",
+    "JointTours",
+    "TourClosesAt",
     "UsabilityProfile",
     "cascade_complete",
     "cascade_completeness",
@@ -128,6 +148,7 @@ __all__ = [
     "flag_household_day_complete",
     "flag_household_day_usable",
     "parse_usability_profiles",
+    "profile_of",
     "rollup_completeness",
     "rollup_household_complete",
     "stamp_usable",
