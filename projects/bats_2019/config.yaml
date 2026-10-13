@@ -387,6 +387,15 @@ steps:
   #   validate_input: false
   #   cache: false
   #   params:
+  #     # Required. true: a kept day's dropped trips hand their weight to its kept
+  #     # trips. false: kept trips keep their own. Trips always follow their day.
+  #     preserve_travel_totals: true
+  #     # Required. Households scale by one factor per size (number of persons);
+  #     # sizes from this one up share a factor.
+  #     household_size_top_group: 6
+  #     # Optional. The most a record may grow past its supplied weight, per table.
+  #     max_weight_factor:
+  #       households: 2.0
   #     derive_missing_weights: true
   #     weights:
   #       hh_weight:

@@ -309,6 +309,9 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             # that differs -- ctramp and daysim are declared
             # identically above, so agreeing between those two proves nothing.
             "params": {
+                # A kept day's dropped trips hand their weight to its kept trips.
+                "preserve_travel_totals": True,
+                "household_size_top_group": 6,
                 "derive_missing_weights": True,
                 "weight_profiles": ["ctramp", "daysim", "analysis"],
                 "weights": {
