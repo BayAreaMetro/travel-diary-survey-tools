@@ -49,9 +49,20 @@ _WEIGHT_COLUMNS = {
     "joint_tours": "joint_tour_weight",
 }
 
-# A table's weight must reach the output to this relative precision; anything
-# beyond floating-point drift is weight on a record the profile left out.
-_TOTAL_REL_TOL = 1e-6
+# Each table's own id, to name the records a failing check found.
+_ID_COLUMNS = {
+    "households": "hh_id",
+    "persons": "person_id",
+    "days": "day_id",
+    "tours": "tour_id",
+    "linked_trips": "linked_trip_id",
+    "unlinked_trips": "unlinked_trip_id",
+    "joint_trips": "joint_trip_id",
+    "joint_tours": "joint_tour_id",
+}
+
+# Records named in an error before the rest are only counted.
+_MAX_NAMED = 10
 
 
 def _log_ledger(
@@ -110,29 +121,37 @@ def _check_totals_kept(
     kept: dict[str, pl.DataFrame],
     usability_flag_col: str,
 ) -> None:
-    """Raise if any table's weight did not all reach the kept records.
+    """Raise if any record the gate drops carries weight, naming the records.
 
     The weighting placed every weight on a record this profile admits, and
-    checked so. This is the same identity from the other side: whatever the
-    gate left out carried nothing, so the total in is the total out.
+    checked so. This is the same identity from the other side, checked record
+    by record: anything the gate leaves out must carry nothing. A total alone
+    says weight was lost; the ids say where.
 
     Raises:
-        ValueError: Naming the table and how much went missing.
+        ValueError: Naming the table, how much went missing, and which records.
     """
     for name, col in _WEIGHT_COLUMNS.items():
         if name not in before or name not in kept or col not in before[name].columns:
             continue
+        dropped = before[name].filter(
+            ~pl.col(usability_flag_col).fill_null(value=False) & (pl.col(col).fill_null(0.0) != 0.0)
+        )
+        if dropped.is_empty():
+            continue
         total_in = before[name].select(pl.col(col).sum()).item() or 0.0
         total_out = kept[name].select(pl.col(col).sum()).item() or 0.0
-        if abs(total_in - total_out) > _TOTAL_REL_TOL * max(abs(total_in), 1.0):
-            msg = (
-                f"{name}: {col} sums to {total_in:.4f} on the way in and {total_out:.4f} on "
-                f"the records {usability_flag_col} keeps; {total_in - total_out:.4f} sat on "
-                "records this consumer never receives. The weighting and the cascade disagree "
-                "on who is in the model."
-            )
-            logger.error(msg)
-            raise ValueError(msg)
+        id_col = _ID_COLUMNS[name]
+        msg = (
+            f"{name}: {col} sums to {total_in:.4f} on the way in and {total_out:.4f} on "
+            f"the records {usability_flag_col} keeps; {total_in - total_out:.4f} sat on "
+            f"records this consumer never receives. {dropped.height} {name} not admitted "
+            f"by {usability_flag_col} carry {col} (sample {id_col}: "
+            f"{dropped[id_col].head(_MAX_NAMED).to_list()}). The weighting and the cascade "
+            "disagree on who is in the model."
+        )
+        logger.error(msg)
+        raise ValueError(msg)
 
 
 def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) -> None:
