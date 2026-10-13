@@ -1848,15 +1848,6 @@
  },
  "joint_tours": {
   "columns": {
-   "day_id": {
-    "distinct": 5,
-    "dtype": "Int64",
-    "hash": "3572eff5cb620c51",
-    "max": 260101.0,
-    "min": 30101.0,
-    "nulls": 0,
-    "sum": 1080606.0
-   },
    "hh_id": {
     "distinct": 5,
     "dtype": "Int64",
@@ -1922,6 +1913,12 @@
     "distinct": 1,
     "dtype": "Boolean",
     "hash": "6dbbb186940093d9",
+    "nulls": 0
+   },
+   "travel_date": {
+    "distinct": 2,
+    "dtype": "Datetime(time_unit='us', time_zone=None)",
+    "hash": "fa8786ea1fd87422",
     "nulls": 0
    },
    "usable_analysis": {
@@ -2130,15 +2127,6 @@
  },
  "joint_trips": {
   "columns": {
-   "day_id": {
-    "distinct": 8,
-    "dtype": "Int64",
-    "hash": "2034f403e995f456",
-    "max": 300101.0,
-    "min": 30101.0,
-    "nulls": 0,
-    "sum": 2851617.0
-   },
    "hh_id": {
     "distinct": 7,
     "dtype": "Int64",
@@ -2204,6 +2192,12 @@
     "distinct": 1,
     "dtype": "Boolean",
     "hash": "de2f2816534ba445",
+    "nulls": 0
+   },
+   "travel_date": {
+    "distinct": 3,
+    "dtype": "Datetime(time_unit='us', time_zone=None)",
+    "hash": "1e0610555cfe4289",
     "nulls": 0
    },
    "usable_analysis": {

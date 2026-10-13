@@ -224,9 +224,8 @@ def _flag_joint_groupings(
 
     A joint entity is a grouping, so it is usable only while it is still
     *joint*: at least :data:`MIN_JOINT_PARTICIPANTS` of its records must be on
-    it under this profile. It also names one household and one day of its own,
-    and the consumer reads it through those, so it is no more usable than they
-    are.
+    it under this profile. It also belongs to one household, and the consumer
+    reads it through that, so it is no more usable than the household is.
 
     A member table that was never supplied is a legitimate partial call and the
     grouping falls back to its own ``survey_complete``. A member table that *is*
@@ -285,15 +284,20 @@ def _join_parent_verdicts(
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
 ) -> tuple[pl.DataFrame, pl.Expr]:
-    """Join the usable flag of *df*'s household and day as ``_parent_usable``.
+    """Join the usable flag of *df*'s household as ``_parent_usable``.
+
+    The household is the only record a grouping belongs to. The ``day_id`` a
+    joint table carries is one traveller's day, picked as a representative when
+    the grouping was built, so it is not inherited: the members already carry
+    their own days' verdicts, and the count of usable members is what decides.
 
     Returns the frame with the column added and the expression to AND into the
-    verdict. Where neither reference can be followed the expression is True and
+    verdict. Where the reference cannot be followed the expression is True and
     no column is added, so the caller's ``drop(strict=False)`` is a no-op.
     """
     verdict = pl.lit(value=True)
     added = False
-    for parent, key in (("households", "hh_id"), ("days", "day_id")):
+    for parent, key in (("households", "hh_id"),):
         parent_df = tables.get(parent)
         if parent_df is None or cols.flag not in parent_df.columns:
             continue
@@ -304,9 +308,7 @@ def _join_parent_verdicts(
         verdict = verdict & pl.col(f"_{parent}_usable").fill_null(value=False)
         added = True
     if added:
-        df = df.with_columns(verdict.alias("_parent_usable")).drop(
-            "_households_usable", "_days_usable", strict=False
-        )
+        df = df.with_columns(verdict.alias("_parent_usable")).drop("_households_usable")
         return df, pl.col("_parent_usable")
     return df, verdict
 
@@ -320,7 +322,7 @@ def _void_ids_of_rejected_groupings(
 ) -> bool:
     """Null the profile's joint ids wherever they name a grouping it rejects.
 
-    A joint tour the profile does not admit -- its own day unusable, say -- is
+    A joint tour the profile does not admit -- its household unusable, say -- is
     nobody's joint tour, so every tour and trip still carrying its id under
     this profile has that id voided. Under ``fully_joint`` a trip is on its
     joint trip only while its tour is on its joint tour, so those follow; and

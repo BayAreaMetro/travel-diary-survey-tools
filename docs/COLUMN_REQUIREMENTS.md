@@ -67,17 +67,17 @@ Each tab shows the fields for one canonical table. Only steps that reference the
 
 === "days"
 
-    | Field | Type | Constraints | detect_habitual_locations | extract_tours | cascade_completeness | format_ctramp | format_daysim |
-    | --- | --- | --- | --- | --- | --- | --- | --- |
-    | `person_id` | int | ≥ 1, FK → `persons.person_id`, REQ_CHILD |  |  |  | ✓ |  |
-    | `day_id` | int | ≥ 1, UNIQUE | ✓ | ✓ | ✓ | ✓ |  |
-    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  | ✓ | ✓ |  |
-    | `travel_date` | datetime |  |  |  | ✓ |  |  |
-    | `travel_dow` | TravelDow |  |  |  |  |  | ✓ |
-    | `begin_day` | BeginEndDay or None |  | ✓ | ✓ |  |  |  |
-    | `end_day` | BeginEndDay or None |  | ✓ | ✓ |  |  |  |
-    | `survey_complete` | bool or None |  |  |  | ✓ |  |  |
-    | `hh_day_survey_complete` | bool or None |  |  |  |  |  |  |
+    | Field | Type | Constraints | detect_habitual_locations | detect_joint_trips | extract_tours | cascade_completeness | format_ctramp | format_daysim |
+    | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+    | `person_id` | int | ≥ 1, FK → `persons.person_id`, REQ_CHILD |  |  |  |  | ✓ |  |
+    | `day_id` | int | ≥ 1, UNIQUE | ✓ | ✓ | ✓ | ✓ | ✓ |  |
+    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  | ✓ | ✓ |  |
+    | `travel_date` | datetime |  |  | ✓ | ✓ | ✓ | ✓ |  |
+    | `travel_dow` | TravelDow |  |  |  |  |  |  | ✓ |
+    | `begin_day` | BeginEndDay or None |  | ✓ |  | ✓ |  |  |  |
+    | `end_day` | BeginEndDay or None |  | ✓ |  | ✓ |  |  |  |
+    | `survey_complete` | bool or None |  |  |  |  | ✓ |  |  |
+    | `hh_day_survey_complete` | bool or None |  |  |  |  |  |  |  |
 
 === "unlinked_trips"
 
@@ -116,7 +116,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
 
     | Field | Type | Constraints | detect_habitual_locations | detect_joint_trips | extract_tours | add_zone_ids | format_ctramp | format_daysim |
     | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-    | `day_id` | int | ≥ 1, FK → `days.day_id` | ✓ |  | ✓ |  |  |  |
+    | `day_id` | int | ≥ 1, FK → `days.day_id` | ✓ | ✓ | ✓ |  |  |  |
     | `person_id` | int | ≥ 1, FK → `persons.person_id` | ✓ |  |  |  |  |  |
     | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  | ✓ |  |
     | `linked_trip_id` | int | ≥ 1, UNIQUE | ✓ |  |  | ✓ | ✓ |  |
@@ -146,7 +146,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `subtour_num` | int or None | ≥ 0 |  |  |  |  |  |  |
     | `parent_tour_id` | int or None | ≥ 1, FK → `tours.tour_id` |  |  |  |  |  |  |
     | `tour_purpose` | PurposeCategory or None |  |  |  |  |  |  |  |
-    | `joint_tour_id` | int or None | ≥ 1, FK → `joint_tours.joint_tour_id` |  |  |  |  | ✓ |  |
+    | `joint_tour_id` | int or None | ≥ 1, FK → `joint_tours.joint_tour_id` |  |  |  |  |  |  |
     | `linked_trip_num` | int or None | ≥ 1 |  |  |  |  |  |  |
     | `num_segments` | int or None | ≥ 1 |  |  |  |  |  |  |
     | `travel_duration_minutes` | int or None | ≥ 0 |  |  |  |  |  |  |
@@ -166,7 +166,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `tour_num` | int | ≥ 1 |  |  |  |  |
     | `subtour_num` | int | ≥ 0 |  |  | ✓ |  |
     | `parent_tour_id` | int | ≥ 1, FK → `tours.tour_id` |  |  | ✓ |  |
-    | `joint_tour_id` | int or None | ≥ 1, FK → `joint_tours.joint_tour_id` |  |  | ✓ |  |
+    | `joint_tour_id` | int or None | ≥ 1, FK → `joint_tours.joint_tour_id` |  |  |  |  |
     | `tour_purpose` | PurposeCategory or None |  |  |  | ✓ |  |
     | `tour_type` | TourType |  |  |  |  |  |
     | `tour_category` | TourCategory |  |  |  | ✓ |  |

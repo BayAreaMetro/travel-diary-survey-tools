@@ -209,7 +209,7 @@ class JointTripConfig(BaseModel):
 
 def _validate_covariance_inputs(joint_trips: pl.DataFrame, linked_trips: pl.DataFrame) -> None:
     """Validate inputs for covariance estimation."""
-    required_joint_cols = {"joint_trip_id", "hh_id", "day_id"}
+    required_joint_cols = {"joint_trip_id", "hh_id", "travel_date"}
     required_trip_cols = {
         "linked_trip_id",
         "hh_id",

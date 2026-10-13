@@ -63,8 +63,8 @@ household -> person -> day -> tour ..   inherit   unusable if the one it belongs
 
 JOINT (_flag_joint) -- judged beside the chain, after it     op   rule
 ------------------------------------------------------------------------
-joint tour ..........................   >=2       >=2 tours on it, and its own
-                                                  household and day usable
+joint tour ..........................   >=2       >=2 tours on it, and its
+                                                  household usable
 joint trip ..........................   >=2       >=2 linked trips on it, likewise;
                                                   judged again after rejected joint
                                                   tours void their ids

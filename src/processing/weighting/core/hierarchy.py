@@ -250,7 +250,7 @@ HIERARCHY: tuple[Level, ...] = (
         ),
         parent="linked_trips",
         flow=Flow.UP,
-        scope="day_id",
+        scope="hh_id",
         agg=Agg.SUM,
     ),
     Level(
@@ -271,7 +271,7 @@ HIERARCHY: tuple[Level, ...] = (
         ),
         parent="tours",
         flow=Flow.UP,
-        scope="day_id",
+        scope="hh_id",
         agg=Agg.SUM,
     ),
 )

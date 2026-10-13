@@ -361,8 +361,8 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
         "days": days,
         "tours": tours,
         "linked_trips": linked_trips,
-        "joint_trips": build_joint_trips_table(linked_trips, assignments),
-        "joint_tours": build_joint_tours_table(tours),
+        "joint_trips": build_joint_trips_table(linked_trips, assignments, days),
+        "joint_tours": build_joint_tours_table(tours, days),
     }
 
 

@@ -27,7 +27,7 @@ from processing.tours.joint_tour_helpers import (
     _validate_joint_tours_have_joint_trips,
     identify_joint_tours,
 )
-from tests.fixtures.tour_pipeline import locate_and_extract_tours
+from tests.fixtures.tour_pipeline import days_not_asked, locate_and_extract_tours
 
 HH_ID = 23000075
 P1 = 23000075001
@@ -100,6 +100,7 @@ def link_and_detect_joint_trips(
     # Detect joint trips
     joint_result = detect_joint_trips(
         linked_trips=linked_trips,
+        days=days_not_asked(linked_trips),
         households=households,
         method="buffer",
         time_threshold_minutes=5.0,

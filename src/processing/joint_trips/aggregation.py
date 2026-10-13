@@ -13,14 +13,56 @@ from processing.completeness import MIN_JOINT_PARTICIPANTS
 logger = logging.getLogger(__name__)
 
 
+def household_date_of(members: pl.DataFrame, days: pl.DataFrame, key: str) -> pl.DataFrame:
+    """Return each grouping's ``travel_date``, read from its members' days.
+
+    A joint trip or joint tour is shared by several people, so it belongs to
+    the household's date, not to any one member's day. Every member's day must
+    fall on the same date; a grouping whose members sit on two dates, or on a
+    day the days table does not hold, raises rather than picking one.
+
+    Args:
+        members: Member records with *key* and ``day_id``.
+        days: Days with ``day_id`` and ``travel_date``.
+        key: The grouping id, e.g. ``joint_trip_id``.
+
+    Returns:
+        One row per *key* with its ``travel_date``.
+
+    Raises:
+        ValueError: If a grouping's members span more than one travel date, or
+            a member's day is missing from *days*.
+    """
+    per_group = (
+        members.select(key, "day_id")
+        .join(days.select("day_id", "travel_date"), on="day_id", how="left")
+        .group_by(key)
+        .agg(
+            pl.col("travel_date").first(),
+            pl.col("travel_date").n_unique().alias("_n_dates"),
+            pl.col("travel_date").null_count().alias("_n_missing"),
+        )
+    )
+    broken = per_group.filter((pl.col("_n_dates") > 1) | (pl.col("_n_missing") > 0))
+    if not broken.is_empty():
+        msg = (
+            f"{broken.height} {key} grouping(s) do not sit on one household date: their "
+            f"members' days fall on different travel dates, or a member's day is missing "
+            f"from days. Sample {key}: {broken[key].head(5).to_list()}."
+        )
+        raise ValueError(msg)
+    return per_group.select(key, "travel_date")
+
+
 def build_joint_trips_table(
     linked_trips: pl.DataFrame,
     joint_trip_assignments: pl.DataFrame,
+    days: pl.DataFrame,
 ) -> pl.DataFrame:
     """Build the joint_trips linking table from detected groups.
 
-    One row per joint_trip_id, recording which household and day the group
-    belongs to and how many member trips it holds. Where and when they travelled
+    One row per joint_trip_id, recording which household and travel date the
+    group belongs to and how many member trips it holds. Where and when they travelled
     stays on the member trips: collapsing those into one place or time is a
     choice of rule, and it is left to whoever needs the answer.
 
@@ -28,6 +70,8 @@ def build_joint_trips_table(
         linked_trips: Original trips DataFrame, carrying person_id
         joint_trip_assignments: Output from detect_disjoint_cliques with
             linked_trip_id and joint_trip_id columns
+        days: Days with ``day_id`` and ``travel_date``; see
+            :func:`household_date_of`.
 
     Returns:
         DataFrame with joint_trips schema (one row per joint_trip_id)
@@ -49,16 +93,14 @@ def build_joint_trips_table(
             schema={
                 "joint_trip_id": pl.Int64,
                 "hh_id": pl.Int64,
-                "day_id": pl.Int64,
+                "travel_date": days.schema["travel_date"],
                 "num_joint_travelers": pl.Int64,
             }
         )
 
     # Aggregate by joint_trip_id
     agg_exprs = [
-        # Household and day (should be same within group)
         pl.col("hh_id").first(),
-        pl.col("day_id").first(),
         # Count of travelers
         pl.col("linked_trip_id").n_unique().alias("num_joint_travelers"),
     ]
@@ -67,11 +109,17 @@ def build_joint_trips_table(
     if "survey_complete" in joint_members.columns:
         agg_exprs.append(pl.all("survey_complete").alias("survey_complete"))
 
-    joint_trips_table = joint_members.group_by("joint_trip_id").agg(agg_exprs)
-
     _validate_grouping_membership(joint_members)
 
-    return joint_trips_table
+    return (
+        joint_members.group_by("joint_trip_id")
+        .agg(agg_exprs)
+        .join(
+            household_date_of(joint_members, days, "joint_trip_id"),
+            on="joint_trip_id",
+            how="left",
+        )
+    )
 
 
 def _validate_grouping_membership(joint_members: pl.DataFrame) -> None:

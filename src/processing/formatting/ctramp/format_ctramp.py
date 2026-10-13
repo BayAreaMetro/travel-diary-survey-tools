@@ -285,7 +285,8 @@ def _incorporate_day_into_ids(
         persons: Canonical persons (one row per person).
         tours: Canonical tours (one row per tour, already has day_id).
         linked_trips: Canonical linked trips (one row per trip, already has day_id).
-        joint_trips: Canonical joint trips (one row per joint trip, already has day_id).
+        joint_trips: Canonical joint trips (one row per joint trip, with the
+            household's ``travel_date``).
         days: Canonical person-days table with person_id, hh_id, day_id columns.
 
     Returns:
@@ -386,13 +387,43 @@ def _incorporate_day_into_ids(
             pl.col("day_id").alias("person_id"),
         )
 
-    # Update joint_trips: only hh_id changes (no person_id at joint-trip level)
-    if len(joint_trips) > 0 and "day_id" in joint_trips.columns:
-        joint_trips = joint_trips.join(valid_day_ids, on="day_id", how="semi").with_columns(
-            (pl.col("hh_id") * 100 + pl.col("day_id") % 100).alias("hh_id"),
+    # Update joint_trips: a joint trip belongs to its household's date, so it takes
+    # the day number every member's day on that date shares. The inner join also
+    # drops joint trips on dates that are not target days, as the semi-joins above do.
+    if len(joint_trips) > 0:
+        joint_trips = (
+            joint_trips.join(
+                _household_date_numbers(days), on=["hh_id", "travel_date"], how="inner"
+            )
+            .with_columns((pl.col("hh_id") * 100 + pl.col("_day_num")).alias("hh_id"))
+            .drop("_day_num")
         )
 
     return households, persons, tours, linked_trips, joint_trips
+
+
+def _household_date_numbers(days: pl.DataFrame) -> pl.DataFrame:
+    """Return each household date's day number, the last two digits of its days' ids.
+
+    Every member's day on one date carries the same number, so a household date
+    has exactly one. If two members number the same date differently, a joint
+    trip on it has no single CT-RAMP household-day, so that raises.
+
+    Raises:
+        ValueError: If a household date carries more than one day number.
+    """
+    numbers = days.select(
+        "hh_id", "travel_date", (pl.col("day_id") % 100).alias("_day_num")
+    ).unique()
+    split = numbers.group_by("hh_id", "travel_date").len().filter(pl.col("len") > 1)
+    if not split.is_empty():
+        msg = (
+            f"{split.height} household date(s) carry more than one day number across "
+            f"their members' days, so a joint trip on them has no single CT-RAMP "
+            f"household-day. Sample: {split.drop('len').head(5).to_dicts()}."
+        )
+        raise ValueError(msg)
+    return numbers
 
 
 @step(
@@ -459,7 +490,7 @@ def _incorporate_day_into_ids(
             "origin_arrive_time",
         },
         "joint_trips": {"joint_trip_id", "hh_id"},
-        "days": {"person_id", "hh_id", "day_id"},
+        "days": {"person_id", "hh_id", "day_id", "travel_date"},
     },
 )
 def format_ctramp(  # noqa: PLR0913
