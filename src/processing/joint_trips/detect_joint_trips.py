@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 def _create_empty_results(
     linked_trips: pl.DataFrame,
+    days: pl.DataFrame,
 ) -> dict[str, pl.DataFrame]:
     """Create empty result structure when no joint trips are detected."""
     linked_trips_with_joints = linked_trips.with_columns(
@@ -37,7 +38,7 @@ def _create_empty_results(
         schema={
             "joint_trip_id": pl.Int64,
             "hh_id": pl.Int64,
-            "day_id": pl.Int64,
+            "travel_date": days.schema["travel_date"],
             "num_joint_travelers": pl.Int64,
         }
     )
@@ -74,12 +75,17 @@ def _filter_multi_person_households(
 def _create_and_filter_trip_pairs(
     candidate_trips: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Create trip pairs and apply deduplication and temporal filters."""
-    # Self-join within household to create trip pairs
+    """Create trip pairs and apply deduplication and temporal filters.
+
+    Pairs are formed within one household date only. Two members' trips that
+    straddle the survey's day boundary fall on different dates, and a joint
+    trip cannot belong to two.
+    """
     trip_pairs = candidate_trips.join(
         candidate_trips.select(
             [
                 "hh_id",
+                "travel_date",
                 "linked_trip_id",
                 "person_id",
                 "o_lat",
@@ -101,7 +107,7 @@ def _create_and_filter_trip_pairs(
                 "arrive_time": "arrive_time_b",
             }
         ),
-        on=["hh_id"],
+        on=["hh_id", "travel_date"],
         how="inner",
     )
 
@@ -178,6 +184,7 @@ def _assign_joint_trip_ids(
 @step(
     requires={
         "linked_trips": {
+            "day_id",
             "o_lat",
             "o_lon",
             "d_lat",
@@ -185,15 +192,17 @@ def _assign_joint_trip_ids(
             "depart_time",
             "arrive_time",
         },
+        "days": {"day_id", "travel_date"},
     },
     produces={
         "linked_trips": {"joint_trip_id"},
-        "joint_trips": {"joint_trip_id", "hh_id", "day_id"},
+        "joint_trips": {"joint_trip_id", "hh_id", "travel_date"},
     },
 )
 def detect_joint_trips(
     linked_trips: pl.DataFrame,
     households: pl.DataFrame,
+    days: pl.DataFrame,
     method: str = "buffer",
     time_threshold_minutes: float = 15.0,
     space_threshold_meters: float = 100.0,
@@ -211,6 +220,8 @@ def detect_joint_trips(
         linked_trips: Journey records with coordinates and timing. Required columns:
             linked_trip_id, hh_id, person_id, o/d coordinates, depart/arrive times.
         households: Household table for pre-filtering.
+        days: Days with ``travel_date``; trips are paired only within one
+            household date, and each joint trip records it.
         method: Detection method - "buffer" or "mahalanobis" (default: "buffer").
         time_threshold_minutes: Max time difference for buffer method (default: 15.0).
         space_threshold_meters: Max spatial distance for buffer method (default: 100.0).
@@ -281,8 +292,8 @@ def detect_joint_trips(
         3. Validate against reported num_travelers field if available
 
     Notes:
-        - Only compares trips within same household (joint trips across
-          households not detected)
+        - Only compares trips within one household date (joint trips across
+          households, or across the survey's day boundary, not detected)
         - Mahalanobis method requires calibrated covariance matrix (see
           scripts/calibrate_joint_trip_covariance.py)
         - Clique detection prevents false positives from partial or
@@ -313,14 +324,16 @@ def detect_joint_trips(
         len(households),
     )
 
-    # Pre-filter to household with 2+ persons
-    candidate_trips = _filter_multi_person_households(linked_trips)
+    # Pre-filter to household with 2+ persons, each trip on its travel date
+    candidate_trips = _filter_multi_person_households(linked_trips).join(
+        days.select("day_id", "travel_date"), on="day_id", how="left"
+    )
 
     if len(candidate_trips) == 0:
         logger.warning(
             "No multi-person households found. No joint trips possible, returning empty results."
         )
-        return _create_empty_results(linked_trips)
+        return _create_empty_results(linked_trips, days)
 
     # Create trip pairs and apply filters
     trip_pairs = _create_and_filter_trip_pairs(candidate_trips)
@@ -330,7 +343,7 @@ def detect_joint_trips(
             "No temporally overlapping trip pairs found. "
             "No joint trips detected, consider checking data quality."
         )
-        return _create_empty_results(linked_trips)
+        return _create_empty_results(linked_trips, days)
 
     # Compute pairwise distances
     trip_pairs = compute_pairwise_distances(trip_pairs)
@@ -354,7 +367,7 @@ def detect_joint_trips(
             "No joint trips detected. Consider relaxing thresholds or "
             "checking data quality (GPS accuracy, time synchronization)."
         )
-        return _create_empty_results(linked_trips)
+        return _create_empty_results(linked_trips, days)
 
     # Detect joint trips using clique detection
     clique_assignments, flagged_conflicts = detect_disjoint_cliques(
@@ -382,7 +395,9 @@ def detect_joint_trips(
     )
 
     # Build joint_trips aggregation table
-    joint_trips_table = build_joint_trips_table(linked_trips_with_joints, joint_trip_assignments)
+    joint_trips_table = build_joint_trips_table(
+        linked_trips_with_joints, joint_trip_assignments, days
+    )
 
     # Validate against num_travelers (optional logging)
     validate_against_num_travelers(

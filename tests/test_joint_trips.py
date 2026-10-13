@@ -26,6 +26,7 @@ from processing.joint_trips.similarity import (
     apply_mahalanobis_filter,
     compute_pairwise_distances,
 )
+from tests.fixtures.tour_pipeline import days_not_asked
 
 FULL_COVARIANCE = [
     [10000, 0, 0, 0],
@@ -270,6 +271,7 @@ def test_detect_matching_trips_buffer():
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
+        days=days_not_asked(linked_trips),
         households=households,
         method="buffer",
         time_threshold_minutes=15,
@@ -295,6 +297,7 @@ def test_detect_non_matching_trips():
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
+        days=days_not_asked(linked_trips),
         households=households,
         method="buffer",
     )
@@ -323,6 +326,7 @@ def test_a_chain_of_departures_is_resolved_into_one_group():
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
+        days=days_not_asked(linked_trips),
         households=households,
         method="buffer",
         time_threshold_minutes=15,
@@ -342,7 +346,12 @@ def test_single_person_household():
     """A household of one has nobody to travel with, and takes its own branch."""
     households, linked_trips = _household([datetime(2024, 1, 15, 9, 0)])
 
-    result = detect_joint_trips(linked_trips=linked_trips, households=households, method="buffer")
+    result = detect_joint_trips(
+        linked_trips=linked_trips,
+        days=days_not_asked(linked_trips),
+        households=households,
+        method="buffer",
+    )
 
     assert result["linked_trips"]["joint_trip_id"].null_count() == 1
     assert len(result["joint_trips"]) == 0
@@ -353,7 +362,10 @@ def test_empty_input():
     households, linked_trips = _household([datetime(2024, 1, 15, 9, 0)])
 
     result = detect_joint_trips(
-        linked_trips=linked_trips.clear(), households=households.clear(), method="buffer"
+        linked_trips=linked_trips.clear(),
+        days=days_not_asked(linked_trips.clear()),
+        households=households.clear(),
+        method="buffer",
     )
 
     # Should handle gracefully
@@ -395,7 +407,7 @@ class TestGroupingMembership:
         """The control: a genuine pair aggregates without complaint."""
         linked_trips, assignments = self._members([101, 102])
 
-        result = build_joint_trips_table(linked_trips, assignments)
+        result = build_joint_trips_table(linked_trips, assignments, days_not_asked(linked_trips))
 
         assert len(result) == 1
         assert result["num_joint_travelers"][0] == 2
@@ -412,4 +424,4 @@ class TestGroupingMembership:
         linked_trips, assignments = self._members(person_ids)
 
         with pytest.raises(ValueError, match="fewer than 2 distinct participants"):
-            build_joint_trips_table(linked_trips, assignments)
+            build_joint_trips_table(linked_trips, assignments, days_not_asked(linked_trips))

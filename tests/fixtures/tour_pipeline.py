@@ -14,10 +14,14 @@ from processing.tours import extract_tours
 
 
 def days_not_asked(linked_trips: pl.DataFrame) -> pl.DataFrame:
-    """Days for the trips, from a survey that did not ask where days began or ended."""
+    """Days for the trips, from a survey that did not ask where days began or ended.
+
+    Each day's ``travel_date`` is the date its first trip departs, so members of
+    one household travelling on the same date share it.
+    """
     return (
-        linked_trips.select(pl.col("day_id").cast(pl.Int64))
-        .unique()
+        linked_trips.group_by(pl.col("day_id").cast(pl.Int64))
+        .agg(pl.col("depart_time").min().dt.date().alias("travel_date"))
         .sort("day_id")
         .with_columns(
             pl.lit(None, dtype=pl.Int64).alias("begin_day"),

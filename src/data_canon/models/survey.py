@@ -531,7 +531,14 @@ class JointTripModel(BaseModel):
 
     joint_trip_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    travel_date: datetime = schema_field(
+        description=(
+            "The household date this grouping happened on, shared by every "
+            "member's day. Not any one member's day_id: a grouping belongs to "
+            "the household's date, and a member's own day can be unusable while "
+            "the others' are not."
+        ),
+    )
     num_joint_travelers: int = schema_field(
         ge=2,
         description=(
@@ -560,7 +567,14 @@ class JointTourModel(BaseModel):
 
     joint_tour_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    travel_date: datetime = schema_field(
+        description=(
+            "The household date this grouping happened on, shared by every "
+            "member's day. Not any one member's day_id: a grouping belongs to "
+            "the household's date, and a member's own day can be unusable while "
+            "the others' are not."
+        ),
+    )
     num_participants: int = schema_field(
         ge=2,
         description=(

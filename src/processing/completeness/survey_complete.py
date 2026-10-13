@@ -10,8 +10,10 @@ import polars as pl
 from .household_day import flag_household_day_complete
 
 # Records that sit on a day: their ``survey_complete`` is their own AND their day's
-# (a trip or tour is no more complete than the day it belongs to).
-_DAY_RECORDS = ("unlinked_trips", "linked_trips", "joint_trips", "tours", "joint_tours")
+# (a trip or tour is no more complete than the day it belongs to). Joint trips and
+# joint tours are not here: they belong to a household date, not to one member's
+# day, and their own value is already the AND of their members'.
+_DAY_RECORDS = ("unlinked_trips", "linked_trips", "tours")
 
 
 def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:

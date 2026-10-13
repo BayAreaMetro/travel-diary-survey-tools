@@ -24,10 +24,7 @@ from data_canon.codebook.ctramp import CTRAMPModeType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import PurposeCategory
 from processing.formatting.ctramp.format_households import format_households
-from processing.formatting.ctramp.format_joint_tours import (
-    format_joint_tour,
-    identify_misclassified_joint_tours,
-)
+from processing.formatting.ctramp.format_joint_tours import format_joint_tour
 from processing.formatting.ctramp.format_joint_trips import format_joint_trip
 from processing.formatting.ctramp.format_tours import format_individual_tour
 from processing.formatting.ctramp.format_trips import format_individual_trip
@@ -263,39 +260,13 @@ class TestSharingWithoutAJointTour:
         assert joint_trips.is_empty()  # nowhere in CT-RAMP to put them
 
 
-class TestInadmissibleJointPurposes:
-    """Groups CT-RAMP refuses to treat as joint."""
+class TestAdmissibleJointPurposes:
+    """Which purposes may be joint is the cascade's call, under ``joint_tours: fully_joint``.
 
-    @pytest.mark.parametrize(
-        "purpose",
-        [PurposeCategory.WORK, PurposeCategory.SCHOOL, PurposeCategory.ESCORT],
-    )
-    def test_rejected_purposes_move_to_the_individual_tables(self, purpose, standard_config):
-        """Work, school and escort groups are reclassified, and land exactly once."""
-        households, persons = _two_person_household()
-        tours = _shared_tour(purpose)
-        trips = _trips_for(tours)
-
-        indiv_tours, indiv_trips, joint_tours, joint_trips = _format_all(
-            tours, trips, persons, households, standard_config
-        )
-
-        assert len(indiv_tours) == len(tours)
-        assert len(indiv_trips) == len(trips)
-        assert joint_tours.is_empty()
-        assert joint_trips.is_empty()
-
-    def test_mixed_purpose_groups_are_reclassified(self):
-        """A group whose members disagree on purpose is not one joint tour."""
-        tours = _shared_tour(PurposeCategory.SHOP).with_columns(
-            pl.when(pl.col("tour_id") == 1002)
-            .then(pl.lit(PurposeCategory.SOCIALREC.value))
-            .otherwise(pl.col("tour_purpose"))
-            .alias("tour_purpose")
-        )
-
-        reclassified = identify_misclassified_joint_tours(tours)
-        assert reclassified["joint_tour_id"].null_count() == len(tours)
+    The formatter writes the joint tours it is handed. The work, school, escort
+    and mixed-purpose rules are tested where they now live, in
+    ``test_joint_ids``; what remains here is the control.
+    """
 
     def test_admissible_purpose_survives_as_joint(self, standard_config):
         """The control: a same-purpose non-mandatory group stays joint."""
@@ -369,7 +340,7 @@ class TestPartitionInvariants:
         assert not indiv_tours.is_empty()
         assert not joint_tours.is_empty()
 
-        admitted = identify_misclassified_joint_tours(tours)
+        admitted = tours
         individual_ids = set(admitted.filter(pl.col("joint_tour_id").is_null())["tour_id"])
         joint_member_ids = set(admitted.filter(pl.col("joint_tour_id").is_not_null())["tour_id"])
 
@@ -385,8 +356,9 @@ class TestPartitionInvariants:
         survived pointing at a joint tour that had been demoted to individual.
 
         Only an admissible purpose is exercised. An ESCORT parameter used to run
-        here too, but escort groups are reclassified, so the joint trip file came
-        back empty and the test passed without checking anything.
+        here too, back when the formatter dissolved escort groups itself, so the
+        joint trip file came back empty and the test passed without checking
+        anything.
         """
         households, persons = _two_person_household()
         tours = _shared_tour(PurposeCategory.SOCIALREC)
@@ -414,12 +386,22 @@ class TestJointTourNumbering:
     while they rank the same set of joint tours.
     """
 
-    def test_a_reclassified_joint_tour_does_not_shift_the_survivor(self, standard_config):
-        """Demoting one of two joint tours leaves the other numbered consistently."""
+    def test_a_dissolved_joint_tour_does_not_shift_the_survivor(self, standard_config):
+        """One of two joint tours arrives already dissolved; the other is numbered 0.
+
+        The cascade hands the formatter a null ``joint_tour_id`` on the tours
+        it kept off a joint tour (a work group, under ``fully_joint``), so the
+        numbering ranks only the joint tour that remains.
+        """
         households, persons = _two_person_household()
         tours = _two_joint_tours(
-            first_purpose=PurposeCategory.WORK,  # inadmissible -> reclassified
+            first_purpose=PurposeCategory.SOCIALREC,
             second_purpose=PurposeCategory.SOCIALREC,
+        ).with_columns(
+            pl.when(pl.col("joint_tour_id") == 5001)
+            .then(None)
+            .otherwise(pl.col("joint_tour_id"))
+            .alias("joint_tour_id")
         )
         trips = _trips_for(tours)
 
@@ -630,7 +612,7 @@ class TestPartlySharedToursAreRejectedHere:
             .alias("joint_trip_id")
         )
 
-        with pytest.raises(ValueError, match="partly-shared tour"):
+        with pytest.raises(ValueError, match=r"partly-shared tour.*joint_tours: fully_joint"):
             _format_all(tours, trips, persons, households, standard_config)
 
     def test_a_frame_with_no_joint_trips_at_all_is_not_judged(self, standard_config):

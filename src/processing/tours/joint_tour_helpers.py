@@ -38,6 +38,7 @@ import logging
 
 import polars as pl
 
+from processing.joint_trips.aggregation import household_date_of
 from utils.create_ids import create_concatenated_id
 
 logger = logging.getLogger(__name__)
@@ -173,7 +174,7 @@ def _validate_joint_tours_have_joint_trips(linked_trips: pl.DataFrame) -> None:
     raise ValueError(msg)
 
 
-def build_joint_tours_table(tours: pl.DataFrame) -> pl.DataFrame:
+def build_joint_tours_table(tours: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
     """Build the canonical ``joint_tours`` table from tours carrying a joint id.
 
     One row per ``joint_tour_id``, mirroring how ``build_joint_trips_table``
@@ -184,15 +185,17 @@ def build_joint_tours_table(tours: pl.DataFrame) -> pl.DataFrame:
     Args:
         tours: Canonical tours, after ``identify_joint_tours`` has stamped
             ``joint_tour_id``.
+        days: Days with ``day_id`` and ``travel_date``; see
+            :func:`processing.joint_trips.aggregation.household_date_of`.
 
     Returns:
-        One row per joint tour with ``hh_id``, ``day_id``, ``num_participants``
+        One row per joint tour with ``hh_id``, ``travel_date``, ``num_participants``
         and, where the member tours carry it, ``survey_complete``.
     """
     schema = {
         "joint_tour_id": pl.Int64,
         "hh_id": pl.Int64,
-        "day_id": pl.Int64,
+        "travel_date": days.schema["travel_date"],
         "num_participants": pl.Int64,
     }
     if "joint_tour_id" not in tours.columns:
@@ -204,14 +207,18 @@ def build_joint_tours_table(tours: pl.DataFrame) -> pl.DataFrame:
 
     agg = [
         pl.col("hh_id").first(),
-        pl.col("day_id").first(),
         pl.col("person_id").n_unique().alias("num_participants"),
     ]
     # A joint tour is only as complete as its least complete member.
     if "survey_complete" in members.columns:
         agg.append(pl.all("survey_complete").alias("survey_complete"))
 
-    joint_tours = members.group_by("joint_tour_id").agg(agg).sort("joint_tour_id")
+    joint_tours = (
+        members.group_by("joint_tour_id")
+        .agg(agg)
+        .join(household_date_of(members, days, "joint_tour_id"), on="joint_tour_id", how="left")
+        .sort("joint_tour_id")
+    )
 
     logger.info(
         "Built %d joint tours from %d member tours",

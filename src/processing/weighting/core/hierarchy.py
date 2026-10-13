@@ -45,10 +45,12 @@ rule is needed to read one back. Only [`weight_col_for`][processing.weighting.co
 stays the base name, which is what keeps ``id_col`` derivable.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from enum import Enum, auto
 
 from data_canon.validation.column import GeneratedColumn
+from processing.completeness import profile_of
 
 _SEED_COLUMNS: frozenset[str] = frozenset({"base_weight"})
 """Pre-balancing columns that are also per-profile.
@@ -150,6 +152,33 @@ class Level:
             return None
         return LEVELS[self.parent].id_col if self.flow is Flow.DOWN else self.id_col
 
+    def member_key_for(self, usability_flag_col: str | None, columns: Collection[str]) -> str:
+        """The column on the source table saying which grouping a record is on.
+
+        The joint groupings differ by profile: ``joint_tour_id_ctramp`` is the
+        bare ``joint_tour_id`` where the tour is on it for ctramp and null where
+        it is not, so summing by it counts exactly the tours that profile keeps
+        together. Where the profile's copy is absent -- a single un-suffixed
+        run, ``survey_complete``, or a level with no per-profile copy -- the
+        bare key is the answer.
+
+        Args:
+            usability_flag_col: The flag the weighting is gated on, from which
+                the profile is read.
+            columns: Columns present on the source table.
+
+        Returns:
+            The column to group the source by. Its values are the bare key's.
+        """
+        key = self.key
+        if key is None:
+            msg = f"{self.table} is the anchor and has no member key"
+            raise ValueError(msg)
+        profile = profile_of(usability_flag_col) if usability_flag_col else None
+        if profile is not None and f"{key}_{profile}" in columns:
+            return f"{key}_{profile}"
+        return key
+
     def __post_init__(self) -> None:
         """Reject a half-declared edge at import time rather than mid-pipeline."""
         edge = (self.parent, self.flow, self.scope)
@@ -221,7 +250,7 @@ HIERARCHY: tuple[Level, ...] = (
         ),
         parent="linked_trips",
         flow=Flow.UP,
-        scope="day_id",
+        scope="hh_id",
         agg=Agg.SUM,
     ),
     Level(
@@ -242,7 +271,7 @@ HIERARCHY: tuple[Level, ...] = (
         ),
         parent="tours",
         flow=Flow.UP,
-        scope="day_id",
+        scope="hh_id",
         agg=Agg.SUM,
     ),
 )

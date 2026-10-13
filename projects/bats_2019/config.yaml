@@ -175,7 +175,7 @@ steps:
     validate_input: false
     cache: true
     params:
-      # One boolean column per profile, on two axes, both answered explicitly.
+      # One boolean column per profile, on four axes, all answered explicitly.
       # See the bats_2023 config for the full vocabulary; the same three
       # profiles are declared here so the two survey years are gated alike and
       # can be compared without asking which standard each was built under.
@@ -184,14 +184,17 @@ steps:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: TAZ1454
+          joint_tours: fully_joint
         daysim:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: taz
+          joint_tours: fully_joint
         analysis:
           tour_closes_at: anywhere
           household_day_needs: nothing
           zone_coverage: none
+          joint_tours: partial
 
   # - name: weighting
   #   validate_input: true
@@ -384,6 +387,15 @@ steps:
   #   validate_input: false
   #   cache: false
   #   params:
+  #     # Required. true: a kept day's dropped trips hand their weight to its kept
+  #     # trips. false: kept trips keep their own. Trips always follow their day.
+  #     preserve_travel_totals: true
+  #     # Required. Households scale by one factor per size (number of persons);
+  #     # sizes from this one up share a factor.
+  #     household_size_top_group: 6
+  #     # Optional. The most a record may grow past its supplied weight, per table.
+  #     max_weight_factor:
+  #       households: 2.0
   #     derive_missing_weights: true
   #     weights:
   #       hh_weight:

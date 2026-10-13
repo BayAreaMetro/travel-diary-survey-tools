@@ -728,6 +728,80 @@ class TestUnequalJointMembers:
             assert weight != pytest.approx(imitation)
 
 
+def _make_tables_with_a_tour_off_its_joint_tour():
+    """Three tours the survey grouped; under profile ``p`` only two are on it.
+
+    Every record is usable and the household's 10 reaches every tour unsplit,
+    so the only thing that can make the joint weight 20 rather than 30 is
+    summing by ``joint_tour_id_p``.
+    """
+    flag = "usable_p"
+    three = [True, True, True]
+    return {
+        "households": pl.DataFrame({"hh_id": [1], "hh_weight": [10.0], flag: [True]}),
+        "persons": pl.DataFrame({"person_id": [1, 2, 3], "hh_id": [1, 1, 1], flag: three}),
+        "days": pl.DataFrame(
+            {"day_id": [10, 20, 30], "person_id": [1, 2, 3], "hh_id": [1, 1, 1], flag: three}
+        ),
+        "unlinked_trips": pl.DataFrame(
+            {
+                "unlinked_trip_id": [100, 200, 300],
+                "day_id": [10, 20, 30],
+                "linked_trip_id": [1, 2, 3],
+                flag: three,
+            }
+        ),
+        "linked_trips": pl.DataFrame(
+            {
+                "linked_trip_id": [1, 2, 3],
+                "day_id": [10, 20, 30],
+                "tour_id": [1, 2, 3],
+                "joint_trip_id": [500, 500, 500],
+                "joint_trip_id_p": [500, 500, None],
+                flag: three,
+            }
+        ),
+        "tours": pl.DataFrame(
+            {
+                "tour_id": [1, 2, 3],
+                "day_id": [10, 20, 30],
+                "joint_tour_id": [900, 900, 900],
+                "joint_tour_id_p": [900, 900, None],
+                flag: three,
+            }
+        ),
+        "joint_trips": pl.DataFrame({"joint_trip_id": [500], flag: [True]}),
+        "joint_tours": pl.DataFrame({"joint_tour_id": [900], flag: [True]}),
+    }
+
+
+class TestJointWeightsFollowTheProfilesJointIds:
+    """A tour the profile took off its joint tour is not in that tour's weight."""
+
+    def test_the_sum_covers_only_the_tours_on_it(self):
+        """Three tours of 10 in the survey's group; the profile keeps two: 20."""
+        tables = _make_tables_with_a_tour_off_its_joint_tour()
+        propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable_p")
+
+        assert tables["tours"]["tour_weight"].to_list() == pytest.approx([10.0, 10.0, 10.0])
+        assert tables["joint_tours"]["joint_tour_weight"][0] == pytest.approx(20.0)
+        assert tables["joint_trips"]["joint_trip_weight"][0] == pytest.approx(20.0)
+
+    def test_the_check_reads_the_same_column(self):
+        """20 reconciles against the two tours on it, not the three in the survey's group."""
+        tables = _make_tables_with_a_tour_off_its_joint_tour()
+        propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable_p")
+        _check_joint_sums(tables, "usable_p")
+
+    def test_without_a_profile_copy_the_bare_id_is_summed(self):
+        """A flag outside the family has no copy to read, so the survey's group is the sum."""
+        tables = _make_tables_with_a_tour_off_its_joint_tour()
+        tables["tours"] = tables["tours"].drop("joint_tour_id_p")
+        tables["linked_trips"] = tables["linked_trips"].drop("joint_trip_id_p")
+        propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable_p")
+        assert tables["joint_tours"]["joint_tour_weight"][0] == pytest.approx(30.0)
+
+
 class TestJointEdgeCases:
     """Awkward joint groupings that the sum convention has to survive."""
 
@@ -1088,3 +1162,56 @@ class TestNoCallerOmitsTheFlag:
         assert misses == [], "call sites dropping a required usability_flag_col:\n" + "\n".join(
             misses
         )
+
+
+class TestTheComputedPathHoldsItsTargets:
+    """After balancing, propagation must not lose household or person weight.
+
+    The balancer sets each usable household's weight; everything below it is
+    derived. A household stands for all its members, so persons must sum to
+    ``hh_weight x household size`` even when one member is not usable -- their
+    share goes to the household's usable members, not nowhere.
+    """
+
+    def _tables(self) -> dict[str, pl.DataFrame | None]:
+        # Household 1 (weight 12): persons 1 and 2 usable, person 3 not.
+        # Household 2 is not usable, so the balancer gave it nothing.
+        return {
+            "households": pl.DataFrame(
+                {"hh_id": [1, 2], "hh_weight": [12.0, 0.0], "usable_p": [True, False]}
+            ),
+            "persons": pl.DataFrame(
+                {
+                    "person_id": [11, 12, 13, 21],
+                    "hh_id": [1, 1, 1, 2],
+                    "usable_p": [True, True, False, False],
+                }
+            ),
+            "days": pl.DataFrame(
+                {
+                    "day_id": [110, 120, 130, 210],
+                    "person_id": [11, 12, 13, 21],
+                    "hh_id": [1, 1, 1, 2],
+                    "usable_p": [True, True, False, False],
+                }
+            ),
+            "unlinked_trips": None,
+            "linked_trips": None,
+            "joint_trips": None,
+            "tours": None,
+            "joint_tours": None,
+        }
+
+    def test_households_are_untouched(self):
+        """The balancer's weights are the target; propagation does not move them."""
+        tables = self._tables()
+        propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable_p")
+        assert tables["households"]["hh_weight"].sum() == pytest.approx(12.0, rel=1e-6)
+
+    def test_persons_sum_to_what_the_households_represent(self):
+        """Person 13's share goes to persons 11 and 12, so the household still counts 3."""
+        tables = self._tables()
+        propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable_p")
+        persons = tables["persons"].sort("person_id")
+        assert persons["person_weight"].sum() == pytest.approx(12.0 * 3, rel=1e-6)
+        assert persons["person_weight"].to_list() == pytest.approx([18.0, 18.0, 0.0, 0.0])

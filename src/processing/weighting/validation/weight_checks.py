@@ -5,9 +5,16 @@ and verifies weight consistency across the table hierarchy.
 """
 
 import logging
+from collections.abc import Collection
 
 import polars as pl
 
+from processing.completeness import profile_of
+from processing.completeness.kept_records import (
+    GATED_TABLES,
+    keep_records,
+    select_profile_columns,
+)
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.core.hierarchy import (
@@ -17,12 +24,17 @@ from processing.weighting.core.hierarchy import (
     levels_with_flow,
     seed_col_for,
     weight_col_for,
+    weight_columns_for,
 )
 from processing.weighting.core.specs import ControlSpec, ControlTotals
 
 logger = logging.getLogger(__name__)
 
 _HIERARCHY_ABS_TOL = 0.01
+
+# A table's total must survive the redistribution and the formatter to this
+# relative precision; anything beyond floating-point drift is weight going missing.
+_TOTAL_REL_TOL = 1e-6
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +108,130 @@ def weight_sanity_checks(
 
     _check_hierarchy(tables, usability_flag_col, profile)
     _check_joint_sums(tables, usability_flag_col, profile)
+    check_weight_placement(tables, usability_flag_col, profile)
+
+
+def check_weight_placement(
+    tables: dict[str, pl.DataFrame],
+    usability_flag_col: str,
+    profile: str | None = None,
+    *,
+    supplied_totals: dict[str, float] | None = None,
+) -> None:
+    """Verify every weight sits on a record its consumer will receive, or raise.
+
+    Three things, each a way weight has gone missing before:
+
+    1. No weight on a record the profile does not admit. The propagation zeroes
+       those, so a non-zero here means a table the usability pass never reached.
+    2. Each supplied table still sums to what was joined, so redistributing
+       onto the usable records moved the vendor's total rather than shrinking
+       it. Checked only where the caller supplies totals (the vendor path).
+    3. What the formatter will keep carries the whole total. [`keep_records`]
+       [processing.completeness.kept_records.keep_records] is the formatter's
+       own answer, so running it here and comparing totals proves the weighting
+       and the formatter agree before any file is written. Skipped only when a
+       table present carries no verdict, which is a partial call rather than
+       a run.
+
+    Args:
+        tables: Weighted canonical tables.
+        usability_flag_col: The flag the weighting was gated on.
+        profile: Usability profile whose weight columns to read, or None for the
+            un-suffixed set.
+        supplied_totals: table -> the total that was joined from a weight file,
+            for the tables that had one.
+
+    Raises:
+        ValueError: On the first table that fails any of the three.
+    """
+    weights = {
+        table: col
+        for table, col in weight_columns_for(profile).items()
+        if table in tables and col in tables[table].columns
+    }
+    gated = [t for t in weights if t in GATED_TABLES and usability_flag_col in tables[t].columns]
+
+    for table in gated:
+        col = weights[table]
+        misplaced = tables[table].filter(
+            ~pl.col(usability_flag_col).fill_null(value=False)
+            & pl.col(col).is_not_null()
+            & (pl.col(col) != 0)
+        )
+        if misplaced.height:
+            msg = (
+                f"{misplaced.height} {table} record(s) not admitted by {usability_flag_col} "
+                f"carry a non-zero {col} (total {misplaced[col].sum():.4f}). Weight on a "
+                "record the consumer never receives is weight the output loses."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+    for table, supplied in (supplied_totals or {}).items():
+        if table not in weights:
+            continue
+        placed = tables[table].select(pl.col(weights[table]).sum()).item() or 0.0
+        if abs(placed - supplied) > _TOTAL_REL_TOL * max(abs(supplied), 1.0):
+            msg = (
+                f"{table}: {weights[table]} sums to {placed:.4f} but {supplied:.4f} was "
+                f"supplied. The redistribution onto {usability_flag_col} records did not "
+                "keep the total."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+    _check_kept_records_carry_everything(tables, usability_flag_col, weights)
+    logger.info(
+        "  Weight placement under %s: OK (%s)", usability_flag_col, ", ".join(sorted(weights))
+    )
+
+
+def _check_kept_records_carry_everything(
+    tables: dict[str, pl.DataFrame],
+    usability_flag_col: str,
+    weights: dict[str, str],
+) -> None:
+    """Run the formatter's own record selection and require no weight left behind.
+
+    Skipped, with a debug line, when a gated table carries no verdict: that is
+    a partial call rather than a run.
+
+    Raises:
+        ValueError: Naming the table and the weight that would not reach it.
+    """
+    unflagged = [
+        t for t in GATED_TABLES if t in tables and usability_flag_col not in tables[t].columns
+    ]
+    if unflagged:
+        logger.debug(
+            "Skipping the kept-records total check: %s carry no %s",
+            ", ".join(unflagged),
+            usability_flag_col,
+        )
+        return
+    # The formatter reads the profile's own joint ids under the bare names; so
+    # must the check, or a trip in a group this profile dissolved looks dangling.
+    gated_tables = {t: df for t, df in tables.items() if t in GATED_TABLES}
+    named = profile_of(usability_flag_col)
+    if named is not None:
+        gated_tables = select_profile_columns(
+            gated_tables, named, only=("joint_tour_id", "joint_trip_id")
+        )
+    kept, _ = keep_records(gated_tables, usability_flag_col)
+    for table, col in weights.items():
+        if table not in kept:
+            continue
+        before = tables[table].select(pl.col(col).sum()).item() or 0.0
+        after = kept[table].select(pl.col(col).sum()).item() or 0.0
+        if abs(before - after) > _TOTAL_REL_TOL * max(abs(before), 1.0):
+            msg = (
+                f"{table}: {col} sums to {before:.4f} but the records a consumer of "
+                f"{usability_flag_col} keeps carry {after:.4f}. The weighting put "
+                f"{before - after:.4f} on records the formatter will leave out."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -236,10 +372,14 @@ def _check_joint_sums(
         if level.key not in source.columns:
             continue
 
+        # Summed by the same column the propagation summed by, so a tour that
+        # left its joint tour for this profile is not expected in the total.
+        member_key = level.member_key_for(usability_flag_col, source.columns)
         members = (
-            source.filter(pl.col(level.key).is_not_null() & pl.col(src_weight).is_not_null())
-            .group_by(level.key)
+            source.filter(pl.col(member_key).is_not_null() & pl.col(src_weight).is_not_null())
+            .group_by(member_key)
             .agg(pl.col(src_weight).sum().alias("member_sum"))
+            .rename({member_key: level.key})
         )
         checked = target.filter(pl.col(target_wt).is_not_null())
         if usability_flag_col in checked.columns:
@@ -279,8 +419,116 @@ def _check_joint_sums(
         raise ValueError(msg)
 
 
+def check_persons_carry_their_household(
+    tables: dict[str, pl.DataFrame], profile: str | None = None
+) -> None:
+    """Raise unless household weight x number of persons = the sum of its persons.
+
+    A household stands for every one of its persons, so its persons together
+    carry its weight once each. The supplied-weights path keeps a dropped
+    person's share inside the household, so the identity is exact; a dropped
+    household carries 0, and so must its persons.
+
+    Args:
+        tables: Weighted canonical tables.
+        profile: Usability profile whose weight columns to read, or None for the
+            un-suffixed set.
+
+    Raises:
+        ValueError: Naming the households whose persons do not sum to them.
+    """
+    households, persons = tables.get("households"), tables.get("persons")
+    hh_wt = weight_col_for("hh_weight", profile)
+    person_wt = weight_col_for("person_weight", profile)
+    if households is None or persons is None:
+        return
+    if hh_wt not in households.columns or person_wt not in persons.columns:
+        return
+
+    per_hh = persons.group_by("hh_id").agg(
+        pl.col(person_wt).fill_null(0.0).sum().alias("_persons"), pl.len().alias("_n")
+    )
+    failures = (
+        households.select("hh_id", pl.col(hh_wt).fill_null(0.0).alias("_hh"))
+        .join(per_hh, on="hh_id", how="left")
+        .with_columns(pl.col("_persons", "_n").fill_null(0))
+        .filter((pl.col("_persons") - pl.col("_hh") * pl.col("_n")).abs() > _HIERARCHY_ABS_TOL)
+        .sort("hh_id")
+    )
+    if failures.is_empty():
+        logger.info(
+            "  Persons carry their household (%s): OK (%d households)",
+            person_wt,
+            households.height,
+        )
+        return
+
+    msg = (
+        f"{failures.height} household(s) whose {hh_wt} x number of persons does not equal "
+        f"the sum of their {person_wt}. Sample hh_id: "
+        f"{failures['hh_id'].head(_MAX_REPORTED).to_list()}."
+    )
+    logger.error(msg)
+    raise ValueError(msg)
+
+
+def check_days_carry_their_person(
+    tables: dict[str, pl.DataFrame], profile: str | None = None
+) -> None:
+    """Raise unless every person's days sum to that person's weight.
+
+    The supplied-weights path gives each day its person's final weight, in
+    proportion to the supplier's day weights, so the identity is exact and has
+    no exemptions: a person carrying weight that no day carries -- no usable
+    day the supplier weighted, or no day at all -- is weight the day table has
+    lost. Holding it person by person also holds the day total to the person
+    total.
+
+    Args:
+        tables: Weighted canonical tables.
+        profile: Usability profile whose weight columns to read, or None for the
+            un-suffixed set.
+
+    Raises:
+        ValueError: Naming the persons whose days do not sum to them.
+    """
+    persons, days = tables.get("persons"), tables.get("days")
+    person_wt = weight_col_for("person_weight", profile)
+    day_wt = weight_col_for("day_weight", profile)
+    if persons is None or days is None:
+        return
+    if person_wt not in persons.columns or day_wt not in days.columns:
+        return
+
+    per_person = days.group_by("person_id").agg(pl.col(day_wt).fill_null(0.0).sum().alias("_days"))
+    merged = persons.select("person_id", pl.col(person_wt).fill_null(0.0).alias("_person")).join(
+        per_person, on="person_id", how="full", coalesce=True
+    )
+    failures = (
+        merged.with_columns(pl.col("_person", "_days").fill_null(0.0))
+        .filter((pl.col("_days") - pl.col("_person")).abs() > _HIERARCHY_ABS_TOL)
+        .sort("person_id")
+    )
+    if failures.is_empty():
+        logger.info("  Days carry their person (%s): OK (%d persons)", day_wt, merged.height)
+        return
+
+    msg = (
+        f"{failures.height} person(s) whose {day_wt} does not sum to their {person_wt}: "
+        f"{float(failures['_person'].sum()):.4f} on those persons, "
+        f"{float(failures['_days'].sum()):.4f} on their days. "
+        f"Sample person_id: {failures['person_id'].head(_MAX_REPORTED).to_list()}."
+    )
+    logger.error(msg)
+    raise ValueError(msg)
+
+
 def _check_hierarchy(
-    tables: dict[str, pl.DataFrame], usability_flag_col: str, profile: str | None = None
+    tables: dict[str, pl.DataFrame],
+    usability_flag_col: str,
+    profile: str | None = None,
+    *,
+    only: Collection[str] | None = None,
 ) -> None:
     """Verify that children sum to what their parents represent, or raise.
 
@@ -306,12 +554,17 @@ def _check_hierarchy(
         usability_flag_col: Flag marking which records may carry weight.
         profile: Usability profile whose weight columns to read, or None for the
             un-suffixed set.
+        only: Child tables whose edge to check; every DOWN edge by default. The
+            supplied-weights step passes the levels it derived, since a level
+            supplied as a file follows its own rule.
 
     Raises:
         ValueError: If any scope's children do not sum to what its parents
             represent.
     """
     for level in levels_with_flow(Flow.DOWN):
+        if only is not None and level.table not in only:
+            continue
         parent_name, child_name = level.parent, level.table
         join_key, child_wt = level.key, level.weight_col_for(profile)
         parent = tables.get(parent_name)  # type: ignore[arg-type]

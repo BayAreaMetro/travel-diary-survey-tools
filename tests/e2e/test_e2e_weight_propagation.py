@@ -180,3 +180,60 @@ class TestTheGateDecidesWhoCarriesWeight:
             pytest.skip(f"every {table} record was usable under {profile} in this run")
 
         assert unusable.filter(pl.col(_weight(table, profile)) > 0).height == 0
+
+
+# Every weighted table and its base weight column, for the guards below.
+_ALL_WEIGHTS = {
+    "households": "hh_weight",
+    "persons": "person_weight",
+    "days": "day_weight",
+    "unlinked_trips": "unlinked_trip_weight",
+    "linked_trips": "linked_trip_weight",
+    "tours": "tour_weight",
+    "joint_trips": "joint_trip_weight",
+    "joint_tours": "joint_tour_weight",
+}
+
+# Relative tolerance for a held total: floating-point drift, nothing more.
+_TOTAL_REL_TOL = 1e-6
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+class TestTheTargetsAreHeld:
+    """Households and persons are known populations; the gate must not shrink them.
+
+    Computed here from the supplied weight file and the tables, not through the
+    pipeline's own checks, so a rule and its check cannot agree on a wrong answer.
+    """
+
+    def test_the_household_total_is_the_supplied_total(self, weighted, full_input_dir, profile):
+        supplied = pl.read_csv(full_input_dir / "weights" / "hh_weights.csv")["hh_weight"].sum()
+        held = weighted["households"][_weight("households", profile)].sum()
+        assert held == pytest.approx(supplied, rel=_TOTAL_REL_TOL)
+
+    def test_the_person_total_is_what_the_households_represent(self, weighted, profile):
+        """Each household stands for all its members, so persons sum to hh_weight x size."""
+        hh_wt, person_wt = _weight("households", profile), _weight("persons", profile)
+        sizes = weighted["persons"].group_by("hh_id").agg(pl.len().alias("_n_persons"))
+        represented = (
+            weighted["households"]
+            .join(sizes, on="hh_id", how="left")
+            .select((pl.col(hh_wt) * pl.col("_n_persons").fill_null(0)).sum())
+            .item()
+        )
+        held = weighted["persons"][person_wt].sum()
+        assert held == pytest.approx(represented, rel=_TOTAL_REL_TOL)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("table", list(_ALL_WEIGHTS))
+def test_no_unusable_record_in_any_table_carries_weight(weighted, table, profile):
+    """Every table, not only persons and days: a weight on a record the gate drops is lost."""
+    df = weighted.get(table)
+    column = weight_col_for(_ALL_WEIGHTS[table], profile)
+    if df is None or column not in df.columns:
+        pytest.skip(f"{table} carries no {column} in this run")
+    stray = df.filter(
+        ~pl.col(usable_col_for(profile)).fill_null(value=False) & (pl.col(column) > 0)
+    )
+    assert stray.is_empty(), f"{stray.height} unusable {table} carry {column}"

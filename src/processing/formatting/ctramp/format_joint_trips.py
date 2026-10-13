@@ -10,11 +10,7 @@ from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import TNCType
 
 from .ctramp_config import CTRAMPConfig
-from .format_joint_tours import (
-    ctramp_joint_tour_numbers,
-    identify_misclassified_joint_tours,
-    joint_weight_columns,
-)
+from .format_joint_tours import ctramp_joint_tour_numbers, joint_weight_columns
 from .joint_representative import log_members_spanning_zones, select_representative_members
 from .mode_mappings import aggregate_transit_submode, ctramp_mode_expression
 from .purpose_mappings import ctramp_purpose_category_expression
@@ -59,10 +55,6 @@ def format_joint_trip(
         - Deduplicates to one row per joint_trip_id
     """
     logger.info("Formatting joint trip data for CT-RAMP")
-    # Same admissibility rule as the tour formatters; without it a reclassified
-    # group lands in both trip tables and points at an unwritten joint tour.
-    tours_canonical = identify_misclassified_joint_tours(tours_canonical)
-
     if len(joint_trips_canonical) == 0:
         logger.info("No joint trips found")
         return pl.DataFrame()
