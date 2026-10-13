@@ -22,6 +22,9 @@ from processing.completeness import (
     cascade_complete,
     stamp_usable,
 )
+from processing.completeness.kept_records import keep_records, select_profile_columns
+from processing.joint_trips.aggregation import build_joint_trips_table
+from processing.tours.joint_tour_helpers import build_joint_tours_table
 
 STRICT = UsabilityProfile(
     "strict",
@@ -242,26 +245,158 @@ class TestAGroupOfOneDissolves:
         assert out["joint_trips"][loose.flag].to_list() == [False]
 
 
-class TestAJointRecordInheritsItsOwnDay:
-    """A joint tour names a day; it is no more usable than that day is."""
+class TestAJointRecordBelongsToItsHousehold:
+    """A grouping inherits its household's verdict, not one traveller's day."""
 
-    def test_an_unusable_day_takes_the_joint_record_with_it(self):
-        """Both tours are fine, but the joint tour's own day row is not usable."""
-        tables = _household({1: [500], 2: [500]})
-        tables["joint_tours"] = tables["joint_tours"].with_columns(day_id=pl.Series([3]))
+    def test_a_third_person_with_an_unusable_day_does_not_break_the_other_two(self):
+        """Persons 2 and 3 share all three legs; person 1 joins legs 2 and 3 only.
+
+        Person 1's tour fails quality, so their day (complete, but with no
+        usable tour) is unusable, and the ``joint_trips`` rows for legs 2 and 3
+        happen to name that day. The household qualifies on another date, so it
+        stays usable. Persons 2 and 3 must keep every leg: the joint trip is
+        still two usable travellers.
+        """
+        tables = _household({1: [None, 500, 501], 2: [600, 500, 501], 3: [600, 500, 501]})
+        tables["tours"] = tables["tours"].with_columns(
+            pl.when(pl.col("person_id") == 1)
+            .then(pl.lit(TourDataQuality.SPATIAL_GAP.value))
+            .otherwise(pl.col("tour_data_quality"))
+            .alias("tour_data_quality")
+        )
         tables["days"] = pl.concat(
             [
                 tables["days"],
                 pl.DataFrame(
                     {
-                        "day_id": [3],
-                        "person_id": [1],
-                        "hh_id": [1],
-                        "travel_date": [datetime(2023, 5, 2)],
-                        "survey_complete": [False],
+                        "day_id": [11, 12, 13],
+                        "person_id": [1, 2, 3],
+                        "hh_id": [1, 1, 1],
+                        "travel_date": [datetime(2023, 5, 2)] * 3,
+                        "survey_complete": [True] * 3,
                     }
                 ),
             ]
         )
-        out = _stamp(LOOSE, tables)
-        assert out["joint_tours"][LOOSE.flag].to_list() == [False]
+        assert tables["joint_trips"]["day_id"].to_list() == [1, 1, 1]
+
+        out = _stamp(STRICT, tables)
+
+        assert out["households"][STRICT.flag].to_list() == [True]
+        assert _on_tour(out, STRICT) == {1: False, 2: True, 3: True}
+        trips = out["linked_trips"].sort("linked_trip_id")
+        by_tour = trips.group_by("tour_id", maintain_order=True).agg(pl.col(STRICT.joint_trip_id))
+        legs = dict(
+            zip(by_tour["tour_id"].to_list(), by_tour[STRICT.joint_trip_id].to_list(), strict=True)
+        )
+        assert legs == {10: [None, None, None], 20: [600, 500, 501], 30: [600, 500, 501]}
+        assert out["joint_trips"].sort("joint_trip_id")[STRICT.flag].to_list() == [True, True, True]
+        assert out["joint_tours"][STRICT.flag].to_list() == [True]
+
+
+def _three_person_household(travel_date: object, next_date: object) -> dict[str, pl.DataFrame]:
+    """The real case, household 23314479, with joint tables built by the pipeline.
+
+    Persons 2 and 3 share all three legs of a shop tour; person 1 joins legs 2
+    and 3 only, on a tour that fails quality, so person 1's day is complete but
+    unusable. All three members report a second date with no travel, so the
+    household stays usable. Person 1's rows come first, so a rule that files a
+    joint record under its first member's day files it under the unusable one.
+    """
+    people = [1, 2, 3]
+    legs = {1: [None, 500, 501], 2: [600, 500, 501], 3: [600, 500, 501]}
+    tours = pl.DataFrame(
+        {
+            "tour_id": [p * 10 for p in people],
+            "day_id": people,
+            "person_id": people,
+            "hh_id": [1] * 3,
+            "joint_tour_id": [None, 100, 100],
+            "tour_purpose": [SHOP] * 3,
+            "survey_complete": [True] * 3,
+            "parent_tour_id": [p * 10 for p in people],
+            "tour_data_quality": [
+                TourDataQuality.SPATIAL_GAP.value,
+                TourDataQuality.VALID.value,
+                TourDataQuality.VALID.value,
+            ],
+            "tour_category": [TourCategory.COMPLETE.value] * 3,
+        },
+        schema_overrides={"joint_tour_id": pl.Int64},
+    )
+    rows = [(p * 100 + i, p * 10, p, joint) for p in people for i, joint in enumerate(legs[p])]
+    linked_trips = pl.DataFrame(
+        {
+            "linked_trip_id": [r[0] for r in rows],
+            "tour_id": [r[1] for r in rows],
+            "person_id": [r[2] for r in rows],
+            "day_id": [r[2] for r in rows],
+            "hh_id": [1] * len(rows),
+            "joint_trip_id": [r[3] for r in rows],
+            "joint_tour_id": [None if r[2] == 1 else 100 for r in rows],
+            "survey_complete": [True] * len(rows),
+        },
+        schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
+    )
+    days = pl.DataFrame(
+        {
+            "day_id": [1, 2, 3, 11, 12, 13],
+            "person_id": [1, 2, 3, 1, 2, 3],
+            "hh_id": [1] * 6,
+            "travel_date": [travel_date] * 3 + [next_date] * 3,
+            "survey_complete": [True] * 6,
+        }
+    )
+    assignments = linked_trips.select("linked_trip_id", "joint_trip_id")
+    return {
+        "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
+        "persons": pl.DataFrame(
+            {
+                "person_id": people,
+                "hh_id": [1] * 3,
+                "survey_complete": [True] * 3,
+                "surveyable": [True] * 3,
+            }
+        ),
+        "days": days,
+        "tours": tours,
+        "linked_trips": linked_trips,
+        "joint_trips": build_joint_trips_table(linked_trips, assignments),
+        "joint_tours": build_joint_tours_table(tours),
+    }
+
+
+@pytest.mark.parametrize(
+    ("travel_date", "next_date"),
+    [
+        pytest.param(datetime(2023, 12, 10), datetime(2023, 12, 11), id="date"),
+        # The real days table carries travel_date as a string.
+        pytest.param("2023-12-10", "2023-12-11", id="string"),
+    ],
+)
+class TestTheGateKeepsWhatTheCascadeAdmits:
+    """Cascade and gate must agree: no joint record is kept or dropped by a different rule.
+
+    This is the shape that failed on real data: the gate refused joint trips the
+    cascade had admitted, because they pointed at one member's unusable day.
+    """
+
+    @pytest.mark.parametrize("profile", [STRICT, LOOSE], ids=lambda p: p.name)
+    def test_the_gate_passes(self, travel_date, next_date, profile):
+        """keep_records raises on any disagreement, so not raising is the assertion."""
+        out = _stamp(profile, _three_person_household(travel_date, next_date))
+        resolved = select_profile_columns(
+            out, profile.name, only=("joint_tour_id", "joint_trip_id")
+        )
+        keep_records(resolved, profile.flag)
+
+    def test_the_two_who_shared_every_leg_keep_their_joint_travel(self, travel_date, next_date):
+        """Persons 2 and 3 keep all three joint trips and their joint tour; person 1 is out."""
+        out = _stamp(STRICT, _three_person_household(travel_date, next_date))
+        resolved = select_profile_columns(out, STRICT.name, only=("joint_tour_id", "joint_trip_id"))
+        kept, _ = keep_records(resolved, STRICT.flag)
+
+        assert sorted(kept["joint_trips"]["joint_trip_id"].to_list()) == [500, 501, 600]
+        assert kept["joint_tours"]["joint_tour_id"].to_list() == [100]
+        assert sorted(kept["tours"].filter(pl.col("joint_tour_id") == 100)["person_id"]) == [2, 3]
+        assert kept["tours"].filter(pl.col("person_id") == 1).is_empty()

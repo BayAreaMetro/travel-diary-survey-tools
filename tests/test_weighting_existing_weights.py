@@ -506,3 +506,130 @@ class TestSuppliedTotalPreserved:
                 households=households,
                 usability_profile="survey_complete",
             )
+
+
+class TestPreserveTravelTotals:
+    """Whether a dropped trip's or tour's weight moves to the kept ones, or is dropped.
+
+    One person, one day. Tour 1 has trips 101 and 102 and is usable; tour 2 has
+    trip 103 and is not. The vendor supplies trip weights 6, 12, 18 (total 36).
+
+    Before the gate each tour's weight is the mean of its trips: tour 1 is 9,
+    tour 2 is 18, total 27.
+
+    * ``true``: trip 103's 18 moves onto 101 and 102 in proportion, giving 12
+      and 24, so trips still total 36. Tour 2's 18 moves onto tour 1, giving
+      27, so tours still total 27.
+    * ``false``: every kept record keeps exactly its own weight. Trips are 6,
+      12, 0 (total 18) and tours are 9, 0 (total 9).
+    """
+
+    def _run(self, tmp_path, preserve: bool) -> dict[str, pl.DataFrame]:
+        usable = {"usable_p": [True]}
+        tables = {
+            "households": pl.DataFrame({"hh_id": [1], **usable}),
+            "persons": pl.DataFrame({"person_id": [11], "hh_id": [1], **usable}),
+            "days": pl.DataFrame({"day_id": [110], "person_id": [11], "hh_id": [1], **usable}),
+            "unlinked_trips": pl.DataFrame(
+                {
+                    "unlinked_trip_id": [101, 102, 103],
+                    "linked_trip_id": [1, 2, 3],
+                    "tour_id": [1, 1, 2],
+                    "day_id": [110] * 3,
+                    "usable_p": [True, True, False],
+                }
+            ),
+            "linked_trips": pl.DataFrame(
+                {
+                    "linked_trip_id": [1, 2, 3],
+                    "tour_id": [1, 1, 2],
+                    "day_id": [110] * 3,
+                    "usable_p": [True, True, False],
+                }
+            ),
+            "tours": pl.DataFrame(
+                {"tour_id": [1, 2], "day_id": [110, 110], "usable_p": [True, False]}
+            ),
+        }
+        weights = {
+            "hh_weight": {"weight_path": _weight_file(tmp_path, "hh", hh_id=[1], hh_weight=[10.0])},
+            "person_weight": {
+                "weight_path": _weight_file(
+                    tmp_path, "person", person_id=[11], person_weight=[10.0]
+                )
+            },
+            "day_weight": {
+                "weight_path": _weight_file(tmp_path, "day", day_id=[110], day_weight=[10.0])
+            },
+            "unlinked_trip_weight": {
+                "weight_path": _weight_file(
+                    tmp_path,
+                    "trip",
+                    unlinked_trip_id=[101, 102, 103],
+                    unlinked_trip_weight=[6.0, 12.0, 18.0],
+                )
+            },
+        }
+        return add_existing_weights(
+            weights=weights,
+            usability_profile="p",
+            derive_missing_weights=True,
+            preserve_travel_totals=preserve,
+            **tables,
+        )
+
+    def _weights(self, result, table: str, col: str, key: str) -> list[float]:
+        return result[table].sort(key)[col].to_list()
+
+    def test_true_holds_the_trip_totals(self, tmp_path):
+        """Trip 103's weight moves to the kept trips; the trip total stays at 36."""
+        result = self._run(tmp_path, preserve=True)
+        unlinked = self._weights(
+            result, "unlinked_trips", "unlinked_trip_weight", "unlinked_trip_id"
+        )
+        linked = self._weights(result, "linked_trips", "linked_trip_weight", "linked_trip_id")
+        assert unlinked == pytest.approx([12.0, 24.0, 0.0])
+        assert linked == pytest.approx([12.0, 24.0, 0.0])
+
+    def test_true_holds_the_tour_total(self, tmp_path):
+        """Tour 2's pre-gate weight of 18 moves to tour 1; tours still total 27."""
+        result = self._run(tmp_path, preserve=True)
+        tours = self._weights(result, "tours", "tour_weight", "tour_id")
+        assert tours == pytest.approx([27.0, 0.0])
+
+    def test_false_keeps_every_kept_trip_at_its_own_weight(self, tmp_path):
+        """Nothing moves: the dropped trip's 18 is gone, and the trip total is 18."""
+        result = self._run(tmp_path, preserve=False)
+        unlinked = self._weights(
+            result, "unlinked_trips", "unlinked_trip_weight", "unlinked_trip_id"
+        )
+        linked = self._weights(result, "linked_trips", "linked_trip_weight", "linked_trip_id")
+        assert unlinked == pytest.approx([6.0, 12.0, 0.0])
+        assert linked == pytest.approx([6.0, 12.0, 0.0])
+
+    def test_false_keeps_every_kept_tour_at_its_own_weight(self, tmp_path):
+        """Tour 1 keeps the mean of its own trips, 9; tour 2 is 0."""
+        result = self._run(tmp_path, preserve=False)
+        tours = self._weights(result, "tours", "tour_weight", "tour_id")
+        assert tours == pytest.approx([9.0, 0.0])
+
+    @pytest.mark.parametrize("preserve", [True, False])
+    def test_households_persons_and_days_are_held_either_way(self, tmp_path, preserve):
+        """The option is about travel only; the population targets never move."""
+        result = self._run(tmp_path, preserve=preserve)
+        assert result["households"]["hh_weight"].sum() == pytest.approx(10.0)
+        assert result["persons"]["person_weight"].sum() == pytest.approx(10.0)
+        assert result["days"]["day_weight"].sum() == pytest.approx(10.0)
+
+    def test_the_option_is_required(self, tmp_path):
+        """The config must state the choice; the code does not assume one."""
+        with pytest.raises(TypeError, match="preserve_travel_totals"):
+            add_existing_weights(
+                weights={
+                    "hh_weight": {
+                        "weight_path": _weight_file(tmp_path, "hh", hh_id=[1], hh_weight=[1.0])
+                    }
+                },
+                usability_profile="p",
+                households=pl.DataFrame({"hh_id": [1], "usable_p": [True]}),
+            )

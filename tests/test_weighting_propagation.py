@@ -1162,3 +1162,56 @@ class TestNoCallerOmitsTheFlag:
         assert misses == [], "call sites dropping a required usability_flag_col:\n" + "\n".join(
             misses
         )
+
+
+class TestTheComputedPathHoldsItsTargets:
+    """After balancing, propagation must not lose household or person weight.
+
+    The balancer sets each usable household's weight; everything below it is
+    derived. A household stands for all its members, so persons must sum to
+    ``hh_weight x household size`` even when one member is not usable -- their
+    share goes to the household's usable members, not nowhere.
+    """
+
+    def _tables(self) -> dict[str, pl.DataFrame | None]:
+        # Household 1 (weight 12): persons 1 and 2 usable, person 3 not.
+        # Household 2 is not usable, so the balancer gave it nothing.
+        return {
+            "households": pl.DataFrame(
+                {"hh_id": [1, 2], "hh_weight": [12.0, 0.0], "usable_p": [True, False]}
+            ),
+            "persons": pl.DataFrame(
+                {
+                    "person_id": [11, 12, 13, 21],
+                    "hh_id": [1, 1, 1, 2],
+                    "usable_p": [True, True, False, False],
+                }
+            ),
+            "days": pl.DataFrame(
+                {
+                    "day_id": [110, 120, 130, 210],
+                    "person_id": [11, 12, 13, 21],
+                    "hh_id": [1, 1, 1, 2],
+                    "usable_p": [True, True, False, False],
+                }
+            ),
+            "unlinked_trips": None,
+            "linked_trips": None,
+            "joint_trips": None,
+            "tours": None,
+            "joint_tours": None,
+        }
+
+    def test_households_are_untouched(self):
+        """The balancer's weights are the target; propagation does not move them."""
+        tables = self._tables()
+        propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable_p")
+        assert tables["households"]["hh_weight"].sum() == pytest.approx(12.0, rel=1e-6)
+
+    def test_persons_sum_to_what_the_households_represent(self):
+        """Person 13's share goes to persons 11 and 12, so the household still counts 3."""
+        tables = self._tables()
+        propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable_p")
+        persons = tables["persons"].sort("person_id")
+        assert persons["person_weight"].sum() == pytest.approx(12.0 * 3, rel=1e-6)
+        assert persons["person_weight"].to_list() == pytest.approx([18.0, 18.0, 0.0, 0.0])

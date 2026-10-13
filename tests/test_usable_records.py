@@ -191,6 +191,19 @@ class TestTheKeptRecordsMustAgree:
         with pytest.raises(ValueError, match=r"tours: tour_weight sums to 14\.0000 .* 10\.0000"):
             keep_usable({"tours": tours}, PROFILE)
 
+    def test_a_dropped_record_with_weight_is_named(self):
+        """Each dropped record carrying weight is named, not only the total.
+
+        A shortfall in the total says weight was lost; naming the records says
+        where to look. Tour 3 is dropped too but carries nothing, so it is not
+        named.
+        """
+        tours = _tours([(1, None, True), (2, None, False), (3, None, False)]).with_columns(
+            tour_weight=pl.Series([10.0, 4.0, 0.0])
+        )
+        with pytest.raises(ValueError, match=r"1 tours .* tour_weight .* tour_id: \[2\]"):
+            keep_usable({"tours": tours}, PROFILE)
+
 
 class TestAnAdmittedGroupIsLeftAlone:
     """A consistent set goes through untouched."""
