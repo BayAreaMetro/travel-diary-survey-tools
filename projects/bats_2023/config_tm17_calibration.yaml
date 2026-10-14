@@ -23,7 +23,7 @@
 survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
 weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"
 pums_dir: "{{ MTC_DATA }}/Data/Census/PUMS/2023_1yr"
-output_dir: "E:/2023_BATS_Summaries/pipeline_mt_20261008_NoMon_rmo"
+output_dir: "{{ MTC_DATA }}/Development/Travel Model One/Calibration/Version 1.7/2023_BATS_Summaries/pipeline_mt_20261008_NoMon_rmo"
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
@@ -130,6 +130,10 @@ steps:
     cache: true
     params:
       buffer_meters: "{{ habitual_buffer_meters }}"
+      # Also add homes found where days were said to begin or end, beside the
+      # reported ones. A "home" answer away from the reported home then counts
+      # as another home. No default: state the choice.
+      include_observed_homes: true
 
   - name: detect_joint_trips
     validate_input: false
@@ -158,7 +162,7 @@ steps:
       # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
       # internal junction jumps more than this many meters between one trip's
       # destination and the next trip's origin - a missing leg the extractor
-      # would otherwise weld into one "complete" tour. 1 km catches genuine
+      # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
       habitual_locations:
@@ -222,6 +226,16 @@ steps:
       #                                      would already have counted it
       #                        none          no geographic requirement
       #
+      #   joint_tours:         fully_joint   a joint tour is only the members who
+      #                                      share every leg of it, and never a
+      #                                      work, school or escort tour -- the
+      #                                      models draw a joint tour's trips once
+      #                                      for everyone on it. A member who
+      #                                      leaves for a leg travels alone, as
+      #                                      an individual tour
+      #                        partial       the joint groups the survey detected,
+      #                                      as they are
+      #
       # No setting admits a tour with a missing leg or no activity to anchor on.
       # Those are missing data, not an open end.
       usability_profiles:
@@ -229,14 +243,17 @@ steps:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: TAZ1454
+          joint_tours: fully_joint
         daysim:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: taz
+          joint_tours: fully_joint
         analysis:
           tour_closes_at: anywhere
           household_day_needs: nothing
           zone_coverage: none
+          joint_tours: partial
 
   # - name: compute_weights
   #   validate_input: false
@@ -458,9 +475,18 @@ steps:
     validate_input: false
     cache: false
     params:
+      # Required. true: a kept day's dropped trips hand their weight to its kept
+      # trips. false: kept trips keep their own. Trips always follow their day.
+      preserve_travel_totals: true
+      # Required. Households scale by one factor per size (number of persons);
+      # sizes from this one up share a factor.
+      household_size_top_group: 6
+      # Optional. The most a record may grow past its supplied weight, per table.
+      max_weight_factor:
+        households: 2.0
       derive_missing_weights: true
       # Supplied weights are redistributed onto each profile's usable records,
-      # preserving each supplied total -- a vendor's anchor cannot be re-balanced.
+      # holding the household total and each household's persons.
       weight_profiles: [ctramp, daysim, analysis]
       weights:
         hh_weight:
