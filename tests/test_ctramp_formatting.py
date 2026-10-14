@@ -4,6 +4,7 @@ Tests formatting, field corrections, and end-to-end transformation from
 canonical survey data to CT-RAMP model format.
 """
 
+import logging
 from datetime import datetime, time
 from typing import get_args
 
@@ -42,6 +43,7 @@ from data_canon.models.ctramp import (
 from processing.formatting.ctramp.format_ctramp import _drop_excess_fields, format_ctramp
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_joint_trips import format_joint_trip
+from processing.formatting.ctramp.format_mandatory_location import format_mandatory_location
 from processing.formatting.ctramp.format_persons import format_persons
 from processing.formatting.ctramp.format_tours import (
     format_individual_tour,
@@ -971,6 +973,63 @@ class TestWorkRelatedCountsAsWork:
 
         assert result["tour_purpose"][0].startswith("work_")
         assert result["tour_category"][0] == CTRAMPTourCategory.MANDATORY.value
+
+
+def _tours_ctramp(person_id, *purposes):
+    """CT-RAMP tours for one person, one row per purpose string."""
+    return pl.DataFrame({"person_id": [person_id] * len(purposes), "tour_purpose": list(purposes)})
+
+
+class TestWhatTheModelCannotTakeIsLogged:
+    """Days and tours the model has no alternative for are reported, never changed.
+
+    The model chooses a person-day's mandatory pattern from a fixed set it
+    narrows by person type, and sends work and school tours to a usual
+    location. Survey days outside that are real; the log says how many.
+    """
+
+    def test_a_pattern_not_offered_to_the_person_type(self, standard_config, caplog):
+        """A 16-17 student's day of work alone: the model gives them work only with school."""
+        student = create_person(
+            person_id=101,
+            hh_id=1,
+            age=AgeCategory.AGE_16_TO_17,
+            employment=Employment.EMPLOYED_PARTTIME,
+            student=Student.FULLTIME_INPERSON,
+            school_type=SchoolType.HIGH_SCHOOL,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = format_persons(
+                pl.DataFrame([student]), _tours_ctramp(101, "work_med"), standard_config
+            )
+
+        assert result["imf_choice"][0] == 1  # kept: one work tour
+        assert "Student of driving age" in caplog.text
+        assert "one work tour" in caplog.text
+
+    def test_work_and_school_tours_with_no_usual_location(self, standard_config, caplog):
+        """The tours stay work and school tours; the location stays 0."""
+        worker = create_person(person_id=101, hh_id=1, employment=Employment.EMPLOYED_FULLTIME)
+        persons = pl.DataFrame([worker])
+        tours = _tours_ctramp(101, "work_med", "university")
+        households = format_households(
+            pl.DataFrame([create_household(hh_id=1)]), persons, empty_tours(), standard_config
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = format_mandatory_location(
+                format_persons(persons, tours, standard_config),
+                households,
+                pl.DataFrame(),
+                standard_config,
+            )
+
+        assert result["WorkLocation"][0] == 0
+        assert "1 work tour(s)" in caplog.text
+        assert "no usual workplace" in caplog.text
+        assert "1 school tour(s)" in caplog.text
+        assert "no usual school" in caplog.text
 
 
 class TestJointTourFormatting:

@@ -203,6 +203,34 @@ def calc_fixed_location_distances(
     return distances
 
 
+def _log_tours_with_no_usual_location(
+    mandatory_loc: pl.DataFrame, kind: str, place: str, taz_field: str
+) -> None:
+    """Warn about *kind* tours made by person-days with no usual *place*.
+
+    The model sends every work or school tour to the usual location, so it has
+    nothing to send these to. The tours are real -- the survey could not place
+    them -- and stay *kind* tours, with the location 0.
+    """
+    count_col, zone_col = f"{kind}_count", f"{kind}_{taz_field}"
+    if count_col not in mandatory_loc.columns:
+        return
+    unplaced = mandatory_loc.filter(
+        (pl.col(count_col).fill_null(0) > 0) & (pl.col(zone_col).fill_null(0) == 0)
+    )
+    if unplaced.is_empty():
+        return
+    logger.warning(
+        "%d %s tour(s) by %d person-day(s) with no usual %s; they stay %s tours, "
+        "with the location 0.",
+        unplaced[count_col].sum(),
+        kind,
+        unplaced.height,
+        place,
+        kind,
+    )
+
+
 def format_mandatory_location(
     persons_ctramp: pl.DataFrame,
     households_ctramp: pl.DataFrame,
@@ -270,6 +298,9 @@ def format_mandatory_location(
             on="person_id",
             how="left",
         ).rename({f"{fixed_type}_distance_{config.distance_unit}": f"{fixed_type}_distance_survey"})
+
+    for kind, place in (("work", "workplace"), ("school", "school")):
+        _log_tours_with_no_usual_location(mandatory_loc, kind, place, config.taz_field)
 
     # Map to CT-RAMP column names
     mandatory_loc = mandatory_loc.select(
