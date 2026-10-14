@@ -11,7 +11,30 @@ from data_canon.codebook.ctramp import (
     CTRAMPTripPurpose,
 )
 from data_canon.codebook.persons import SchoolType
-from data_canon.codebook.trips import PurposeCategory
+from data_canon.codebook.trips import WORK_PURPOSE_CATEGORIES, PurposeCategory
+
+
+def is_ctramp_worker(person_type: pl.Expr) -> pl.Expr:
+    """Whether CT-RAMP types the person as a full- or part-time worker."""
+    return person_type.is_in(
+        [CTRAMPPersonType.FULL_TIME_WORKER.value, CTRAMPPersonType.PART_TIME_WORKER.value]
+    )
+
+
+def is_work_purpose(purpose_category: pl.Expr, person_type: pl.Expr) -> pl.Expr:
+    """Whether CT-RAMP takes a tour of this purpose, by this person, as work.
+
+    A worker's work-related tour is work: the survey separates the workplace from
+    a meeting, jobsite or volunteering, and the model does not. Anyone else's
+    work-related tour stays non-mandatory -- CT-RAMP gives non-workers no work
+    tours, and a child's is a parent's purpose copied onto a trip they shared.
+    A reported workplace visit is work for everyone, as it always was.
+    """
+    return (purpose_category == PurposeCategory.WORK.value) | (
+        purpose_category.is_in([p.value for p in WORK_PURPOSE_CATEGORIES])
+        & is_ctramp_worker(person_type)
+    )
+
 
 PURPOSECATEGORY_TO_JTF_GROUP = {
     # Shopping
@@ -115,19 +138,13 @@ def ctramp_purpose_category_expression(
         pl.lit(purpose_enum.HOME.value)
     )
 
-    # At-work sub-tour purposes only apply when the row is a subtour
-    # and the parent tour purpose is WORK.
+    # At-work sub-tour purposes only apply when the row is a subtour of a work tour.
     if parent_tour_purpose is not None and is_subtour is not None:
-        is_at_work_subtour = is_subtour & (parent_tour_purpose == PurposeCategory.WORK.value)
+        is_at_work_subtour = is_subtour & is_work_purpose(parent_tour_purpose, person_type)
     else:
         is_at_work_subtour = pl.lit(False)  # noqa: FBT003
 
-    is_worker = person_type.is_in(
-        [
-            CTRAMPPersonType.FULL_TIME_WORKER.value,
-            CTRAMPPersonType.PART_TIME_WORKER.value,
-        ]
-    )
+    is_worker = is_ctramp_worker(person_type)
 
     # At-work subtours with WORK/WORK_RELATED purposes
     # ATWORK_BUSINESS (check FIRST, before primary work)
@@ -150,9 +167,9 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(purpose_enum.WORK_HIGH.value))
         .otherwise(pl.lit(purpose_enum.WORK_VERY_HIGH.value))
     )
-    work_expr = atwork_business_expr.when(
-        purpose_category.is_in([PurposeCategory.WORK.value])
-    ).then(work_income_segmentation)
+    work_expr = atwork_business_expr.when(is_work_purpose(purpose_category, person_type)).then(
+        work_income_segmentation
+    )
 
     # School purposes - segmented by student type
     school_segmentation_expr = (
