@@ -14,7 +14,7 @@ every table's verdict. The functions below are in the order they run.
 
 import polars as pl
 
-from data_canon.codebook.trips import PurposeCategory
+from data_canon.codebook.trips import WORK_PURPOSE_CATEGORIES, PurposeCategory
 
 from .profiles import UsabilityProfile
 
@@ -33,8 +33,9 @@ _JOINT_GROUPINGS = (
 _TOUR_MEMBER_TABLES = ("linked_trips", "unlinked_trips")
 
 # Purposes a model never draws jointly, so a tour with one is never on a joint tour.
+# Work includes work-related: a model treats a meeting or jobsite as work.
 _NEVER_JOINT_PURPOSES = (
-    PurposeCategory.WORK.value,
+    *(p.value for p in WORK_PURPOSE_CATEGORIES),
     PurposeCategory.SCHOOL.value,
     PurposeCategory.ESCORT.value,
 )
@@ -79,7 +80,7 @@ def _flag_joint_ids(
 
     Under ``partial`` a usable tour in a group is on it. Under ``fully_joint``
     the model draws one set of trips for everyone on the tour, so a tour is on
-    it only if it is usable, not work, school or escort, and made the same
+    it only if it is usable, not work, work-related, school or escort, and made the same
     joint trips as the others (see :func:`_fully_joint_tours`). A linked trip
     is on its joint trip only while its tour is on its joint tour, and both
     trip tables carry the tour's answer too.
@@ -136,7 +137,7 @@ def _fully_joint_tours(
 
     Without a linked trips table there are no legs to compare, so the answer
     stops at the tour's own standing: usable, in a group, and never work,
-    school or escort.
+    work-related, school or escort.
     """
     tour_col = cols.joint_tour_id
     on_tour = pl.col(cols.flag).fill_null(value=False) & pl.col("joint_tour_id").is_not_null()

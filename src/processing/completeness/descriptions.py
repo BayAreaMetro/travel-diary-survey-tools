@@ -67,7 +67,8 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
         else ", asking nothing of geography"
     )
     joint = (
-        "; a joint tour only where everyone shares every leg and none is work, school or escort"
+        "; a joint tour only where everyone shares every leg and none is work, "
+        "work-related, school or escort"
         if profile.requires_fully_joint
         else "; joint tours as the survey detected them"
     )
@@ -94,7 +95,7 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
         + (
             "On it only where usable, where everyone on the tour made the same joint "
             "trips, and where the tour has two or more such people with one purpose "
-            "that is not work, school or escort; a person who leaves for a leg "
+            "that is not work, work-related, school or escort; a person who leaves for a leg "
             "travels alone, as an individual tour."
             if profile.requires_fully_joint
             else "On it where usable and the survey put it in a joint tour."
