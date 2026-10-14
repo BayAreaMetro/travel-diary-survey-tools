@@ -717,6 +717,19 @@
     "nulls": 0,
     "sum": -9667.692
    },
+   "maz": {
+    "counts": {
+     "1": 76,
+     "None": 3
+    },
+    "distinct": 2,
+    "dtype": "Int64",
+    "hash": "40aa681fac6629cf",
+    "max": 1.0,
+    "min": 1.0,
+    "nulls": 3,
+    "sum": 76.0
+   },
    "person_id": {
     "distinct": 45,
     "dtype": "Int64",
@@ -738,6 +751,19 @@
     "min": 1.0,
     "nulls": 0,
     "sum": 81.0
+   },
+   "taz": {
+    "counts": {
+     "1": 76,
+     "None": 3
+    },
+    "distinct": 2,
+    "dtype": "Int64",
+    "hash": "40aa681fac6629cf",
+    "max": 1.0,
+    "min": 1.0,
+    "nulls": 3,
+    "sum": 76.0
    }
   },
   "rows": 79,

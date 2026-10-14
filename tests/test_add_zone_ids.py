@@ -206,6 +206,25 @@ class TestAddZoneIds:
         assert result["unlinked_trips"]["o_taz"][0] == 1
         assert result["unlinked_trips"]["d_taz"][1] == 3
 
+    def test_habitual_locations_get_their_zone(self, zone_shapefile):
+        """A workplace found from trips needs a zone to be a model's usual workplace.
+
+        The table's coordinates are bare ``lat``/``lon``, so its zone column is
+        the bare zone name too.
+        """
+        habitual_locations = pl.DataFrame(
+            {"habitual_location_id": [1, 2], "lon": [0.5, 2.5], "lat": [0.5, 2.5]}
+        )
+
+        result = add_zone_ids(
+            habitual_locations=habitual_locations,
+            zone_geographies=[
+                {"shapefile": zone_shapefile, "zone_id_field": "taz_id", "zone_name": "taz"}
+            ],
+        )
+
+        assert result["habitual_locations"]["taz"].to_list() == [1, 3]
+
     def test_add_multiple_zone_geographies(
         self, sample_households, sample_persons, sample_trips, tmp_path
     ):
