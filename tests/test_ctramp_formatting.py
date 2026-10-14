@@ -25,6 +25,7 @@ from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
     Gender,
+    SchoolType,
     Student,
 )
 from data_canon.codebook.tours import TourDirection
@@ -922,6 +923,23 @@ class TestWorkRelatedCountsAsWork:
         assert subtour["tour_category"][0] == CTRAMPTourCategory.AT_WORK.value
         assert subtour["tour_purpose"][0] == "atwork_eat"
         assert parent["atWork_freq"][0] == AtWorkFreq.ONE_EAT.value
+
+    def test_an_employed_students_work_related_tour_is_work(self, standard_config):
+        """Employment decides, not person type: a student with a job works too."""
+        student = create_person(
+            person_id=101,
+            hh_id=1,
+            age=AgeCategory.AGE_18_TO_24,
+            employment=Employment.EMPLOYED_PARTTIME,
+            student=Student.FULLTIME_INPERSON,
+            school_type=SchoolType.COLLEGE_4YEAR,
+        )
+        result = _format_person_tours(
+            standard_config, student, [(1001, 1, PurposeCategory.WORK_RELATED, None)]
+        )
+
+        assert result["tour_purpose"][0].startswith("work_")
+        assert result["tour_category"][0] == CTRAMPTourCategory.MANDATORY.value
 
     def test_a_non_workers_work_related_tour_stays_non_mandatory(self, standard_config):
         """A retiree's volunteering is not a work tour; CT-RAMP gives them none."""

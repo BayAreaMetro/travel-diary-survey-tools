@@ -9,7 +9,6 @@ from data_canon.codebook.tours import TourCategory, TourType
 from data_canon.codebook.trips import PurposeCategory
 
 from .mappings import daysim_purpose
-from .person_type_utils import daysim_workers
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +107,12 @@ def format_days(
     )
 
     # Count usual workplace tours: every home-based work tour, by DaySim's own
-    # purpose rule (a worker's work-related tour is work), wherever it went.
+    # purpose rule (an employed person's work-related tour is work), wherever it went.
     is_work = (
-        daysim_purpose(pl.col("tour_purpose"), pl.col("is_daysim_worker").fill_null(value=False))
-        == DaysimPurpose.WORK.value
+        daysim_purpose(pl.col("tour_purpose"), pl.col("employment")) == DaysimPurpose.WORK.value
     )
     uw_tour_counts = (
-        tours.join(daysim_workers(persons), on="person_id", how="left")
+        tours.join(persons.select("person_id", "employment"), on="person_id", how="left")
         .filter(is_work & is_home_based & is_complete)
         .group_by("day_id")
         .agg(pl.len().alias("uwtours"))

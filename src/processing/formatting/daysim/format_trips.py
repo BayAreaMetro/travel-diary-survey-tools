@@ -21,7 +21,6 @@ from .mappings import (
     daysim_purpose,
     daysim_tour_number,
 )
-from .person_type_utils import daysim_workers
 
 logger = logging.getLogger(__name__)
 
@@ -416,11 +415,10 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
     """
     # Join person_num to linked trips
     trips = linked_trips.join(
-        persons.select(["person_id", "person_num"]),
+        persons.select(["person_id", "person_num", "employment"]),
         on=["person_id"],
         how="left",
-    ).join(daysim_workers(persons), on="person_id", how="left")
-    is_worker = pl.col("is_daysim_worker").fill_null(value=False)
+    )
 
     # Compute Daysim trip identification fields:
     # - tour: tour sequence number within person-day (see daysim_tour_number)
@@ -517,8 +515,8 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
                 + pl.col("arrive_time").dt.minute()
             ).alias("endacttm"),
             # Map purposes
-            daysim_purpose(pl.col("opurp"), is_worker, strict=False).alias("opurp"),
-            daysim_purpose(pl.col("dpurp"), is_worker, strict=False).alias("dpurp"),
+            daysim_purpose(pl.col("opurp"), pl.col("employment"), strict=False).alias("opurp"),
+            daysim_purpose(pl.col("dpurp"), pl.col("employment"), strict=False).alias("dpurp"),
             # Fill the usual nulls when zones are not matched (out of area, missing data, etc.)
             pl.col("otaz").fill_null(-1),
             pl.col("opcl").fill_null(-1),

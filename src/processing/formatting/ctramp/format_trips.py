@@ -155,7 +155,9 @@ def format_individual_trip(
 
     # Join with persons and households
     individual_trips = individual_trips.join(
-        persons_canonical.select(["person_id", "person_num", "school_type", "person_type"]),
+        persons_canonical.select(
+            ["person_id", "person_num", "school_type", "person_type", "employment"]
+        ),
         on="person_id",
         how="left",
     ).join(
@@ -216,7 +218,7 @@ def format_individual_trip(
                 pl.col("o_purpose_category"),
                 pl.col("income"),
                 pl.col("school_type"),
-                pl.col("person_type"),
+                pl.col("employment"),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -226,7 +228,7 @@ def format_individual_trip(
                 pl.col("d_purpose_category"),
                 pl.col("income"),
                 pl.col("school_type"),
-                pl.col("person_type"),
+                pl.col("employment"),
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,

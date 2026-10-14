@@ -8,7 +8,6 @@ from data_canon.codebook.tours import TourDirection, TourType
 from data_canon.codebook.trips import ModeType
 
 from .mappings import daysim_purpose, daysim_tour_number, determine_tour_mode
-from .person_type_utils import daysim_workers
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +57,7 @@ def format_tours(
             on=["hh_id", "person_id", "day_id"],
             how="left",
         )
-        .join(daysim_workers(persons), on="person_id", how="left")
+        .join(persons.select("person_id", "employment"), on="person_id", how="left")
     )
 
     # Number the tours within each person-day. See daysim_tour_number: the trips
@@ -83,9 +82,7 @@ def format_tours(
         .then(0)
         .otherwise(pl.col("parent_tour_number").fill_null(0))
         .cast(pl.Int16),
-        pdpurp=daysim_purpose(
-            pl.col("tour_purpose"), pl.col("is_daysim_worker").fill_null(value=False)
-        ),
+        pdpurp=daysim_purpose(pl.col("tour_purpose"), pl.col("employment")),
         toadtyp=pl.col("o_location_type"),
         tdadtyp=pl.col("d_location_type"),
     )

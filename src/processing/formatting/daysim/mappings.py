@@ -20,6 +20,7 @@ from data_canon.codebook.households import (
     ResidenceType,
 )
 from data_canon.codebook.persons import (
+    EMPLOYED,
     AgeCategory,
     Gender,
     Student,
@@ -222,23 +223,28 @@ RENTOWN_MAP = {k.value: v.value for k, v in RENTOWN_TO_DAYSIM.items()}
 RESTYPE_MAP = {k.value: v.value for k, v in RESIDENCE_TYPE_TO_DAYSIM.items()}
 
 
-def daysim_purpose(purpose: pl.Expr, is_worker: pl.Expr, *, strict: bool = True) -> pl.Expr:
+def daysim_purpose(purpose: pl.Expr, employment: pl.Expr, *, strict: bool = True) -> pl.Expr:
     """DaySim purpose code for a canonical purpose category.
 
-    A worker's work-related purpose is work: DaySim does not separate the
-    workplace from a meeting, jobsite or volunteering. Anyone else's keeps the
-    table's personal business -- a child's is a parent's purpose copied onto a
-    shared trip. Every other purpose maps through ``PURPOSE_MAP``.
+    An employed person's work-related purpose is work: DaySim does not separate
+    the workplace from a meeting, jobsite or volunteering. Employment decides,
+    not person type, so a student with a job counts too. Anyone else's keeps
+    the table's personal business -- a retiree's is volunteering, a child's a
+    parent's purpose copied onto a shared trip. Every other purpose maps through
+    ``PURPOSE_MAP``.
 
     Args:
         purpose: Canonical purpose category.
-        is_worker: Whether DaySim types the person a full- or part-time worker.
+        employment: The person's canonical employment code (see ``EMPLOYED``).
         strict: Raise on a purpose ``PURPOSE_MAP`` does not hold, rather than
             passing it through.
     """
     mapped = purpose.replace_strict(PURPOSE_MAP) if strict else purpose.replace(PURPOSE_MAP)
     return (
-        pl.when(purpose.is_in([p.value for p in WORK_PURPOSE_CATEGORIES]) & is_worker)
+        pl.when(
+            purpose.is_in([p.value for p in WORK_PURPOSE_CATEGORIES])
+            & employment.is_in([e.value for e in EMPLOYED]).fill_null(value=False)
+        )
         .then(pl.lit(DaysimPurpose.WORK.value))
         .otherwise(mapped)
     )

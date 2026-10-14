@@ -5,7 +5,7 @@ import polars as pl
 from data_canon.codebook.daysim import DaysimPersonType
 from data_canon.codebook.persons import Employment, SchoolType, Student
 
-from .mappings import AGE_MAP, AgeThreshold
+from .mappings import AgeThreshold
 
 
 def get_person_type_expr() -> pl.Expr:
@@ -104,24 +104,4 @@ def get_person_type_expr() -> pl.Expr:
         .when(pl.col("pagey") < AgeThreshold.SENIOR)
         .then(pl.lit(DaysimPersonType.NON_WORKER.value))
         .otherwise(pl.lit(DaysimPersonType.RETIRED.value))
-    )
-
-
-def daysim_workers(persons: pl.DataFrame) -> pl.DataFrame:
-    """Return ``person_id`` and ``is_daysim_worker`` for canonical *persons*.
-
-    A worker is DaySim's full- or part-time worker type (``pptyp`` 1 or 2), as
-    :func:`get_person_type_expr` types them.
-    """
-    return persons.select(
-        "person_id",
-        pl.col("age").replace(AGE_MAP).alias("pagey"),
-        "employment",
-        "student",
-        "school_type",
-    ).select(
-        "person_id",
-        get_person_type_expr()
-        .is_in([DaysimPersonType.FULL_TIME_WORKER.value, DaysimPersonType.PART_TIME_WORKER.value])
-        .alias("is_daysim_worker"),
     )

@@ -75,7 +75,7 @@ def _prepare_individual_tours(
 
     selected = tours if include_joint else tours.filter(pl.col("joint_tour_id").is_null())
     individual_tours = selected.join(
-        persons.select(["person_id", "person_num", "person_type", "school_type"]),
+        persons.select(["person_id", "person_num", "person_type", "school_type", "employment"]),
         on="person_id",
         how="left",
     ).join(
@@ -100,7 +100,7 @@ def _prepare_individual_tours(
             pl.col("tour_purpose"),
             pl.col("income"),
             pl.col("school_type"),
-            pl.col("person_type"),
+            pl.col("employment"),
             config.income_low_threshold,
             config.income_med_threshold,
             config.income_high_threshold,
@@ -112,11 +112,11 @@ def _prepare_individual_tours(
     return individual_tours.with_columns(
         pl.when(
             (pl.col("parent_tour_id") != pl.col("tour_id"))
-            & is_work_purpose(pl.col("_parent_tour_purpose"), pl.col("person_type"))
+            & is_work_purpose(pl.col("_parent_tour_purpose"), pl.col("employment"))
         )
         .then(pl.lit(CTRAMPTourCategory.AT_WORK.value))
         .when(
-            is_work_purpose(pl.col("tour_purpose"), pl.col("person_type"))
+            is_work_purpose(pl.col("tour_purpose"), pl.col("employment"))
             | (pl.col("tour_purpose") == PurposeCategory.SCHOOL.value)
         )
         .then(pl.lit(CTRAMPTourCategory.MANDATORY.value))
@@ -156,7 +156,7 @@ def _add_at_work_frequency(individual_tours: pl.DataFrame) -> pl.DataFrame:
             # Only a home-based work tour has an at-work frequency; a subtour is not one.
             pl.when(
                 (pl.col("parent_tour_id") != pl.col("tour_id"))
-                | ~is_work_purpose(pl.col("tour_purpose"), pl.col("person_type"))
+                | ~is_work_purpose(pl.col("tour_purpose"), pl.col("employment"))
             )
             .then(pl.lit(AtWorkFreq.NONE_NOT_WORK.value))
             .when(pl.col("_subtour_total").fill_null(0) == 0)

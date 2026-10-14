@@ -628,6 +628,20 @@ class TestWorkRelatedCountsAsWork:
         assert _outbound_dpurp(data) == DaysimPurpose.WORK.value
         assert days["uwtours"][0] == 1
 
+    def test_an_employed_students_work_related_tour_is_work(self):
+        """Employment decides, not person type: a student with a job works too."""
+        data = _work_related_day(worker=True)
+        data["persons"] = data["persons"].with_columns(
+            pl.lit(AgeCategory.AGE_18_TO_24.value).cast(pl.Int64).alias("age"),
+            pl.lit(Employment.EMPLOYED_PARTTIME.value).cast(pl.Int64).alias("employment"),
+            pl.lit(Student.FULLTIME_INPERSON.value).cast(pl.Int64).alias("student"),
+            pl.lit(SchoolType.COLLEGE_4YEAR.value).cast(pl.Int64).alias("school_type"),
+        )
+
+        tours = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
+
+        assert tours["pdpurp"][0] == DaysimPurpose.WORK.value
+
     def test_a_non_workers_work_related_tour_is_personal_business(self):
         """A retiree's volunteering stays personal business, and is no usual-work tour."""
         data = _work_related_day(worker=False)
