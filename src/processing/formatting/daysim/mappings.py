@@ -26,6 +26,7 @@ from data_canon.codebook.persons import (
     WorkParking,
 )
 from data_canon.codebook.trips import (
+    WORK_PURPOSE_CATEGORIES,
     AccessEgressMode,
     Mode,
     ModeType,
@@ -219,6 +220,28 @@ MODE_TYPE_MAP = {k.value: v.value for k, v in MODE_TYPE_TO_DAYSIM.items()}
 MODE_TYPE_TO_ACCESS_EGRESS_MAP = {k.value: v.value for k, v in MODE_TYPE_TO_ACCESS_EGRESS.items()}
 RENTOWN_MAP = {k.value: v.value for k, v in RENTOWN_TO_DAYSIM.items()}
 RESTYPE_MAP = {k.value: v.value for k, v in RESIDENCE_TYPE_TO_DAYSIM.items()}
+
+
+def daysim_purpose(purpose: pl.Expr, is_worker: pl.Expr, *, strict: bool = True) -> pl.Expr:
+    """DaySim purpose code for a canonical purpose category.
+
+    A worker's work-related purpose is work: DaySim does not separate the
+    workplace from a meeting, jobsite or volunteering. Anyone else's keeps the
+    table's personal business -- a child's is a parent's purpose copied onto a
+    shared trip. Every other purpose maps through ``PURPOSE_MAP``.
+
+    Args:
+        purpose: Canonical purpose category.
+        is_worker: Whether DaySim types the person a full- or part-time worker.
+        strict: Raise on a purpose ``PURPOSE_MAP`` does not hold, rather than
+            passing it through.
+    """
+    mapped = purpose.replace_strict(PURPOSE_MAP) if strict else purpose.replace(PURPOSE_MAP)
+    return (
+        pl.when(purpose.is_in([p.value for p in WORK_PURPOSE_CATEGORIES]) & is_worker)
+        .then(pl.lit(DaysimPurpose.WORK.value))
+        .otherwise(mapped)
+    )
 
 
 # =============================================================================

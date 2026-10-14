@@ -36,6 +36,7 @@ from data_canon.codebook.trips import (
     ModeType,
     PurposeCategory,
 )
+from processing.formatting.daysim.format_days import format_days
 from processing.formatting.daysim.format_daysim import format_daysim
 from processing.formatting.daysim.format_households import format_households
 from processing.formatting.daysim.format_persons import (
@@ -569,6 +570,74 @@ class TestTourFormatting:
         assert result["tardest"][0] == 9 * 60
         assert result["tlvdest"][0] == 17 * 60
         assert result["tarorig"][0] == 18 * 60
+
+
+def _work_related_day(*, worker: bool) -> dict[str, pl.DataFrame]:
+    """The simple work tour with its workplace stop coded work-related.
+
+    With ``worker=False`` the person is a retiree, so the same stop is someone
+    volunteering rather than working.
+    """
+    data = create_simple_work_tour_processed()
+    work, work_related = PurposeCategory.WORK.value, PurposeCategory.WORK_RELATED.value
+
+    def recode(col: str) -> pl.Expr:
+        return (
+            pl.when(pl.col(col) == work)
+            .then(pl.lit(work_related))
+            .otherwise(pl.col(col))
+            .cast(pl.Int64)
+            .alias(col)
+        )
+
+    data["tours"] = data["tours"].with_columns(recode("tour_purpose"))
+    data["linked_trips"] = data["linked_trips"].with_columns(
+        recode("o_purpose_category"), recode("d_purpose_category")
+    )
+    if not worker:
+        data["persons"] = data["persons"].with_columns(
+            pl.lit(AgeCategory.AGE_65_TO_74.value).cast(pl.Int64).alias("age"),
+            pl.lit(Employment.UNEMPLOYED_NOT_LOOKING.value).cast(pl.Int64).alias("employment"),
+        )
+    return data
+
+
+def _outbound_dpurp(data: dict[str, pl.DataFrame]) -> int:
+    """DaySim destination purpose of the trip that reaches the workplace stop."""
+    trips = format_linked_trips(data["persons"], data["unlinked_trips"], data["linked_trips"])
+    return trips.filter(pl.col("dpurp") != DaysimPurpose.HOME.value)["dpurp"][0]
+
+
+class TestWorkRelatedCountsAsWork:
+    """A worker's work-related tour is a DaySim work tour; a non-worker's is not.
+
+    DaySim, like CT-RAMP, does not separate the workplace from a meeting, jobsite
+    or volunteering, so for a worker both are work. A non-worker's work-related
+    stop stays personal business: DaySim's work models are for workers, and a
+    child's is a parent's purpose copied onto a shared trip.
+    """
+
+    def test_a_workers_work_related_tour_is_work(self):
+        """The tour, its trip to the stop, and the day's usual-work count all say work."""
+        data = _work_related_day(worker=True)
+
+        tours = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
+        days = format_days(data["persons"], data["days"], data["tours"])
+
+        assert tours["pdpurp"][0] == DaysimPurpose.WORK.value
+        assert _outbound_dpurp(data) == DaysimPurpose.WORK.value
+        assert days["uwtours"][0] == 1
+
+    def test_a_non_workers_work_related_tour_is_personal_business(self):
+        """A retiree's volunteering stays personal business, and is no usual-work tour."""
+        data = _work_related_day(worker=False)
+
+        tours = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
+        days = format_days(data["persons"], data["days"], data["tours"])
+
+        assert tours["pdpurp"][0] == DaysimPurpose.PERSONAL_BUSINESS.value
+        assert _outbound_dpurp(data) == DaysimPurpose.PERSONAL_BUSINESS.value
+        assert days["uwtours"][0] == 0
 
 
 class TestEndToEndDaysimFormatting:

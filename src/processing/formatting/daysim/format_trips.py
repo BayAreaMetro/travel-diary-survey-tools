@@ -18,9 +18,10 @@ from data_canon.codebook.trips import (
 
 from .mappings import (
     DROVE_ACCESS_EGRESS,
-    PURPOSE_MAP,
+    daysim_purpose,
     daysim_tour_number,
 )
+from .person_type_utils import daysim_workers
 
 logger = logging.getLogger(__name__)
 
@@ -418,7 +419,8 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
         persons.select(["person_id", "person_num"]),
         on=["person_id"],
         how="left",
-    )
+    ).join(daysim_workers(persons), on="person_id", how="left")
+    is_worker = pl.col("is_daysim_worker").fill_null(value=False)
 
     # Compute Daysim trip identification fields:
     # - tour: tour sequence number within person-day (see daysim_tour_number)
@@ -515,8 +517,8 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
                 + pl.col("arrive_time").dt.minute()
             ).alias("endacttm"),
             # Map purposes
-            pl.col("opurp").replace(PURPOSE_MAP).alias("opurp"),
-            pl.col("dpurp").replace(PURPOSE_MAP).alias("dpurp"),
+            daysim_purpose(pl.col("opurp"), is_worker, strict=False).alias("opurp"),
+            daysim_purpose(pl.col("dpurp"), is_worker, strict=False).alias("dpurp"),
             # Fill the usual nulls when zones are not matched (out of area, missing data, etc.)
             pl.col("otaz").fill_null(-1),
             pl.col("opcl").fill_null(-1),

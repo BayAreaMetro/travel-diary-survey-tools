@@ -4,8 +4,12 @@ import logging
 
 import polars as pl
 
+from data_canon.codebook.daysim import DaysimPurpose
 from data_canon.codebook.tours import TourCategory, TourType
 from data_canon.codebook.trips import PurposeCategory
+
+from .mappings import daysim_purpose
+from .person_type_utils import daysim_workers
 
 logger = logging.getLogger(__name__)
 
@@ -103,12 +107,15 @@ def format_days(
         .agg(pl.len().alias("wbtours"))
     )
 
-    # Count usual workplace tours (work tours that start/end at home)
-    # This is an approximation - you may need additional logic
+    # Count usual workplace tours: every home-based work tour, by DaySim's own
+    # purpose rule (a worker's work-related tour is work), wherever it went.
+    is_work = (
+        daysim_purpose(pl.col("tour_purpose"), pl.col("is_daysim_worker").fill_null(value=False))
+        == DaysimPurpose.WORK.value
+    )
     uw_tour_counts = (
-        tours.filter(
-            (pl.col("tour_purpose") == PurposeCategory.WORK.value) & is_home_based & is_complete
-        )
+        tours.join(daysim_workers(persons), on="person_id", how="left")
+        .filter(is_work & is_home_based & is_complete)
         .group_by("day_id")
         .agg(pl.len().alias("uwtours"))
     )
