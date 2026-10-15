@@ -60,9 +60,10 @@ called: the families have disjoint prefixes, and a name is unique within one.
 take, so they carry no family prefix and are reserved — a profile may not take
 either name.
 
-Downstream consumers name the profile they honour via `usability_profile` — the
-weighting, the CT-RAMP formatter and the DaySim formatter each take it, and none
-re-derive the verdict: the column is read, and its absence raises.
+Downstream consumers name the profiles they honour: the weighting takes
+`weight_profiles`, one weight set per profile, and the CT-RAMP and DaySim
+formatters each take `usability_profile`. None re-derive the verdict: the
+column is read, and its absence raises.
 
 That one name is the whole address. It resolves to `usable_<profile>` for the
 records a consumer keeps and to `hh_weight_<profile>` for the weights it reads,

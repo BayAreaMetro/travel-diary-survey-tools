@@ -4,6 +4,7 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.persons import AgeCategory
+from processing.completeness.kept_records import select_profile_columns
 from processing.weighting.existing_weights import add_existing_weights
 
 
@@ -12,6 +13,18 @@ def _weight_file(tmp_path, name: str, **columns) -> str:
     path = tmp_path / f"{name}.csv"
     pl.DataFrame(columns).write_csv(path)
     return str(path)
+
+
+def _weights_for(profile: str, **kwargs) -> dict[str, pl.DataFrame]:
+    """Run ``add_existing_weights`` for one profile, read under the base names.
+
+    The step writes ``hh_weight_<profile>`` and so on. A consumer resolves its
+    own profile's columns to the base names with ``select_profile_columns``,
+    which is how these tests read them too.
+    """
+    return select_profile_columns(
+        add_existing_weights(weight_profiles=[profile], **kwargs), profile
+    )
 
 
 class TestAddExistingWeights:
@@ -44,12 +57,12 @@ class TestAddExistingWeights:
             }
         }
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=weights_config,
             households=households,
-            usability_profile="test",
+            profile="test",
         )
 
         assert "households" in result
@@ -70,12 +83,12 @@ class TestAddExistingWeights:
             }
         }
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=weights_config,
             households=households,
-            usability_profile="test",
+            profile="test",
         )
 
         assert result["households"]["hh_weight"].to_list() == [1.5, 2.0]
@@ -97,12 +110,12 @@ class TestAddExistingWeights:
         }
 
         with caplog.at_level("WARNING"):
-            result = add_existing_weights(
+            result = _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,
                 weights=weights_config,
                 households=households,
-                usability_profile="test",
+                profile="test",
             )
 
         assert result["households"]["hh_weight"].to_list() == [1.5, 2.0, None]
@@ -139,12 +152,12 @@ class TestAddExistingWeights:
             }
         }
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=weights_config,
             persons=persons,
-            usability_profile="test",
+            profile="test",
         )
 
         assert "persons" in result
@@ -173,58 +186,20 @@ class TestAddExistingWeights:
             "unlinked_trip_weight": {
                 "weight_path": str(weight_file),
                 "weight_col": "wt",
-                "keep_name": True,
             }
         }
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=weights_config,
             unlinked_trips=trips,
-            usability_profile="test",
+            profile="test",
         )
 
         assert "unlinked_trips" in result
-        assert "wt" in result["unlinked_trips"].columns
-        assert result["unlinked_trips"]["wt"].to_list() == [2.0, 1.5, 1.8]
-
-    def test_custom_weight_column_name_is_redistributed(self, tmp_path):
-        """A kept vendor column is the one usability redistributes.
-
-        Under ``keep_name`` the vendor's column is the only record of where the
-        weight landed, so reaching for the canonical name instead reads a column
-        that was never created. Needs the usability column present, since that
-        is what makes the redistribution run at all.
-        """
-        trips = pl.DataFrame(
-            {
-                "unlinked_trip_id": [1, 2, 3],
-                "day_id": [1, 1, 1],
-                "usable_test": [True, True, False],
-            }
-        )
-
-        weight_file = tmp_path / "trip_weights.csv"
-        pl.DataFrame({"unlinked_trip_id": [1, 2, 3], "wt": [2.0, 1.5, 1.8]}).write_csv(weight_file)
-
-        result = add_existing_weights(
-            preserve_travel_totals=True,
-            household_size_top_group=6,
-            weights={
-                "unlinked_trip_weight": {
-                    "weight_path": str(weight_file),
-                    "weight_col": "wt",
-                    "keep_name": True,
-                }
-            },
-            unlinked_trips=trips,
-            usability_profile="test",
-        )
-
-        wt = result["unlinked_trips"]["wt"]
-        assert wt[2] == 0.0
-        assert wt.sum() == pytest.approx(5.3)
+        assert "wt" not in result["unlinked_trips"].columns
+        assert result["unlinked_trips"]["unlinked_trip_weight"].to_list() == [2.0, 1.5, 1.8]
 
     def test_derive_person_weights_from_household(self, tmp_path):
         """Test deriving person weights from household weights."""
@@ -263,14 +238,14 @@ class TestAddExistingWeights:
             }
         }
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=weights_config,
             households=households,
             persons=persons,
             derive_missing_weights=True,
-            usability_profile="test",
+            profile="test",
         )
 
         # Check households have weights
@@ -299,12 +274,12 @@ class TestAddExistingWeights:
         }
 
         with pytest.raises(ValueError, match="Invalid weight config key"):
-            add_existing_weights(
+            _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,
                 weights=weights_config,
                 households=households,
-                usability_profile="test",
+                profile="test",
             )
 
     def test_error_on_nonexistent_file(self):
@@ -322,12 +297,12 @@ class TestAddExistingWeights:
         }
 
         with pytest.raises(FileNotFoundError, match="Weight file does not exist"):
-            add_existing_weights(
+            _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,
                 weights=weights_config,
                 households=households,
-                usability_profile="test",
+                profile="test",
             )
 
     @pytest.mark.parametrize(
@@ -351,12 +326,12 @@ class TestAddExistingWeights:
         weights_config = {"hh_weight": {"weight_path": _weight_file(tmp_path, "w", **columns)}}
 
         with pytest.raises(ValueError, match=match):
-            add_existing_weights(
+            _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,
                 weights=weights_config,
                 households=households,
-                usability_profile="test",
+                profile="test",
             )
 
     def test_multiple_tables_with_weights(self, tmp_path):
@@ -400,13 +375,13 @@ class TestAddExistingWeights:
             },
         }
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=weights_config,
             households=households,
             persons=persons,
-            usability_profile="test",
+            profile="test",
         )
 
         assert "hh_weight" in result["households"].columns
@@ -431,12 +406,12 @@ class TestAddExistingWeights:
             }
         }
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=weights_config,
             households=None,  # Table not provided
-            usability_profile="test",
+            profile="test",
         )
 
         # Should not raise error, just skip the table
@@ -480,13 +455,13 @@ class TestSuppliedTotalPreserved:
         one factor.
         """
         households = self._households()
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights=self._weights_config(tmp_path),
             households=households,
             persons=self._one_person_each(households),
-            usability_profile="survey_complete",
+            profile="survey_complete",
         )
         weights = result["households"].sort("hh_id")["hh_weight"].to_list()
         # hh 3 (incomplete) stays 0; the supplied total of 100 is retained
@@ -518,12 +493,12 @@ class TestSuppliedTotalPreserved:
             weight_file
         )
 
-        result = add_existing_weights(
+        result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
             weights={"day_weight": {"weight_path": str(weight_file)}},
             days=days,
-            usability_profile="survey_complete",
+            profile="survey_complete",
         )
         weights = result["days"].sort("day_id")["day_weight"].to_list()
         # Person 1: 20 supplied over one usable day; person 2: unchanged.
@@ -537,12 +512,12 @@ class TestSuppliedTotalPreserved:
         pl.DataFrame({"day_id": [10, 20], "day_weight": [10.0, 10.0]}).write_csv(weight_file)
 
         with pytest.raises(ValueError, match="missing its scope column"):
-            add_existing_weights(
+            _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,
                 weights={"day_weight": {"weight_path": str(weight_file)}},
                 days=days,
-                usability_profile="survey_complete",
+                profile="survey_complete",
             )
 
     def test_no_usable_record_loses_the_total_and_raises(self, tmp_path):
@@ -555,13 +530,13 @@ class TestSuppliedTotalPreserved:
         weight_file = tmp_path / "hh_weights.csv"
         pl.DataFrame({"hh_id": [1, 2], "hh_weight": [10.0, 20.0]}).write_csv(weight_file)
         with pytest.raises(ValueError, match=r"household size 1: .* no kept household"):
-            add_existing_weights(
+            _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,
                 weights={"hh_weight": {"weight_path": str(weight_file)}},
                 households=households,
                 persons=self._one_person_each(households),
-                usability_profile="survey_complete",
+                profile="survey_complete",
             )
 
 
@@ -640,9 +615,9 @@ class TestHouseholdsScaleBySize:
                 )
             },
         }
-        return add_existing_weights(
+        return _weights_for(
             weights=weights,
-            usability_profile="p",
+            profile="p",
             preserve_travel_totals=True,
             household_size_top_group=top_group,
             max_weight_factor=limits,
@@ -705,9 +680,9 @@ class TestHouseholdsScaleBySize:
         """Size is the number of persons, so without persons there is no size."""
         weight = _weight_file(tmp_path, "hh", hh_id=[1], hh_weight=[10.0])
         with pytest.raises(ValueError, match="persons table"):
-            add_existing_weights(
+            _weights_for(
                 weights={"hh_weight": {"weight_path": weight}},
-                usability_profile="p",
+                profile="p",
                 preserve_travel_totals=True,
                 household_size_top_group=6,
                 households=pl.DataFrame({"hh_id": [1], "usable_p": [True]}),
@@ -717,9 +692,9 @@ class TestHouseholdsScaleBySize:
         """The config must state the grouping; the code does not assume one."""
         weight = _weight_file(tmp_path, "hh", hh_id=[1], hh_weight=[10.0])
         with pytest.raises(TypeError, match="household_size_top_group"):
-            add_existing_weights(
+            _weights_for(
                 weights={"hh_weight": {"weight_path": weight}},
-                usability_profile="p",
+                profile="p",
                 preserve_travel_totals=True,
                 households=pl.DataFrame({"hh_id": [1], "usable_p": [True]}),
             )
@@ -817,9 +792,9 @@ class TestADroppedPersonStaysInTheirHousehold:
                 )
             },
         }
-        return add_existing_weights(
+        return _weights_for(
             weights=weights,
-            usability_profile="p",
+            profile="p",
             preserve_travel_totals=True,
             household_size_top_group=6,
             **tables,
@@ -923,9 +898,9 @@ class TestAStrandedPersonIsTreatedAsDropped:
                 )
             },
         }
-        return add_existing_weights(
+        return _weights_for(
             weights=weights,
-            usability_profile="p",
+            profile="p",
             preserve_travel_totals=True,
             household_size_top_group=6,
             **tables,
@@ -956,7 +931,7 @@ class TestAStrandedPersonIsTreatedAsDropped:
         """Days 111 and 211 are usable to us and were supplied 0; the log says so."""
         with caplog.at_level("INFO"):
             self._run(tmp_path)
-        assert "days: 2 of 4 usable record(s) were supplied a day_weight of 0" in caplog.text
+        assert "days: 2 of 4 usable record(s) were supplied a day_weight_p of 0" in caplog.text
 
 
 class TestTheStepChecksItsOwnHierarchy:
@@ -970,13 +945,13 @@ class TestTheStepChecksItsOwnHierarchy:
             seen.append(set(only))
 
         monkeypatch.setattr("processing.weighting.existing_weights._check_hierarchy", spy)
-        add_existing_weights(
+        _weights_for(
             weights={
                 "hh_weight": {
                     "weight_path": _weight_file(tmp_path, "hh", hh_id=[1], hh_weight=[10.0])
                 }
             },
-            usability_profile="p",
+            profile="p",
             derive_missing_weights=True,
             preserve_travel_totals=True,
             household_size_top_group=6,
@@ -1068,9 +1043,9 @@ class TestTripsFollowTheirDay:
                 )
             },
         }
-        return add_existing_weights(
+        return _weights_for(
             weights=weights,
-            usability_profile="p",
+            profile="p",
             derive_missing_weights=True,
             preserve_travel_totals=preserve,
             household_size_top_group=6,
@@ -1169,9 +1144,9 @@ class TestPreserveTravelTotals:
                 )
             },
         }
-        return add_existing_weights(
+        return _weights_for(
             weights=weights,
-            usability_profile="p",
+            profile="p",
             derive_missing_weights=True,
             preserve_travel_totals=preserve,
             household_size_top_group=6,
@@ -1224,12 +1199,12 @@ class TestPreserveTravelTotals:
     def test_the_option_is_required(self, tmp_path):
         """The config must state the choice; the code does not assume one."""
         with pytest.raises(TypeError, match="preserve_travel_totals"):
-            add_existing_weights(
+            _weights_for(
                 weights={
                     "hh_weight": {
                         "weight_path": _weight_file(tmp_path, "hh", hh_id=[1], hh_weight=[1.0])
                     }
                 },
-                usability_profile="p",
+                profile="p",
                 households=pl.DataFrame({"hh_id": [1], "usable_p": [True]}),
             )

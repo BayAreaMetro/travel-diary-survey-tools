@@ -237,39 +237,28 @@ class ImportanceConfig:
 
 
 def resolve_fitted_profiles(
-    usability_profile: str | None,
     weight_profiles: tuple[str, ...] | list[str] | None,
-) -> tuple[str | None, ...]:
+) -> tuple[str, ...]:
     """The profiles to weight: one entry per weight column set to be written.
 
-    Shared by both weighting entry points so they cannot disagree about what
-    naming a flag, a profile list, or both is supposed to mean.
+    Shared by both weighting entry points so they cannot disagree about what a
+    profile list is supposed to mean.
 
     Args:
-        usability_profile: A single profile to weight without suffixing its
-            columns -- today's behaviour, and what a project keeps by changing
-            nothing.
         weight_profiles: Profiles to weight, each writing its own suffixed
-            column set.
+            column set. A single profile is a list of one.
 
     Returns:
-        ``(None,)`` for the un-suffixed single set, else one entry per profile.
+        One entry per profile, in the order given.
 
     Raises:
-        ValueError: If both or neither is given, or a profile is named twice.
+        ValueError: If no profile is given, or a profile is named twice.
     """
     profiles = tuple(weight_profiles or ())
-    if usability_profile and profiles:
+    if not profiles:
         msg = (
-            "Name either usability_profile (one un-suffixed weight set) or "
-            "weight_profiles (one column set per profile), not both. Got "
-            f"usability_profile={usability_profile!r} and weight_profiles={list(profiles)}."
-        )
-        raise ValueError(msg)
-    if not usability_profile and not profiles:
-        msg = (
-            "The weighting needs a universe: name usability_profile, or "
-            "weight_profiles to write one weight set per profile."
+            "The weighting needs a universe: name weight_profiles, one weight set "
+            "per profile (a single profile is a list of one)."
         )
         raise ValueError(msg)
 
@@ -278,7 +267,7 @@ def resolve_fitted_profiles(
         msg = f"weight_profiles names the same profile twice: {duplicates}"
         raise ValueError(msg)
 
-    return profiles or (None,)
+    return profiles
 
 
 @dataclass
@@ -295,10 +284,9 @@ class WeightingConfig:
     geography: dict
     state_fips: str
     pums_year: int
-    # Which usability profile decides who carries weight. One of these two is
-    # required: with several profiles stamped there is no defensible default, and
-    # picking silently would weight a different universe than the formatters emit.
-    usability_profile: str | None = None
+    # Which usability profiles decide who carries weight, one fit each. Required:
+    # with several profiles stamped there is no defensible default, and picking
+    # silently would weight a different universe than the formatters emit.
     weight_profiles: tuple[str, ...] = ()
     max_unplaceable_share: float = 0.01
     pums_households: str | None = None
@@ -307,43 +295,25 @@ class WeightingConfig:
     cache_dir: Path | None = None
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
-    exclude_incompletes: bool = True
-    _fitted_profiles: tuple[str | None, ...] = field(default=(), init=False, repr=False)
+    _fitted_profiles: tuple[str, ...] = field(default=(), init=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Reject a weighting universe that is unstated, stated twice, or ungated."""
-        self._fitted_profiles = resolve_fitted_profiles(
-            self.usability_profile, self.weight_profiles
-        )
-
-        if self.weight_profiles and not self.exclude_incompletes:
-            # Without the gate every fit sees the same seed, so the profiles would
-            # differ in name only -- weights indistinguishable from fitted ones
-            # that expand a universe nobody asked for.
-            msg = (
-                "weight_profiles requires exclude_incompletes: true. With the gate off, "
-                "every profile is fitted to the same seed and the suffixed columns would "
-                "be identical copies under different names."
-            )
-            raise ValueError(msg)
+        """Reject a weighting universe that is unstated or names a profile twice."""
+        self._fitted_profiles = resolve_fitted_profiles(self.weight_profiles)
 
     @property
-    def fitted_profiles(self) -> tuple[str | None, ...]:
-        """One entry per balancing run; ``(None,)`` for a single un-suffixed set."""
+    def fitted_profiles(self) -> tuple[str, ...]:
+        """One entry per balancing run."""
         return self._fitted_profiles
 
-    def flag_for(self, profile: str | None) -> str:
+    def flag_for(self, profile: str) -> str:
         """The verdict column the fit for *profile* is gated on.
 
         A profile names both its gate and its weights -- ``usable_<profile>`` and
         ``hh_weight_<profile>`` -- so there is no second setting to disagree with
         the first.
         """
-        named = profile if profile is not None else self.usability_profile
-        if named is None:  # pragma: no cover - __post_init__ forbids it
-            msg = "No usability_profile configured"
-            raise ValueError(msg)
-        return usable_col_for(named)
+        return usable_col_for(profile)
 
 
 @dataclass
