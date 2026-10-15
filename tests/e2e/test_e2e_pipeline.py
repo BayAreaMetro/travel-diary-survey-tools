@@ -27,6 +27,7 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.ctramp import AtWorkFreq, CTRAMPTourCategory
+from data_canon.codebook.daysim import DaysimPurpose
 from data_canon.codebook.tours import TourCategory, TourDataQuality, TourDirection, TourType
 from tests.e2e.assertions import assert_referential_integrity, assert_tables_non_empty
 
@@ -241,3 +242,54 @@ class TestEdgeCaseCoverage:
         nothing_to_anchor_on = pl.col("tour_purpose").is_null() & (pl.col("tour_category") == 1)
         assert tours.filter((pl.col("tour_data_quality") == 4) & ~nothing_to_anchor_on).is_empty()
         assert tours.filter((pl.col("tour_data_quality") != 4) & nothing_to_anchor_on).is_empty()
+
+
+class TestWorkRelatedTours:
+    """HH 31 and 32: work-related stops, and workplaces the survey never asked for.
+
+    3101 is employed with no reported workplace and a full day at one place;
+    3102 is retired and volunteers; 3201 is employed with no reported workplace
+    and only a short meeting. CT-RAMP person ids are the survey day_id.
+    """
+
+    OBSERVED_WORKPLACE, RETIREE, NO_WORKPLACE = 310101, 310201, 320101
+
+    @staticmethod
+    def _ctramp(full_result, person_day):
+        tour = full_result.individual_tours_ctramp.filter(pl.col("person_id") == person_day)
+        location = full_result.mandatory_locations_ctramp.filter(pl.col("PersonID") == person_day)
+        return tour.row(0, named=True), location.row(0, named=True)
+
+    def test_an_employed_persons_work_related_tour_is_work(self, full_result):
+        """And their observed workplace stands in as the usual one (the toy zone is 1)."""
+        tour, location = self._ctramp(full_result, self.OBSERVED_WORKPLACE)
+
+        assert tour["tour_purpose"].startswith("work_")
+        assert tour["tour_category"] == CTRAMPTourCategory.MANDATORY.value
+        assert location["WorkLocation"] == 1
+
+    def test_a_retirees_work_related_tour_is_not_work(self, full_result):
+        """Volunteering by someone without a job stays non-mandatory."""
+        tour, _ = self._ctramp(full_result, self.RETIREE)
+
+        assert tour["tour_purpose"] == "othdiscr"
+
+    def test_a_work_tour_with_no_usual_workplace_stays_work(self, full_result):
+        """Too short a stop to be a workplace: still a work tour, with location 0."""
+        tour, location = self._ctramp(full_result, self.NO_WORKPLACE)
+
+        assert tour["tour_purpose"].startswith("work_")
+        assert location["WorkLocation"] == 0
+
+    def test_daysim_agrees(self, full_result):
+        """The same three tours, and the same usual workplace, in DaySim."""
+        tours = full_result.tours_daysim
+        persons = full_result.persons_daysim
+
+        def pdpurp(hhno, pno):
+            return tours.filter((pl.col("hhno") == hhno) & (pl.col("pno") == pno))["pdpurp"][0]
+
+        assert pdpurp(31, 1) == DaysimPurpose.WORK.value
+        assert pdpurp(31, 2) == DaysimPurpose.PERSONAL_BUSINESS.value
+        assert pdpurp(32, 1) == DaysimPurpose.WORK.value
+        assert persons.filter((pl.col("hhno") == 31) & (pl.col("pno") == 1))["pwtaz"][0] == 1
