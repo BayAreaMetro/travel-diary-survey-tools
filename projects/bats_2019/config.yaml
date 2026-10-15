@@ -213,10 +213,11 @@ steps:
       state_fips: "06"
       pums_year: 2019
 
-      # Which profile decides who carries weight. Named rather than defaulted:
-      # with several stamped there is no defensible default, and a silent choice
-      # would weight a different universe than the formatters emit.
-      usability_profile: ctramp
+      # Which profiles decide who carries weight, one weight set each, suffixed
+      # with the profile name. Named rather than defaulted: with several stamped
+      # there is no defensible default, and a silent choice would weight a
+      # different universe than the formatters emit.
+      weight_profiles: [ctramp]
 
       # -- Sample Plan Path ------------------------------------------------
       # sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"

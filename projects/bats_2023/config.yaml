@@ -320,9 +320,6 @@ steps:
       # Each parent's weight is spread across its usable children, so excluding a
       # record does not shrink the expansion. Name `survey_complete` here to weight the
       # whole valid survey, partial and overnight tours included.
-      #
-      # Mutually exclusive with usability_profile, which weights one profile and
-      # writes the un-suffixed columns.
       weight_profiles: [ctramp, daysim, analysis]
 
       # Homes outside the control geography (region_county.shp, strict
@@ -500,7 +497,6 @@ steps:
   #         weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
   #         weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
   #         weight_path: "{{ weights_dir }}/trip_weights.csv"
-  #         keep_name: false # Defaults to false, but you could keep original name if desired
 
 
   # - name: final_check

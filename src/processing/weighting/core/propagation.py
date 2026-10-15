@@ -66,24 +66,14 @@ from processing.weighting.core.hierarchy import (
 logger = logging.getLogger(__name__)
 
 
-def drop_unsuffixed_weights(
-    tables: dict[str, pl.DataFrame | None],
-    profiles: tuple[str | None, ...],
-) -> None:
-    """Remove each level's bare weight column, in place, when profiles were used.
+def drop_unsuffixed_weights(tables: dict[str, pl.DataFrame | None]) -> None:
+    """Remove each level's bare weight column, in place.
 
     A table must not offer both ``hh_weight`` and ``hh_weight_<profile>``: a
     reader has no way to tell which is authoritative, and the bare one is stale
     by construction -- either a placeholder from the loader or a previous run's
-    output that this run did not rewrite. Whoever wants an un-suffixed set weights
-    a single profile, which is what leaves these columns in place.
-
-    Does nothing when no profile was named, since then the bare columns *are* the
-    output.
+    output that this run did not rewrite.
     """
-    if profiles == (None,):
-        return
-
     for level in HIERARCHY:
         df = tables.get(level.table)
         if df is None or level.weight_col not in df.columns:

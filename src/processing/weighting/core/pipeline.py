@@ -443,8 +443,7 @@ class WeightingPipeline:
         expands to less than the population it was fitted to.
 
         Args:
-            profile: Usability profile to fit, or None for a single un-suffixed
-                weight set gated on ``config.usability_flag_col``.
+            profile: Usability profile to fit.
 
         Returns:
             The seed and its metadata, ready to balance.
@@ -459,18 +458,15 @@ class WeightingPipeline:
             msg = "build_seed requires a households table"
             raise ValueError(msg)
 
-        bundle = self.survey_bundle
-        n_gated = 0
-        if self.config.exclude_incompletes:
-            if flag not in households.columns:
-                msg = (
-                    f"The weighting is gated on {flag!r}, which households does not carry. "
-                    f"{suggest_usability_columns(households)}"
-                )
-                raise ValueError(msg)
-            admitted = households.filter(seed_admits(flag)).select("hh_id").to_series()
-            n_gated = households.height - admitted.len()
-            bundle = bundle.filter_households(admitted)
+        if flag not in households.columns:
+            msg = (
+                f"The weighting is gated on {flag!r}, which households does not carry. "
+                f"{suggest_usability_columns(households)}"
+            )
+            raise ValueError(msg)
+        admitted = households.filter(seed_admits(flag)).select("hh_id").to_series()
+        n_gated = households.height - admitted.len()
+        bundle = self.survey_bundle.filter_households(admitted)
 
         logger.info(
             "Seed for %s: %d HHs, %d persons, %d HHs gated out",
@@ -736,7 +732,7 @@ class WeightingPipeline:
         # "no estimate exists" rather than "excluded".
         hh = tables["households"]
         flag = fit.usability_flag_col
-        if self.config.exclude_incompletes and hh is not None and flag in hh.columns:
+        if hh is not None and flag in hh.columns:
             tables["households"] = hh.with_columns(
                 pl.when(seed_admits(flag))
                 .then(pl.col(hh_weight_col))
@@ -748,7 +744,7 @@ class WeightingPipeline:
         propagate_weights(
             tables,
             has_weight,
-            usability_flag_col=flag if self.config.exclude_incompletes else None,
+            usability_flag_col=flag,
             profile=fit.profile,
         )
 

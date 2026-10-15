@@ -141,8 +141,6 @@ def compute_weights(  # noqa: PLR0913
     # -- Validation ------------------------------------------------------
     strict_survey_nulls: bool = False,
     # -- Completeness handling ------------------------------------------
-    exclude_incompletes: bool = True,
-    usability_profile: str | None = None,
     weight_profiles: list[str] | None = None,
     max_unplaceable_share: float = 0.01,
     # -- Canonical tables (auto-injected by pipeline) -------------------
@@ -191,8 +189,6 @@ def compute_weights(  # noqa: PLR0913
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
         expansion_factor_grid=expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
-        exclude_incompletes=exclude_incompletes,
-        usability_profile=usability_profile,
         weight_profiles=tuple(weight_profiles or ()),
         max_unplaceable_share=max_unplaceable_share,
     )
@@ -243,7 +239,7 @@ def compute_weights(  # noqa: PLR0913
         "controls over its own universe and writes its own columns; nothing is derived "
         "from another fit.",
         len(profiles),
-        ", ".join(p or "the whole survey" for p in profiles),
+        ", ".join(profiles),
     )
     # The whole block, not one key: the comparer also reads it, and it must run
     # before drop_unsuffixed_weights below takes the supplied weights away.
@@ -260,7 +256,7 @@ def compute_weights(  # noqa: PLR0913
             profile=fit.profile,
         )
 
-    drop_unsuffixed_weights(result_tables, profiles)
+    drop_unsuffixed_weights(result_tables)
 
     # The suffixed names come from config, so they cannot be model fields; without
     # registering them the delivered output would drop them.
