@@ -76,6 +76,8 @@ COORDS = {
     "home_p": (37.7420, -122.4120),
     "home_q": (37.7660, -122.4480),
     "home_r": (37.7190, -122.4600),
+    "home_s": (37.7520, -122.4560),
+    "home_t": (37.7390, -122.4380),
 }
 
 DAY_DATE_1 = date(2024, 3, 11)  # Monday
@@ -116,6 +118,7 @@ PC_SCHOOL, PC_ESCORT = PurposeCategory.SCHOOL.value, PurposeCategory.ESCORT.valu
 PC_SHOP, PC_MEAL = PurposeCategory.SHOP.value, PurposeCategory.MEAL.value
 PC_SOCIALREC, PC_ERRAND = PurposeCategory.SOCIALREC.value, PurposeCategory.ERRAND.value
 PC_CHANGE_MODE = PurposeCategory.CHANGE_MODE.value
+PC_WORK_RELATED = PurposeCategory.WORK_RELATED.value
 PURP_HOME, PURP_WORK = Purpose.HOME.value, Purpose.WORK_VOLUNTEER.value
 MT_WALK, MT_BIKE = ModeType.WALK.value, ModeType.BIKE.value
 MT_BIKESHARE, MT_TAXI = ModeType.BIKESHARE.value, ModeType.TAXI.value
@@ -129,7 +132,7 @@ DOW_MONDAY, DOW_TUESDAY = TravelDow.MONDAY.value, TravelDow.TUESDAY.value
 DOW_SATURDAY = TravelDow.SATURDAY.value
 DRV_DRIVER, DRV_PASSENGER = Driver.DRIVER.value, Driver.PASSENGER.value
 DRV_MISSING = Driver.MISSING.value
-JOB_FIXED = JobType.FIXED.value
+JOB_FIXED, JOB_VARIES = JobType.FIXED.value, JobType.VARIES.value
 SCH_PRESCHOOL, SCH_ELEMENTARY = SchoolType.PRESCHOOL.value, SchoolType.ELEMENTARY.value
 SCH_HIGH_SCHOOL, SCH_4YEAR = SchoolType.HIGH_SCHOOL.value, SchoolType.COLLEGE_4YEAR.value
 RACE_AFAM, RACE_ASIAN, RACE_WHITE = Race.AFAM.value, Race.ASIAN.value, Race.WHITE.value
@@ -1229,6 +1232,49 @@ def _build_records():
     )
     s.day(3002, 30, DAY_DATE_1, DOW_MONDAY, pnum=2, dnum=1).trip(
         "home_d", "work_3", PC_HOME, PC_WORK, MT_CAR, (7, 30), (8, 0), drv=2, ntrav=2
+    )
+
+    # HH 31 - work-related stops, and a workplace the survey never asked for.
+    # 3101's job location varies, so no workplace was reported; a full working day
+    # at work_2 makes it an observed one. Their work-related tour is a work tour,
+    # and the observed workplace stands in as the model's usual workplace.
+    # 3102 is retired: the same kind of stop is volunteering, and stays
+    # non-mandatory.
+    s.household(31, "home_s", income=INC_75_100K, npeople=2, veh=1, nworkers=1)
+    s.person(3101, 31, 1, AGE_35_TO_44, FEMALE, EMP_FULLTIME, STU_NONSTUDENT, jt=JOB_VARIES)
+    s.person(3102, 31, 2, AGE_65_TO_74, MALE, EMP_NOT_LOOKING, STU_NONSTUDENT)
+    s.day(3101, 31, DAY_DATE_1, DOW_MONDAY, pnum=1).round_trip(
+        "home_s",
+        "work_2",
+        PC_HOME,
+        PC_WORK_RELATED,
+        MT_CAR,
+        ((8, 0), (8, 30)),
+        ((17, 0), (17, 30)),
+    )
+    s.day(3102, 31, DAY_DATE_1, DOW_MONDAY, pnum=2).round_trip(
+        "home_s",
+        "social_1",
+        PC_HOME,
+        PC_WORK_RELATED,
+        MT_WALK,
+        ((10, 0), (10, 20)),
+        ((12, 0), (12, 20)),
+    )
+
+    # HH 32 - a work tour with no usual workplace. 3201's location varies and the
+    # one work-related stop is a 45-minute meeting, too short to be a workplace,
+    # so the tour is work but the model has no usual workplace to send it to.
+    s.household(32, "home_t", income=INC_100_200K, npeople=1, veh=1, nworkers=1)
+    s.person(3201, 32, 1, AGE_45_TO_54, MALE, EMP_PARTTIME, STU_NONSTUDENT, jt=JOB_VARIES)
+    s.day(3201, 32, DAY_DATE_1, DOW_MONDAY).round_trip(
+        "home_t",
+        "errand_1",
+        PC_HOME,
+        PC_WORK_RELATED,
+        MT_CAR,
+        ((9, 0), (9, 20)),
+        ((10, 5), (10, 25)),
     )
 
     return s.hhs, s.pers, s.days, s.trips

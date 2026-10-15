@@ -67,6 +67,16 @@ class Employment(LabeledEnum):
     # UNEMPLOYED_RETIRED = (8, "Not employed and not working, retired")
 
 
+# Employment codes the model formatters treat as having a job: who can make a work
+# tour and have a usual workplace. Furloughed is left out: not working now.
+EMPLOYED = (
+    Employment.EMPLOYED_FULLTIME,
+    Employment.EMPLOYED_PARTTIME,
+    Employment.EMPLOYED_SELF,
+    Employment.EMPLOYED_UNPAID,
+)
+
+
 class Ethnicity(LabeledEnum):
     """ethnicity value labels."""
 

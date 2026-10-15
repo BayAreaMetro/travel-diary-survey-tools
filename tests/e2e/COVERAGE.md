@@ -132,6 +132,8 @@ Feature-specific behaviours (imputation stash, edge-case coverage below) are ass
 | 28 | Commutes out of region on one date | `zone_coverage` gates a day without losing the person |
 | 29 | Members usable on **different** dates | household unusable while both persons pass — the level disagreement `all_members` makes possible |
 | 30 | Travel out together, one never returns | joint trip group down to one usable member |
+| 31 | Work-related day with no reported workplace; a retiree volunteering | a work-related tour by someone employed is work; their observed workplace stands in as the usual one (`WorkLocation`, `pwtaz`); the retiree's stays non-mandatory |
+| 32 | Short work-related meeting, no reported workplace | a work tour with no usual workplace: stays work, `WorkLocation` 0, logged |
 
 ## Classification buckets covered (verified in outputs)
 

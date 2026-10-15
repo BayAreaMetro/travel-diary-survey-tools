@@ -209,6 +209,7 @@ from data_canon.models.ctramp import (
 )
 from pipeline.decoration import step
 from processing.formatting.usable_records import keep_usable
+from processing.formatting.usual_workplace import fill_usual_workplace
 
 from .ctramp_config import CTRAMPConfig
 from .format_ao import format_ao_results
@@ -508,6 +509,8 @@ def format_ctramp(  # noqa: PLR0913
     income_high_threshold: int,
     income_survey_year_to_ctramp_year: float,
     taz_field: str = "taz",
+    habitual_locations: pl.DataFrame | None = None,
+    habitual_location_days: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -554,6 +557,13 @@ def format_ctramp(  # noqa: PLR0913
             BATS 2023 -> CT-RAMP year 2000 the factor is 1 / 1.88 ~= 0.532).
         taz_field: Field name containing the TAZ ID for CTRAMP formatting
             (default: "taz").
+        habitual_locations: Habitual locations, zoned by ``add_zone_ids``. An
+            employed person who reported no workplace takes their most-visited
+            observed workplace as ``WorkLocation`` (see
+            [`usual_workplace`][processing.formatting.usual_workplace]). None
+            leaves the reported workplaces alone.
+        habitual_location_days: Time spent at each habitual location per day,
+            which picks the most-visited workplace.
 
     Returns:
         Dictionary with keys:
@@ -638,6 +648,15 @@ def format_ctramp(  # noqa: PLR0913
     unlinked_trips = gated["unlinked_trips"]
     joint_trips = gated["joint_trips"]
     joint_tours = gated["joint_tours"]
+
+    # The survey asks for a workplace only when the job has one fixed location;
+    # for anyone else employed, their trips may show one.
+    persons = fill_usual_workplace(
+        persons,
+        habitual_locations,
+        habitual_location_days,
+        zone_names=[config.taz_field],
+    )
 
     # CT-RAMP writes the TAZ as an integer.
     households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))

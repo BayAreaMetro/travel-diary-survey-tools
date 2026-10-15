@@ -5,13 +5,38 @@ from typing import Literal
 import polars as pl
 
 from data_canon.codebook.ctramp import (
-    CTRAMPPersonType,
     CTRAMPStudentCategory,
     CTRAMPTourPurpose,
     CTRAMPTripPurpose,
 )
-from data_canon.codebook.persons import SchoolType
-from data_canon.codebook.trips import PurposeCategory
+from data_canon.codebook.persons import EMPLOYED, SchoolType
+from data_canon.codebook.trips import WORK_PURPOSE_CATEGORIES, PurposeCategory
+
+
+def is_employed(employment: pl.Expr) -> pl.Expr:
+    """Whether the person has a job (see ``EMPLOYED``)."""
+    return employment.is_in([e.value for e in EMPLOYED]).fill_null(value=False)
+
+
+def is_work_purpose(purpose_category: pl.Expr, employment: pl.Expr) -> pl.Expr:
+    """Whether CT-RAMP takes a tour of this purpose, by this person, as work.
+
+    An employed person's work-related tour is work: the survey separates the
+    workplace from a meeting, jobsite or volunteering, and the model does not.
+    Employment decides, not person type, so a student with a job counts too.
+    Anyone else's work-related tour stays non-mandatory -- a retiree's is
+    volunteering, and a child's is a parent's purpose copied onto a shared trip.
+    A reported workplace visit is work for everyone, as it always was.
+    """
+    return (purpose_category == PurposeCategory.WORK.value) | (
+        purpose_category.is_in([p.value for p in WORK_PURPOSE_CATEGORIES]) & is_employed(employment)
+    )
+
+
+# A joint record is no one person, so it has no employment of its own: a
+# work-related purpose on it is never work.
+NO_EMPLOYMENT = pl.lit(None, dtype=pl.Int64)
+
 
 PURPOSECATEGORY_TO_JTF_GROUP = {
     # Shopping
@@ -47,7 +72,7 @@ def ctramp_purpose_category_expression(
     purpose_category: pl.Expr,
     income: pl.Expr,
     school_type: pl.Expr,
-    person_type: pl.Expr,
+    employment: pl.Expr,
     income_low_threshold: int,
     income_med_threshold: int,
     income_high_threshold: int,
@@ -66,8 +91,9 @@ def ctramp_purpose_category_expression(
         income: Polars expression for household income (absolute dollars)
         school_type: Polars expression for school type
             (from persons.SchoolType enum)
-        person_type: Polars expression for person category
-            (from persons.CTRAMPPersonType enum)
+        employment: Polars expression for the canonical employment code. Whether
+            the person has a job decides whether a work-related purpose is work
+            (see :func:`is_work_purpose`).
         income_low_threshold: Income threshold for low bracket
         income_med_threshold: Income threshold for med bracket
         income_high_threshold: Income threshold for high bracket
@@ -115,25 +141,17 @@ def ctramp_purpose_category_expression(
         pl.lit(purpose_enum.HOME.value)
     )
 
-    # At-work sub-tour purposes only apply when the row is a subtour
-    # and the parent tour purpose is WORK.
+    # At-work sub-tour purposes only apply when the row is a subtour of a work tour.
     if parent_tour_purpose is not None and is_subtour is not None:
-        is_at_work_subtour = is_subtour & (parent_tour_purpose == PurposeCategory.WORK.value)
+        is_at_work_subtour = is_subtour & is_work_purpose(parent_tour_purpose, employment)
     else:
         is_at_work_subtour = pl.lit(False)  # noqa: FBT003
-
-    is_worker = person_type.is_in(
-        [
-            CTRAMPPersonType.FULL_TIME_WORKER.value,
-            CTRAMPPersonType.PART_TIME_WORKER.value,
-        ]
-    )
 
     # At-work subtours with WORK/WORK_RELATED purposes
     # ATWORK_BUSINESS (check FIRST, before primary work)
     atwork_business_expr = home_expr.when(
         is_at_work_subtour
-        & is_worker
+        & is_employed(employment)
         & (
             (purpose_category == PurposeCategory.WORK_RELATED.value)
             | (purpose_category == PurposeCategory.WORK.value)
@@ -150,9 +168,9 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(purpose_enum.WORK_HIGH.value))
         .otherwise(pl.lit(purpose_enum.WORK_VERY_HIGH.value))
     )
-    work_expr = atwork_business_expr.when(
-        purpose_category.is_in([PurposeCategory.WORK.value])
-    ).then(work_income_segmentation)
+    work_expr = atwork_business_expr.when(is_work_purpose(purpose_category, employment)).then(
+        work_income_segmentation
+    )
 
     # School purposes - segmented by student type
     school_segmentation_expr = (

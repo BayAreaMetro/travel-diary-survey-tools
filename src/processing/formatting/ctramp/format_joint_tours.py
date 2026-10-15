@@ -6,7 +6,6 @@ from collections.abc import Collection
 import polars as pl
 
 from data_canon.codebook.ctramp import (
-    CTRAMPPersonType,
     CTRAMPTourCategory,
     TourComposition,
 )
@@ -19,7 +18,7 @@ from .mode_mappings import (
     aggregate_transit_submode,
     ctramp_mode_expression,
 )
-from .purpose_mappings import ctramp_purpose_category_expression
+from .purpose_mappings import NO_EMPLOYMENT, ctramp_purpose_category_expression
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +173,7 @@ def format_joint_tour(
                 pl.col("tour_purpose"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
-                pl.lit(CTRAMPPersonType.NON_WORKER.value),
+                NO_EMPLOYMENT,
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,

@@ -18,7 +18,7 @@ from data_canon.codebook.trips import (
 
 from .mappings import (
     DROVE_ACCESS_EGRESS,
-    PURPOSE_MAP,
+    daysim_purpose,
     daysim_tour_number,
 )
 
@@ -415,7 +415,7 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
     """
     # Join person_num to linked trips
     trips = linked_trips.join(
-        persons.select(["person_id", "person_num"]),
+        persons.select(["person_id", "person_num", "employment"]),
         on=["person_id"],
         how="left",
     )
@@ -515,8 +515,8 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
                 + pl.col("arrive_time").dt.minute()
             ).alias("endacttm"),
             # Map purposes
-            pl.col("opurp").replace(PURPOSE_MAP).alias("opurp"),
-            pl.col("dpurp").replace(PURPOSE_MAP).alias("dpurp"),
+            daysim_purpose(pl.col("opurp"), pl.col("employment"), strict=False).alias("opurp"),
+            daysim_purpose(pl.col("dpurp"), pl.col("employment"), strict=False).alias("dpurp"),
             # Fill the usual nulls when zones are not matched (out of area, missing data, etc.)
             pl.col("otaz").fill_null(-1),
             pl.col("opcl").fill_null(-1),

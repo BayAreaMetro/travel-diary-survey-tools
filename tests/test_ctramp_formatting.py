@@ -4,6 +4,7 @@ Tests formatting, field corrections, and end-to-end transformation from
 canonical survey data to CT-RAMP model format.
 """
 
+import logging
 from datetime import datetime, time
 from typing import get_args
 
@@ -13,6 +14,7 @@ import pytest
 from data_canon.codebook.ctramp import (
     AtWorkFreq,
     CTRAMPPersonType,
+    CTRAMPTourCategory,
     FreeParkingChoice,
     JTFChoice,
     TourComposition,
@@ -24,6 +26,7 @@ from data_canon.codebook.persons import (
     AgeCategory,
     Employment,
     Gender,
+    SchoolType,
     Student,
 )
 from data_canon.codebook.tours import TourDirection
@@ -40,6 +43,7 @@ from data_canon.models.ctramp import (
 from processing.formatting.ctramp.format_ctramp import _drop_excess_fields, format_ctramp
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_joint_trips import format_joint_trip
+from processing.formatting.ctramp.format_mandatory_location import format_mandatory_location
 from processing.formatting.ctramp.format_persons import format_persons
 from processing.formatting.ctramp.format_tours import (
     format_individual_tour,
@@ -833,6 +837,199 @@ class TestIndividualTourFormatting:
                 households_ctramp=households_formatted,
                 config=standard_config,
             )
+
+
+def _format_person_tours(standard_config, person, tour_specs):
+    """Format one person's tours, each with one outbound and one inbound trip.
+
+    Args:
+        standard_config: The CT-RAMP config fixture.
+        person: A canonical person record.
+        tour_specs: ``(tour_id, tour_num, tour_purpose, parent_tour_id)`` per tour;
+            a parent of None makes a home-based tour.
+    """
+    households = pl.DataFrame([create_household(hh_id=1)])
+    persons = pl.DataFrame([person])
+    tours = pl.DataFrame(
+        [
+            create_tour(
+                tour_id=tour_id,
+                person_id=person["person_id"],
+                hh_id=1,
+                tour_num=tour_num,
+                tour_purpose=purpose,
+                **({"parent_tour_id": parent} if parent is not None else {}),
+            )
+            for tour_id, tour_num, purpose, parent in tour_specs
+        ],
+        schema=get_tour_schema(),
+    )
+    trips = pl.DataFrame(
+        [
+            create_linked_trip(
+                trip_id=tour_id * 10 + leg,
+                tour_id=tour_id,
+                person_id=person["person_id"],
+                hh_id=1,
+                tour_direction=direction,
+            )
+            for tour_id, *_ in tour_specs
+            for leg, direction in ((1, TourDirection.OUTBOUND), (2, TourDirection.INBOUND))
+        ]
+    )
+    return format_individual_tour(
+        tours_canonical=tours,
+        linked_trips_canonical=trips,
+        unlinked_trips_canonical=pl.DataFrame(),
+        persons_canonical=persons,
+        households_ctramp=format_households(households, persons, tours, standard_config),
+        config=standard_config,
+    )
+
+
+class TestWorkRelatedCountsAsWork:
+    """A worker's work-related tour is a work tour; a non-worker's is not.
+
+    The survey separates going to the workplace from other work activity -- a
+    meeting, a jobsite, volunteering. CT-RAMP does not: a worker who spends the
+    day working somewhere has made a work tour. A non-worker's work-related tour
+    (volunteering, a child carried along on a parent's trip) stays non-mandatory,
+    because CT-RAMP gives those person types no work tours.
+    """
+
+    def test_a_workers_work_related_tour_is_a_mandatory_work_tour(self, standard_config):
+        """A meeting or jobsite day by a worker is a work tour, segmented by income."""
+        worker = create_person(person_id=101, hh_id=1, employment=Employment.EMPLOYED_FULLTIME)
+        result = _format_person_tours(
+            standard_config, worker, [(1001, 1, PurposeCategory.WORK_RELATED, None)]
+        )
+
+        assert result["tour_purpose"][0].startswith("work_")
+        assert result["tour_category"][0] == CTRAMPTourCategory.MANDATORY.value
+        assert result["atWork_freq"][0] == AtWorkFreq.NO_SUBTOUR.value
+
+    def test_a_subtour_of_a_work_related_tour_is_at_work(self, standard_config):
+        """Lunch away from a work-related site is an at-work subtour of that work tour."""
+        worker = create_person(person_id=101, hh_id=1, employment=Employment.EMPLOYED_FULLTIME)
+        result = _format_person_tours(
+            standard_config,
+            worker,
+            [
+                (1001, 1, PurposeCategory.WORK_RELATED, None),
+                (1002, 2, PurposeCategory.MEAL, 1001),
+            ],
+        )
+
+        parent = result.filter(pl.col("tour_id") == 0)
+        subtour = result.filter(pl.col("tour_id") == 11)
+        assert subtour["tour_category"][0] == CTRAMPTourCategory.AT_WORK.value
+        assert subtour["tour_purpose"][0] == "atwork_eat"
+        assert parent["atWork_freq"][0] == AtWorkFreq.ONE_EAT.value
+
+    def test_an_employed_students_work_related_tour_is_work(self, standard_config):
+        """Employment decides, not person type: a student with a job works too."""
+        student = create_person(
+            person_id=101,
+            hh_id=1,
+            age=AgeCategory.AGE_18_TO_24,
+            employment=Employment.EMPLOYED_PARTTIME,
+            student=Student.FULLTIME_INPERSON,
+            school_type=SchoolType.COLLEGE_4YEAR,
+        )
+        result = _format_person_tours(
+            standard_config, student, [(1001, 1, PurposeCategory.WORK_RELATED, None)]
+        )
+
+        assert result["tour_purpose"][0].startswith("work_")
+        assert result["tour_category"][0] == CTRAMPTourCategory.MANDATORY.value
+
+    def test_a_non_workers_work_related_tour_stays_non_mandatory(self, standard_config):
+        """A retiree's volunteering is not a work tour; CT-RAMP gives them none."""
+        retiree = create_person(
+            person_id=101,
+            hh_id=1,
+            age=AgeCategory.AGE_65_TO_74,
+            employment=Employment.UNEMPLOYED_NOT_LOOKING,
+        )
+        result = _format_person_tours(
+            standard_config, retiree, [(1001, 1, PurposeCategory.WORK_RELATED, None)]
+        )
+
+        assert result["tour_purpose"][0] == "othdiscr"
+        assert result["tour_category"][0] == CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY.value
+        assert result["atWork_freq"][0] == AtWorkFreq.NONE_NOT_WORK.value
+
+    def test_a_non_workers_work_tour_is_still_work(self, standard_config):
+        """Unchanged: the rule widens work for workers, it narrows nothing."""
+        retiree = create_person(
+            person_id=101,
+            hh_id=1,
+            age=AgeCategory.AGE_65_TO_74,
+            employment=Employment.UNEMPLOYED_NOT_LOOKING,
+        )
+        result = _format_person_tours(
+            standard_config, retiree, [(1001, 1, PurposeCategory.WORK, None)]
+        )
+
+        assert result["tour_purpose"][0].startswith("work_")
+        assert result["tour_category"][0] == CTRAMPTourCategory.MANDATORY.value
+
+
+def _tours_ctramp(person_id, *purposes):
+    """CT-RAMP tours for one person, one row per purpose string."""
+    return pl.DataFrame({"person_id": [person_id] * len(purposes), "tour_purpose": list(purposes)})
+
+
+class TestWhatTheModelCannotTakeIsLogged:
+    """Days and tours the model has no alternative for are reported, never changed.
+
+    The model chooses a person-day's mandatory pattern from a fixed set it
+    narrows by person type, and sends work and school tours to a usual
+    location. Survey days outside that are real; the log says how many.
+    """
+
+    def test_a_pattern_not_offered_to_the_person_type(self, standard_config, caplog):
+        """A 16-17 student's day of work alone: the model gives them work only with school."""
+        student = create_person(
+            person_id=101,
+            hh_id=1,
+            age=AgeCategory.AGE_16_TO_17,
+            employment=Employment.EMPLOYED_PARTTIME,
+            student=Student.FULLTIME_INPERSON,
+            school_type=SchoolType.HIGH_SCHOOL,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = format_persons(
+                pl.DataFrame([student]), _tours_ctramp(101, "work_med"), standard_config
+            )
+
+        assert result["imf_choice"][0] == 1  # kept: one work tour
+        assert "Student of driving age" in caplog.text
+        assert "one work tour" in caplog.text
+
+    def test_work_and_school_tours_with_no_usual_location(self, standard_config, caplog):
+        """The tours stay work and school tours; the location stays 0."""
+        worker = create_person(person_id=101, hh_id=1, employment=Employment.EMPLOYED_FULLTIME)
+        persons = pl.DataFrame([worker])
+        tours = _tours_ctramp(101, "work_med", "university")
+        households = format_households(
+            pl.DataFrame([create_household(hh_id=1)]), persons, empty_tours(), standard_config
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = format_mandatory_location(
+                format_persons(persons, tours, standard_config),
+                households,
+                pl.DataFrame(),
+                standard_config,
+            )
+
+        assert result["WorkLocation"][0] == 0
+        assert "1 work tour(s)" in caplog.text
+        assert "no usual workplace" in caplog.text
+        assert "1 school tour(s)" in caplog.text
+        assert "no usual school" in caplog.text
 
 
 class TestJointTourFormatting:

@@ -228,9 +228,10 @@ steps:
       #
       #   joint_tours:         fully_joint   a joint tour is only the members who
       #                                      share every leg of it, and never a
-      #                                      work, school or escort tour -- the
-      #                                      models draw a joint tour's trips once
-      #                                      for everyone on it. A member who
+      #                                      work, work-related, school or escort
+      #                                      tour -- the models draw a joint
+      #                                      tour's trips once for everyone on
+      #                                      it. A member who
       #                                      leaves for a leg travels alone, as
       #                                      an individual tour
       #                        partial       the joint groups the survey detected,

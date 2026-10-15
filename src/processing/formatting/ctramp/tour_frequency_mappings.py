@@ -1,14 +1,30 @@
 """CT-RAMP mandatory and non-mandatory tour-frequency mappings."""
 
+import logging
+
 import polars as pl
 
 from data_canon.codebook.ctramp import (
     _INMF_MAXES,
     _INMF_REVERSE_LOOKUP,
     CTRAMPActivityPattern,
+    CTRAMPPersonType,
     CTRAMPTourPurpose,
     IMFChoice,
 )
+
+logger = logging.getLogger(__name__)
+
+# Mandatory patterns the model's mandatory tour frequency choice never offers a
+# person type; types not listed are offered all five.
+_PATTERNS_NOT_OFFERED = {
+    CTRAMPPersonType.FULL_TIME_WORKER: (IMFChoice.TWO_SCHOOL,),
+    CTRAMPPersonType.PART_TIME_WORKER: (IMFChoice.TWO_SCHOOL,),
+    CTRAMPPersonType.NON_WORKER: (IMFChoice.TWO_SCHOOL, IMFChoice.ONE_WORK_ONE_SCHOOL),
+    CTRAMPPersonType.RETIRED: (IMFChoice.TWO_SCHOOL, IMFChoice.ONE_WORK_ONE_SCHOOL),
+    CTRAMPPersonType.STUDENT_DRIVING_AGE: (IMFChoice.ONE_WORK, IMFChoice.TWO_WORK),
+    CTRAMPPersonType.STUDENT_NON_DRIVING_AGE: (IMFChoice.TWO_WORK, IMFChoice.ONE_WORK_ONE_SCHOOL),
+}
 
 
 def get_imf_choice_from_counts(work_count: int, school_count: int) -> int | None:
@@ -141,6 +157,7 @@ def aggregate_tour_statistics(
                 "inmf_choice": pl.Int64,
                 "activity_pattern": pl.String,
                 "work_count": pl.UInt32,
+                "school_count": pl.UInt32,
             }
         )
 
@@ -242,5 +259,44 @@ def aggregate_tour_statistics(
             "imf_choice",
             "inmf_choice",
             "work_count",
+            "school_count",
         ]
+    )
+
+
+def log_patterns_not_offered(persons_ctramp: pl.DataFrame) -> None:
+    """Warn about person-days whose mandatory pattern the model never offers their type.
+
+    The pattern is kept as the survey shows it; the model simply has no
+    alternative to reproduce it with, so the log says how many there are.
+
+    Args:
+        persons_ctramp: Person-days with ``person_type`` and ``imf_choice``.
+    """
+    pairs = pl.DataFrame(
+        [(t.value, p.value) for t, patterns in _PATTERNS_NOT_OFFERED.items() for p in patterns],
+        schema={"person_type": pl.Int64, "imf_choice": pl.Int64},
+        orient="row",
+    )
+    found = (
+        persons_ctramp.select(
+            pl.col("person_type").cast(pl.Int64), pl.col("imf_choice").cast(pl.Int64)
+        )
+        .join(pairs, on=["person_type", "imf_choice"], how="inner")
+        .group_by("person_type", "imf_choice")
+        .agg(pl.len().alias("days"))
+        .sort("person_type", "imf_choice")
+    )
+    if found.is_empty():
+        return
+    person_types, patterns = CTRAMPPersonType.to_dict(), IMFChoice.to_dict()
+    lines = [
+        f"  {person_types[r['person_type']]}: {patterns[r['imf_choice']]}, {r['days']} day(s)"
+        for r in found.iter_rows(named=True)
+    ]
+    logger.warning(
+        "%d person-day(s) have a mandatory pattern the model does not offer their "
+        "person type; kept as surveyed:\n%s",
+        found["days"].sum(),
+        "\n".join(lines),
     )

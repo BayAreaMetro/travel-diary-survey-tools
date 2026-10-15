@@ -46,7 +46,7 @@ from .student_mappings import (
     ctramp_student_category_expression,
     log_student_category_warnings,
 )
-from .tour_frequency_mappings import aggregate_tour_statistics
+from .tour_frequency_mappings import aggregate_tour_statistics, log_patterns_not_offered
 
 logger = logging.getLogger(__name__)
 
@@ -304,8 +304,10 @@ def format_persons(
             pl.col("imf_choice").fill_null(0),  # 0 mandatory tours
             pl.col("inmf_choice").fill_null(0),  # 0 non-mandatory tours
             pl.col("work_count").fill_null(0),  # 0 work tours
+            pl.col("school_count").fill_null(0),  # 0 school tours
         ]
     )
+    log_patterns_not_offered(persons_ctramp)
 
     # Derive wfh_choice from employment status, observed telecommute time, and work tours.
     # This reflects the travel model's binary treatment: a person either WFH or commutes on a day.
