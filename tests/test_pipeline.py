@@ -330,6 +330,47 @@ class TestParseStepArgs:
 
         assert "optional_param" not in pipeline.parse_step_args("test_step", step_func)
 
+    def test_parse_step_args_rejects_unknown_key(self, tmp_path):
+        """A config key the step does not take raises instead of being dropped."""
+        config_path = _write_config(
+            tmp_path,
+            {"steps": [{"name": "test_step", "params": {"config": {"method": "x"}}}]},
+        )
+
+        def step_func(method="buffer"):
+            pass
+
+        pipeline = Pipeline(config_path=config_path, steps=[step_func], caching=False)
+
+        with pytest.raises(ValueError, match=r"sets \['config'\], which the step does not take"):
+            pipeline.parse_step_args("test_step", step_func)
+
+    def test_parse_step_args_rejects_table_name_key(self, tmp_path):
+        """A config key naming a table raises: the table would win and the value be lost."""
+        config_path = _write_config(
+            tmp_path,
+            {"steps": [{"name": "test_step", "params": {"households": {"buffer": 1}}}]},
+        )
+
+        def step_func(households):
+            pass
+
+        pipeline = Pipeline(config_path=config_path, steps=[step_func], caching=False)
+
+        with pytest.raises(ValueError, match="which name canonical tables"):
+            pipeline.parse_step_args("test_step", step_func)
+
+    def test_parse_step_args_accepts_empty_params(self, tmp_path):
+        """An empty ``params:`` block reads as no settings."""
+        config_path = _write_config(tmp_path, {"steps": [{"name": "test_step", "params": None}]})
+
+        def step_func(optional_param="default_value"):
+            pass
+
+        pipeline = Pipeline(config_path=config_path, steps=[step_func], caching=False)
+
+        assert pipeline.parse_step_args("test_step", step_func) == {}
+
 
 class TestRun:
     """Executing the configured steps."""

@@ -88,11 +88,13 @@ and temporal patterns.
 """
 
 import logging
-from typing import Any
+from typing import Literal
 
 import polars as pl
 
+from data_canon.codebook.trips import ModeType, PurposeCategory
 from pipeline.decoration import step
+from processing.habitual_locations import MatchConfig
 from utils.create_ids import create_tour_ids
 
 from .aggregation_helpers import aggregate_tour_attributes
@@ -141,14 +143,23 @@ logger = logging.getLogger(__name__)
         "tours": {"tour_id"},
     },
 )
-def extract_tours(
+def extract_tours(  # noqa: PLR0913 # But we may want a permanent configuration object for these parameters later
     persons: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
     habitual_locations: pl.DataFrame,
     days: pl.DataFrame,
     joint_trips: pl.DataFrame | None = None,
-    **kwargs: dict[str, Any],
+    mode_hierarchy: list[ModeType] | None = None,
+    purpose_priority_by_personcat: dict[str, dict[PurposeCategory, int]] | None = None,
+    tour_purpose_method: Literal["score", "hierarchy"] | None = None,
+    purpose_score_weights: dict[str, dict[PurposeCategory, float]] | None = None,
+    purpose_score_halfmax: dict[PurposeCategory, float] | None = None,
+    check_multiday_gaps: bool | None = None,
+    detect_usual_workplace: bool | None = None,
+    spatial_gap_threshold_meters: float | None = None,
+    habitual_match: MatchConfig | dict[str, float] | None = None,
+    default_activity_duration_minutes: float | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Extract hierarchical tour structures from linked trip data.
 
@@ -168,16 +179,17 @@ def extract_tours(
             destination.
         joint_trips: Optional joint trip aggregations. If provided, enables joint
             tour identification based on stable participant groups.
-        **kwargs: Configuration parameters for TourConfig:
-
-            - habitual_locations: The match rule (MatchConfig): the buffer, which
-              must be the one ``detect_habitual_locations`` used.
-            - mode_hierarchy: Mode priority for tour mode assignment (list).
-              Higher index = higher priority.
-            - purpose_hierarchy: Purpose priority by person type (dict).
-              Maps person categories to ordered purpose lists.
-            - person_category_expression: Polars expression to classify person
-              categories (e.g., worker, student).
+        mode_hierarchy: See ``TourConfig``.
+        purpose_priority_by_personcat: See ``TourConfig``.
+        tour_purpose_method: See ``TourConfig``.
+        purpose_score_weights: See ``TourConfig``.
+        purpose_score_halfmax: See ``TourConfig``.
+        check_multiday_gaps: See ``TourConfig``.
+        detect_usual_workplace: See ``TourConfig``.
+        spatial_gap_threshold_meters: See ``TourConfig``.
+        habitual_match: The match rule (``MatchConfig``). Its buffer must be the
+            one ``detect_habitual_locations`` used.
+        default_activity_duration_minutes: See ``TourConfig``.
 
     Returns:
         Dictionary containing:
@@ -189,7 +201,20 @@ def extract_tours(
     """
     logger.info("Building tours from linked trip data...")
 
-    config = TourConfig(**kwargs)  # pyright: ignore[reportArgumentType]
+    # None means not configured: the model keeps its own default.
+    settings = {
+        "mode_hierarchy": mode_hierarchy,
+        "purpose_priority_by_personcat": purpose_priority_by_personcat,
+        "tour_purpose_method": tour_purpose_method,
+        "purpose_score_weights": purpose_score_weights,
+        "purpose_score_halfmax": purpose_score_halfmax,
+        "check_multiday_gaps": check_multiday_gaps,
+        "detect_usual_workplace": detect_usual_workplace,
+        "spatial_gap_threshold_meters": spatial_gap_threshold_meters,
+        "habitual_match": habitual_match,
+        "default_activity_duration_minutes": default_activity_duration_minutes,
+    }
+    config = TourConfig(**{k: v for k, v in settings.items() if v is not None})
 
     person_categories = persons.select("person_id", config.person_category_expression())
 
@@ -200,7 +225,7 @@ def extract_tours(
     linked_trips_classified = classify_trip_locations(
         linked_trips,
         habitual_locations,
-        config.habitual_locations,
+        config.habitual_match,
         days,
     ).join(person_categories, on="person_id", how="left")
 

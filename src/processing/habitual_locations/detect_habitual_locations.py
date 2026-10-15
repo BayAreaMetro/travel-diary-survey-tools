@@ -1,11 +1,11 @@
 """The ``detect_habitual_locations`` step: add observed locations to the delivered table."""
 
 import logging
-from typing import Any
 
 import polars as pl
 
 from data_canon.codebook.generic import LocationSource
+from data_canon.codebook.trips import Purpose
 from pipeline.decoration import step
 
 from .episodes import build_presence_episodes
@@ -149,7 +149,11 @@ def detect_habitual_locations(
     linked_trips: pl.DataFrame,
     days: pl.DataFrame,
     include_observed_homes: bool,
-    **kwargs: Any,  # noqa: ANN401
+    at_address_meters: float | None = None,
+    buffer_meters: float | None = None,
+    min_dwell_minutes: float | None = None,
+    min_dwell_minutes_by_purpose: dict[Purpose, float] | None = None,
+    min_distinct_days: int | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Find observed homes, workplaces and schools, and record presence per day.
 
@@ -166,17 +170,30 @@ def detect_habitual_locations(
             said to begin or end, beside the reported ones. An analyst's choice
             with no default: a "home" answer away from the reported home becomes
             another home, and tours touching it are graded ``OTHER_HOME``.
-        **kwargs: ``HabitualLocationConfig`` fields, including ``buffer_meters``,
-            which ``extract_tours`` must match.
+        at_address_meters: See ``HabitualLocationConfig``.
+        buffer_meters: See ``HabitualLocationConfig``; ``extract_tours`` must
+            use the same value.
+        min_dwell_minutes: See ``HabitualLocationConfig``.
+        min_dwell_minutes_by_purpose: See ``HabitualLocationConfig``.
+        min_distinct_days: See ``HabitualLocationConfig``.
 
     Returns:
         ``habitual_locations`` and ``habitual_location_days``.
     """
+    # None means not configured: the model keeps its own default.
+    settings = {
+        "at_address_meters": at_address_meters,
+        "buffer_meters": buffer_meters,
+        "min_dwell_minutes": min_dwell_minutes,
+        "min_dwell_minutes_by_purpose": min_dwell_minutes_by_purpose,
+        "min_distinct_days": min_distinct_days,
+    }
+    config = HabitualLocationConfig(**{k: v for k, v in settings.items() if v is not None})
     locations, location_days = add_observed_locations(
         habitual_locations,
         linked_trips,
         days,
-        HabitualLocationConfig(**kwargs),
+        config,
         include_observed_homes=include_observed_homes,
     )
     return {"habitual_locations": locations, "habitual_location_days": location_days}

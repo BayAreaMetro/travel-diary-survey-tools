@@ -292,7 +292,7 @@ class TourConfig(BaseModel):
         ),
     )
 
-    habitual_locations: MatchConfig = Field(
+    habitual_match: MatchConfig = Field(
         default_factory=MatchConfig,
         description=(
             "The rule for whether a trip end is at a habitual location. Its "

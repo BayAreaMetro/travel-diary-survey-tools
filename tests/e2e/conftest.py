@@ -225,11 +225,9 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "validate_input": False,
             "cache": False,
             "params": {
-                "config": {
-                    "method": "mahalanobis",
-                    "covariance": [10000, 10000, 100, 100],
-                    "confidence_level": 0.75,
-                }
+                "method": "mahalanobis",
+                "covariance": [10000, 10000, 100, 100],
+                "confidence_level": 0.75,
             },
         },
         "imputation": {

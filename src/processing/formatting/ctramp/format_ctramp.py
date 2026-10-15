@@ -509,6 +509,8 @@ def format_ctramp(  # noqa: PLR0913
     income_high_threshold: int,
     income_survey_year_to_ctramp_year: float,
     taz_field: str = "taz",
+    age_adult: int | None = None,
+    gender_default_for_missing: str | None = None,
     habitual_locations: pl.DataFrame | None = None,
     habitual_location_days: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
@@ -557,6 +559,8 @@ def format_ctramp(  # noqa: PLR0913
             BATS 2023 -> CT-RAMP year 2000 the factor is 1 / 1.88 ~= 0.532).
         taz_field: Field name containing the TAZ ID for CTRAMP formatting
             (default: "taz").
+        age_adult: See ``CTRAMPConfig``.
+        gender_default_for_missing: See ``CTRAMPConfig``.
         habitual_locations: Habitual locations, zoned by ``add_zone_ids``. An
             employed person who reported no workplace takes their most-visited
             observed workplace as ``WorkLocation`` (see
@@ -613,7 +617,12 @@ def format_ctramp(  # noqa: PLR0913
         joint_trips_ctramp = result["joint_trips_ctramp"]
         ```
     """
-    # Validate configuration parameters
+    # Validate configuration parameters. None means not configured: the model
+    # keeps its own default.
+    optional = {
+        "age_adult": age_adult,
+        "gender_default_for_missing": gender_default_for_missing,
+    }
     config = CTRAMPConfig(
         usability_profile=usability_profile,
         income_low_threshold=income_low_threshold,
@@ -621,6 +630,7 @@ def format_ctramp(  # noqa: PLR0913
         income_high_threshold=income_high_threshold,
         income_survey_year_to_ctramp_year=income_survey_year_to_ctramp_year,
         taz_field=taz_field,
+        **{k: v for k, v in optional.items() if v is not None},
     )
     logger.info("Starting CT-RAMP formatting")
 

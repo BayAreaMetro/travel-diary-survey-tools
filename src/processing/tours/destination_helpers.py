@@ -152,7 +152,7 @@ def calculate_destination_times(
     """
     logger.info("Calculating destination arrival and departure times...")
     # A return to the primary destination is a trip end within the buffer of it.
-    buffer = config.habitual_locations.buffer_meters
+    buffer = config.habitual_match.buffer_meters
     linked_trips = linked_trips.with_columns(
         [
             expr_haversine(

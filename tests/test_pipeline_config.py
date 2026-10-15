@@ -13,10 +13,19 @@ network drives and reads ``.env`` at module level.
 """
 
 import ast
+import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
+
+import processing
+from data_canon.core.dataclass import CanonicalData
+from pipeline.pipeline import Pipeline
+from processing import detect_habitual_locations, extract_tours
+from processing.habitual_locations.habitual_location_configs import HabitualLocationConfig
+from processing.tours.tour_configs import TourConfig
 
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 
@@ -164,6 +173,44 @@ def test_weighting_names_one_universe(project_dir: Path):
             f"{project_dir.name}: step {step_name!r} names both usability_flag_col and "
             "weight_profiles; they mean different things about what gets fitted."
         )
+
+
+@pytest.mark.parametrize(
+    ("step_func", "config_model"),
+    [
+        (extract_tours, TourConfig),
+        (detect_habitual_locations, HabitualLocationConfig),
+    ],
+    ids=["extract_tours", "detect_habitual_locations"],
+)
+def test_step_settings_match_config_model(step_func, config_model):
+    """A step that builds a config model takes exactly that model's fields.
+
+    The step lists each field as an argument so the pipeline can reject keys it
+    does not take; a field added to the model and not the step would be
+    unreachable from config.
+    """
+    params = inspect.signature(inspect.unwrap(step_func)).parameters
+    settings = {name for name in params if name not in CanonicalData().TABLE_NAMES}
+    assert settings - {"include_observed_homes"} == set(config_model.model_fields)
+
+
+@pytest.mark.parametrize("project_dir", _project_dirs(), ids=lambda p: p.name)
+def test_config_keys_are_taken_by_their_steps(project_dir: Path):
+    """Every key a project config sets reaches its step.
+
+    The pipeline raises on a key a step does not take, but only when the step
+    runs; this catches it in CI. Project-specific steps outside ``processing``
+    are skipped.
+    """
+    with (project_dir / "config.yaml").open() as f:
+        config = yaml.safe_load(f)
+    fake = SimpleNamespace(config=config, data=CanonicalData())
+    for step_cfg in config["steps"]:
+        step_func = getattr(processing, step_cfg["name"], None)
+        if step_func is None:
+            continue
+        Pipeline.parse_step_args(fake, step_cfg["name"], step_func)
 
 
 def test_projects_are_discovered():
