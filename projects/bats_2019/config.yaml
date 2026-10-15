@@ -119,21 +119,21 @@ steps:
     validate_input: true
     cache: true
     params:
-      config:
-        method: "mahalanobis"
-        # Covariance for Mahalanobis distance calculation
-        # Think of this as the standard deviation of measurement noise in each dimension
-        # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
-        # Default [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
-        covariance: [10000, 10000, 100, 100]
-        # Confidence level: Higher = stricter matching (fewer detections)
-        # 0.90 = 90% confidence (strict), 0.75 = moderate, 0.50 = permissive
-        confidence_level: 0.90
+      method: "mahalanobis"
+      # Covariance for Mahalanobis distance calculation
+      # Think of this as the standard deviation of measurement noise in each dimension
+      # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
+      # Default [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
+      covariance: [10000, 10000, 100, 100]
+      # Confidence level: higher = stricter. It reads backward and is not the
+      # share of joint pairs kept. With this covariance, 0.90 closely matches
+      # the buffer method below (see JointTripConfig.get_distance_threshold).
+      confidence_level: 0.90
 
-        # Alternative: simpler buffer method with time/space thresholds
-        # method: "buffer"
-        # time_threshold_minutes: 15.0
-        # space_threshold_meters: 100.0
+      # Alternative: simpler buffer method with time/space thresholds
+      # method: "buffer"
+      # time_threshold_minutes: 15.0
+      # space_threshold_meters: 100.0
 
   - name: extract_tours
     validate_input: true
@@ -145,7 +145,7 @@ steps:
       # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
-      habitual_locations:
+      habitual_match:
         buffer_meters: "{{ habitual_buffer_meters }}"
 
   - name: add_zone_ids

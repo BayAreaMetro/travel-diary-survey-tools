@@ -440,6 +440,10 @@ class Pipeline:
         If argument name matches a canonical table, it is passed from self.data.
         Else, it is taken from the step configuration "parameters".
 
+        A config key the step does not take raises, as does one naming a
+        canonical table: either would otherwise be dropped without a word, and
+        the step would run on its own default instead of the configured value.
+
         Args:
             step_name: Name of the step.
             step_obj: The step function or class.
@@ -461,33 +465,48 @@ class Pipeline:
         }
         expected_kwargs = [x for x in step_args if x not in reserved]
 
+        params = next(
+            (s.get("params") or {} for s in self.config["steps"] if s["name"] == step_name),
+            {},
+        )
+        tables = {"canonical_data", *self.data.TABLE_NAMES}
+        table_keys = sorted(k for k in params if k in tables)
+        if table_keys:
+            msg = (
+                f"Config for step '{step_name}' sets {table_keys}, which name "
+                "canonical tables. Tables are passed by the pipeline and cannot "
+                "be set in config."
+            )
+            raise ValueError(msg)
+        unknown = sorted(k for k in params if k not in step_args or k in reserved)
+        if unknown:
+            msg = (
+                f"Config for step '{step_name}' sets {unknown}, which the step "
+                f"does not take. It takes: {sorted(set(expected_kwargs) - tables)}."
+            )
+            raise ValueError(msg)
+
         for arg_name, param in step_args.items():
             if arg_name == "canonical_data":
                 # Pass the entire CanonicalData instance if requested
                 data_kwargs[arg_name] = self.data
             elif hasattr(self.data, arg_name):
                 data_kwargs[arg_name] = getattr(self.data, arg_name)
+            # Only add if parameter exists in config or has default
+            elif arg_name in params:
+                config_kwargs[arg_name] = params[arg_name]
+            elif param.default is not inspect.Parameter.empty or arg_name in reserved:
+                # Has default value, don't need to provide it
+                pass
             else:
-                step_cfg = self.config["steps"]
-                params = next(
-                    (s.get("params", {}) for s in step_cfg if s["name"] == step_name),
-                    {},
+                # If no default and not in config, omit it
+                # This will cause TypeError if it's required
+                msg = (
+                    f"Missing required parameter '{arg_name}' "
+                    f"for step '{step_name}'. Function expects "
+                    f""""{'", "'.join(expected_kwargs)}"."""
                 )
-                # Only add if parameter exists in config or has default
-                if arg_name in params:
-                    config_kwargs[arg_name] = params[arg_name]
-                elif param.default is not inspect.Parameter.empty or arg_name in reserved:
-                    # Has default value, don't need to provide it
-                    pass
-                else:
-                    # If no default and not in config, omit it
-                    # This will cause TypeError if it's required
-                    msg = (
-                        f"Missing required parameter '{arg_name}' "
-                        f"for step '{step_name}'. Function expects "
-                        f""""{'", "'.join(expected_kwargs)}"."""
-                    )
-                    raise ValueError(msg)
+                raise ValueError(msg)
 
         return {**data_kwargs, **config_kwargs}
 

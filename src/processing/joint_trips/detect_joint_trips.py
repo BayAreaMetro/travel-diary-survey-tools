@@ -227,8 +227,9 @@ def detect_joint_trips(
         space_threshold_meters: Max spatial distance for buffer method (default: 100.0).
         covariance: Covariance matrix for mahalanobis method - diagonal (4 values) or
             full (4x4 matrix). If None, uses defaults (~84m spatial, ~4.5min temporal).
-        confidence_level: Statistical confidence level for mahalanobis (default: 0.90).
-            Higher = stricter. 0.90 is strict, 0.75 is moderate.
+        confidence_level: Strictness of the mahalanobis cutoff (default: 0.90).
+            Higher = stricter; it reads backward from the usual meaning of
+            confidence. See ``JointTripConfig.get_distance_threshold``.
         log_discrepancies: Whether to log trips with reported vs detected traveler
             mismatches (default: False).
 
@@ -268,7 +269,8 @@ def detect_joint_trips(
 
         - Calculate statistical distance using covariance matrix:
             - Accounts for correlated variations in space/time
-            - Compares to chi-squared distribution at confidence_level
+            - Keeps pairs whose distance is below a cutoff set by
+              confidence_level (see ``JointTripConfig.get_distance_threshold``)
         - More sophisticated, calibrated to actual joint trip patterns
         - Can capture joint trips more flexibly than fixed thresholds
 
@@ -359,7 +361,7 @@ def detect_joint_trips(
         filtered_pairs = apply_mahalanobis_filter(
             trip_pairs,
             config.covariance,
-            config.distance_threshold,
+            config.get_distance_threshold(),
         )
 
     if len(filtered_pairs) == 0:
