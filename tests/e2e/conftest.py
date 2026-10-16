@@ -29,7 +29,7 @@ import yaml
 
 E2E_DIR = Path(__file__).parent
 
-# Shared by detect_habitual_locations and extract_tours, which must agree on it.
+# The value both detect_habitual_locations and extract_tours use here; each is its own setting.
 HABITUAL_BUFFER_METERS = 300.0
 
 # Optional steps that can be toggled (canonical execution order preserved below).
@@ -228,11 +228,9 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "validate_input": False,
             "cache": False,
             "params": {
-                "matching": {
-                    "method": "mahalanobis",
-                    "covariance": [10000, 10000, 100, 100],
-                    "confidence_level": 0.75,
-                }
+                "method": "mahalanobis",
+                "covariance": [10000, 10000, 100, 100],
+                "confidence_level": 0.75,
             },
         },
         "imputation": {
@@ -260,8 +258,10 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "name": "detect_habitual_locations",
             "validate_input": False,
             "cache": False,
-            # The buffer must match extract_tours' habitual_match below.
-            "params": {"include_observed_homes": True, "buffer_meters": HABITUAL_BUFFER_METERS},
+            "params": {
+                "include_observed_homes": True,
+                "buffer_meters": HABITUAL_BUFFER_METERS,
+            },
         },
         "extract_tours": {
             "name": "extract_tours",
@@ -269,7 +269,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "cache": False,
             "params": {
                 "spatial_gap_threshold_meters": 1000.0,
-                "habitual_match": {"buffer_meters": HABITUAL_BUFFER_METERS},
+                "buffer_meters": HABITUAL_BUFFER_METERS,
             },
         },
         "cascade_completeness": {

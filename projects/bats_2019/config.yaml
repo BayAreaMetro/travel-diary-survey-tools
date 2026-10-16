@@ -26,8 +26,8 @@ TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2019.log" # If not set, logs just to console, if not absolute saves to .cache directory
 # Distance within which a trip end is at a habitual location (home, work,
-# school). detect_habitual_locations finds the locations with it and
-# extract_tours matches trips to them with it, so both steps read this one key.
+# school). detect_habitual_locations and extract_tours each have their own
+# buffer_meters setting; both use this value here.
 habitual_buffer_meters: "300"
 
 # Pipeline configuration
@@ -119,23 +119,22 @@ steps:
     validate_input: true
     cache: true
     params:
-      matching:
-        method: "mahalanobis"
-        # Covariance for Mahalanobis distance calculation
-        # Think of this as the standard deviation of measurement noise in each dimension
-        # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
-        # [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
-        covariance: [10000, 10000, 100, 100]
-        # Confidence level: higher = stricter. It reads backward and is not the
-        # share of joint pairs kept. With this covariance, 0.90 closely matches
-        # the buffer method below (see JointTripConfig.get_distance_threshold).
-        confidence_level: 0.90
+      method: "mahalanobis"
+      # Covariance for Mahalanobis distance calculation
+      # Think of this as the standard deviation of measurement noise in each dimension
+      # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
+      # [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
+      covariance: [10000, 10000, 100, 100]
+      # Confidence level: higher = stricter. It reads backward and is not the
+      # share of joint pairs kept. With this covariance, 0.90 closely matches
+      # the buffer method below (see JointTripConfig.get_distance_threshold).
+      confidence_level: 0.90
 
-        # Alternative: simpler buffer method with time/space thresholds
-        # method: "buffer"
-        # covariance: null
-        # time_threshold_minutes: 15.0
-        # space_threshold_meters: 100.0
+      # Alternative: simpler buffer method with time/space thresholds
+      # method: "buffer"
+      # covariance: null
+      # time_threshold_minutes: 15.0
+      # space_threshold_meters: 100.0
 
   - name: extract_tours
     validate_input: true
@@ -147,8 +146,7 @@ steps:
       # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
-      habitual_match:
-        buffer_meters: "{{ habitual_buffer_meters }}"
+      buffer_meters: "{{ habitual_buffer_meters }}"
 
   - name: add_zone_ids
     validate_input: true

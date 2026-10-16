@@ -18,6 +18,7 @@ from data_canon.codebook.tours import (
     TourDirection,
     TourType,
 )
+from processing.habitual_locations import MatchConfig
 
 from .destination_helpers import (
     calculate_destination_times,
@@ -71,7 +72,7 @@ def add_tour_anchor_flags(linked_trips: pl.DataFrame) -> pl.DataFrame:
 def _aggregate_and_classify_tours(
     linked_trips: pl.DataFrame,
     tour_purpose_and_coords: pl.DataFrame,
-    config: TourConfig,
+    match: MatchConfig,
 ) -> pl.DataFrame:
     """Aggregate trip data to tour level and classify tour categories.
 
@@ -83,7 +84,7 @@ def _aggregate_and_classify_tours(
     Args:
         linked_trips: Enhanced trip data with priorities and flags
         tour_purpose_and_coords: Tour purpose and destination coordinates
-        config: TourConfig with classification settings
+        match: The habitual-location match rule, for returns to the destination
 
     Returns:
         Tour-level DataFrame with all attributes and classifications
@@ -91,7 +92,7 @@ def _aggregate_and_classify_tours(
     logger.info("Aggregating and classifying tours...")
 
     # Calculate destination arrival/departure times
-    dest_times = calculate_destination_times(linked_trips, config)
+    dest_times = calculate_destination_times(linked_trips, match.buffer_meters)
 
     tours = linked_trips.group_by("tour_id").agg(
         [
@@ -288,6 +289,7 @@ def _assign_half_tour(
 def aggregate_tour_attributes(
     linked_trips: pl.DataFrame,
     config: TourConfig,
+    match: MatchConfig,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Aggregate trip data to tour-level records with attributes.
 
@@ -305,6 +307,7 @@ def aggregate_tour_attributes(
     Args:
         linked_trips: Linked trips with tour_id
         config: TourConfig object with priority settings
+        match: The habitual-location match rule, for returns to the destination
 
     Returns:
         Tuple of: (enhanced_linked_trips, tours)
@@ -323,7 +326,7 @@ def aggregate_tour_attributes(
     )
 
     # Aggregate to tour level and classify
-    tours = _aggregate_and_classify_tours(linked_trips, tour_purp_and_coords, config)
+    tours = _aggregate_and_classify_tours(linked_trips, tour_purp_and_coords, match)
 
     # Assign half-tour classification using tours table
     linked_trips, tours = _assign_half_tour(linked_trips, tours)

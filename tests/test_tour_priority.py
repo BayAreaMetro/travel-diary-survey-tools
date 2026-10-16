@@ -13,13 +13,13 @@ from processing.tours.priority_utils import (
     add_purpose_priority_column,
     add_purpose_score_column,
 )
-from processing.tours.tour_configs import TourConfig
+from tests.fixtures.tour_pipeline import tour_config
 
 
 @pytest.fixture
 def default_config():
-    """Get default tour configuration."""
-    return TourConfig()
+    """Tour rules as the BATS configs state them."""
+    return tour_config()
 
 
 class TestAddPurposePriorityColumn:
