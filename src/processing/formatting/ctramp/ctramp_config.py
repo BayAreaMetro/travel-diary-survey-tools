@@ -46,7 +46,6 @@ class CTRAMPConfig(BaseModel):
     )
 
     taz_field: str = Field(
-        default="taz",
         description="The field name in the household data that contains the TAZ ID for CTRAMP formatting.",  # noqa: E501
     )
 
@@ -61,12 +60,10 @@ class CTRAMPConfig(BaseModel):
 
     # Age thresholds
     age_adult: int = Field(
-        default=4,
         ge=0,
         description=(
             "Age category threshold for adult vs child in joint tours. "
-            "Use AgeCategory enum value (e.g., 4 = AGE_18_TO_24 and higher are adults). "
-            "Default: 4 (18+)"
+            "Use AgeCategory enum value (e.g., 4 = AGE_18_TO_24 and higher are adults)."
         ),
     )
 
@@ -83,11 +80,10 @@ class CTRAMPConfig(BaseModel):
 
     # Gender handling
     gender_default_for_missing: str = Field(
-        default="f",
         pattern="^[mf]$",
         description=(
-            "Default gender ('m' or 'f') for missing/non-binary values "
-            "when CT-RAMP requires binary gender. Default: 'f'"
+            "Gender ('m' or 'f') given to missing/non-binary values, since "
+            "CT-RAMP requires binary gender."
         ),
     )
 
