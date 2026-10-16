@@ -205,13 +205,13 @@ steps:
     validate_input: true
     cache: true
     params:
-      # -- PUMS 1-year microdata (California) ---------------------------
-      # (Optional) will download from Census if not provided
-      # pums_households: "{{ pums_dir }}/psam_h06.csv"
-      # pums_persons: "{{ pums_dir }}/psam_p06.csv"
-
-      state_fips: "06"
-      pums_year: 2019
+      # -- Census controls ---------------------------------------------
+      census:
+        state_fips: "06"
+        pums_year: 2019
+        # PUMS microdata; downloaded from the Census if not given
+        # pums_households: "{{ pums_dir }}/psam_h06.csv"
+        # pums_persons: "{{ pums_dir }}/psam_p06.csv"
 
       # Which profiles decide who carries weight, one weight set each, suffixed
       # with the profile name. Named rather than defaulted: with several stamped
@@ -257,20 +257,16 @@ steps:
           # "Napa": ["097"]
 
       # -- Balancer settings -------------------------------------------
-      max_expansion_factor: 4.0    # upper bound = initial_weight × factor
-      min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
-      min_weight: 1                # absolute floor (no weight < 1)
-      # max_weight:                # absolute ceiling (null = no ceiling)
-      max_iterations: 10000
-      n_workers: 8                 # parallel zone balancing (numba releases GIL)
-      default_importance: 100      # baseline importance for controls without an explicit override
-      # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
-      moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
-
-      # -- EF grid search (optional) -----------------------------------
-      # Re-run balancing across a grid of max_expansion_factor values and
-      # add a diagnostic chart showing fit vs weight quality tradeoffs.
-      expansion_factor_grid: [2, 3, 4, 5, 7, 10]
+      balancing:
+        max_expansion_factor: 4.0    # upper bound = initial_weight × factor
+        min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+        min_weight: 1                # absolute floor (no weight < 1)
+        # max_weight:                # absolute ceiling (null = no ceiling)
+        max_iterations: 10000
+        n_workers: 8                 # parallel zone balancing (numba releases GIL)
+        default_importance: 100      # baseline importance for controls without an explicit override
+        # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
+        moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -388,6 +384,10 @@ steps:
       # -- Diagnostics report ------------------------------------------
       diagnostics:
         output_path: "{{ output_dir }}/weighting_diagnostics_2019.html"
+
+        # Re-run balancing across a grid of max_expansion_factor values and
+        # add a diagnostic chart showing fit vs weight quality tradeoffs.
+        expansion_factor_grid: [2, 3, 4, 5, 7, 10]
 
 
   # - name: add_existing_weights

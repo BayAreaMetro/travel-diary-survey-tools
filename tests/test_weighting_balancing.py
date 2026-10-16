@@ -32,8 +32,24 @@ from processing.weighting.balancing.importance import (
 )
 from processing.weighting.controls.base import ControlLevel, ControlTarget
 from processing.weighting.controls.registry import CONTROLS, register_crosstab
-from processing.weighting.core.specs import ControlTotals, GridPoint
+from processing.weighting.core.specs import (
+    BalancingConfig,
+    ControlTotals,
+    GridPoint,
+    ImportanceConfig,
+)
 from processing.weighting.diagnostics.charts import ef_tradeoff_figure
+
+# The balancer settings these tests run under: the values the code used to default to.
+_BALANCING = BalancingConfig(
+    max_expansion_factor=10.0,
+    min_expansion_factor=0.1,
+    min_weight=None,
+    max_iterations=10_000,
+    n_workers=1,
+    moe_based_importance=False,
+    default_importance=100.0,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +367,8 @@ class TestBalancerRequiresBaseWeight:
                 seed,
                 ct,
                 ["h_total", "h_size"],
+                balancing=_BALANCING,
+                importance=ImportanceConfig(),
             )
 
 
@@ -838,6 +856,8 @@ class TestGridSearch:
             targets,
             ef_grid=grid,
             selected_ef=5.0,
+            balancing=_BALANCING,
+            importance=ImportanceConfig(),
         )
         assert len(results) == 3
         assert [r.max_expansion_factor for r in results] == [2.0, 5.0, 10.0]
@@ -858,6 +878,8 @@ class TestGridSearch:
             targets,
             ef_grid=ef_grid,
             selected_ef=5.0,
+            balancing=_BALANCING,
+            importance=ImportanceConfig(),
         )
         assert [r.max_expansion_factor for r in results] == expected
 
@@ -870,6 +892,8 @@ class TestGridSearch:
             targets,
             ef_grid=[5.0],
             selected_ef=5.0,
+            balancing=_BALANCING,
+            importance=ImportanceConfig(),
         )
         gp = results[0]
         assert gp.mape >= 0

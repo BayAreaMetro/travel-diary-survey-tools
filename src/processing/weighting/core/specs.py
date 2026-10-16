@@ -13,8 +13,10 @@ from typing import NamedTuple
 
 import numpy as np
 import polars as pl
+from pydantic import BaseModel, ConfigDict, Field
 
 from processing.completeness import usable_col_for
+from processing.weighting.data_prep.crosswalk import GeographyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -201,23 +203,53 @@ class MergeSpec:
     zones: list[str] | None = None
 
 
-@dataclass
-class BalancingConfig:
-    """Maximum-entropy balancer configuration.
+class CensusConfig(BaseModel):
+    """Where the Census controls come from: the state, the PUMS year, and optional local files."""
 
-    Controls Newton-Raphson iteration bounds, weight expansion limits,
-    and parallel execution.  Consumed by
+    model_config = ConfigDict(extra="forbid")
+
+    state_fips: str = Field(description="Two-digit state FIPS code, e.g. '06'.")
+    pums_year: int = Field(description="ACS PUMS 5-year vintage the controls are built from.")
+    pums_households: str | None = Field(
+        default=None,
+        description="Local PUMS household file; fetched from the Census API when not given.",
+    )
+    pums_persons: str | None = Field(
+        default=None,
+        description="Local PUMS person file; fetched from the Census API when not given.",
+    )
+
+
+class BalancingConfig(BaseModel):
+    """Maximum-entropy balancer configuration, and how hard each control pulls.
+
+    Controls Newton-Raphson iteration bounds, weight expansion limits, parallel
+    execution and the importance given to controls without their own. Consumed by
     [`balance_weights`][processing.weighting.balancing.balancer.balance_weights],
     [`grid_search_expansion_factor`][processing.weighting.balancing.balancer.grid_search_expansion_factor],
     and the pipeline orchestrator.
     """
 
-    max_expansion_factor: float = 10.0
-    min_expansion_factor: float = 0.1
-    min_weight: float | None = None
-    max_weight: float | None = None
-    max_iterations: int = 10_000
-    n_workers: int = 1
+    model_config = ConfigDict(extra="forbid")
+
+    max_expansion_factor: float = Field(
+        description="Upper bound on a weight, as a multiple of its seed weight."
+    )
+    min_expansion_factor: float = Field(
+        description="Lower bound on a weight, as a multiple of its seed weight."
+    )
+    min_weight: float | None = Field(description="Absolute weight floor; null for none.")
+    max_weight: float | None = Field(
+        default=None, description="Absolute weight ceiling; none unless given."
+    )
+    max_iterations: int = Field(description="Newton-Raphson iteration limit per zone.")
+    n_workers: int = Field(description="Zones (or grid points) balanced in parallel.")
+    moe_based_importance: bool = Field(
+        description="Derive each control's importance from its PUMS replicate-weight MOE."
+    )
+    default_importance: float = Field(
+        description="Importance for a control without its own, when not MOE-derived."
+    )
 
 
 @dataclass
@@ -281,7 +313,7 @@ class WeightingConfig:
     — primarily Census/geography settings and pipeline plumbing.
     """
 
-    geography: dict
+    geography: GeographyConfig
     state_fips: str
     pums_year: int
     # Which usability profiles decide who carries weight, one fit each. Required:

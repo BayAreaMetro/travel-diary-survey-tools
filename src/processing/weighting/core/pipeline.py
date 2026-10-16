@@ -81,7 +81,7 @@ from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
 )
-from processing.weighting.data_prep.crosswalk import GeographyConfig, PumaCrosswalk
+from processing.weighting.data_prep.crosswalk import PumaCrosswalk
 from processing.weighting.data_prep.fractional_impute import fill_null_incidence
 from processing.weighting.data_prep.incidence import (
     IncidenceBundle,
@@ -190,8 +190,8 @@ class WeightingPipeline:
         controls: ControlRegistryConfig,
         config: WeightingConfig,
         data: CanonicalData,
-        balancing: BalancingConfig | None = None,
-        importance: ImportanceConfig | None = None,
+        balancing: BalancingConfig,
+        importance: ImportanceConfig,
     ) -> None:
         """Initialise with configuration and survey data."""
         if data.households is None or data.persons is None:
@@ -201,8 +201,8 @@ class WeightingPipeline:
         self.controls = controls
         self.config = config
         self.data = data
-        self.balancing = balancing or BalancingConfig()
-        self.importance_cfg = importance or ImportanceConfig()
+        self.balancing = balancing
+        self.importance_cfg = importance
 
         # Mutable state initialised empty; populated by phases
         self.control_moe = None
@@ -234,12 +234,12 @@ class WeightingPipeline:
         validate_total_control_categories(ctrl_instances)
         logger.info("Controls: %s", self.controls.target_names)
 
-        zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
+        zone_groups = self.config.geography.zone_groups
 
         # Prepare the crosswalk with the full set of zones (including zone groups)
         # Store as an instance attribute for use in zone assignment and diagnostics
         self.crosswalk = PumaCrosswalk(
-            GeographyConfig(**self.config.geography),
+            self.config.geography,
             state_fips=self.config.state_fips,
             pums_year=self.config.pums_year,
             cache_dir=self.cache_dir,
@@ -648,7 +648,7 @@ class WeightingPipeline:
             report_dir = self.cache_dir or Path.cwd() / "weighting"
             resolved_path = report_dir / "diagnostics.html"
 
-        zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
+        zone_groups = self.config.geography.zone_groups
         generate_report(
             fits=self.fits,
             control_totals=self.control_totals,
