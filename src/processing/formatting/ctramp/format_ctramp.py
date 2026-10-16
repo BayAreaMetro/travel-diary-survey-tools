@@ -787,7 +787,9 @@ def format_ctramp(  # noqa: PLR0913
     # tour appears as its participants' own per-person tours. Nothing is exploded
     # and no weight is rescaled -- those rows already exist in the canonical data.
     if len(tours) == 0:
-        all_tours_ctramp = individual_tours_ctramp
+        all_tours_ctramp = individual_tours_ctramp.with_columns(
+            pl.lit(1).cast(pl.Int64).alias("num_participants")
+        )
         all_trips_ctramp = individual_trips_ctramp
     else:
         all_tours_ctramp = format_individual_tour(
