@@ -66,6 +66,7 @@ from processing.weighting.core.specs import (
     BalancingConfig,
     CensusConfig,
     ControlRegistryConfig,
+    DiagnosticsConfig,
     ImportanceConfig,
     WeightingConfig,
 )
@@ -119,7 +120,7 @@ def compute_weights(  # noqa: PLR0913
     geography: GeographyConfig,
     balancing: BalancingConfig,
     controls: list[dict],
-    diagnostics: dict | None,
+    diagnostics: DiagnosticsConfig,
     weight_profiles: list[str],
     max_unplaceable_share: float,
     sample_plan: str | None,
@@ -151,8 +152,7 @@ def compute_weights(  # noqa: PLR0913
         balancing: Solver bounds and control importance. See ``BalancingConfig``.
         controls: The control list, each by registry name with optional
             ``importance`` and ``merge``.
-        diagnostics: The report: ``output_path``, ``compare_weights`` and
-            ``expansion_factor_grid``; null for the default report.
+        diagnostics: The report. See ``DiagnosticsConfig``.
         weight_profiles: Usability profiles to weight, one fit each; a single
             profile is a list of one.
         max_unplaceable_share: The most of the survey whose homes may fall
@@ -195,7 +195,7 @@ def compute_weights(  # noqa: PLR0913
         pums_persons=census.pums_persons,
         sample_plan=sample_plan,
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
-        expansion_factor_grid=(diagnostics or {}).get("expansion_factor_grid"),
+        expansion_factor_grid=diagnostics.expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
         weight_profiles=tuple(weight_profiles),
         max_unplaceable_share=max_unplaceable_share,

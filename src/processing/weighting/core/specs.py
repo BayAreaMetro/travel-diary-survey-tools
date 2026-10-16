@@ -220,6 +220,37 @@ class CensusConfig(BaseModel):
     )
 
 
+class ReferenceWeightSetConfig(BaseModel):
+    """One weight set that arrived with the survey, named for the report's comparer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(description="How the report names the set.")
+    columns: dict[str, str] = Field(
+        description="Table -> the column holding this set's weight on it."
+    )
+
+
+class DiagnosticsConfig(BaseModel):
+    """The weighting report: where it goes, what it compares, and the grid search."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    output_path: str | None = Field(
+        description="Where the HTML report is written; null for the cache directory."
+    )
+    expansion_factor_grid: list[float] | None = Field(
+        description=(
+            "max_expansion_factor values to re-run balancing at, charting fit "
+            "against weight quality; null to skip the grid search."
+        ),
+    )
+    compare_weights: dict[str, ReferenceWeightSetConfig] | None = Field(
+        default=None,
+        description="Weight sets supplied with the survey, compared against this run's fits.",
+    )
+
+
 class BalancingConfig(BaseModel):
     """Maximum-entropy balancer configuration, and how hard each control pulls.
 
