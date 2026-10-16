@@ -5,7 +5,7 @@ import pytest
 
 from data_canon.codebook.persons import AgeCategory
 from processing.completeness.kept_records import select_profile_columns
-from processing.weighting.existing_weights import add_existing_weights
+from processing.weighting.existing_weights import ExistingWeightsConfig, add_existing_weights
 
 
 def _weight_file(tmp_path, name: str, **columns) -> str:
@@ -15,16 +15,30 @@ def _weight_file(tmp_path, name: str, **columns) -> str:
     return str(path)
 
 
-def _weights_for(profile: str, **kwargs) -> dict[str, pl.DataFrame]:
+def _weights_for(
+    profile: str,
+    *,
+    preserve_travel_totals: bool,
+    household_size_top_group: int,
+    derive_missing_weights: bool = False,
+    max_weight_factor: dict[str, float] | None = None,
+    **inputs,
+) -> dict[str, pl.DataFrame]:
     """Run ``add_existing_weights`` for one profile, read under the base names.
 
     The step writes ``hh_weight_<profile>`` and so on. A consumer resolves its
     own profile's columns to the base names with ``select_profile_columns``,
-    which is how these tests read them too.
+    which is how these tests read them too. Deriving missing weights is off
+    unless a test asks for it.
     """
-    return select_profile_columns(
-        add_existing_weights(weight_profiles=[profile], **kwargs), profile
+    existing = ExistingWeightsConfig(
+        weight_profiles=[profile],
+        preserve_travel_totals=preserve_travel_totals,
+        household_size_top_group=household_size_top_group,
+        derive_missing_weights=derive_missing_weights,
+        max_weight_factor=max_weight_factor,
     )
+    return select_profile_columns(add_existing_weights(existing=existing, **inputs), profile)
 
 
 class TestAddExistingWeights:
