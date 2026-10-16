@@ -36,6 +36,15 @@ FULL_COVARIANCE = [
 ]
 
 
+# Every field a config must state, so each case below varies only what it tests.
+_REQUIRED = {"method": "buffer", "covariance": None, "confidence_level": 0.90}
+
+
+def _buffer(**overrides) -> JointTripConfig:
+    """Buffer matching, as a config would state it."""
+    return JointTripConfig(**{**_REQUIRED, **overrides})
+
+
 class TestJointTripConfig:
     """Test configuration validation."""
 
@@ -74,11 +83,11 @@ class TestJointTripConfig:
     def test_an_accepted_config_yields_its_distance_threshold(self, kwargs, expected_threshold):
         """The chi-squared threshold is what the rest of detection actually reads.
 
-        The default 90% confidence on four dimensions is the bottom 10% of a
+        Confidence 0.90 on four dimensions is the bottom 10% of a
         chi-squared with four degrees of freedom; the buffer method does not
         use a statistical distance at all.
         """
-        config = JointTripConfig(**kwargs)
+        config = JointTripConfig(**{**_REQUIRED, **kwargs})
 
         assert config.covariance == kwargs.get("covariance")
         assert config.get_distance_threshold() == pytest.approx(expected_threshold)
@@ -124,7 +133,7 @@ class TestJointTripConfig:
     def test_invalid_config_is_rejected(self, kwargs, match):
         """A covariance that cannot be inverted is caught at configuration time."""
         with pytest.raises(ValidationError, match=match):
-            JointTripConfig(**kwargs)
+            JointTripConfig(**{**_REQUIRED, **kwargs})
 
 
 class TestSimilarityCalculations:
@@ -273,9 +282,7 @@ def test_detect_matching_trips_buffer():
         linked_trips=linked_trips,
         days=days_not_asked(linked_trips),
         households=households,
-        method="buffer",
-        time_threshold_minutes=15,
-        space_threshold_meters=100,
+        matching=_buffer(time_threshold_minutes=15, space_threshold_meters=100),
     )
 
     updated_trips = result["linked_trips"]
@@ -299,7 +306,7 @@ def test_detect_non_matching_trips():
         linked_trips=linked_trips,
         days=days_not_asked(linked_trips),
         households=households,
-        method="buffer",
+        matching=_buffer(),
     )
 
     updated_trips = result["linked_trips"]
@@ -328,9 +335,7 @@ def test_a_chain_of_departures_is_resolved_into_one_group():
         linked_trips=linked_trips,
         days=days_not_asked(linked_trips),
         households=households,
-        method="buffer",
-        time_threshold_minutes=15,
-        space_threshold_meters=100,
+        matching=_buffer(time_threshold_minutes=15, space_threshold_meters=100),
     )
 
     # The first two travel together; the last is left on their own
@@ -350,7 +355,7 @@ def test_single_person_household():
         linked_trips=linked_trips,
         days=days_not_asked(linked_trips),
         households=households,
-        method="buffer",
+        matching=_buffer(),
     )
 
     assert result["linked_trips"]["joint_trip_id"].null_count() == 1
@@ -365,7 +370,7 @@ def test_empty_input():
         linked_trips=linked_trips.clear(),
         days=days_not_asked(linked_trips.clear()),
         households=households.clear(),
-        method="buffer",
+        matching=_buffer(),
     )
 
     # Should handle gracefully

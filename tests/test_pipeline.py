@@ -10,6 +10,7 @@ from typing import Any
 import polars as pl
 import pytest
 import yaml
+from pydantic import BaseModel, ConfigDict
 
 from pipeline.cache import PipelineCache
 from pipeline.decoration import step
@@ -370,6 +371,87 @@ class TestParseStepArgs:
         pipeline = Pipeline(config_path=config_path, steps=[step_func], caching=False)
 
         assert pipeline.parse_step_args("test_step", step_func) == {}
+
+
+class _MatchSettings(BaseModel):
+    """A settings model as a step would take it: one required field, one defaulted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    buffer_meters: float
+    min_dwell_minutes: float = 90.0
+
+
+class _LooseSettings(BaseModel):
+    """A settings model that would let a misspelt key through."""
+
+    buffer_meters: float
+
+
+class TestSettingsModels:
+    """A step argument annotated with a model is built from its config block."""
+
+    @staticmethod
+    def _parse(tmp_path, params, step_func):
+        config_path = _write_config(tmp_path, {"steps": [{"name": "test_step", "params": params}]})
+        pipeline = Pipeline(config_path=config_path, steps=[step_func], caching=False)
+        return pipeline.parse_step_args("test_step", step_func)
+
+    def test_block_is_built_into_the_model(self, tmp_path):
+        """The block arrives as the model, its defaulted field filled in."""
+
+        def step_func(matching: _MatchSettings):
+            pass
+
+        kwargs = self._parse(tmp_path, {"matching": {"buffer_meters": 300.0}}, step_func)
+
+        assert kwargs["matching"] == _MatchSettings(buffer_meters=300.0, min_dwell_minutes=90.0)
+
+    def test_a_field_without_a_default_is_required(self, tmp_path):
+        """The model's own rule decides, and the error names the block."""
+
+        def step_func(matching: _MatchSettings):
+            pass
+
+        with pytest.raises(ValueError, match="block 'matching'") as excinfo:
+            self._parse(tmp_path, {"matching": {"min_dwell_minutes": 45.0}}, step_func)
+        assert "buffer_meters" in str(excinfo.value)
+
+    def test_a_misspelt_field_raises(self, tmp_path):
+        """A key the model does not have is refused, not dropped."""
+
+        def step_func(matching: _MatchSettings):
+            pass
+
+        with pytest.raises(ValueError, match="bufer_meters"):
+            self._parse(tmp_path, {"matching": {"bufer_meters": 300.0}}, step_func)
+
+    def test_a_missing_block_is_required(self, tmp_path):
+        """A model argument without a default needs its block."""
+
+        def step_func(matching: _MatchSettings):
+            pass
+
+        with pytest.raises(ValueError, match="Missing required parameter 'matching'"):
+            self._parse(tmp_path, {}, step_func)
+
+    def test_a_block_that_is_not_a_mapping_raises(self, tmp_path):
+        """A scalar where a block belongs is a config error, not a type error later."""
+
+        def step_func(matching: _MatchSettings):
+            pass
+
+        with pytest.raises(ValueError, match="must be a block of _MatchSettings"):
+            self._parse(tmp_path, {"matching": 300.0}, step_func)
+
+    def test_a_model_allowing_extra_fields_is_refused(self, tmp_path):
+        """Without extra="forbid" a misspelt key would pass unread."""
+
+        def step_func(matching: _LooseSettings):
+            pass
+
+        with pytest.raises(TypeError, match='extra="forbid"'):
+            self._parse(tmp_path, {"matching": {"buffer_meters": 300.0}}, step_func)
 
 
 class TestRun:

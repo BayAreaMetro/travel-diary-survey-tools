@@ -203,12 +203,7 @@ def detect_joint_trips(
     linked_trips: pl.DataFrame,
     households: pl.DataFrame,
     days: pl.DataFrame,
-    method: str = "buffer",
-    time_threshold_minutes: float = 15.0,
-    space_threshold_meters: float = 100.0,
-    covariance: list[float] | list[list[float]] | None = None,
-    confidence_level: float = 0.90,
-    log_discrepancies: bool = False,
+    matching: JointTripConfig,
 ) -> dict[str, pl.DataFrame]:
     """Detect joint trips among household members using similarity matching.
 
@@ -222,16 +217,8 @@ def detect_joint_trips(
         households: Household table for pre-filtering.
         days: Days with ``travel_date``; trips are paired only within one
             household date, and each joint trip records it.
-        method: Detection method - "buffer" or "mahalanobis" (default: "buffer").
-        time_threshold_minutes: Max time difference for buffer method (default: 15.0).
-        space_threshold_meters: Max spatial distance for buffer method (default: 100.0).
-        covariance: Covariance matrix for mahalanobis method - diagonal (4 values) or
-            full (4x4 matrix). If None, uses defaults (~84m spatial, ~4.5min temporal).
-        confidence_level: Strictness of the mahalanobis cutoff (default: 0.90).
-            Higher = stricter; it reads backward from the usual meaning of
-            confidence. See ``JointTripConfig.get_distance_threshold``.
-        log_discrepancies: Whether to log trips with reported vs detected traveler
-            mismatches (default: False).
+        matching: How trips are matched: the method and its thresholds, from
+            the config's ``matching:`` block. See ``JointTripConfig``.
 
     Returns:
         Dictionary containing:
@@ -304,24 +291,9 @@ def detect_joint_trips(
           number of travelers
         - Non-joint trips retain joint_trip_id = NULL
     """
-    # Validate and construct config
-    config = JointTripConfig(
-        method=method,
-        time_threshold_minutes=time_threshold_minutes,
-        space_threshold_meters=space_threshold_meters,
-        covariance=covariance,
-        confidence_level=confidence_level,
-        log_discrepancies=log_discrepancies,
-    )
-
-    # Default covariance for Mahalanobis if not provided
-    if config.method == "mahalanobis" and config.covariance is None:
-        config.covariance = [7000, 7000, 20, 20]  # ~84m, ~84m, ~4.5min, ~4.5min
-        logger.info("Using default diagonal covariance for Mahalanobis method")
-
     logger.info(
         "Detecting joint trips using %s method (%d trips, %d households)",
-        config.method,
+        matching.method,
         len(linked_trips),
         len(households),
     )
@@ -351,17 +323,17 @@ def detect_joint_trips(
     trip_pairs = compute_pairwise_distances(trip_pairs)
 
     # Apply filtering based on method
-    if config.method == "buffer":
+    if matching.method == "buffer":
         filtered_pairs = apply_buffer_filter(
             trip_pairs,
-            config.space_threshold_meters,
-            config.time_threshold_minutes,
+            matching.space_threshold_meters,
+            matching.time_threshold_minutes,
         )
     else:  # mahalanobis
         filtered_pairs = apply_mahalanobis_filter(
             trip_pairs,
-            config.covariance,
-            config.get_distance_threshold(),
+            matching.covariance,
+            matching.get_distance_threshold(),
         )
 
     if len(filtered_pairs) == 0:
@@ -383,7 +355,7 @@ def detect_joint_trips(
             "Flagged %d clique conflicts resolved by quality ranking",
             len(flagged_conflicts),
         )
-        if log_discrepancies:
+        if matching.log_discrepancies:
             # Show first 5 flagged conflicts
             for i, clique in enumerate(flagged_conflicts[:5], 1):
                 logger.debug("Flagged clique %d: trips %s", i, clique)
@@ -405,7 +377,7 @@ def detect_joint_trips(
     validate_against_num_travelers(
         linked_trips_with_joints,
         joint_trip_assignments,
-        config.log_discrepancies,
+        matching.log_discrepancies,
     )
 
     # Drop intermediate distance columns before returning

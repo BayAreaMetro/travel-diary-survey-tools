@@ -7,11 +7,13 @@ import os
 import re
 import shutil
 import subprocess
+import typing
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, ValidationError
 
 from data_canon.core.dataclass import CanonicalData
 from pipeline.cache import PipelineCache
@@ -34,6 +36,42 @@ def _substitute(text: str, variables: dict[str, str]) -> str:
 #: Config key holding committed root defaults. Anything declared here is a
 #: default the environment may replace, not a claim about this machine.
 ENVS_KEY = "ENVS"
+
+
+def _settings_model(annotation: object) -> type[BaseModel] | None:
+    """The pydantic model a step argument is annotated with, if any."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    return None
+
+
+def _build_settings(
+    step_name: str, arg_name: str, model: type[BaseModel], block: object
+) -> BaseModel:
+    """Build a step's settings model from its config block, naming the block on failure.
+
+    Raises:
+        TypeError: If the model allows extra fields, which would let a misspelt
+            key through unread.
+        ValueError: If the block is not a mapping, or the model rejects it.
+    """
+    if model.model_config.get("extra") != "forbid":
+        msg = (
+            f"{model.__name__} (step '{step_name}', argument '{arg_name}') must set "
+            'model_config = ConfigDict(extra="forbid"), or a misspelt key is ignored.'
+        )
+        raise TypeError(msg)
+    if not isinstance(block, dict):
+        msg = (
+            f"Config for step '{step_name}' sets '{arg_name}' to {block!r}; it must be "
+            f"a block of {model.__name__} settings."
+        )
+        raise ValueError(msg)  # noqa: TRY004 - a config error, reported as one
+    try:
+        return model.model_validate(block)
+    except ValidationError as e:
+        msg = f"Config for step '{step_name}', block '{arg_name}':\n{e}"
+        raise ValueError(msg) from e
 
 
 def _template_namespace(config: dict[str, Any]) -> dict[str, str]:
@@ -444,6 +482,11 @@ class Pipeline:
         canonical table: either would otherwise be dropped without a word, and
         the step would run on its own default instead of the configured value.
 
+        An argument annotated with a pydantic model is built from the config
+        block of the same name. The model decides what may be left out: a field
+        with a default may, one without may not, the same rule as a plain
+        argument. The model must forbid extra fields, so a misspelt key raises.
+
         Args:
             step_name: Name of the step.
             step_obj: The step function or class.
@@ -486,12 +529,18 @@ class Pipeline:
             )
             raise ValueError(msg)
 
+        hints = typing.get_type_hints(inspect.unwrap(step_obj))
         for arg_name, param in step_args.items():
+            model = _settings_model(hints.get(arg_name))
             if arg_name == "canonical_data":
                 # Pass the entire CanonicalData instance if requested
                 data_kwargs[arg_name] = self.data
             elif hasattr(self.data, arg_name):
                 data_kwargs[arg_name] = getattr(self.data, arg_name)
+            elif arg_name in params and model is not None:
+                config_kwargs[arg_name] = _build_settings(
+                    step_name, arg_name, model, params[arg_name]
+                )
             # Only add if parameter exists in config or has default
             elif arg_name in params:
                 config_kwargs[arg_name] = params[arg_name]

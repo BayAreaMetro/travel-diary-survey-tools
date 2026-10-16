@@ -23,6 +23,7 @@ from data_canon.codebook.persons import (
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.joint_trips import detect_joint_trips
+from processing.joint_trips.joint_trip_configs import JointTripConfig
 from processing.tours.joint_tour_helpers import (
     _validate_joint_tours_have_joint_trips,
     identify_joint_tours,
@@ -102,9 +103,13 @@ def link_and_detect_joint_trips(
         linked_trips=linked_trips,
         days=days_not_asked(linked_trips),
         households=households,
-        method="buffer",
-        time_threshold_minutes=5.0,
-        space_threshold_meters=50.0,
+        matching=JointTripConfig(
+            method="buffer",
+            covariance=None,
+            confidence_level=0.90,
+            time_threshold_minutes=5.0,
+            space_threshold_meters=50.0,
+        ),
     )
     linked_trips_with_joints = joint_result["linked_trips"]
     joint_trips = joint_result["joint_trips"]

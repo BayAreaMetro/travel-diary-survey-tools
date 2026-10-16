@@ -119,21 +119,23 @@ steps:
     validate_input: true
     cache: true
     params:
-      method: "mahalanobis"
-      # Covariance for Mahalanobis distance calculation
-      # Think of this as the standard deviation of measurement noise in each dimension
-      # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
-      # Default [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
-      covariance: [10000, 10000, 100, 100]
-      # Confidence level: higher = stricter. It reads backward and is not the
-      # share of joint pairs kept. With this covariance, 0.90 closely matches
-      # the buffer method below (see JointTripConfig.get_distance_threshold).
-      confidence_level: 0.90
+      matching:
+        method: "mahalanobis"
+        # Covariance for Mahalanobis distance calculation
+        # Think of this as the standard deviation of measurement noise in each dimension
+        # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
+        # [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
+        covariance: [10000, 10000, 100, 100]
+        # Confidence level: higher = stricter. It reads backward and is not the
+        # share of joint pairs kept. With this covariance, 0.90 closely matches
+        # the buffer method below (see JointTripConfig.get_distance_threshold).
+        confidence_level: 0.90
 
-      # Alternative: simpler buffer method with time/space thresholds
-      # method: "buffer"
-      # time_threshold_minutes: 15.0
-      # space_threshold_meters: 100.0
+        # Alternative: simpler buffer method with time/space thresholds
+        # method: "buffer"
+        # covariance: null
+        # time_threshold_minutes: 15.0
+        # space_threshold_meters: 100.0
 
   - name: extract_tours
     validate_input: true
@@ -219,8 +221,14 @@ steps:
       # different universe than the formatters emit.
       weight_profiles: [ctramp]
 
+      # Homes outside the control geography belong to no balancing zone and can
+      # carry no fitted weight. Error above this share rather than returning
+      # nulls quietly. A tripwire for a misconfigured geography.
+      max_unplaceable_share: 0.01
+
       # -- Sample Plan Path ------------------------------------------------
-      # sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
+      # null: no sample plan for 2019.
+      sample_plan: null
 
       # -- Geography crosswalk ------------------------------------------
       # Specify a polygon file for target zones.  The crosswalk module
@@ -415,6 +423,8 @@ steps:
       # zone and pre-imputation columns steps register. Set false to dump
       # every column on the frame when debugging.
       write_only_canonical: true
+      # null: no enum codebook is written.
+      enum_codebook_path: null
       output_paths:
         # Standard Survey Formats
         households: "{{ output_dir }}/survey/households_2019.csv"
