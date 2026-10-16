@@ -269,11 +269,7 @@ class TestEndToEndFormatting:
             unlinked_trips=empty_unlinked_trips(),
             joint_tours=empty_joint_tours(),
             days=days_for_persons(persons),
-            income_low_threshold=standard_config.income_low_threshold,
-            income_med_threshold=standard_config.income_med_threshold,
-            income_high_threshold=standard_config.income_high_threshold,
-            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
-            usability_profile="test",
+            ctramp=standard_config,
         )
 
         households_ctramp = result["households_ctramp"]
@@ -325,11 +321,7 @@ class TestEndToEndFormatting:
             unlinked_trips=empty_unlinked_trips(),
             joint_tours=empty_joint_tours(),
             days=days_for_persons(persons),
-            income_low_threshold=standard_config.income_low_threshold,
-            income_med_threshold=standard_config.income_med_threshold,
-            income_high_threshold=standard_config.income_high_threshold,
-            income_survey_year_to_ctramp_year=standard_config.income_survey_year_to_ctramp_year,
-            usability_profile="test",
+            ctramp=standard_config,
         )
 
         assert len(result["households_ctramp"]) == 1

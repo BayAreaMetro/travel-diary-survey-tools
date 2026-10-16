@@ -60,18 +60,24 @@ def test_format_ctramp_requires_nothing_it_does_not_read(full_result):
     on the formatted output is not a requirement, and declaring it makes the step
     fail for datasets that legitimately lack it.
     """
+    from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
     from processing.formatting.ctramp.format_ctramp import format_ctramp
 
     fn = getattr(format_ctramp, "__wrapped__", format_ctramp)
     tables = full_result.as_dict_non_null()
     params = {
-        # The e2e stamps ctramp; the step now requires the profile it
-        # gates on rather than assuming a conventional name.
-        "usability_profile": "ctramp",
-        "income_low_threshold": 30000,
-        "income_med_threshold": 60000,
-        "income_high_threshold": 100000,
-        "income_survey_year_to_ctramp_year": 0.5319148936,
+        "ctramp": CTRAMPConfig(
+            # The e2e stamps ctramp; the step requires the profile it gates on
+            # rather than assuming a conventional name.
+            usability_profile="ctramp",
+            income_low_threshold=30000,
+            income_med_threshold=60000,
+            income_high_threshold=100000,
+            income_survey_year_to_ctramp_year=0.5319148936,
+            taz_field="taz",
+            age_adult=4,
+            gender_default_for_missing="f",
+        )
     }
     inputs = {
         name: tables.get(name, pl.DataFrame())

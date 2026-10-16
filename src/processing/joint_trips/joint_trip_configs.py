@@ -35,7 +35,7 @@ from typing import Literal
 
 import numpy as np
 import polars as pl
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from scipy import stats
 
 from utils.helpers import expr_haversine as haversine_dist
@@ -50,11 +50,11 @@ class JointTripConfig(BaseModel):
         time_threshold_minutes: Maximum time difference for buffer method
         space_threshold_meters: Maximum spatial distance for buffer method
         covariance: Diagonal variances (list of 4) or full covariance matrix
-            (4x4 list of lists) in units [m^2, m^2, min^2, min^2].
-            None defaults to [7000, 7000, 20, 20] based on empirical
-            variance from BATS 2023: origin ~84m std (7142 m² var),
-            dest ~84m (7089 m²), depart ~4.7min (22 min²),
-            arrive ~4.6min (21 min²).
+            (4x4 list of lists) in units [m^2, m^2, min^2, min^2]. Required
+            for mahalanobis; null for buffer. The empirical variance of BATS
+            2023 household joint trips is about [7000, 7000, 20, 20]: origin
+            ~84m std (7142 m² var), dest ~84m (7089 m²), depart ~4.7min
+            (22 min²), arrive ~4.6min (21 min²).
         confidence_level: Strictness of the mahalanobis cutoff. Higher values
             keep fewer pairs. It is not the share of joint pairs kept; see
             ``get_distance_threshold``.
@@ -62,8 +62,9 @@ class JointTripConfig(BaseModel):
             joint trip size differs from reported num_travelers field
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     method: Literal["buffer", "mahalanobis"] = Field(
-        default="buffer",
         description=("Detection method: buffer (strict) or mahalanobis (statistical)"),
     )
 
@@ -80,19 +81,17 @@ class JointTripConfig(BaseModel):
     )
 
     covariance: Sequence[float | int] | Sequence[Sequence[float | int]] | None = Field(
-        default=None,
         description=(
             "Diagonal (4 values) or full (4x4) covariance matrix in units "
-            "[origin_m^2, dest_m^2, depart_min^2, arrive_min^2]. "
-            "None defaults to diagonal [7000, 7000, 20, 20] based on "
-            "empirical variance from BATS 2023 household joint trips: "
+            "[origin_m^2, dest_m^2, depart_min^2, arrive_min^2]. Required for "
+            "mahalanobis; null for buffer. The empirical variance of BATS 2023 "
+            "household joint trips is about diagonal [7000, 7000, 20, 20]: "
             "origin ~84m std dev (7142 m² var), dest ~84m (7089 m²), "
             "depart ~4.7min (22 min²), arrive ~4.6min (21 min²)."
         ),
     )
 
     confidence_level: float = Field(
-        default=0.90,
         gt=0,
         lt=1,
         description=(
@@ -175,8 +174,8 @@ class JointTripConfig(BaseModel):
         """Ensure required parameters are provided for each method."""
         if self.method == "mahalanobis" and self.covariance is None:
             msg = (
-                "covariance must be provided for mahalanobis method. "
-                "Use default [7000, 7000, 20, 20] or run calibration."
+                "covariance must be provided for mahalanobis method, e.g. the BATS 2023 "
+                "empirical [7000, 7000, 20, 20], or run calibration."
             )
             raise ValueError(msg)
         return self

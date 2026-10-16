@@ -494,7 +494,7 @@ def _household_date_numbers(days: pl.DataFrame) -> pl.DataFrame:
         "days": {"person_id", "hh_id", "day_id", "travel_date"},
     },
 )
-def format_ctramp(  # noqa: PLR0913
+def format_ctramp(
     persons: pl.DataFrame,
     households: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
@@ -503,14 +503,7 @@ def format_ctramp(  # noqa: PLR0913
     joint_trips: pl.DataFrame,
     joint_tours: pl.DataFrame,
     days: pl.DataFrame,
-    usability_profile: str,
-    income_low_threshold: int,
-    income_med_threshold: int,
-    income_high_threshold: int,
-    income_survey_year_to_ctramp_year: float,
-    taz_field: str = "taz",
-    age_adult: int | None = None,
-    gender_default_for_missing: str | None = None,
+    ctramp: CTRAMPConfig,
     habitual_locations: pl.DataFrame | None = None,
     habitual_location_days: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
@@ -542,25 +535,12 @@ def format_ctramp(  # noqa: PLR0913
         days: Canonical person-days data. Required columns: person_id, hh_id,
             day_id. Used to expand persons and households to the person-day
             level and encode the survey day into CTRAMP hh_id / person_id so
-        usability_profile: Which usability profile decides the tour universe.
-            Required: with several profiles stamped there is no defensible
-            default, and naming a different one from the DaySim formatter or
-            the weighting means those outputs describe different universes.
             that multi-day respondents produce one distinct CTRAMP record per
             day rather than one record that conflates all survey days.
-        income_low_threshold: Dollar value dividing low from medium income bracket.
-            Must be less than income_med_threshold.
-        income_med_threshold: Dollar value dividing medium from high income bracket.
-            Must be between income_low_threshold and income_high_threshold.
-        income_high_threshold: Dollar value dividing high from very high income
-            bracket (in year-2000 dollars). Must be greater than income_med_threshold.
-        income_survey_year_to_ctramp_year: Factor to convert survey-year dollars to
-            CT-RAMP-year dollars. Household income is multiplied by this factor (for
-            BATS 2023 -> CT-RAMP year 2000 the factor is 1 / 1.88 ~= 0.532).
-        taz_field: Field name containing the TAZ ID for CTRAMP formatting
-            (default: "taz").
-        age_adult: See ``CTRAMPConfig``.
-        gender_default_for_missing: See ``CTRAMPConfig``.
+        ctramp: Formatting settings: the usability profile deciding the
+            record universe, the income brackets and dollar-year factor, the
+            TAZ field, the adult age and the gender for missing values. See
+            ``CTRAMPConfig``.
         habitual_locations: Habitual locations, zoned by ``add_zone_ids``. An
             employed person who reported no workplace takes their most-visited
             observed workplace as ``WorkLocation`` (see
@@ -600,11 +580,16 @@ def format_ctramp(  # noqa: PLR0913
             joint_trips=canonical_joint_trips,
             joint_tours=canonical_joint_tours,
             days=canonical_days,
-            income_low_threshold=30000,          # $30k divides low from medium ($2000)
-            income_med_threshold=60000,          # $60k divides medium from high ($2000)
-            income_high_threshold=100000,        # $100k divides high from very high ($2000)
-            income_survey_year_to_ctramp_year=0.5319148936,  # 1/1.88: convert 2023 income to $2000
-            usability_profile="ctramp",  # the profile deciding the record universe
+            ctramp=CTRAMPConfig(
+                usability_profile="ctramp",  # the profile deciding the record universe
+                income_low_threshold=30000,  # $30k divides low from medium ($2000)
+                income_med_threshold=60000,  # $60k divides medium from high ($2000)
+                income_high_threshold=100000,  # $100k divides high from very high ($2000)
+                income_survey_year_to_ctramp_year=0.5319148936,  # 1/1.88: 2023 to $2000
+                taz_field="taz",
+                age_adult=4,
+                gender_default_for_missing="f",
+            ),
         )
 
         # Access formatted tables
@@ -617,21 +602,6 @@ def format_ctramp(  # noqa: PLR0913
         joint_trips_ctramp = result["joint_trips_ctramp"]
         ```
     """
-    # Validate configuration parameters. None means not configured: the model
-    # keeps its own default.
-    optional = {
-        "age_adult": age_adult,
-        "gender_default_for_missing": gender_default_for_missing,
-    }
-    config = CTRAMPConfig(
-        usability_profile=usability_profile,
-        income_low_threshold=income_low_threshold,
-        income_med_threshold=income_med_threshold,
-        income_high_threshold=income_high_threshold,
-        income_survey_year_to_ctramp_year=income_survey_year_to_ctramp_year,
-        taz_field=taz_field,
-        **{k: v for k, v in optional.items() if v is not None},
-    )
     logger.info("Starting CT-RAMP formatting")
 
     # One gate, read from the profile the config names. The formatter selects
@@ -648,7 +618,7 @@ def format_ctramp(  # noqa: PLR0913
             "joint_trips": joint_trips,
             "joint_tours": joint_tours,
         },
-        config.usability_profile,
+        ctramp.usability_profile,
     )
     households = gated["households"]
     persons = gated["persons"]
@@ -665,11 +635,11 @@ def format_ctramp(  # noqa: PLR0913
         persons,
         habitual_locations,
         habitual_location_days,
-        zone_names=[config.taz_field],
+        zone_names=[ctramp.taz_field],
     )
 
     # CT-RAMP writes the TAZ as an integer.
-    households = households.with_columns(pl.col(f"home_{config.taz_field}").cast(pl.Int64))
+    households = households.with_columns(pl.col(f"home_{ctramp.taz_field}").cast(pl.Int64))
 
     # Expand to person-day level: each survey day becomes a distinct CTRAMP
     # household/person so that tour and trip counts are correctly attributed
@@ -684,14 +654,14 @@ def format_ctramp(  # noqa: PLR0913
 
     # Format each table ----------------------------------------------------
     # Format households first since it has no derived field dependencies
-    households_ctramp = format_households(households, persons, tours, config)
+    households_ctramp = format_households(households, persons, tours, ctramp)
 
     # Derive/validate person_type and type for use in tour/trip formatting
     # Pre-compute student_category and employment_category so person_type
     # expression can use them for consistent classification
     if "student_category" not in persons.columns:
         persons = persons.with_columns(
-            ctramp_student_category_expression(school_taz_col=f"school_{config.taz_field}").alias(
+            ctramp_student_category_expression(school_taz_col=f"school_{ctramp.taz_field}").alias(
                 "student_category"
             )
         )
@@ -736,14 +706,14 @@ def format_ctramp(  # noqa: PLR0913
             unlinked_trips_canonical=unlinked_trips,
             persons_canonical=persons_with_type,
             households_ctramp=households_ctramp,
-            config=config,
+            config=ctramp,
         )
 
     # Format persons with tour statistics (works with empty or populated tours)
     persons_ctramp = format_persons(
         persons_canonical=persons_with_type,
         tours_ctramp=individual_tours_ctramp,
-        config=config,
+        config=ctramp,
     )
 
     # Format mandatory locations - uses formatted persons and households
@@ -751,7 +721,7 @@ def format_ctramp(  # noqa: PLR0913
         persons_ctramp=persons_ctramp,
         households_ctramp=households_ctramp,
         linked_trips_canonical=linked_trips,
-        config=config,
+        config=ctramp,
     )
 
     # Add formatted tours to results
@@ -762,7 +732,7 @@ def format_ctramp(  # noqa: PLR0913
         joint_tours_canonical=joint_tours,
         persons_canonical=persons,
         households_ctramp=households_ctramp,
-        config=config,
+        config=ctramp,
     )
 
     individual_trips_ctramp = format_individual_trip(
@@ -771,7 +741,7 @@ def format_ctramp(  # noqa: PLR0913
         tours_ctramp=individual_tours_ctramp,
         persons_canonical=persons,
         households_ctramp=households_ctramp,
-        config=config,
+        config=ctramp,
     )
 
     joint_trips_ctramp = format_joint_trip(
@@ -780,7 +750,7 @@ def format_ctramp(  # noqa: PLR0913
         unlinked_trips_canonical=unlinked_trips,
         tours_canonical=tours,
         households_ctramp=households_ctramp,
-        config=config,
+        config=ctramp,
     )
 
     # The unified tables: the same formatting over the whole tour set, so a joint
@@ -796,7 +766,7 @@ def format_ctramp(  # noqa: PLR0913
             unlinked_trips_canonical=unlinked_trips,
             persons_canonical=persons_with_type,
             households_ctramp=households_ctramp,
-            config=config,
+            config=ctramp,
             include_joint=True,
         )
         all_trips_ctramp = format_individual_trip(
@@ -805,7 +775,7 @@ def format_ctramp(  # noqa: PLR0913
             tours_ctramp=all_tours_ctramp,
             persons_canonical=persons,
             households_ctramp=households_ctramp,
-            config=config,
+            config=ctramp,
         )
 
     # Prepare result dictionary and clean up temporary columns

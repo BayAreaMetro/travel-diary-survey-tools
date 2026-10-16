@@ -5,7 +5,6 @@ import logging
 import polars as pl
 
 from data_canon.codebook.generic import LocationSource
-from data_canon.codebook.trips import Purpose
 from pipeline.decoration import step
 
 from .episodes import build_presence_episodes
@@ -46,9 +45,7 @@ def add_observed_locations(
     delivered: pl.DataFrame,
     linked_trips: pl.DataFrame,
     days: pl.DataFrame,
-    config: HabitualLocationConfig | None = None,
-    *,
-    include_observed_homes: bool,
+    config: HabitualLocationConfig,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Append observed locations to the delivered ones, and build the day table.
 
@@ -57,16 +54,13 @@ def add_observed_locations(
         linked_trips: Linked trips with coordinates, purposes, times and
             ``d_activity_duration``.
         days: Days with ``day_id``, ``begin_day`` and ``end_day``.
-        config: Detection and matching rules (defaults if not given).
-        include_observed_homes: Whether to add homes found from where days
-            were said to begin or end. Off, the only homes are the reported
-            ones.
+        config: Detection and matching rules, including whether to add
+            observed homes.
 
     Returns:
         ``(habitual_locations, habitual_location_days)``: the delivered rows
         unchanged, the observed ones after them.
     """
-    config = config or HabitualLocationConfig()
     _check_delivered(delivered)
 
     # The locations delivered or cleaned by vendors (reported ones only)
@@ -80,7 +74,9 @@ def add_observed_locations(
     episodes = build_presence_episodes(linked_trips)
 
     # Identify observed habitual locations meeting criteria
-    homes = [observed_homes(episodes, days, delivered, config)] if include_observed_homes else []
+    homes = (
+        [observed_homes(episodes, days, delivered, config)] if config.include_observed_homes else []
+    )
     found = pl.concat(
         [
             *homes,
@@ -148,12 +144,7 @@ def detect_habitual_locations(
     habitual_locations: pl.DataFrame,
     linked_trips: pl.DataFrame,
     days: pl.DataFrame,
-    include_observed_homes: bool,
-    at_address_meters: float | None = None,
-    buffer_meters: float | None = None,
-    min_dwell_minutes: float | None = None,
-    min_dwell_minutes_by_purpose: dict[Purpose, float] | None = None,
-    min_distinct_days: int | None = None,
+    locations: HabitualLocationConfig,
 ) -> dict[str, pl.DataFrame]:
     """Find observed homes, workplaces and schools, and record presence per day.
 
@@ -166,34 +157,16 @@ def detect_habitual_locations(
         habitual_locations: The delivered table, reported locations only.
         linked_trips: Linked trips.
         days: Days with ``begin_day``/``end_day``.
-        include_observed_homes: Whether to add homes found from where days were
-            said to begin or end, beside the reported ones. An analyst's choice
-            with no default: a "home" answer away from the reported home becomes
-            another home, and tours touching it are graded ``OTHER_HOME``.
-        at_address_meters: See ``HabitualLocationConfig``.
-        buffer_meters: See ``HabitualLocationConfig``; ``extract_tours`` must
-            use the same value.
-        min_dwell_minutes: See ``HabitualLocationConfig``.
-        min_dwell_minutes_by_purpose: See ``HabitualLocationConfig``.
-        min_distinct_days: See ``HabitualLocationConfig``.
+        locations: Detection and matching rules, including whether to add
+            observed homes. See ``HabitualLocationConfig``.
 
     Returns:
         ``habitual_locations`` and ``habitual_location_days``.
     """
-    # None means not configured: the model keeps its own default.
-    settings = {
-        "at_address_meters": at_address_meters,
-        "buffer_meters": buffer_meters,
-        "min_dwell_minutes": min_dwell_minutes,
-        "min_dwell_minutes_by_purpose": min_dwell_minutes_by_purpose,
-        "min_distinct_days": min_distinct_days,
-    }
-    config = HabitualLocationConfig(**{k: v for k, v in settings.items() if v is not None})
-    locations, location_days = add_observed_locations(
+    observed, location_days = add_observed_locations(
         habitual_locations,
         linked_trips,
         days,
-        config,
-        include_observed_homes=include_observed_homes,
+        locations,
     )
-    return {"habitual_locations": locations, "habitual_location_days": location_days}
+    return {"habitual_locations": observed, "habitual_location_days": location_days}

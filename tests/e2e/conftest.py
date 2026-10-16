@@ -29,6 +29,9 @@ import yaml
 
 E2E_DIR = Path(__file__).parent
 
+# The value both detect_habitual_locations and extract_tours use here; each is its own setting.
+HABITUAL_BUFFER_METERS = 300.0
+
 # Optional steps that can be toggled (canonical execution order preserved below).
 OPTIONAL_STEPS = (
     "detect_joint_trips",
@@ -248,15 +251,27 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 },
                 "stash_preimputed": True,
                 "random_state": 42,
+                "validate_imputation": None,
             },
         },
         "detect_habitual_locations": {
             "name": "detect_habitual_locations",
             "validate_input": False,
             "cache": False,
-            "params": {"include_observed_homes": True},
+            "params": {
+                "include_observed_homes": True,
+                "buffer_meters": HABITUAL_BUFFER_METERS,
+            },
         },
-        "extract_tours": {"name": "extract_tours", "validate_input": False, "cache": False},
+        "extract_tours": {
+            "name": "extract_tours",
+            "validate_input": False,
+            "cache": False,
+            "params": {
+                "spatial_gap_threshold_meters": 1000.0,
+                "buffer_meters": HABITUAL_BUFFER_METERS,
+            },
+        },
         "cascade_completeness": {
             "name": "cascade_completeness",
             "validate_input": False,
@@ -333,7 +348,10 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                         "shapefile": f"{zones}/test_zones.geojson",
                         "zone_id_field": "MAZ_NODE",
                     },
-                ]
+                ],
+                # No snapping: an unmatched point stays without a zone.
+                "projected_crs": None,
+                "max_snap_distance": None,
             },
         },
         "format_ctramp": {
@@ -366,7 +384,11 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "write_data": {
             "name": "write_data",
             "validate_input": False,
-            "params": {"output_paths": output_paths, "write_only_canonical": True},
+            "params": {
+                "output_paths": output_paths,
+                "write_only_canonical": True,
+                "enum_codebook_path": None,
+            },
         },
     }
 

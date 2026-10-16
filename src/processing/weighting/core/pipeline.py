@@ -73,15 +73,17 @@ from processing.weighting.core.specs import (
     BalancingConfig,
     ControlRegistryConfig,
     ControlTotals,
+    DiagnosticsConfig,
     ImportanceConfig,
     ProfileFit,
+    ReferenceWeightSetConfig,
     WeightingConfig,
 )
 from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
 )
-from processing.weighting.data_prep.crosswalk import GeographyConfig, PumaCrosswalk
+from processing.weighting.data_prep.crosswalk import PumaCrosswalk
 from processing.weighting.data_prep.fractional_impute import fill_null_incidence
 from processing.weighting.data_prep.incidence import (
     IncidenceBundle,
@@ -147,7 +149,7 @@ class WeightingPipeline:
     pipeline.aggregate_totals()
     pipeline.resolve_importance()
 
-    pipeline.fit_all()          # one fit per configured profile
+    pipeline.fit_all(diagnostics=...)  # one fit per configured profile
     ```
 
     # One fit per profile
@@ -190,8 +192,8 @@ class WeightingPipeline:
         controls: ControlRegistryConfig,
         config: WeightingConfig,
         data: CanonicalData,
-        balancing: BalancingConfig | None = None,
-        importance: ImportanceConfig | None = None,
+        balancing: BalancingConfig,
+        importance: ImportanceConfig,
     ) -> None:
         """Initialise with configuration and survey data."""
         if data.households is None or data.persons is None:
@@ -201,8 +203,8 @@ class WeightingPipeline:
         self.controls = controls
         self.config = config
         self.data = data
-        self.balancing = balancing or BalancingConfig()
-        self.importance_cfg = importance or ImportanceConfig()
+        self.balancing = balancing
+        self.importance_cfg = importance
 
         # Mutable state initialised empty; populated by phases
         self.control_moe = None
@@ -234,12 +236,12 @@ class WeightingPipeline:
         validate_total_control_categories(ctrl_instances)
         logger.info("Controls: %s", self.controls.target_names)
 
-        zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
+        zone_groups = self.config.geography.zone_groups
 
         # Prepare the crosswalk with the full set of zones (including zone groups)
         # Store as an instance attribute for use in zone assignment and diagnostics
         self.crosswalk = PumaCrosswalk(
-            GeographyConfig(**self.config.geography),
+            self.config.geography,
             state_fips=self.config.state_fips,
             pums_year=self.config.pums_year,
             cache_dir=self.cache_dir,
@@ -569,7 +571,7 @@ class WeightingPipeline:
                 importance=imp_cfg,
             )
 
-    def generate_diagnostics(self, diagnostics: dict | None = None) -> None:
+    def generate_diagnostics(self, diagnostics: DiagnosticsConfig) -> None:
         """Write one self-contained interactive HTML report for the whole run.
 
         Covers the weighting from geographic crosswalk through IPF convergence
@@ -622,12 +624,12 @@ class WeightingPipeline:
         Parameters
         ----------
         diagnostics:
-            The ``diagnostics`` block of the weighting config, or ``None``.
+            The ``diagnostics`` block of the weighting config.
 
-            ``output_path`` is the destination for the HTML file, as a ``Path``
-            or a string (including Jinja-rendered template paths from the YAML).
-            When absent the file is written to ``<cache_dir>/diagnostics.html``
-            (or ``./weighting/diagnostics.html`` if no cache directory is
+            ``output_path`` is the destination for the HTML file, a string
+            (including template paths from the YAML). When null the file is
+            written to ``<cache_dir>/diagnostics.html`` (or
+            ``./weighting/diagnostics.html`` if no cache directory is
             configured).  No profile suffix: a run writes one file however many
             profiles it fits.
 
@@ -640,15 +642,13 @@ class WeightingPipeline:
             logger.warning("No completed fits to report on; skipping diagnostics.")
             return
 
-        settings = diagnostics or {}
-        output_path = settings.get("output_path")
-        if output_path is not None:
-            resolved_path = Path(output_path)
+        if diagnostics.output_path is not None:
+            resolved_path = Path(diagnostics.output_path)
         else:
             report_dir = self.cache_dir or Path.cwd() / "weighting"
             resolved_path = report_dir / "diagnostics.html"
 
-        zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
+        zone_groups = self.config.geography.zone_groups
         generate_report(
             fits=self.fits,
             control_totals=self.control_totals,
@@ -664,10 +664,12 @@ class WeightingPipeline:
             control_moe=self.control_moe,
             pums_incidence=self.pums_incidence,
             max_expansion_factor=self.balancing.max_expansion_factor,
-            comparison=self._weight_comparisons(settings.get("compare_weights")),
+            comparison=self._weight_comparisons(diagnostics.compare_weights),
         )
 
-    def _weight_comparisons(self, references: dict | None) -> Comparison:
+    def _weight_comparisons(
+        self, references: dict[str, ReferenceWeightSetConfig] | None
+    ) -> Comparison:
         """Compare every pair of weight sets this run can see.
 
         Read before ``drop_unsuffixed_weights`` runs, which is the only moment a
@@ -675,7 +677,8 @@ class WeightingPipeline:
         table -- afterwards the bare column is gone precisely so that no reader
         has to guess which of the two it was.
         """
-        sets = fitted_weight_sets(list(self.fits)) + reference_weight_sets(references)
+        supplied = {name: ref.model_dump() for name, ref in (references or {}).items()}
+        sets = fitted_weight_sets(list(self.fits)) + reference_weight_sets(supplied)
         if len(sets) < 2:  # noqa: PLR2004 - a comparison needs two sides
             return Comparison(sets=sets, pairs=[])
         return Comparison(sets=sets, pairs=all_pairs(self.data.as_dict(), sets))
@@ -765,7 +768,7 @@ class WeightingPipeline:
         self.fits[fit.profile] = fit
         return fit
 
-    def fit_all(self, *, diagnostics: dict | None = None) -> dict[str | None, ProfileFit]:
+    def fit_all(self, *, diagnostics: DiagnosticsConfig) -> dict[str | None, ProfileFit]:
         """Run one fit per configured profile, then raise if any failed to converge.
 
         Every profile is attempted and the report written before raising, so a

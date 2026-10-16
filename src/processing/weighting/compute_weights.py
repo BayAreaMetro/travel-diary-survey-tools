@@ -64,10 +64,13 @@ from processing.weighting.core.pipeline import WeightingPipeline
 from processing.weighting.core.propagation import drop_unsuffixed_weights
 from processing.weighting.core.specs import (
     BalancingConfig,
+    CensusConfig,
     ControlRegistryConfig,
+    DiagnosticsConfig,
     ImportanceConfig,
     WeightingConfig,
 )
+from processing.weighting.data_prep.crosswalk import GeographyConfig
 from processing.weighting.validation.weight_checks import weight_sanity_checks
 
 logger = logging.getLogger(__name__)
@@ -112,37 +115,19 @@ def _split_weighting_columns(
 
 @step()
 def compute_weights(  # noqa: PLR0913
-    # -- Config params (from YAML) --------------------------------------
-    state_fips: str,
-    pums_year: int,
+    # -- Settings (from YAML) -------------------------------------------
+    census: CensusConfig,
+    geography: GeographyConfig,
+    balancing: BalancingConfig,
     controls: list[dict],
-    geography: dict,
+    diagnostics: DiagnosticsConfig,
+    weight_profiles: list[str],
+    max_unplaceable_share: float,
+    sample_plan: str | None,
+    strict_survey_nulls: bool = False,
     *,
-    # -- Existing PUMS files (optional) ---------------------------------
-    pums_households: str | None = None,
-    pums_persons: str | None = None,
-    # -- Sample plan (optional) -----------------------------------------
-    sample_plan: str | None = None,
     # -- Pipeline plumbing (auto-injected by @step decorator) -----------
     pipeline_cache: PipelineCache | None = None,
-    # -- Importance / MOE -----------------------------------------------
-    moe_based_importance: bool = False,
-    default_importance: float = 100.0,
-    # -- Balancing params -----------------------------------------------
-    max_expansion_factor: float = 10.0,
-    min_expansion_factor: float = 0.1,
-    min_weight: float | None = 1,
-    max_weight: float | None = None,
-    max_iterations: int = 10_000,
-    n_workers: int = 1,
-    # -- Diagnostics ----------------------------------------------------
-    expansion_factor_grid: list[float] | None = None,
-    diagnostics: dict | None = None,
-    # -- Validation ------------------------------------------------------
-    strict_survey_nulls: bool = False,
-    # -- Completeness handling ------------------------------------------
-    weight_profiles: list[str] | None = None,
-    max_unplaceable_share: float = 0.01,
     # -- Canonical tables (auto-injected by pipeline) -------------------
     canonical_data: CanonicalData | None = None,
     households: pl.DataFrame | None = None,
@@ -156,11 +141,35 @@ def compute_weights(  # noqa: PLR0913
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
-    Flat-parameter entry point required by the ``@step()`` decorator
-    (YAML → keyword args).  Constructs a
+    Constructs a
     [`WeightingPipeline`][processing.weighting.core.pipeline.WeightingPipeline];
-    Full documentation of the algorithm, configuration, and diagnostics in included
-    in that class.
+    full documentation of the algorithm, configuration, and diagnostics is
+    included in that class.
+
+    Args:
+        census: Where the Census controls come from. See ``CensusConfig``.
+        geography: The zones weights are balanced over. See ``GeographyConfig``.
+        balancing: Solver bounds and control importance. See ``BalancingConfig``.
+        controls: The control list, each by registry name with optional
+            ``importance`` and ``merge``.
+        diagnostics: The report. See ``DiagnosticsConfig``.
+        weight_profiles: Usability profiles to weight, one fit each; a single
+            profile is a list of one.
+        max_unplaceable_share: The most of the survey whose homes may fall
+            outside the control geography before the step raises.
+        sample_plan: Path to the sample plan for base weights; null for none.
+        strict_survey_nulls: Raise on survey nulls in control variables rather
+            than imputing them.
+        pipeline_cache: Supplied by the pipeline.
+        canonical_data: Supplied by the pipeline.
+        households: Households.
+        persons: Persons.
+        days: Days.
+        unlinked_trips: Unlinked trips.
+        linked_trips: Linked trips.
+        joint_trips: Joint trips.
+        tours: Tours.
+        joint_tours: Joint tours.
     """
     if households is None or persons is None:
         msg = "Weighting requires at least households and persons tables."
@@ -178,40 +187,29 @@ def compute_weights(  # noqa: PLR0913
         joint_trips=joint_trips,
         joint_tours=joint_tours,
     )
-    # Prepare the pipeline configuration objects
     wt_config = WeightingConfig(
         geography=geography,
-        state_fips=state_fips,
-        pums_year=pums_year,
-        pums_households=pums_households,  # Optional local files take precedence over API fetching
-        pums_persons=pums_persons,  # Optional local files take precedence over API fetching
+        state_fips=census.state_fips,
+        pums_year=census.pums_year,
+        pums_households=census.pums_households,  # local files take precedence over the API
+        pums_persons=census.pums_persons,
         sample_plan=sample_plan,
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
-        expansion_factor_grid=expansion_factor_grid,
+        expansion_factor_grid=diagnostics.expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
-        weight_profiles=tuple(weight_profiles or ()),
+        weight_profiles=tuple(weight_profiles),
         max_unplaceable_share=max_unplaceable_share,
     )
-    # Prepare the balancing configs (max expansion factor, weight bounds, max iterations, etc.)
-    balance_cfg = BalancingConfig(
-        max_expansion_factor=max_expansion_factor,
-        min_expansion_factor=min_expansion_factor,
-        min_weight=min_weight,
-        max_weight=max_weight,
-        max_iterations=max_iterations,
-        n_workers=n_workers,
-    )
-    # Prepare the importance config (MOE-based, explicit overrides, or default).
+    # Importance for controls without their own; per-control overrides come from controls.
     importance_cfg = ImportanceConfig(
-        moe_based=moe_based_importance,
-        default=default_importance,
+        moe_based=balancing.moe_based_importance,
+        default=balancing.default_importance,
     )
-    # Initialize and run the pipeline with the provided configs and data
     wt_pipeline = WeightingPipeline(
         controls=ControlRegistryConfig.from_yaml(controls),
         config=wt_config,
         data=data,
-        balancing=balance_cfg,
+        balancing=balancing,
         importance=importance_cfg,
     )
 

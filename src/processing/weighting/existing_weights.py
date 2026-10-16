@@ -40,7 +40,7 @@ from collections.abc import Collection
 from pathlib import Path
 
 import polars as pl
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from data_canon.core.dataclass import CanonicalData
 from pipeline.decoration import step
@@ -817,14 +817,64 @@ def _warn_null_weights(tables: dict[str, pl.DataFrame | None], profile: str | No
             )
 
 
+class ExistingWeightsConfig(BaseModel):
+    """Settings for ``add_existing_weights``: how supplied weights move onto usable records."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    preserve_travel_totals: bool = Field(
+        description=(
+            "Households are always held to their total and persons to their "
+            "household, as known populations, and a person's days carry that "
+            "person's weight. Every unlinked trip moves with its day, by the "
+            "day's final weight over its supplied weight. Trips and tours are not "
+            "targets, so whether a dropped trip's weight moves is a choice. true: "
+            "a kept day's dropped trips hand their weight to its kept trips, in "
+            "proportion, so the day's trips keep their total. false: every kept "
+            "trip keeps its own weight times its day's factor, and a dropped one's "
+            "weight is gone. Either way, linked trips and tours are the mean of "
+            "their final trips, and joint trips and joint tours the sum of their "
+            "kept members."
+        ),
+    )
+    household_size_top_group: int = Field(
+        description=(
+            "Households are scaled by one factor per household size (number of "
+            "persons), so dropping more large households than small ones does not "
+            "move the person total. Sizes from this one up share a factor, which "
+            "keeps a size with few households from carrying an extreme one."
+        ),
+    )
+    weight_profiles: list[str] = Field(
+        description=(
+            "Usability profiles to weight, each writing its own column set "
+            "suffixed with the profile name; a single profile is a list of one. "
+            "Each is stamped upstream by cascade_completeness; name "
+            "survey_complete to weight the whole valid survey including partial "
+            "and overnight tours. The supplied files are read once and moved onto "
+            "each profile's usable records rather than simply zeroed, so every set "
+            "holds the same household and person totals -- the vendor's anchor "
+            "cannot be re-balanced from here."
+        ),
+    )
+    derive_missing_weights: bool = Field(
+        description="Whether to derive weights for tables without supplied weight files.",
+    )
+    max_weight_factor: dict[str, float] | None = Field(
+        default=None,
+        description=(
+            "Optional limits, table -> the most a record's final weight may be, as "
+            "a multiple of its own supplied weight. A table left out has no limit. "
+            "The step raises naming the records past it. Each table named must "
+            "have a supplied weight."
+        ),
+    )
+
+
 @step()
-def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
+def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, ExistingWeightConfig | dict],
-    preserve_travel_totals: bool,
-    household_size_top_group: int,
-    max_weight_factor: dict[str, float] | None = None,
-    weight_profiles: list[str] | None = None,
-    derive_missing_weights: bool = False,
+    existing: ExistingWeightsConfig,
     canonical_data: CanonicalData | None = None,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -904,38 +954,8 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
             - ``weight_col``: Weight column name in the weight file
               (optional, defaults to canonical weight column).
 
-        household_size_top_group: Required; the config states it. Households
-            are scaled by one factor per household size (number of persons), so
-            dropping more large households than small ones does not move the
-            person total. Sizes from this one up share a factor, which keeps a
-            size with few households from carrying an extreme one.
-        max_weight_factor: Optional limits, table -> the most a record's final
-            weight may be, as a multiple of its own supplied weight. A table
-            left out has no limit. The step raises naming the records past it.
-            Each table named must have a supplied weight.
-        preserve_travel_totals: Required; the config states it. Households
-            are always held to their total and persons to their household, as
-            known populations, and a person's days carry that person's weight.
-            Every unlinked trip
-            moves with its day, by the day's final weight over its supplied
-            weight. Trips and tours are not targets, so whether a dropped
-            trip's weight moves is a choice. ``true``: a kept day's dropped
-            trips hand their weight to its kept trips, in proportion, so the
-            day's trips keep their total. ``false``: every kept trip keeps its
-            own weight times its day's factor, and a dropped one's weight is
-            gone. Either way, linked trips and tours are the mean of their final
-            trips, and joint trips and joint tours the sum of their kept
-            members.
-        derive_missing_weights: Whether to derive weights for tables
-            without provided weight files (default: False).
-        weight_profiles: Usability profiles to weight, each writing its own
-            column set suffixed with the profile name; a single profile is a
-            list of one. Each is stamped upstream by ``cascade_completeness``;
-            name ``survey_complete`` to weight the whole valid survey including
-            partial and overnight tours. The supplied files are read once and
-            moved onto each profile's usable records rather than simply zeroed,
-            so every set holds the same household and person totals -- the
-            vendor's anchor cannot be re-balanced from here.
+        existing: How supplied weights move onto usable records, per
+            profile. See ``ExistingWeightsConfig``.
         canonical_data: Canonical data container. When present, the suffixed
             weight columns are registered on it, since names that come from
             config cannot be model fields.
@@ -982,7 +1002,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
         tours=tours,
     )
 
-    profiles = resolve_fitted_profiles(weight_profiles)
+    profiles = resolve_fitted_profiles(existing.weight_profiles)
 
     # Track which weights are provided, and the supplied numbers themselves --
     # read once, then redistributed per profile.
@@ -1051,7 +1071,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
         supplied[table_name] = weight_df
 
     # A limit compares a record's final weight to its supplied one, so it needs one.
-    limits = max_weight_factor or {}
+    limits = existing.max_weight_factor or {}
     for table, limit in limits.items():
         if table not in supplied:
             msg = (
@@ -1091,7 +1111,10 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
         if by_size:
             population.pop("households")
             supplied_totals["households"] = _gate_households_by_size(
-                tables, has_weight, usability_flag_col=flag, top_group=household_size_top_group
+                tables,
+                has_weight,
+                usability_flag_col=flag,
+                top_group=existing.household_size_top_group,
             )
             if "persons" in population:
                 population.pop("persons")
@@ -1113,7 +1136,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
         if days_follow:
             _follow_parent(tables, has_weight, "days", usability_flag_col=flag)
 
-        if derive_missing_weights:
+        if existing.derive_missing_weights:
             propagate_weights(
                 tables,
                 has_weight,
@@ -1131,9 +1154,9 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 has_weight,
                 supplied["days"],
                 usability_flag_col=flag,
-                preserve_travel_totals=preserve_travel_totals,
+                preserve_travel_totals=existing.preserve_travel_totals,
             )
-            if derive_missing_weights:
+            if existing.derive_missing_weights:
                 # Linked trips and tours: the mean of their final trips, so each
                 # agrees with its own trips.
                 propagate_weights(
@@ -1150,7 +1173,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 if t in supplied.keys() & _TRAVEL_TABLES - {"unlinked_trips"}
             }
         else:
-            if derive_missing_weights:
+            if existing.derive_missing_weights:
                 # Travel claims: derived from the gated days, but not gated themselves.
                 propagate_weights(
                     tables,
@@ -1165,10 +1188,10 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0913, PLR0915
             tables,
             to_gate,
             usability_flag_col=flag,
-            preserve_travel_totals=preserve_travel_totals,
+            preserve_travel_totals=existing.preserve_travel_totals,
         )
 
-        if derive_missing_weights:
+        if existing.derive_missing_weights:
             # Joint tables last: the sum of the members that kept their weight.
             propagate_weights(
                 tables,

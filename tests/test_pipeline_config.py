@@ -13,7 +13,6 @@ network drives and reads ``.env`` at module level.
 """
 
 import ast
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,10 +21,7 @@ import yaml
 
 import processing
 from data_canon.core.dataclass import CanonicalData
-from pipeline.pipeline import Pipeline
-from processing import detect_habitual_locations, extract_tours
-from processing.habitual_locations.habitual_location_configs import HabitualLocationConfig
-from processing.tours.tour_configs import TourConfig
+from pipeline.pipeline import Pipeline, resolve_templates
 
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 
@@ -160,36 +156,17 @@ def test_named_profiles_are_stamped_by_the_cascade(project_dir: Path):
             )
 
 
-@pytest.mark.parametrize(
-    ("step_func", "config_model"),
-    [
-        (extract_tours, TourConfig),
-        (detect_habitual_locations, HabitualLocationConfig),
-    ],
-    ids=["extract_tours", "detect_habitual_locations"],
-)
-def test_step_settings_match_config_model(step_func, config_model):
-    """A step that builds a config model takes exactly that model's fields.
-
-    The step lists each field as an argument so the pipeline can reject keys it
-    does not take; a field added to the model and not the step would be
-    unreachable from config.
-    """
-    params = inspect.signature(inspect.unwrap(step_func)).parameters
-    settings = {name for name in params if name not in CanonicalData().TABLE_NAMES}
-    assert settings - {"include_observed_homes"} == set(config_model.model_fields)
-
-
 @pytest.mark.parametrize("project_dir", _project_dirs(), ids=lambda p: p.name)
 def test_config_keys_are_taken_by_their_steps(project_dir: Path):
-    """Every key a project config sets reaches its step.
+    """Every key a project config sets reaches its step, and none it needs is missing.
 
-    The pipeline raises on a key a step does not take, but only when the step
-    runs; this catches it in CI. Project-specific steps outside ``processing``
-    are skipped.
+    The pipeline raises on either, but only when the step runs; this catches it
+    in CI. Templates are resolved as the pipeline resolves them, so a setting
+    written as ``{{ name }}`` is checked as its value. Project-specific steps
+    outside ``processing`` are skipped.
     """
     with (project_dir / "config.yaml").open() as f:
-        config = yaml.safe_load(f)
+        config = resolve_templates(yaml.safe_load(f))
     fake = SimpleNamespace(config=config, data=CanonicalData())
     for step_cfg in config["steps"]:
         step_func = getattr(processing, step_cfg["name"], None)

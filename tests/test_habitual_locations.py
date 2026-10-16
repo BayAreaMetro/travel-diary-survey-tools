@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 from data_canon.codebook.days import BeginEndDay
 from data_canon.codebook.generic import LocationSource, LocationType
@@ -142,6 +143,10 @@ def _of(locations: pl.DataFrame, person_id: int, kind: LocationType) -> pl.DataF
     ).sort("location_num")
 
 
+# The detection rules as the BATS configs state them.
+_CONFIG = HabitualLocationConfig(buffer_meters=300.0, include_observed_homes=True)
+
+
 def _not_asked(trips: pl.DataFrame) -> pl.DataFrame:
     """Days for the trips, with no stated start or end."""
     return _days(*((d, None, None) for d in sorted(set(trips["day_id"].to_list()))))
@@ -153,8 +158,9 @@ def _build(trips, days=None, extra=None, persons=None, *, observed_homes=True, *
         _delivered(extra, persons),
         trips,
         days if days is not None else _not_asked(trips),
-        HabitualLocationConfig(**config),
-        include_observed_homes=observed_homes,
+        HabitualLocationConfig(
+            **{**_CONFIG.model_dump(), "include_observed_homes": observed_homes, **config}
+        ),
     )
 
 
@@ -217,7 +223,7 @@ def test_detection_refuses_a_delivered_observed_row():
     )
     trips = _trips(_trip(1, 10, ALT_WORK, 200))
     with pytest.raises(ValueError, match="not REPORTED"):
-        add_observed_locations(delivered, trips, _not_asked(trips), include_observed_homes=True)
+        add_observed_locations(delivered, trips, _not_asked(trips), _CONFIG)
 
 
 def test_detection_refuses_two_primaries_of_one_kind():
@@ -227,7 +233,7 @@ def test_detection_refuses_two_primaries_of_one_kind():
     )
     trips = _trips(_trip(1, 10, ALT_WORK, 200))
     with pytest.raises(ValueError, match="more than one primary"):
-        add_observed_locations(delivered, trips, _not_asked(trips), include_observed_homes=True)
+        add_observed_locations(delivered, trips, _not_asked(trips), _CONFIG)
 
 
 @pytest.mark.parametrize(
@@ -383,9 +389,8 @@ def test_observed_homes_off_keeps_only_the_reported_homes(answer):
 
 def test_observed_homes_has_no_default():
     """Whether to trust stated day ends is the analyst's call, so it must be stated."""
-    trips = _trips(_trip(1, 10, ALT_WORK, 200))
-    with pytest.raises(TypeError, match="include_observed_homes"):
-        add_observed_locations(_delivered(), trips, _not_asked(trips))
+    with pytest.raises(ValidationError, match="include_observed_homes"):
+        HabitualLocationConfig(buffer_meters=300.0)
 
 
 def test_day_beginning_at_another_home_places_it_at_the_first_origin():
@@ -419,7 +424,9 @@ def _match(trips, days=None, extra=None, persons=None) -> dict:
     """Build the locations, match the trip ends, and return the last trip's row."""
     days = days if days is not None else _not_asked(trips)
     locations, _days_table = _build(trips, days, extra, persons)
-    matched = match_trip_ends(trips, locations, MatchConfig(), days)
+    matched = match_trip_ends(
+        trips, locations, MatchConfig(buffer_meters=_CONFIG.buffer_meters), days
+    )
     return matched.sort("linked_trip_id").row(-1, named=True)
 
 

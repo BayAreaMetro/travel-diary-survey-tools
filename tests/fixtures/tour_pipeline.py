@@ -9,8 +9,22 @@ from typing import Any
 
 import polars as pl
 
-from processing.habitual_locations import detect_habitual_locations, reported_habitual_locations
+from processing.habitual_locations import (
+    HabitualLocationConfig,
+    MatchConfig,
+    detect_habitual_locations,
+    reported_habitual_locations,
+)
 from processing.tours import extract_tours
+from processing.tours.tour_configs import TourConfig
+
+# The habitual-location buffer, the value the BATS configs give both steps.
+BUFFER_METERS = 300.0
+
+
+def tour_config(**overrides: Any) -> TourConfig:
+    """Tour rules as the BATS configs state them, with *overrides* on top."""
+    return TourConfig(**{"spatial_gap_threshold_meters": 1000.0, **overrides})
 
 
 def days_not_asked(linked_trips: pl.DataFrame) -> pl.DataFrame:
@@ -52,7 +66,7 @@ def locate_and_extract_tours(
         days: Days with ``begin_day``/``end_day``; by default, not asked.
         extra: Further reported locations, as ``reported_habitual_locations``
             takes them (a second home).
-        **kwargs: ``extract_tours`` configuration.
+        **kwargs: ``TourConfig`` settings over the BATS ones (see ``tour_config``).
 
     Returns:
         The ``extract_tours`` outputs plus both location tables.
@@ -62,7 +76,7 @@ def locate_and_extract_tours(
         habitual_locations=reported_habitual_locations(households, persons, extra=extra),
         linked_trips=linked_trips,
         days=days,
-        include_observed_homes=True,
+        locations=HabitualLocationConfig(buffer_meters=BUFFER_METERS, include_observed_homes=True),
     )
     tours = extract_tours(
         persons=persons,
@@ -71,6 +85,7 @@ def locate_and_extract_tours(
         habitual_locations=located["habitual_locations"],
         days=days,
         joint_trips=joint_trips,
-        **kwargs,
+        extraction=tour_config(**kwargs),
+        habitual_match=MatchConfig(buffer_meters=BUFFER_METERS),
     )
     return {**tours, **located}

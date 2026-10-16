@@ -12,9 +12,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, ValidationError
 
 from data_canon.core.dataclass import CanonicalData
 from pipeline.cache import PipelineCache
+from pipeline.decoration import PIPELINE_ARGS, field_owners, settings_models
 from pipeline.logger import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,99 @@ def _substitute(text: str, variables: dict[str, str]) -> str:
 #: Config key holding committed root defaults. Anything declared here is a
 #: default the environment may replace, not a claim about this machine.
 ENVS_KEY = "ENVS"
+
+
+def resolve_templates(config: dict[str, Any]) -> dict[str, Any]:
+    """Replace every ``{{ name }}`` in a loaded config with its value.
+
+    The values come from the config's own variables and the environment, as
+    ``_template_namespace`` gathers them. A root no one set stays a template.
+    """
+    variables = _resolve_variables(_template_namespace(config))
+
+    def replace(obj: Any) -> Any:  # noqa: ANN401
+        if isinstance(obj, str):
+            return _substitute(obj, variables)
+        if isinstance(obj, dict):
+            return {k: replace(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [replace(item) for item in obj]
+        return obj
+
+    return replace(config)
+
+
+def _check_config_keys(
+    step_name: str, params: dict[str, Any], tables: set[str], accepted: set[str]
+) -> None:
+    """Raise on a config key that names a table, or that nothing in the step takes."""
+    table_keys = sorted(k for k in params if k in tables)
+    if table_keys:
+        msg = (
+            f"Config for step '{step_name}' sets {table_keys}, which name "
+            "canonical tables. Tables are passed by the pipeline and cannot "
+            "be set in config."
+        )
+        raise ValueError(msg)
+    unknown = sorted(k for k in params if k not in accepted)
+    if unknown:
+        msg = (
+            f"Config for step '{step_name}' sets {unknown}, which the step "
+            f"does not take. It takes: {sorted(accepted)}."
+        )
+        raise ValueError(msg)
+
+
+def _model_settings(
+    step_name: str, arg_name: str, params: dict[str, Any], flat: dict[str, Any]
+) -> object | None:
+    """A model argument's keys, as a block or flat; None when the config gives neither.
+
+    Raises:
+        ValueError: If the config gives both, which leaves two places to read.
+    """
+    block = params.get(arg_name)
+    if block is not None and flat:
+        msg = (
+            f"Config for step '{step_name}' sets {sorted(flat)} flat and also a "
+            f"'{arg_name}:' block; write those settings one way."
+        )
+        raise ValueError(msg)
+    if block is not None:
+        return block
+    return flat or None
+
+
+def _build_settings(
+    step_name: str, arg_name: str, model: type[BaseModel], settings: object
+) -> BaseModel:
+    """Build a step's settings model from its keys, naming the step on failure.
+
+    Raises:
+        TypeError: If the model allows extra fields, which would let a misspelt
+            key in a block through unread.
+        ValueError: If a block is not a mapping, or the model rejects the keys.
+    """
+    if model.model_config.get("extra") != "forbid":
+        msg = (
+            f"{model.__name__} (step '{step_name}', argument '{arg_name}') must set "
+            'model_config = ConfigDict(extra="forbid"), or a misspelt key is ignored.'
+        )
+        raise TypeError(msg)
+    if not isinstance(settings, dict):
+        msg = (
+            f"Config for step '{step_name}' sets '{arg_name}' to {settings!r}; it must be "
+            f"a block of {model.__name__} settings."
+        )
+        raise ValueError(msg)  # noqa: TRY004 - a config error, reported as one
+    try:
+        return model.model_validate(settings)
+    except ValidationError as e:
+        msg = (
+            f"Config for step '{step_name}', {model.__name__} settings (flat, or under "
+            f"'{arg_name}:'):\n{e}"
+        )
+        raise ValueError(msg) from e
 
 
 def _template_namespace(config: dict[str, Any]) -> dict[str, str]:
@@ -293,23 +388,8 @@ class Pipeline:
         with Path(self.config_path).open() as f:
             config = yaml.safe_load(f)
 
-        # Extract top-level variables for substitution
         _check_roots_resolved(config, _template_namespace(config))
-        variables = _resolve_variables(_template_namespace(config))
-
-        def replace_templates(obj: Any) -> Any:  # noqa: ANN401
-            if isinstance(obj, str):
-                return _substitute(obj, variables)
-
-            if isinstance(obj, dict):
-                return {k: replace_templates(v) for k, v in obj.items()}
-
-            if isinstance(obj, list):
-                return [replace_templates(item) for item in obj]
-
-            return obj
-
-        resolved = replace_templates(config)
+        resolved = resolve_templates(config)
         _check_input_paths(resolved, _shorthands_used_by_steps(config))
         return resolved
 
@@ -444,67 +524,58 @@ class Pipeline:
         canonical table: either would otherwise be dropped without a word, and
         the step would run on its own default instead of the configured value.
 
+        An argument annotated with a pydantic model is built from its fields'
+        keys. They sit flat under ``params:``, each routed to the model that
+        owns the name, or in a block named after the argument; not both. The
+        model decides what may be left out: a field with a default may, one
+        without may not, the same rule as a plain argument.
+
         Args:
             step_name: Name of the step.
             step_obj: The step function or class.
 
         """
         step_args = inspect.signature(step_obj).parameters
-
-        # if the arg name is a canonical table, pass it from self.data
-        data_kwargs = {}
-        config_kwargs = {}
-
-        reserved = {
-            "canonical_data",
-            "validate_input",
-            "validate_output",
-            "cache",
-            "pipeline_cache",
-            "kwargs",
-        }
-        expected_kwargs = [x for x in step_args if x not in reserved]
+        models = settings_models(step_obj)
+        owners = field_owners(step_obj)
+        tables = {"canonical_data", *self.data.TABLE_NAMES}
+        plain = {a for a in step_args if a not in PIPELINE_ARGS | tables | set(models)}
 
         params = next(
             (s.get("params") or {} for s in self.config["steps"] if s["name"] == step_name),
             {},
         )
-        tables = {"canonical_data", *self.data.TABLE_NAMES}
-        table_keys = sorted(k for k in params if k in tables)
-        if table_keys:
-            msg = (
-                f"Config for step '{step_name}' sets {table_keys}, which name "
-                "canonical tables. Tables are passed by the pipeline and cannot "
-                "be set in config."
-            )
-            raise ValueError(msg)
-        unknown = sorted(k for k in params if k not in step_args or k in reserved)
-        if unknown:
-            msg = (
-                f"Config for step '{step_name}' sets {unknown}, which the step "
-                f"does not take. It takes: {sorted(set(expected_kwargs) - tables)}."
-            )
-            raise ValueError(msg)
+        _check_config_keys(step_name, params, tables, plain | set(models) | set(owners))
 
+        flat: dict[str, dict[str, Any]] = {arg: {} for arg in models}
+        for key, value in params.items():
+            if key in owners:
+                flat[owners[key]][key] = value
+
+        data_kwargs = {}
+        config_kwargs = {}
         for arg_name, param in step_args.items():
             if arg_name == "canonical_data":
                 # Pass the entire CanonicalData instance if requested
                 data_kwargs[arg_name] = self.data
             elif hasattr(self.data, arg_name):
                 data_kwargs[arg_name] = getattr(self.data, arg_name)
-            # Only add if parameter exists in config or has default
+            elif arg_name in models:
+                settings = _model_settings(step_name, arg_name, params, flat[arg_name])
+                if settings is None and param.default is not param.empty:
+                    continue
+                config_kwargs[arg_name] = _build_settings(
+                    step_name, arg_name, models[arg_name], {} if settings is None else settings
+                )
             elif arg_name in params:
                 config_kwargs[arg_name] = params[arg_name]
-            elif param.default is not inspect.Parameter.empty or arg_name in reserved:
+            elif param.default is not inspect.Parameter.empty or arg_name in PIPELINE_ARGS:
                 # Has default value, don't need to provide it
                 pass
             else:
-                # If no default and not in config, omit it
-                # This will cause TypeError if it's required
                 msg = (
-                    f"Missing required parameter '{arg_name}' "
-                    f"for step '{step_name}'. Function expects "
-                    f""""{'", "'.join(expected_kwargs)}"."""
+                    f"Missing required parameter '{arg_name}' for step '{step_name}'. "
+                    f"It takes: {sorted(plain | set(owners))}."
                 )
                 raise ValueError(msg)
 

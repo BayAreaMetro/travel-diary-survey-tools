@@ -190,15 +190,19 @@ class TestGeographyConfig:
         """Resolution must be positive."""
         with pytest.raises(ValueError, match="positive"):
             GeographyConfig(
-                target_zones=TargetZoneConfig(file="zones.shp"),
+                target_zones=TargetZoneConfig(file="zones.shp", id_field=None),
                 resolution=-100,
+                min_allocation=0.0,
+                zone_groups=None,
             )
 
     def test_a_positive_resolution_is_kept_as_given(self):
         """The validator returns the value; it does not round or clamp it."""
         config = GeographyConfig(
-            target_zones=TargetZoneConfig(file="zones.shp"),
+            target_zones=TargetZoneConfig(file="zones.shp", id_field=None),
             resolution=250,
+            min_allocation=0.0,
+            zone_groups=None,
         )
 
         assert config.resolution == 250

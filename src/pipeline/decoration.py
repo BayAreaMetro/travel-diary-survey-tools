@@ -3,13 +3,64 @@
 import functools
 import inspect
 import logging
+import typing
 from collections.abc import Callable
 from typing import Any
 
 import polars as pl
+from pydantic import BaseModel
 
 from data_canon.core.dataclass import CanonicalData
 from pipeline.step_registry import register_step
+
+# Arguments the pipeline supplies itself; never settings.
+PIPELINE_ARGS = frozenset(
+    {"canonical_data", "validate_input", "validate_output", "cache", "pipeline_cache", "kwargs"}
+)
+
+
+def settings_models(func: Callable[..., Any]) -> dict[str, type[BaseModel]]:
+    """The step's arguments annotated with a pydantic model, by argument name."""
+    hints = typing.get_type_hints(inspect.unwrap(func))
+    return {
+        name: hint
+        for name, hint in hints.items()
+        if isinstance(hint, type) and issubclass(hint, BaseModel)
+    }
+
+
+def field_owners(func: Callable[..., Any]) -> dict[str, str]:
+    """Each settings-model field name, mapped to the argument whose model holds it.
+
+    A flat config key is routed by this map, so every name must have one owner.
+
+    Raises:
+        TypeError: If a field name is also another model's field, a step
+            argument, a canonical table or a pipeline argument.
+    """
+    params = set(inspect.signature(func).parameters)
+    reserved = PIPELINE_ARGS | set(CanonicalData().TABLE_NAMES)
+    owners: dict[str, str] = {}
+    for arg, model in settings_models(func).items():
+        for name in model.model_fields:
+            clash = (
+                f"another model's field ({owners[name]})"
+                if name in owners
+                else "a step argument"
+                if name in params
+                else "a table or pipeline argument"
+                if name in reserved
+                else None
+            )
+            if clash:
+                msg = (
+                    f"{func.__name__}: {model.__name__}.{name} has the same name as "
+                    f"{clash}, so a config key '{name}' would have two owners."
+                )
+                raise TypeError(msg)
+            owners[name] = arg
+    return owners
+
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +131,7 @@ def step(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         # Register workflow contract at decoration (import) time
         register_step(func.__name__, requires=requires, produces=produces)
+        field_owners(func)  # a name clash fails here, not on a pipeline run
 
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
