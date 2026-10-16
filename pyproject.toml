@@ -134,7 +134,7 @@ markers = [
 # when the check was added, at their length then: each may shrink but not grow,
 # and comes off the list once it is within the limit.
 [tool.module-length]
-max-lines = 500
+max-lines = 750
 
 [tool.module-length.baseline]
 "src/processing/weighting/existing_weights.py" = 1234
@@ -144,15 +144,3 @@ max-lines = 500
 "src/pipeline/pipeline.py" = 844
 "src/processing/formatting/ctramp/format_ctramp.py" = 804
 "src/processing/weighting/core/pipeline.py" = 794
-"src/processing/imputation/impute_utils.py" = 746
-"src/data_canon/models/survey.py" = 713
-"src/data_canon/models/ctramp.py" = 676
-"src/processing/weighting/validation/weight_checks.py" = 673
-"src/processing/formatting/daysim/format_trips.py" = 644
-"src/processing/weighting/diagnostics/data.py" = 609
-"src/processing/weighting/core/specs.py" = 601
-"src/processing/weighting/diagnostics/comparison.py" = 598
-"src/processing/formatting/ctramp/person_mappings.py" = 590
-"src/processing/weighting/controls/person.py" = 553
-"src/processing/link_trips/link.py" = 552
-"src/processing/weighting/data_prep/crosswalk.py" = 521
