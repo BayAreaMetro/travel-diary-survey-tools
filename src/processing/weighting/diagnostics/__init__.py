@@ -74,7 +74,7 @@ When `output_path` is omitted the report is written to
 ``<cache_dir>/diagnostics.html``. One file per run, with no profile suffix.
 """
 
-from .charts import crosswalk_figure
+from .crosswalk_map import crosswalk_figure
 from .report import generate_report
 
 __all__ = ["crosswalk_figure", "generate_report"]

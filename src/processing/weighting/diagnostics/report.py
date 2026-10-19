@@ -37,13 +37,13 @@ from geopandas import GeoDataFrame
 from processing.weighting.core.specs import ControlTotals, ProfileFit
 
 from .charts import (
-    crosswalk_figure,
     ef_tradeoff_figure,
     fit_diverging_figure,
     imputation_distribution_figure,
     violins_figure,
 )
 from .comparison import Comparison, fitted_weight_sets, inheritance, payload
+from .crosswalk_map import crosswalk_figure
 from .data import (
     apply_fit_merges,
     compute_weighted_totals,

@@ -19,6 +19,11 @@
         - fit_diverging_figure
         - violins_figure
         - ef_tradeoff_figure
+
+::: processing.weighting.diagnostics.crosswalk_map
+    options:
+      show_root_heading: true
+      members:
         - crosswalk_figure
 
 ::: processing.weighting.diagnostics.data
