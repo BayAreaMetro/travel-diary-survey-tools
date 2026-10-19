@@ -136,9 +136,10 @@ logger = logging.getLogger(__name__)
         "days": {"day_id", "travel_date", "begin_day", "end_day"},
     },
     produces={
-        "unlinked_trips": {"tour_id"},
-        "linked_trips": {"tour_id"},
-        "tours": {"tour_id"},
+        "unlinked_trips": {"tour_id", "joint_tour_id"},
+        "linked_trips": {"tour_id", "joint_tour_id"},
+        "tours": {"tour_id", "joint_tour_id"},
+        "joint_tours": {"joint_tour_id"},
     },
 )
 def extract_tours(

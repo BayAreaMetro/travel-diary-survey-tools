@@ -20,7 +20,13 @@ from .generic_impute import (
 logger = logging.getLogger(__name__)
 
 
-@step()
+@step(
+    # The columns to impute come from impute_columns, so the step checks them itself.
+    produces={
+        table: {"<column>_preimputed"}
+        for table in ("households", "persons", "days", "unlinked_trips", "linked_trips", "tours")
+    },
+)
 def imputation(  # noqa: C901, PLR0912, PLR0915
     # Optional canonical tables
     households: pl.DataFrame | None = None,

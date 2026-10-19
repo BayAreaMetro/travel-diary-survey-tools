@@ -30,7 +30,8 @@ def _weights_for(
     The step writes ``hh_weight_<profile>`` and so on. A consumer resolves its
     own profile's columns to the base names with ``select_profile_columns``,
     which is how these tests read them too. Deriving missing weights is off
-    unless a test asks for it.
+    unless a test asks for it. Input validation is off: these frames are cut down
+    to what the arithmetic reads, and e2e checks the step's contract.
     """
     existing = ExistingWeightsConfig(
         weight_profiles=[profile],
@@ -39,7 +40,8 @@ def _weights_for(
         derive_missing_weights=derive_missing_weights,
         max_weight_factor=max_weight_factor,
     )
-    return select_profile_columns(add_existing_weights(existing=existing, **inputs), profile)
+    result = add_existing_weights(existing=existing, validate_input=False, **inputs)
+    return select_profile_columns(result, profile)
 
 
 class TestAddExistingWeights:

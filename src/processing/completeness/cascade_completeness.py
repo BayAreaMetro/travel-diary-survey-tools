@@ -16,6 +16,21 @@ from .usable_cascade import stamp_usable
         "days": {"day_id", "hh_id", "travel_date", "survey_complete"},
         "tours": {"tour_id", "day_id", "survey_complete"},
     },
+    produces={
+        "households": {"survey_complete", "usable_<profile>"},
+        "persons": {"survey_complete", "usable_<profile>"},
+        "days": {"hh_day_survey_complete", "usable_<profile>", "hh_day_<profile>"},
+        "unlinked_trips": {"survey_complete", "usable_<profile>", "joint_tour_id_<profile>"},
+        "linked_trips": {
+            "survey_complete",
+            "usable_<profile>",
+            "joint_trip_id_<profile>",
+            "joint_tour_id_<profile>",
+        },
+        "tours": {"survey_complete", "usable_<profile>", "joint_tour_id_<profile>"},
+        "joint_trips": {"usable_<profile>"},
+        "joint_tours": {"usable_<profile>"},
+    },
 )
 def cascade_completeness(
     households: pl.DataFrame | None = None,
