@@ -12,6 +12,7 @@ import pytest
 import yaml
 from pydantic import BaseModel, ConfigDict
 
+from data_canon.core.exceptions import DataValidationError
 from pipeline.cache import PipelineCache
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
@@ -513,6 +514,28 @@ class TestRun:
 
         assert len(step_executed) == 1
         assert result.households["id"].to_list() == [1, 2, 3]
+
+    @pytest.mark.parametrize(
+        ("step_cfg", "raises"),
+        [
+            pytest.param({}, True, id="config_silent_decorator_stands"),
+            pytest.param({"validate_output": False}, False, id="config_overrides"),
+        ],
+    )
+    def test_decorator_flags_stand_unless_config_sets_them(self, tmp_path, step_cfg, raises):
+        """``@step(validate_output=True)`` validates unless the config turns it off."""
+        config_path = _write_config(tmp_path, {"steps": [{"name": "checked", **step_cfg}]})
+
+        @step(validate_input=False, validate_output=True)
+        def checked() -> dict[str, pl.DataFrame]:
+            return {"households": pl.DataFrame({"hh_id": [0]})}  # invalid: hh_id >= 1
+
+        pipeline = Pipeline(config_path=config_path, steps=[checked], caching=False)
+        if raises:
+            with pytest.raises(DataValidationError):
+                pipeline.run()
+        else:
+            pipeline.run()
 
     def test_pipeline_run_missing_step_reports_all_and_runs_nothing(self, tmp_path):
         """An unregistered step aborts the run before any step executes.
