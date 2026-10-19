@@ -137,6 +137,5 @@ markers = [
 max-lines = 750
 
 [tool.module-length.baseline]
-"src/pipeline/pipeline.py" = 844
 "src/processing/formatting/ctramp/format_ctramp.py" = 804
 "src/processing/weighting/core/pipeline.py" = 794

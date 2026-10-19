@@ -21,7 +21,8 @@ import yaml
 
 import processing
 from data_canon.core.dataclass import CanonicalData
-from pipeline.pipeline import Pipeline, resolve_templates
+from pipeline.config import resolve_templates
+from pipeline.pipeline import Pipeline
 
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 
