@@ -10,9 +10,22 @@ This registry bridges the two.
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# A contract may name a column the config names, e.g. ``usable_<profile>``.
+_CONFIG_NAMED = re.compile(r"<[^<>]+>")
+
+
+def is_config_named(field_name: str) -> bool:
+    """Whether a contract entry is a pattern like ``usable_<profile>``, not a column.
+
+    The pattern documents the column; the real name comes from the step's config,
+    so the step itself checks for it, not the input validation.
+    """
+    return bool(_CONFIG_NAMED.search(field_name))
 
 
 @dataclass(frozen=True)

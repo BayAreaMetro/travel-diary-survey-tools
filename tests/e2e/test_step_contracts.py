@@ -13,7 +13,7 @@ import polars as pl
 import pytest
 
 import processing  # noqa: F401  # triggers @step registration
-from pipeline.step_registry import STEP_REGISTRY
+from pipeline.step_registry import STEP_REGISTRY, is_config_named
 
 # Zone columns are named from the `taz_field` param (e.g. `o_TAZ1454`), so they
 # cannot appear in a static contract and are excluded from these checks.
@@ -37,7 +37,7 @@ def test_required_columns_are_present(full_result, step, table, columns):
     tables = full_result.as_dict_non_null()
     if table not in tables:
         pytest.skip(f"{table} not produced by the e2e profile")
-    missing = [c for c in columns if c not in tables[table].columns]
+    missing = [c for c in columns if c not in tables[table].columns and not is_config_named(c)]
     assert not missing, (
         f"Step '{step}' requires {table} columns that the pipeline never produces: "
         f"{missing}. Either the step no longer reads them (drop from `requires`) "
