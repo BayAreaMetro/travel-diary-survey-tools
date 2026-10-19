@@ -64,17 +64,22 @@
         - term
         - glossary_groups
 
-::: processing.weighting.diagnostics.tables
+::: processing.weighting.diagnostics.profile_tables
     options:
       show_root_heading: true
       members:
         - profile_comparison_table
         - inheritance_table
-        - balancer_performance_table
-        - weight_quality_table
         - cascade_table
         - redistribution_table
         - split_identity_table
         - coverage_table
+
+::: processing.weighting.diagnostics.tables
+    options:
+      show_root_heading: true
+      members:
+        - balancer_performance_table
+        - weight_quality_table
         - unweighted_cell_counts
         - crosswalk_summary_table

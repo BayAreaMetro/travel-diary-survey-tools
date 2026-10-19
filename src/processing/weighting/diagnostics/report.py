@@ -56,16 +56,18 @@ from .data import (
     zone_fit_summary,
 )
 from .glossary import CASCADE, COMPARER, FIT, IMPUTATION, WEIGHTS, glossary_groups, term
-from .tables import (
-    balancer_performance_table,
+from .profile_tables import (
     cascade_table,
     coverage_table,
-    crosswalk_summary_table,
-    imputation_summary_table,
     inheritance_table,
     profile_comparison_table,
     redistribution_table,
     split_identity_table,
+)
+from .tables import (
+    balancer_performance_table,
+    crosswalk_summary_table,
+    imputation_summary_table,
     unweighted_cell_counts,
     weight_quality_table,
 )
