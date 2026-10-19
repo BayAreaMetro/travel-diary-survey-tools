@@ -50,6 +50,7 @@ from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, Reside
 from data_canon.codebook.persons import (
     AgeCategory,
     CommuteFreq,
+    Education,
     Employment,
     Ethnicity,
     Gender,
@@ -123,6 +124,7 @@ class PersonModel(BaseModel):
     ethnicity: Ethnicity | None = schema_field(default=None)
     telework_freq: CommuteFreq | None = schema_field(default=None)
     commute_freq: CommuteFreq | None = schema_field(default=None)
+    education: Education | None = schema_field(default=None)
     # Employer *provides* commute subsidy: Free (fully subsidized) parking at work
     commute_subsidy_provide_free_parking: BooleanYesNo | None = schema_field(
         default=None, required_in_steps=["format_ctramp"]

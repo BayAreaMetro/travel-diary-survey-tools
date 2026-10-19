@@ -311,6 +311,7 @@ class _Survey:
                 "ethnicity": eth,
                 "telework_freq": None,
                 "commute_freq": cf,
+                "education": None,
                 "commute_subsidy_provide_free_parking": NO,
                 "commute_subsidy_provide_discounted_parking": NO,
                 "commute_subsidy_use_free_parking": NO,
