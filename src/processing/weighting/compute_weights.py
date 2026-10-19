@@ -113,7 +113,61 @@ def _split_weighting_columns(
 # ===========================================================================
 
 
-@step()
+@step(
+    # Every field any control in weighting/controls/ reads, whether or not a project
+    # turns that control on. Adding a control means adding its fields here.
+    requires={
+        "households": {
+            "hh_id",
+            "home_lon",
+            "home_lat",
+            "survey_complete",
+            "usable_<profile>",
+            "income_bin",  # h_income
+            "num_vehicles",  # h_vehicles
+        },
+        "persons": {
+            "person_id",
+            "hh_id",  # also h_size
+            "employment",  # h_workers, p_employment
+            "age",  # h_children, p_age, p_student
+            "student",  # p_student
+            "school_type",  # p_student
+            "gender",  # p_gender
+            "race",  # p_race
+            "ethnicity",  # p_ethnicity
+            "education",  # p_education
+            "work_mode",  # p_commute_mode
+            "job_type",  # p_commute_mode
+            "telework_freq",  # p_commute_mode
+            "commute_freq",  # p_commute_mode
+        },
+        "days": {"day_id", "person_id"},
+        "unlinked_trips": {"unlinked_trip_id", "day_id", "linked_trip_id"},
+        "linked_trips": {"linked_trip_id", "tour_id", "joint_trip_id"},
+        "tours": {"tour_id", "joint_tour_id"},
+        "joint_trips": {"joint_trip_id"},
+        "joint_tours": {"joint_tour_id"},
+    },
+    produces={
+        "households": {"hh_weight_<profile>"},
+        "persons": {"person_weight_<profile>"},
+        "days": {"day_weight_<profile>"},
+        "unlinked_trips": {"unlinked_trip_weight_<profile>"},
+        "linked_trips": {"linked_trip_weight_<profile>"},
+        "tours": {"tour_weight_<profile>"},
+        "joint_trips": {"joint_trip_weight_<profile>"},
+        "joint_tours": {"joint_tour_weight_<profile>"},
+        "household_weights": {
+            "hh_id",
+            "study_geoid",
+            "ctrl_geoid",
+            "bg_geo_id",
+            "base_weight_<profile>",
+            "hh_weight_<profile>",
+        },
+    },
+)
 def compute_weights(  # noqa: PLR0913
     # -- Settings (from YAML) -------------------------------------------
     census: CensusConfig,
