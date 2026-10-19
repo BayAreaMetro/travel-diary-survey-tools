@@ -1,4 +1,4 @@
-"""Add zone IDs to households, persons, and linked trips based on geographic locations."""
+"""Add zone IDs to every table with a location, one column per configured zone system."""
 
 import logging
 
@@ -236,7 +236,8 @@ def add_zone_ids(
     - households: home_lon/lat → home_{zone_name}
     - persons: work_lon/lat → work_{zone_name},
                 school_lon/lat → school_{zone_name}
-    - linked_trips: o_lon/lat → o_{zone_name}, d_lon/lat → d_{zone_name}
+    - unlinked_trips, linked_trips, tours: o_lon/lat → o_{zone_name},
+      d_lon/lat → d_{zone_name}
     - habitual_locations: lon/lat → {zone_name}, so a workplace found from
       trips can stand in as a model's usual workplace
 

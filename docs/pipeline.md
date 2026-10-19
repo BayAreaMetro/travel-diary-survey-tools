@@ -6,7 +6,7 @@ The pipeline module provides the execution framework for running sequential data
 {%
     include "../README.md"
     start="## Architecture"
-    end="# Pipeline Steps"
+    end="### Pipeline Steps"
 
 %}
 

@@ -65,113 +65,55 @@ There are three main components:
 
 ### Conceptual Diagram
 ```mermaid
-%%{init: {
-  "flowchart": {
-    "rankSpacing": 15,
-    "nodeSpacing": 20
-  }
-}}%%
-
-flowchart LR
-
-subgraph Setup[**Setup**]
-  direction TB
-  RunPy([projects/run.py])
-  ConfigYAML([projects/config.yaml])
-end
-
-RunPy([projects/run.py]) ----> Pipeline
-ConfigYAML([projects/config.yaml]) ----> Pipeline
-
-subgraph Pipeline[**Pipeline**]
-  direction TB
-  LoadData([Load Data]) --> CustomPre([Custom Pre-Processing])
-  CustomPre --> Imputation([Imputation])
-  Imputation --> JointTrips([Joint Trips])
-  JointTrips --> LinkTrips([Link Trips])
-  LinkTrips --> ExtractTours([Extract Tours])
-  ExtractTours --> Format{Format Output}
-
-  Format --> PUMS
-  Format --> ActivitySim --> CnV1 --> ActivitySim
-  Format --> DaySim --> CnV2 --> DaySim
-  Format --> CTRAMP --> CnV3 --> CTRAMP
-  Format --> Standard --> CnV4
-
-  subgraph Output[" "]
-    direction TB
-    WeightingPipeline --> Modeling
+%%{init: {"flowchart": {"rankSpacing": 22, "nodeSpacing": 14}}}%%
+flowchart TB
+  subgraph Setup[Setup]
+    direction LR
+    Run(["projects/#lt;project#gt;/run.py"]) ~~~ Cfg(["projects/#lt;project#gt;/config.yaml"])
   end
 
-  subgraph WeightingPipeline[**Weighting**]
+  subgraph Pipeline[Pipeline]
     direction TB
-    PUMS --> Weighting([Weighting]) --> Weights
-    Weighting([Weighting])
-    Weights[/"Expansion<br>Weights"\]
+    subgraph Row1[" "]
+      direction LR
+      Load([load_data]) --> Clean(["clean_#lt;project#gt;"]) --> Impute([imputation]) --> Link([link_trips]) --> Hab([detect_habitual_locations])
+    end
+    subgraph Row2[" "]
+      direction LR
+      Joint([detect_joint_trips]) --> Tours([extract_tours]) --> Zones([add_zone_ids]) --> Comp
+      Comp["<b>cascade_completeness</b><br/>• usable_ctramp<br/>• usable_daysim<br/>• usable_analysis"]
+    end
+    subgraph Row3[" "]
+      direction LR
+      PUMS[/PUMS + sample plan/] --> Weights["<b>compute_weights</b><br/>for each profile:<br/>seed → balance → propagate"]
+      Weights --> CT([format_ctramp]) --> Write([write_data])
+      Weights --> DS([format_daysim]) --> Write
+    end
+    Row1 --> Row2 --> Row3
   end
 
-  subgraph Modeling["Modeling"]
-    direction TB
-
-    ActivitySim{{ActivitySim<br>Format}}
-    CnV1("Calibration &<br>Validation")
-
-    DaySim{{DaySim<br>Format}}
-    CnV2("Calibration &<br>Validation")
-
-    CTRAMP{{CT-RAMP<br>Format}}
-    CnV3("Calibration &<br>Validation")
-
-    Standard{{Standard<br>Format}}
-    CnV4("Analysis &<br>Validation")
-
-    style space1 fill:none,stroke:none
+  subgraph Tables[Canonical tables]
+    direction LR
+    H[[households]] ~~~ P[[persons]] ~~~ D[[days]] ~~~ U[[unlinked_trips]] ~~~ L[[linked_trips]] ~~~ T[[tours]] ~~~ J[[joint_trips]] ~~~ JT[[joint_tours]] ~~~ HL[[habitual_locations]]
   end
-end
 
-Pipeline <----> DataModels
+  Setup --> Pipeline
+  Pipeline <-.-> Tables
 
-subgraph DataModels[**Data Models**]
-  direction LR
-  Households[["households"]]
-  Persons[["   persons   "]]
-  Days[["days"]]
-  UnlinkedTrips[["unlinked_trips"]]
-  LinkedTrips[["linked_trips"]]
-  Tours[["tours"]]
-end
-
-style Setup fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000
-style RunPy fill:#e1f5e1,color:#000
-style ConfigYAML fill:#fff4e1,color:#000
-style Pipeline fill:#e3f2fd,stroke:#333,stroke-width:1px,color:#000
-style DataModels fill:#f3e5f5,stroke:#333,stroke-width:1px,color:#000
-style Format fill:#fff4e1,color:#000
-
-style Output fill:none,stroke:#333,stroke-width:0px,color:#000
-
-style LoadData color:#000
-style CustomPre fill:#f0f0f0,color:#000
-style Imputation color:#000
-style JointTrips color:#000
-style LinkTrips color:#000
-style ExtractTours color:#000
-style Weighting color:#000
-style Format color:#000
-
-style Households fill:#d1c4e9,color:#000,stroke:#000
-style Persons fill:#d1c4e9,color:#000,stroke:#000
-style Days fill:#d1c4e9,color:#000,stroke:#000
-style UnlinkedTrips fill:#d1c4e9,color:#000,stroke:#000
-style LinkedTrips fill:#d1c4e9,color:#000,stroke:#000
-style Tours fill:#d1c4e9,color:#000,stroke:#000
-
-style ActivitySim fill:#ffe0b2,color:#000
-style DaySim fill:#ffe0b2,color:#000
-style CTRAMP fill:#ffe0b2,color:#000
-style Standard fill:#ffe0b2,color:#000
-style PUMS fill:#ffe0b2,color:#000
+  style Setup fill:#fff4e1,stroke:#999,color:#000
+  style Pipeline fill:#eef4fb,stroke:#999,color:#000
+  style Row1 fill:none,stroke:none
+  style Row2 fill:none,stroke:none
+  style Row3 fill:none,stroke:none
+  style Tables fill:#f3e5f5,stroke:#999,color:#000
+  style PUMS fill:#ffe0b2,color:#000
+  style Comp text-align:left,fill:#e8f5e9,color:#000
+  style Weights text-align:left,fill:#e8f5e9,color:#000
+  style CT fill:#ffe0b2,color:#000
+  style DS fill:#ffe0b2,color:#000
 ```
+
+The profile names are the bats_2023 project's; each project declares its own under `cascade_completeness`. Each formatter keeps the records, and reads the weights, of the profile named after it.
 
 
 ### Pipeline Steps
@@ -180,18 +122,23 @@ The data processing pipeline consists of modular steps that transform raw survey
 
 #### Core Processing Steps
 
+In the order the project configs run them:
+
 1. **[Load Data](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/read_write/)** - Loads canonical survey tables from CSV, Parquet, or geospatial files into memory
-2. **[Cleaning](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/cleaning/)** - Project-specific data cleaning operations (e.g., fixing time/distance errors, adding missing records)
-3. **[Imputation](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/imputation/)** - Imputes missing values for key variables (e.g., mode, purpose, locations)
-4. **[Detect Joint Trips](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/detect_joint_trips/)** - Identifies shared household trips using spatial-temporal similarity matching
-5. **[Link Trips](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/link_trips/)** - Aggregates individual trip segments into complete journey records by detecting mode changes and transfers
-6. **[Extract Tours](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/extract_tours/)** - Builds hierarchical tour structures (home-based tours and work-based subtours) from linked trips
-7. **[Weighting](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/weighting/)** *(placeholder)* - Calculates expansion weights to match survey sample to population targets
-8. **Format Output** - Transforms canonical data to model-specific formats (DaySim, ActivitySim, etc.)
-    - **[DaySim Format](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/format_output/daysim/)** - Formats data for DaySim model input
+2. **[Cleaning](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/cleaning/)** - Project-specific (`clean_<project>`): recodes the vendor's data to the canonical schema, builds the reported habitual locations, and sets `survey_complete`
+3. **[Imputation](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/imputation/)** - Fills missing values in the configured columns (KNN, random forest or MICE), keeping the originals in `<column>_preimputed`
+4. **[Link Trips](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/link_trips/)** - Aggregates individual trip segments into complete journey records by detecting mode changes and transfers
+5. **[Detect Habitual Locations](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/detect_habitual_locations/)** - Finds each person's home, workplace and school, reported and observed from their trips
+6. **[Detect Joint Trips](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/detect_joint_trips/)** - Identifies shared household trips using spatial-temporal similarity matching
+7. **[Extract Tours](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/extract_tours/)** - Builds home-based tours, work- and school-based subtours, and joint tours from linked trips
+8. **[Add Zone IDs](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/add_zone_ids/)** - Assigns each configured zone system (e.g. TAZ, MAZ) to homes, workplaces, schools, trip ends, tours and habitual locations
+9. **[Completeness & Usability](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/usability/)** - Cascades `survey_complete` through the tables and stamps one `usable_<profile>` flag for each profile the project declares
+10. **[Weighting](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/weighting/)** - `compute_weights` balances one set of expansion weights per profile to Census PUMS controls; [`add_existing_weights`](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/weighting/existing_weights/) attaches supplied weights instead
+11. **[Final Check](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/final_check/)** *(optional)* - Validates every table against its full canonical schema
+12. **Format Output** - Transforms canonical data to model-specific formats, each keeping the records its own profile admits
     - **[CT-RAMP Format](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/format_output/ctramp/)** - Formats data for CT-RAMP model input
-9. **[Final Check](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/final_check/)** - Validates complete dataset against canonical schemas before export
-10. **[Write Data](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/read_write/)** - Writes processed tables to output files with optional validation
+    - **[DaySim Format](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/format_output/daysim/)** - Formats data for DaySim model input
+13. **[Write Data](https://bayareametro.github.io/travel-diary-survey-tools/pipeline_steps/read_write/)** - Writes processed tables to output files with optional validation
 
 Each step links to documentation generated by the step's docstring, and provides detailed documentation on:
 - Input/output data requirements
