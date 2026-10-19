@@ -106,6 +106,12 @@ The important split is not that PUMS and survey run as fully parallel pipelines.
       members:
         - WeightingPipeline
 
+::: processing.weighting.core.run_report
+    options:
+      show_root_heading: true
+      members:
+        - generate_diagnostics
+
 ## One fit per profile
 
 A run weights each profile named in `weight_profiles` separately, gating its seed

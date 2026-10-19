@@ -130,11 +130,8 @@ markers = [
 ]
 
 # Checked by scripts/check_module_length.py (pre-commit and tests). A module under
-# src/ may not exceed max-lines. The baseline lists the modules already over it
-# when the check was added, at their length then: each may shrink but not grow,
-# and comes off the list once it is within the limit.
+# src/ may not exceed max-lines. A [tool.module-length.baseline] table may pin a
+# module already over it, at its length then: it may shrink but not grow, and
+# comes off the table once it is within the limit.
 [tool.module-length]
 max-lines = 750
-
-[tool.module-length.baseline]
-"src/processing/weighting/core/pipeline.py" = 794
