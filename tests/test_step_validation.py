@@ -10,12 +10,13 @@ from typing import Any
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-import processing  # noqa: F401  # triggers step registration
+import processing  # triggers step registration
 from data_canon.models.survey import UnlinkedTripModel
 from data_canon.validation.row import (
     get_required_fields_for_step,
     validate_row_for_step,
 )
+from pipeline.step_registry import STEP_REGISTRY
 
 DATETIMES = {
     "depart_time": datetime(2024, 1, 15, 10, 0, 0),
@@ -142,3 +143,22 @@ class TestStepValidationBehavior:
 
         with pytest.raises(PydanticValidationError, match="greater than or equal"):
             validate_row_for_step(row, UnlinkedTripModel, "unlinked_trips", "load_data")
+
+
+# Steps that declare no columns, and why. Any other step must declare a contract.
+_NO_CONTRACT = {
+    "load_data": "reads whatever files the config names",
+    "write_data": "writes whatever tables exist",
+    "final_check": "checks every table against its full model, not a subset",
+}
+
+
+def test_every_step_declares_its_columns():
+    """A step with an empty ``@step()`` is either listed above or a forgotten contract."""
+    # Only the package's steps: other tests register throwaway steps in the same registry.
+    steps = {name for name in dir(processing) if name in STEP_REGISTRY}
+    undeclared = sorted(name for name in steps if not STEP_REGISTRY[name].tables)
+    assert undeclared == sorted(_NO_CONTRACT), (
+        f"Steps declaring no requires/produces: {undeclared}. Declare what the step reads "
+        f"and writes, or add it to _NO_CONTRACT with the reason."
+    )
