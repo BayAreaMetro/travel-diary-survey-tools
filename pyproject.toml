@@ -137,8 +137,6 @@ markers = [
 max-lines = 750
 
 [tool.module-length.baseline]
-"src/processing/weighting/existing_weights.py" = 1234
-"src/processing/weighting/data_prep/pums_data.py" = 1026
 "src/processing/weighting/diagnostics/charts.py" = 872
 "src/processing/weighting/diagnostics/tables.py" = 865
 "src/pipeline/pipeline.py" = 844

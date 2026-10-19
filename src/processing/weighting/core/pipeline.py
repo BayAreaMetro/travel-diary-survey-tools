@@ -76,6 +76,7 @@ from processing.weighting.core.specs import (
     DiagnosticsConfig,
     ImportanceConfig,
     ProfileFit,
+    PUMSSource,
     ReferenceWeightSetConfig,
     WeightingConfig,
 )
@@ -94,11 +95,7 @@ from processing.weighting.data_prep.merges import (
     apply_1d_merges,
     merge_control_totals,
 )
-from processing.weighting.data_prep.pums_data import (
-    PUMSSource,
-    fetch_pums_data,
-    load_pums_from_files,
-)
+from processing.weighting.data_prep.pums_data import fetch_pums_data, load_pums_from_files
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,

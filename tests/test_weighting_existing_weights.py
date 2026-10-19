@@ -5,7 +5,8 @@ import pytest
 
 from data_canon.codebook.persons import AgeCategory
 from processing.completeness.kept_records import select_profile_columns
-from processing.weighting.existing_weights import ExistingWeightsConfig, add_existing_weights
+from processing.weighting.existing.config import ExistingWeightsConfig
+from processing.weighting.existing_weights import add_existing_weights
 
 
 def _weight_file(tmp_path, name: str, **columns) -> str:
