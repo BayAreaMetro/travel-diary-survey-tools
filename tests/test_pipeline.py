@@ -537,6 +537,18 @@ class TestRun:
         else:
             pipeline.run()
 
+    def test_a_step_taking_a_flag_gets_the_value_in_force(self, tmp_path):
+        """A step with a ``validate_input`` argument gets it when the config says nothing."""
+        config_path = _write_config(tmp_path, {"steps": [{"name": "takes_flag"}]})
+        seen = []
+
+        @step()
+        def takes_flag(validate_input: bool) -> None:
+            seen.append(validate_input)
+
+        Pipeline(config_path=config_path, steps=[takes_flag], caching=False).run()
+        assert seen == [True]
+
     def test_pipeline_run_missing_step_reports_all_and_runs_nothing(self, tmp_path):
         """An unregistered step aborts the run before any step executes.
 

@@ -163,6 +163,14 @@ def step(
             kwargs.update(
                 {key: value for key, value in kwargs_copy.items() if key in sig.parameters}
             )
+            # A step that takes a flag itself (write_data) gets the value in force,
+            # whether the caller passed it or the decorator default applies.
+            resolved = {
+                "validate_input": should_validate_input,
+                "validate_output": should_validate_output,
+                "cache": should_cache,
+            }
+            kwargs.update({key: value for key, value in resolved.items() if key in sig.parameters})
 
             # Cache miss or caching disabled - execute step
             if should_validate_input:
