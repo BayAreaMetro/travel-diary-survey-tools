@@ -192,7 +192,10 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
             the reason a value was imputed.  To recover the old boolean flag:
             ``col_preimputed.is_null() & col.is_not_null()``.
         random_state: Random seed for reproducibility across all imputation.
-        validate_imputation: Optional validation config with keys:
+        validate_imputation: Optional k-fold check of imputation accuracy against
+            known values.
+
+            Its keys:
 
             - enabled: Whether to run validation (default: False).
             - n_folds: Number of k-folds (default: 5).

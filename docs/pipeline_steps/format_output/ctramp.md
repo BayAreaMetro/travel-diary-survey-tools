@@ -1,3 +1,4 @@
+[](){#ctramp-format}
 # CT-RAMP Formatting
 
 ## Overview
@@ -169,10 +170,9 @@ made on a **weighted** basis, matching what the model sees from its synthetic po
 
 ## Configuration Reference
 
-See [CTRAMPConfig][processing.formatting.ctramp.ctramp_config.CTRAMPConfig] for all
-configuration parameters. As set in `projects/bats_2023/config.yaml`:
+As set in `projects/bats_2023/config.yaml`:
 
-```yaml
+```yaml title="Example"
 - name: format_ctramp
   params:
     usability_profile: ctramp       # the records kept, and the weights read
@@ -185,123 +185,8 @@ configuration parameters. As set in `projects/bats_2023/config.yaml`:
     taz_field: "TAZ1454"            # Which zone geography to use
 ```
 
----
+### Settings
 
-## API Reference
+<!-- step-settings: format_ctramp -->
 
-::: processing.formatting.ctramp.format_ctramp
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - format_ctramp
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.ctramp_config
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - CTRAMPConfig
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.format_households
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - format_households
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.format_persons
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - format_persons
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.format_mandatory_location
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - format_mandatory_location
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.format_tours
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - format_individual_tour
-        - format_joint_tour
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.format_trips
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - format_individual_trip
-        - format_joint_trip
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.person_mappings
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - GENDER_MAP
-        - EMPLOYMENT_TO_CTRAMP
-        - ctramp_person_type_expression
-        - log_person_type_warnings
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.purpose_mappings
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - PURPOSECATEGORY_TO_JTF_GROUP
-        - ctramp_purpose_category_expression
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.mode_mappings
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - ctramp_mode_expression
-      filters:
-        - "!^logger$"
-        - "!^_"
-
-::: processing.formatting.ctramp.student_mappings
-    options:
-      show_root_heading: true
-      show_root_toc_entry: false
-      members:
-        - ctramp_student_category_expression
-        - log_student_category_warnings
-      filters:
-        - "!^logger$"
-        - "!^_"
+Code: [processing.formatting.ctramp](../../reference/processing/formatting/ctramp.md)

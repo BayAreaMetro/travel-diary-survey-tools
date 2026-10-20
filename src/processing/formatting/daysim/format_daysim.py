@@ -2,7 +2,7 @@
 
 Transforms canonical survey data (persons, households, trips, tours, days) into
 DaySim activity-based travel demand model format, applying model-specific coding
-schemes and data structures. See [DaySim Data Models](../../models/daysim.md).
+schemes and data structures. See [DaySim Data Models][daysim-output-models].
 
 This module orchestrates specialized formatting for each table type, applying
 DaySim-specific integer codes for categorical variables while maintaining

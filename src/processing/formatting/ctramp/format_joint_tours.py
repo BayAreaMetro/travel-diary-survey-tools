@@ -295,9 +295,7 @@ def ctramp_joint_tour_numbers(tours_canonical: pl.DataFrame) -> pl.DataFrame:
     landed on does exist.
 
     Args:
-        tours_canonical: Canonical tours, already passed through
-            [`identify_misclassified_joint_tours`]
-            [processing.formatting.ctramp.format_joint_tours.identify_misclassified_joint_tours].
+        tours_canonical: Canonical tours.
 
     Returns:
         One row per joint tour: ``joint_tour_id`` and its 0-based

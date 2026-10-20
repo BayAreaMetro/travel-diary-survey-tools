@@ -53,6 +53,8 @@ dev = [
     "griffe-pydantic>=1.0.0",
     "mkdocs-include-markdown-plugin>=6.0.0",
     "pandas>=2.1.0",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.1",
 ]
 
 [build-system]

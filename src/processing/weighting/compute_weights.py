@@ -2,14 +2,14 @@
 
 Orchestrates the full weighting pipeline in the following stages:
 
-**A. [Geography Crosswalk](crosswalk.md)**
+**A. [Geography Crosswalk][weighting-crosswalk]**
 
 1. **Setup** -- register controls from YAML config, build the geographic
    crosswalk (translating between Census PUMAs and the project's custom
    weighting geography using block-group population as the intermediary),
    and prepare the sample plan.
 
-**B. [Control Data Preparation](data_preparation.md)**
+**B. [Control Data Preparation][weighting-data-preparation]**
 
 2. **PUMS recoding** -- load PUMS 1-year microdata and recode into the
    YAML-configured variable bins used by the controls.
@@ -18,7 +18,7 @@ Orchestrates the full weighting pipeline in the following stages:
 4. **Control aggregation** -- apply the crosswalk to PUMS and aggregate
    into marginal control totals per zone.
 
-**C. [Survey Seed Preparation](data_preparation.md)**
+**C. [Survey Seed Preparation][weighting-data-preparation]**
 
 5. **Survey recoding** -- recode canonical survey variables into the same
    bin / group categories as the PUMS controls.
@@ -27,17 +27,17 @@ Orchestrates the full weighting pipeline in the following stages:
 7. **Zone assignment** -- assign survey households to weighting zones via
    the geographic crosswalk.
 
-**D. [Maximum-Entropy Balancing](balancing.md)**
+**D. [Maximum-Entropy Balancing][weighting-balancing]**
 
 8. **Importance resolution** -- compute per-control importance weights
    from replicate-weight MOE or explicit YAML overrides.
 9. **Balancing** -- build per-household incidence vectors and fit weights
    using a numba-accelerated max-entropy balancer (vendored from
    PopulationSim), independently per zone, once per profile.
-10. **[Weight propagation](hierarchy.md)** -- propagate each profile's
+10. **[Weight propagation][weighting-hierarchy]** -- propagate each profile's
     ``hh_weight_<profile>`` to all canonical tables (persons, days, trips, tours).
 
-**E. [Diagnostics](diagnostics.md) & [Validation](validation.md)**
+**E. [Diagnostics][weighting-diagnostics] & [Validation][weighting-validation]**
 
 11. **Diagnostics** -- generate one self-contained interactive HTML report
     for the run, comparing every profile fitted and carrying each one's

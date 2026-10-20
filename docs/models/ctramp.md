@@ -1,3 +1,4 @@
+[](){#ctramp-output-models}
 # CTRAMP Models
 
 Pydantic data models for CT-RAMP (Coordinated Travel – Regional Activity Modeling Platform) output

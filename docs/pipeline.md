@@ -10,6 +10,8 @@ The pipeline module provides the execution framework for running sequential data
 
 %}
 
+[](){#step-config-rules}
+
 ## Configuring a step
 
 Each entry under `steps:` names a step and gives its settings under `params:`.
@@ -65,18 +67,5 @@ The pipeline system allows you to:
 - Track and log processing progress
 - Validate data between steps
 
-## Pipeline Class
-
-::: pipeline.pipeline.Pipeline
-
-## Caching
-
-::: pipeline.cache
-
-## Logging
-
-::: pipeline.logger
-
-## Decorators
-
-::: pipeline.decoration
+The `Pipeline` class, caching, logging and the `@step()` decorator are in the
+[Developer Reference](reference/pipeline.md).
