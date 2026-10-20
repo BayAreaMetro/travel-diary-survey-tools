@@ -45,7 +45,6 @@
         - HHVehiclesControl
         - HHChildrenControl
         - HHTotalControl
-        - HHIncomeBySizeControl
 
 ::: processing.weighting.controls.person
     options:

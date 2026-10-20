@@ -52,4 +52,9 @@
       members:
         - recode_survey_households
         - recode_survey_persons
-        - build_seed_table
+
+::: processing.weighting.data_prep.incidence
+    options:
+      show_root_heading: true
+      members:
+        - build_incidence_table

@@ -16,7 +16,7 @@ Two kinds of flag, computed side by side:
   admits. A project names its profiles in config, so several standards can
   coexist in one run and a column's meaning reads off the config.
 
-A profile answers two axes, both explicitly, neither with a default:
+A profile answers four axes, all explicitly, none with a default:
 
 | axis | values | meaning |
 |------|--------|---------|
@@ -25,18 +25,28 @@ A profile answers two axes, both explicitly, neither with a default:
 | | `anywhere` | also the diary-edge and day-split open ends |
 | `household_day_needs` | `all_members` | every surveyable member's day complete on that date |
 | | `nothing` | no household-date requirement |
+| `zone_coverage` | a `zone_name` that `add_zone_ids` builds | every location on the record has a zone in that system |
+| | `none` | no geographic requirement |
+| `joint_tours` | `fully_joint` | everyone on a joint tour shares every leg, as activity-based models draw it; work, school and escort tours are never joint |
+| | `partial` | the joint groups the survey detected, as they are |
 
 No setting admits a tour with *missing data* (`NO_DESTINATION`, `SPATIAL_GAP`):
 those are not open ends, and no tolerance makes a missing leg present.
 
 ```yaml
-usability_profiles:
-  ctramp:
-    tour_closes_at: primary_home
-    household_day_needs: all_members
-  analysis:
-    tour_closes_at: anywhere
-    household_day_needs: nothing
+- name: cascade_completeness
+  params:
+    usability_profiles:
+      ctramp:
+        tour_closes_at: primary_home
+        household_day_needs: all_members
+        zone_coverage: TAZ1454
+        joint_tours: fully_joint
+      analysis:
+        tour_closes_at: anywhere
+        household_day_needs: nothing
+        zone_coverage: none
+        joint_tours: partial
 ```
 
 ## One profile, several column families
@@ -47,8 +57,9 @@ whose:
 
 | family | column | written by |
 |---|---|---|
-| `usable_` | `usable_ctramp` | the per-record verdict, from this step |
+| `usable_` | `usable_ctramp` | the per-record verdict on every table, joint tables included, from this step |
 | `hh_day_` | `hh_day_ctramp` | whether every surveyable member's day passed, that date |
+| `joint_tour_id_`, `joint_trip_id_` | `joint_tour_id_ctramp` | the joint group a record is on for that profile, null where the profile splits it off |
 | `hh_weight_`, `day_weight_`, … | `hh_weight_ctramp` | the weight fitted over that profile's universe |
 | `base_weight_` | `base_weight_ctramp` | the seed weight its fit started from |
 
@@ -84,7 +95,15 @@ none.
         - stamp_usable
         - compute_usability
         - rollup_completeness
+        - rollup_household_complete
         - flag_household_day_complete
+        - flag_household_day_usable
+        - usable_col_for
+        - profile_of
+        - suggest_usability_columns
+        - TourClosesAt
+        - HouseholdDayNeeds
+        - JointTours
       filters:
         - "!^logger$"
         - "!^_"

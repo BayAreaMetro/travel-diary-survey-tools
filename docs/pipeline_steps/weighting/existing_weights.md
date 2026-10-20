@@ -315,6 +315,8 @@ Two consequences:
 
 | Setting | Required | What it does |
 |---|---|---|
+| `weight_profiles` | yes | The usability profiles to weight, one column set each (`hh_weight_<profile>`, ...); name `survey_complete` to weight the whole valid survey |
+| `derive_missing_weights` | yes | Whether tables without a supplied weight file get one derived from the tables that have one |
 | `preserve_travel_totals` | yes | Whether a kept day's dropped trips hand their weight to its kept trips |
 | `household_size_top_group` | yes | Sizes from this one up share one household factor |
 | `max_weight_factor` | no | Per table, the most a record's final weight may be, as a multiple of its supplied weight |
