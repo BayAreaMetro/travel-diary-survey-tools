@@ -53,58 +53,42 @@ The usage pattern for the pipeline is a bit different than the typical numbered 
 There are three main components:
 
 * **Setup**
-  * Each project has a runner, `projects/<project>/run.py`, as the point of entry, and
-  * a pipeline configuration, `projects/<project>/config.yaml`
+    * Each project has a runner, `projects/<project>/run.py`, as the point of entry, and
+    * a pipeline configuration, `projects/<project>/config.yaml`
 * **Pipeline Execution**
-  * The central `Pipeline` class defined in `src/pipeline/pipeline.py`
-  * A set of modular processing steps, one package each under `src/processing/`
+    * The central `Pipeline` class defined in `src/pipeline/pipeline.py`
+    * A set of modular processing steps, one package each under `src/processing/`
 * **Data Models and Validation**
-  * Canonical data models and validation logic defined in `src/data_canon/`
-  * This can be used standalone, but also is integrated into the pipeline steps for automatic validation
-  * The data models define the expected schema and content for each data table (households, persons, days, trips, tours, vehicles, etc.) Each field carries its constraints, and each step declares the fields it reads and writes in `@step(requires=..., produces=...)`.
+    * Canonical data models and validation logic defined in `src/data_canon/`
+    * This can be used standalone, but also is integrated into the pipeline steps for automatic validation
+    * The data models define the expected schema and content for each data table (households, persons, days, trips, tours, vehicles, etc.) Each field carries its constraints, and each step declares the fields it reads and writes in `@step(requires=..., produces=...)`.
 
 ### Conceptual Diagram
 ```mermaid
-%%{init: {"flowchart": {"rankSpacing": 22, "nodeSpacing": 14}}}%%
-flowchart TB
-  subgraph Setup[Setup]
-    direction LR
-    Run(["projects/#lt;project#gt;/run.py"]) ~~~ Cfg(["projects/#lt;project#gt;/config.yaml"])
-  end
-
-  subgraph Pipeline[Pipeline]
+%%{init: {"flowchart": {"rankSpacing": 30, "nodeSpacing": 18}}}%%
+flowchart LR
+  subgraph Pipeline[Pipeline steps, in run order]
     direction TB
-    subgraph Row1[" "]
-      direction LR
-      Load([load_data]) --> Clean(["clean_#lt;project#gt;"]) --> Impute([imputation]) --> Link([link_trips]) --> Hab([detect_habitual_locations])
-    end
-    subgraph Row2[" "]
-      direction LR
-      Joint([detect_joint_trips]) --> Tours([extract_tours]) --> Zones([add_zone_ids]) --> Comp
-      Comp["<b>cascade_completeness</b><br/>• usable_ctramp<br/>• usable_daysim<br/>• usable_analysis"]
-    end
-    subgraph Row3[" "]
-      direction LR
-      PUMS[/PUMS + sample plan/] --> Weights["<b>compute_weights</b><br/>for each profile:<br/>seed → balance → propagate"]
-      Weights --> CT([format_ctramp]) --> Write([write_data])
-      Weights --> DS([format_daysim]) --> Write
-    end
-    Row1 --> Row2 --> Row3
+    Setup(["projects/#lt;project#gt;/<br/>run.py + config.yaml"]) --> Load
+    Load([load_data]) --> Clean(["clean_#lt;project#gt;"]) --> Impute([imputation]) --> Link([link_trips])
+    Link --> Hab([detect_habitual_locations]) --> Joint([detect_joint_trips]) --> Tours([extract_tours])
+    Tours --> Zones([add_zone_ids]) --> Comp
+    Comp["<b>cascade_completeness</b><br/>• usable_ctramp<br/>• usable_daysim<br/>• usable_analysis"] --> Weights
+    PUMS[/PUMS + sample plan/] --> Weights
+    Weights["<b>compute_weights</b><br/>for each profile:<br/>seed → balance<br/>→ propagate"]
+    Weights --> CT([format_ctramp]) --> Write([write_data])
+    Weights --> DS([format_daysim]) --> Write
   end
 
   subgraph Tables[Canonical tables]
-    direction LR
+    direction TB
     H[[households]] ~~~ P[[persons]] ~~~ D[[days]] ~~~ U[[unlinked_trips]] ~~~ L[[linked_trips]] ~~~ T[[tours]] ~~~ J[[joint_trips]] ~~~ JT[[joint_tours]] ~~~ HL[[habitual_locations]]
   end
 
-  Setup --> Pipeline
   Pipeline <-.-> Tables
 
-  style Setup fill:#fff4e1,stroke:#999,color:#000
+  style Setup fill:#fff4e1,color:#000
   style Pipeline fill:#eef4fb,stroke:#999,color:#000
-  style Row1 fill:none,stroke:none
-  style Row2 fill:none,stroke:none
-  style Row3 fill:none,stroke:none
   style Tables fill:#f3e5f5,stroke:#999,color:#000
   style PUMS fill:#ffe0b2,color:#000
   style Comp text-align:left,fill:#e8f5e9,color:#000
