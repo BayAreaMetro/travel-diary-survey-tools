@@ -10,12 +10,33 @@ It runs after `extract_tours`, so tours get zones too, and before
 `cascade_completeness`, so a usability profile can require that a record has
 a zone.
 
-::: processing.add_zone_ids.add_zone_ids
+::: processing.add_zone_ids.add_zone_ids.add_zone_ids
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members:
-        - add_zone_ids
-      filters:
-        - "!^logger$"
-        - "!^_"
+      show_signature: false
+      show_docstring_parameters: false
+      show_docstring_returns: false
+      show_docstring_raises: false
+
+## Example
+
+```yaml title="Example"
+- name: add_zone_ids
+  params:
+    projected_crs: "EPSG:26910"  # UTM Zone 10N, for the nearest-zone snap
+    max_snap_distance: 500       # meters; points farther from every zone stay null
+    zone_geographies:
+      - zone_name: taz
+        shapefile: zones/taz.shp
+        zone_id_field: TAZ_NODE
+      - zone_name: maz
+        shapefile: zones/maz.shp
+        zone_id_field: MAZ_NODE
+```
+
+## Settings
+
+<!-- step-settings: add_zone_ids -->
+
+Code: [processing.add_zone_ids](../reference/processing/add_zone_ids.md)

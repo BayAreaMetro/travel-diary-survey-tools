@@ -1,7 +1,7 @@
 # Completeness & Usability
 
 The single place the canonical completeness and usability flags are computed.
-The module docstring below carries the flag definitions, the derivation-order
+"Flag definitions" below carries the definitions, the derivation-order
 diagram, and the per-level rule table; the pipeline step
 (`cascade_completeness`) stamps them once so every downstream consumer only
 reads the result.
@@ -33,7 +33,7 @@ A profile answers four axes, all explicitly, none with a default:
 No setting admits a tour with *missing data* (`NO_DESTINATION`, `SPATIAL_GAP`):
 those are not open ends, and no tolerance makes a missing leg present.
 
-```yaml
+```yaml title="Example"
 - name: cascade_completeness
   params:
     usability_profiles:
@@ -83,27 +83,27 @@ naming a profile the weighting was not asked to fit raises rather than falling
 back to an unsuffixed column, since that column describes some other universe, or
 none.
 
+## Flag definitions
+
 ::: processing.completeness
     options:
-      show_root_heading: true
+      show_root_heading: false
       show_root_toc_entry: false
-      members:
-        - cascade_completeness
-        - parse_usability_profiles
-        - UsabilityProfile
-        - cascade_complete
-        - stamp_usable
-        - compute_usability
-        - rollup_completeness
-        - rollup_household_complete
-        - flag_household_day_complete
-        - flag_household_day_usable
-        - usable_col_for
-        - profile_of
-        - suggest_usability_columns
-        - TourClosesAt
-        - HouseholdDayNeeds
-        - JointTours
-      filters:
-        - "!^logger$"
-        - "!^_"
+      members: false
+
+## The step
+
+::: processing.completeness.cascade_completeness.cascade_completeness
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      show_signature: false
+      show_docstring_parameters: false
+      show_docstring_returns: false
+      show_docstring_raises: false
+
+## Settings
+
+<!-- step-settings: cascade_completeness -->
+
+Code: [processing.completeness](../reference/processing/completeness.md)

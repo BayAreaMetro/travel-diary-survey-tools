@@ -2,7 +2,7 @@
 
 Transforms canonical survey data (persons, households, tours, trips) into
 CT-RAMP (Coordinated Travel - Regional Activity Modeling Platform) format for
-use with activity-based travel demand models. See [CTRAMP Data Models](../../models/ctramp.md).
+use with activity-based travel demand models. See [CTRAMP Data Models][ctramp-output-models].
 
 This module orchestrates the transformation of households, persons, tours, and
 trips from canonical format into eleven CT-RAMP tables, handling missing data

@@ -92,9 +92,6 @@ def add_zone_to_dataframe(
         projected_crs: EPSG string for the metric CRS used during the
             nearest-neighbour fallback (e.g. ``"EPSG:26910"``).  If ``None``,
             no fallback is performed and unmatched points remain null.
-        canonical_data: Canonical data container. When present, each generated
-            ``{prefix}_{zone_name}`` column is registered on it so the writer
-            knows the column is ours rather than vendor passthrough.
         max_snap_distance: Maximum distance (in ``projected_crs`` units, i.e.
             metres for UTM) within which an unmatched point is snapped to the
             nearest zone polygon.  Points farther than this are left null
