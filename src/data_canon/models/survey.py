@@ -126,21 +126,13 @@ class PersonModel(BaseModel):
     commute_freq: CommuteFreq | None = schema_field(default=None)
     education: Education | None = schema_field(default=None)
     # Employer *provides* commute subsidy: Free (fully subsidized) parking at work
-    commute_subsidy_provide_free_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_provide_free_parking: BooleanYesNo | None = schema_field(default=None)
     # Employer *provides* commute subsidy: Discounted (partially subsidized) parking at work
-    commute_subsidy_provide_discounted_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_provide_discounted_parking: BooleanYesNo | None = schema_field(default=None)
     # Uses commute subsidy: Free (fully subsidized) parking at work
-    commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(default=None)
     # Uses commute subsidy: Discounted (partially subsidized) parking at work
-    commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(default=None)
     # NOTE: is proxy is vague.
     # Better and more flexible would be to have proxy_person_id on the proxied person
     # This allows for multiple proxy reporters and is more explicit.

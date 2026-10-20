@@ -394,7 +394,9 @@ class Pipeline:
                 diff = subprocess.check_output(  # noqa: S603
                     [git, "diff"],
                     stderr=subprocess.DEVNULL,
-                    text=True,
+                    # git writes UTF-8; the locale codec (cp1252 on Windows) fails on it
+                    encoding="utf-8",
+                    errors="replace",
                 ).strip()
                 if diff:
                     logger.debug("Uncommitted changes (git diff):\n%s", diff)

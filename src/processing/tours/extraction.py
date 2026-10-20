@@ -6,7 +6,7 @@ and temporal patterns.
 
 !!! Algorithm
 
-    The tour building process follows a seven-phase pipeline:
+    The tour building process runs these steps in order:
 
     # 1. Location Classification
 
@@ -23,8 +23,7 @@ and temporal patterns.
         * Departures from home (o_is_home=True, d_is_home=False)
         * Returns to home (o_is_home=False, d_is_home=True)
         * Day boundaries (first trip of person-day)
-    - Assigns sequential tour IDs within each person-day
-    - Format: tour_id = (day_id * 100) + tour_sequence_number
+    - Numbers the tours within each person-day (``tour_num``)
 
     # 3. Anchor Period Expansion (CRITICAL for subtours)
 
@@ -39,27 +38,27 @@ and temporal patterns.
     - Within expanded anchor periods, identifies subtours by detecting:
         * Departures from an anchor (o_at_anchor=True, d_at_anchor=False)
         * Returns to that same anchor (o_at_anchor=False, d_at_anchor=True)
-    - Assigns hierarchical subtour IDs
-    - Format: subtour_id = (tour_id * 10) + subtour_sequence_number
-    - Currently supports work-based subtours, extensible to school-based
+    - Numbers the subtours within each tour (``subtour_num``); work- and
+      school-based subtours alike
 
-    # 5. Tour Attribute Aggregation
+    # 5. Tour IDs and Attribute Aggregation
 
-    - Groups trips by tour_id (and subtour_id for subtours)
+    - ``tour_id`` is the ``day_id`` followed by four digits,
+      ``tour_num * 1000 + subtour_num * 10``; a subtour's ``parent_tour_id`` is
+      its tour's id with ``subtour_num`` 0
     - Computes tour-level attributes from constituent trips:
-        * tour_purpose: Highest priority destination purpose (person-category
-          specific hierarchy)
+        * tour_purpose: the primary destination's purpose, chosen by score
+          (activity duration and purpose, the default) or by the
+          person-category hierarchy (``tour_purpose_method``)
         * tour_mode: Highest priority travel mode (from configurable mode
           hierarchy)
         * origin_depart_time: First trip's departure time
         * dest_arrive_time: Last trip's arrival time
         * trip_count: Number of trips in tour
-        * stop_count: Number of intermediate stops (trip_count - 1)
 
-    - Assigns half-tour classification:
-        * "outbound": Trips before primary destination
-        * "inbound": Trips after primary destination
-        * "subtour": Work-based subtour trips
+    - Assigns each trip's ``tour_direction``: outbound (before the primary
+      destination) or inbound (after it). A subtour has two halves too;
+      subtour membership is read from ``parent_tour_id``, not the direction
 
     # 6. Joint Tour Identification
 
@@ -68,11 +67,16 @@ and temporal patterns.
     - Assigns joint_tour_id to tours with stable participant groups
     - Links tour-level joint travel to trip-level joint travel
 
-    # 7. Tour Validation and Correction
+    # 7. Tour Data Quality
 
-    - Validates tour structure consistency
-    - Corrects data quality issues (e.g., inconsistent timing, missing values)
+    - Stamps each tour's ``tour_data_quality``: valid, or the first reason it
+      is not a valid round trip (no destination, a spatial gap, another home,
+      split across days, at the diary's edge). Nothing is corrected
     - Adds tour_id and joint_tour_id to unlinked_trips for reference
+
+    # 8. Joint Tours Table
+
+    - Collapses the member tours of each joint tour into ``joint_tours``
 
     # Edge Case Handling is performed including
 
@@ -80,11 +84,10 @@ and temporal patterns.
     - Multi-day tours (spanning survey boundaries)
     - Missing work/school locations (null coordinates)
     - Non-sequential trip chains (spatial gaps)
-    - Hierarchical tour structure: Home-based tours → Work-based subtours
+    - Hierarchical tour structure: Home-based tours → work- and school-based subtours
     - Location matching allows for GPS/geocoding error through one buffer
     - Tour purpose reflects primary activity, not intermediate stops
-    - Extensible design allows future additions (school-based subtours, other
-      anchor types)
+    - Extensible design allows further anchor types
 """
 
 import logging
@@ -179,9 +182,11 @@ def extract_tours(
         Dictionary containing:
 
             - unlinked_trips: Original unlinked trips with tour_id, joint_tour_id
-            - linked_trips: Trips with tour_id, subtour_id, half_tour, joint_tour_id
+            - linked_trips: Trips with tour_id, parent_tour_id, tour_direction,
+              joint_tour_id
             - tours: Aggregated tour records with purpose, mode, timing, trip counts,
-              and joint_tour_id
+              tour_data_quality and joint_tour_id
+            - joint_tours: One record per joint tour
     """
     logger.info("Building tours from linked trip data...")
 

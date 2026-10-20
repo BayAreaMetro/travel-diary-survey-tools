@@ -19,16 +19,16 @@ _DAY_RECORDS = ("unlinked_trips", "linked_trips", "tours")
 def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
     """Roll ``survey_complete`` UP from days, then broadcast each day's value down, in place.
 
-    Completeness is measured at the person-day (``day.complete`` is set upstream
-    by the project cleaner from surveyed trips / a declared no-travel day). This
-    derives the rest:
+    Completeness is measured at the person-day (``days.survey_complete`` is set
+    upstream by the project cleaner from surveyed trips / a declared no-travel
+    day). This derives the rest:
 
-    * ``person.complete`` = it has at least one complete day (an ANY rollup).
-    * every day-record (trip, tour, joint entity) = its own reporting AND its
-      day complete -- broadcast down, since a trip is no more complete than the
-      day it sits in.
+    * ``persons.survey_complete`` = it has at least one complete day (an ANY rollup).
+    * every day-record (trip, tour) = its own reporting AND its day complete --
+      broadcast down, since a trip is no more complete than the day it sits in.
+      Joint trips and tours are not day-records; see ``_DAY_RECORDS``.
 
-    ``household.complete`` is a household-day rollup and is set separately by
+    ``households.survey_complete`` is a household-day rollup and is set separately by
     :func:`rollup_household_complete` (it needs ``hh_day_survey_complete`` first). Tables
     lacking ``survey_complete`` or the join key are left unchanged. Idempotent.
     """
@@ -65,7 +65,7 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
 
 
 def rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
-    """Set ``household.complete`` = has at least one complete household-day, in place.
+    """Set ``households.survey_complete`` = has at least one complete household-day, in place.
 
     A household is complete when at least one date was coherently observed (every
     member complete). Requires ``hh_day_survey_complete`` on days (from
@@ -113,5 +113,5 @@ def cascade_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     # -- Household-day coherence (lateral: ALL member-days complete that date) -
     flag_household_day_complete(tables)
 
-    # -- household.complete = >=1 complete household-day ----------------------
+    # -- households.survey_complete = >=1 complete household-day -------------
     rollup_household_complete(tables)

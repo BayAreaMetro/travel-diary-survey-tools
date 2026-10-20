@@ -1,6 +1,6 @@
 r"""Maximum-entropy list balancer.
 
-Thin Polars→numpy bridge around PopulationSim's ``np_balancer_numba``.
+Thin Polars→numpy bridge around ``np_balancer_numba``, vendored from PopulationSim.
 Runs independently per geography zone.
 
 # Algorithm
@@ -18,18 +18,25 @@ vector.
 
 # Implementation
 
-Calls ``populationsim.balancing.balancers_numba.np_balancer_numba``
-directly — a pure ``@njit`` function (~120 lines) taking numpy arrays.
-No PopulationSim pipeline infrastructure involved.  Zones are
-independent and parallelisable via ``ThreadPoolExecutor``.
+Calls ``np_balancer_numba`` from ``_np_balancer``, vendored from PopulationSim
+v0.10.0 -- a pure ``@njit`` function taking numpy arrays, so PopulationSim is
+not a dependency.  Zones are independent and run in parallel via
+``ThreadPoolExecutor``.
 
 # Configuration (YAML)
 
+The ``balancing:`` block of ``compute_weights`` (see ``BalancingConfig``):
+
 ```yaml
-max_iterations: 1000
-convergence_threshold: 0.001
-max_expansion_factor: 10    # upper bound = initial_weight x factor
-min_expansion_factor: 0.1   # lower bound = initial_weight x factor
+balancing:
+  max_expansion_factor: 5.0     # upper bound = initial_weight x factor
+  min_expansion_factor: 0.01    # lower bound = initial_weight x factor
+  min_weight: 1                 # absolute floor
+  # max_weight: null            # absolute ceiling (optional)
+  max_iterations: 10000
+  n_workers: 8                  # zones balanced in parallel
+  default_importance: 100
+  moe_based_importance: true
 ```
 """
 

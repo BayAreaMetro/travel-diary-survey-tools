@@ -35,7 +35,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
     total complete days for different weekday periods (3-day, 4-day, 5-day).
 
     Args:
-        days: DataFrame with columns [person_id, is_complete, travel_dow]
+        days: DataFrame with columns [person_id, survey_complete, travel_dow]
 
     Returns:
         DataFrame with columns:
@@ -137,7 +137,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
 
     Args:
         persons: DataFrame with canonical person fields
-        days: Optional DataFrame with day completeness indicators
+        days: DataFrame with day completeness indicators
 
     Returns:
         DataFrame with DaySim person fields

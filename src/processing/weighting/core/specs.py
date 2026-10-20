@@ -209,7 +209,7 @@ class CensusConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state_fips: str = Field(description="Two-digit state FIPS code, e.g. '06'.")
-    pums_year: int = Field(description="ACS PUMS 5-year vintage the controls are built from.")
+    pums_year: int = Field(description="ACS PUMS 1-year vintage the controls are built from.")
     pums_households: str | None = Field(
         default=None,
         description="Local PUMS household file; fetched from the Census API when not given.",

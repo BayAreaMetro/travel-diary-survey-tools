@@ -93,7 +93,7 @@ def step(
     are cached after successful validation.
 
     The default value is to only validate inputs to avoid duplicate validation.
-    Recommend putting a final step full_check step at the end of the pipeline
+    Recommend putting a final_check step at the end of the pipeline
     to validate all tables after all processing is complete.
 
     Args:
@@ -110,7 +110,7 @@ def step(
         ... )
         ... def link_trips(
         ...     unlinked_trips: pl.DataFrame,
-        ...     config: dict
+        ...     max_dwell_time: float,  # a setting, from the step's params
         ... ) -> dict[str, pl.DataFrame]:
         ...     # Process trips
         ...     linked_trips = ...

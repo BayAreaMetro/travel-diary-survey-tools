@@ -23,18 +23,18 @@ class ExistingWeightConfig(BaseModel):
 
     Examples:
         Basic usage with defaults:
-        >>> WeightConfig(config_key="hh_weight", weight_path="hh_weights.csv")
+        >>> ExistingWeightConfig(config_key="hh_weight", weight_path="hh_weights.csv")
         # Uses: weight_id_col="hh_id", weight_col="hh_weight"
 
         Override weight column name:
-        >>> WeightConfig(
+        >>> ExistingWeightConfig(
         ...     config_key="person_weight",
         ...     weight_path="person_weights.csv",
         ...     weight_col="final_weight"  # Weight file uses "final_weight" not "person_weight"
         ... )
 
         Override ID column name (external weight file with non-canonical IDs):
-        >>> WeightConfig(
+        >>> ExistingWeightConfig(
         ...     config_key="unlinked_trip_weight",
         ...     weight_path="trip_weights.csv",
         ...     weight_id_col="trip_id",  # Weight file uses "trip_id" not "unlinked_trip_id"
