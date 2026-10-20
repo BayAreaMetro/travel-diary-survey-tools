@@ -87,7 +87,28 @@ from processing.weighting.validation.weight_checks import (
 logger = logging.getLogger(__name__)
 
 
-@step()
+@step(
+    requires={
+        "households": {"hh_id", "usable_<profile>"},
+        "persons": {"person_id", "hh_id"},
+        "days": {"day_id", "person_id"},
+        "unlinked_trips": {"unlinked_trip_id", "day_id", "linked_trip_id"},
+        "linked_trips": {"linked_trip_id", "tour_id", "joint_trip_id"},
+        "tours": {"tour_id", "joint_tour_id"},
+        "joint_trips": {"joint_trip_id"},
+        "joint_tours": {"joint_tour_id"},
+    },
+    produces={
+        "households": {"hh_weight_<profile>"},
+        "persons": {"person_weight_<profile>"},
+        "days": {"day_weight_<profile>"},
+        "unlinked_trips": {"unlinked_trip_weight_<profile>"},
+        "linked_trips": {"linked_trip_weight_<profile>"},
+        "tours": {"tour_weight_<profile>"},
+        "joint_trips": {"joint_trip_weight_<profile>"},
+        "joint_tours": {"joint_tour_weight_<profile>"},
+    },
+)
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, ExistingWeightConfig | dict],
     existing: ExistingWeightsConfig,

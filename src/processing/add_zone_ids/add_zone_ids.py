@@ -206,6 +206,15 @@ def add_zone_to_dataframe(
         "tours": {"tour_id", "o_lon", "o_lat", "d_lon", "d_lat"},
         "habitual_locations": {"habitual_location_id", "lon", "lat"},
     },
+    # One column per configured zone geography, named after it.
+    produces={
+        "households": {"home_<zone>"},
+        "persons": {"work_<zone>", "school_<zone>"},
+        "unlinked_trips": {"o_<zone>", "d_<zone>"},
+        "linked_trips": {"o_<zone>", "d_<zone>"},
+        "tours": {"o_<zone>", "d_<zone>"},
+        "habitual_locations": {"<zone>"},
+    },
 )
 def add_zone_ids(
     zone_geographies: list[dict],

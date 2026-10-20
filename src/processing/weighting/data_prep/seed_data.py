@@ -36,6 +36,13 @@ from processing.weighting.validation.checksums import check_recode_nulls
 
 logger = logging.getLogger(__name__)
 
+# The persons fields each household count is built from (see _person_aggs).
+_COUNTED_FROM: dict[str, tuple[str, ...]] = {
+    "h_size": ("hh_id",),
+    "h_workers": ("employment",),
+    "h_children": ("age",),
+}
+
 
 # -- Public API ------------------------------------------------------------
 def recode_survey_households(
@@ -55,6 +62,7 @@ def recode_survey_households(
     Raises:
         ValueError: Unknown target.
         KeyError: Missing required column.
+        ValueError: A required column is null on every row.
     """
     hh_ctrls = resolve_targets(targets, ControlLevel.HOUSEHOLD)
     if not hh_ctrls:
@@ -95,6 +103,11 @@ def recode_survey_households(
     requested = {c.name for c in hh_ctrls}
     aggs = [expr for name, expr in _person_aggs.items() if name in requested]
 
+    # A count is never null, so check the persons fields behind it before counting.
+    for name, fields in _COUNTED_FROM.items():
+        if name in requested:
+            _require_values(persons, name, fields, "persons")
+
     if aggs:
         counts = persons.group_by("hh_id").agg(aggs)
         hh = households.join(counts, on="hh_id", how="left")
@@ -131,6 +144,7 @@ def recode_survey_persons(
     Raises:
         ValueError: Unknown target.
         KeyError: Missing required column.
+        ValueError: A required column is null on every row.
     """
     p_ctrls = resolve_targets(targets, ControlLevel.PERSON)
     df = persons
@@ -161,15 +175,30 @@ def _apply_recode(df: pl.DataFrame, ctrl: ControlTarget) -> pl.DataFrame:
     if isinstance(ctrl, CrosstabControlTarget):
         return df.with_columns(ctrl.survey_expr().alias(ctrl.name))
 
-    # Add null columns for any optional fields absent from the DataFrame
-    for f in ctrl.survey_fields:
-        if f not in df.columns:
-            df = df.with_columns(pl.lit(None).alias(f))
     return df.with_columns(ctrl.survey_expr().alias(ctrl.name))
 
 
+def _require_values(df: pl.DataFrame, name: str, fields: tuple[str, ...], table: str) -> None:
+    """Raise if any of *fields* is absent from *df* or null on every row.
+
+    Partly null is fine: non-workers have no ``commute_freq``. Entirely null means
+    the control would recode from nothing, which it does without complaint.
+    """
+    missing = [f for f in fields if f not in df.columns]
+    if missing:
+        msg = f"Control '{name}' requires {table} column(s) {missing}. Have: {sorted(df.columns)}"
+        raise KeyError(msg)
+    empty = [f for f in fields if df.height and df[f].null_count() == df.height]
+    if empty:
+        msg = (
+            f"Control '{name}' reads {table} column(s) {empty}, which are null on every "
+            f"row. Supply the values, or remove '{name}' from the controls."
+        )
+        raise ValueError(msg)
+
+
 def _require_fields(df: pl.DataFrame, ctrl: ControlTarget) -> None:
-    """Raise ``KeyError`` if the primary survey field is absent."""
+    """Raise if any of the control's survey fields is absent or entirely null."""
     # Structural controls (h_total, p_total) have no survey fields.
     if ctrl.structural:
         return
@@ -190,11 +219,5 @@ def _require_fields(df: pl.DataFrame, ctrl: ControlTarget) -> None:
             f"Set structural=True if this is intentional."
         )
         raise ValueError(msg)
-    # Optional secondary fields (e.g., school_type for p_student) may be
-    # absent; we only require the first (primary) field.
-    if ctrl.survey_fields[0] not in df.columns:
-        msg = (
-            f"Target '{ctrl.name}' requires column '{ctrl.survey_fields[0]}'. "
-            f"Have: {sorted(df.columns)}"
-        )
-        raise KeyError(msg)
+    table = "households" if ctrl.level is ControlLevel.HOUSEHOLD else "persons"
+    _require_values(df, ctrl.name, ctrl.survey_fields, table)

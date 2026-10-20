@@ -207,6 +207,7 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
         "gender",
         "school_type",
         "job_type",
+        "education",
     ]
 
     # Replace -9998 with 995
@@ -378,6 +379,10 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
         .otherwise(pl.lit(Ethnicity.NOT_HISPANIC.value))
         .alias("ethnicity")
     )
+
+    # 2019 did not ask commute frequency. Null, not inferred; p_commute_mode is
+    # off for 2019 and raises on an all-null input if turned on.
+    persons = persons.with_columns(pl.lit(None, dtype=pl.Int64).alias("commute_freq"))
 
     return persons
 

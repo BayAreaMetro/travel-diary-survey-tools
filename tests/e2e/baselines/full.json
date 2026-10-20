@@ -3734,6 +3734,12 @@
     "nulls": 0,
     "sum": 0.0
    },
+   "education": {
+    "distinct": 1,
+    "dtype": "Null",
+    "hash": "955e5bb96c9b8d4a",
+    "nulls": 48
+   },
    "employment": {
     "counts": {
      "1": 26,

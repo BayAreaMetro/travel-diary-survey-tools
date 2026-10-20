@@ -18,6 +18,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from data_canon.core.exceptions import DataValidationError
 from pipeline.step_registry import get_required_fields as get_required_fields_for_step
+from pipeline.step_registry import is_config_named
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,10 @@ def validate_row_for_step(
         model(**row_dict)
         return
 
-    # Get fields required for this step
-    required_fields = get_required_fields_for_step(table_name, step_name)
+    # Get fields required for this step; config-named patterns are the step's to check
+    required_fields = {
+        f for f in get_required_fields_for_step(table_name, step_name) if not is_config_named(f)
+    }
 
     # Check for missing required fields
     missing_fields = [field_name for field_name in required_fields if field_name not in row_dict]
