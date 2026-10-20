@@ -1,5 +1,6 @@
 # Processing Pipeline Configuration for BATS 2019
-# This config file demonstrates the full pipeline with DaySim and CTRAMP formatting
+# This config runs the pipeline through compute_weights and writes the canonical tables;
+# it has no formatting steps.
 
 # config.yaml
 
@@ -33,7 +34,7 @@ habitual_buffer_meters: "300"
 # Pipeline configuration
 steps:
   - name: load_data
-    validate_input: false # This will override @step(validate=True/False) in the function definition
+    validate_input: false  # overrides the step's @step() value; leave it out to keep that
     cache: true
     params:
       input_paths:
@@ -155,10 +156,10 @@ steps:
       projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
       max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
       zone_geographies:
-        - zone_name: "taz"  # Primary TAZ for DaySim (TM1)
+        - zone_name: "taz"  # TM2 TAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/tazs_TM2_2_5.shp"
           zone_id_field: "TAZ_NODE"
-        - zone_name: "maz"  # Primary MAZ for DaySim (TM2)
+        - zone_name: "maz"  # TM2 MAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/mazs_TM2_2_5.shp"
           zone_id_field: "MAZ_NODE"
         # Add additional zone geographies as needed:
@@ -195,10 +196,6 @@ steps:
           household_day_needs: nothing
           zone_coverage: none
           joint_tours: partial
-
-  # - name: weighting
-  #   validate_input: true
-  #   cache: true
 
 
   - name: compute_weights
@@ -404,6 +401,8 @@ steps:
   #     max_weight_factor:
   #       households: 2.0
   #     derive_missing_weights: true
+  #     # Required. The profiles to weight, one column set each.
+  #     weight_profiles: [ctramp, daysim, analysis]
   #     weights:
   #       hh_weight:
   #         weight_path: "{{ survey_dir }}/weights/households_weights.csv"

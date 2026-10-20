@@ -35,7 +35,7 @@ habitual_buffer_meters: "300"
 # Pipeline configuration
 steps:
   - name: load_data
-    validate_input: false # This will override @step(validate=True/False) in the function definition
+    validate_input: false  # overrides the step's @step() value; leave it out to keep that
     cache: true
     params:
       input_paths:
@@ -68,7 +68,7 @@ steps:
         persons:
           - column: gender
             method: rf
-            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting (ACS only includes male/female, so the weighting approachreflects this constraint)
+            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting (ACS only includes male/female, so the weighting approach reflects this constraint)
             join_tables: [households]
             # numeric_features: [age] # Optional if you have them.
             numeric_features: [num_trips]
@@ -99,7 +99,7 @@ steps:
           #   categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
           #   max_iter: 10
 
-      # Optional: create diagnostic flags (default: true)
+      # Optional: keep each imputed column's original values in <column>_preimputed (default: true)
       stash_preimputed: true
       random_state: 42     # For reproducibility
 
@@ -175,10 +175,10 @@ steps:
       projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
       max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
       zone_geographies:
-        - zone_name: "taz"  # Primary TAZ for DaySim (TM1)
+        - zone_name: "taz"  # TM2 TAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/tazs_TM2_2_5.shp"
           zone_id_field: "TAZ_NODE"
-        - zone_name: "maz"  # Primary MAZ for DaySim (TM2)
+        - zone_name: "maz"  # TM2 MAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/mazs_TM2_2_5.shp"
           zone_id_field: "MAZ_NODE"
         # Add additional zone geographies as needed:
@@ -467,7 +467,7 @@ steps:
 
 
   # -- Existing weights (alternative to computing new weights) ----------
-  # Uncomment this block and comment out the 'weighting' step above
+  # Uncomment this block and comment out the 'compute_weights' step above
   # to use pre-computed weights from an external source.
   # - name: add_existing_weights
   #   validate_input: false
