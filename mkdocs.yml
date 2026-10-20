@@ -82,6 +82,7 @@ nav:
       - Format Output:
           - DaySim Format: pipeline_steps/format_output/daysim.md
           - CT-RAMP Format: pipeline_steps/format_output/ctramp.md
+          - Usual Workplace: pipeline_steps/format_output/usual_workplace.md
       - Final Check: pipeline_steps/final_check.md
   - Data Models:
       - Survey Data Models: models/index.md

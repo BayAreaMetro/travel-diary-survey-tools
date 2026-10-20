@@ -19,7 +19,7 @@ Runs on pushes to `main` and `develop`, and on pull requests into them. Uses [uv
 - 🎯 Minimal, only installs what's needed
 
 ### Docs Workflow (`docs.yml`)
-Builds the mkdocs site on pull requests into `develop` and `main`, so a broken docs build is caught at review. Deploys it to GitHub Pages on pushes to `main`.
+Builds the mkdocs site with `--strict` on pull requests into `develop` and `main`, so a broken cross-reference or missing page fails at review. Deploys it to GitHub Pages on pushes to `main`.
 
 ## Setting Up Branch Protection
 
