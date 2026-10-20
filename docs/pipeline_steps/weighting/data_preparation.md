@@ -26,9 +26,14 @@
     options:
       show_root_heading: true
       members:
-        - PUMSSource
         - fetch_pums_data
         - load_pums_from_files
+
+::: processing.weighting.core.specs
+    options:
+      show_root_heading: true
+      members:
+        - PUMSSource
 
 ::: processing.weighting.data_prep.control_data
     options:

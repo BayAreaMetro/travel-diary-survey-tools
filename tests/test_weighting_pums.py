@@ -24,7 +24,7 @@ from typing import ClassVar
 import polars as pl
 import pytest
 
-from processing.weighting.data_prep import pums_data
+from processing.weighting.data_prep import pums_api
 from processing.weighting.data_prep.pums_data import (
     check_pums_integrity,
     load_pums_from_files,
@@ -245,16 +245,16 @@ class TestChunksAreJoinedNotStacked:
             rows = [[s if c == "SERIALNO" else str(truth[s][c]) for c in header] for s in order]
             return [header, *rows]
 
-        monkeypatch.setattr(pums_data, "_census_get", fake_get)
-        monkeypatch.setattr(pums_data, "_MAX_COLS_PER_REQUEST", 3)
-        monkeypatch.setattr(pums_data, "_MAX_API_WORKERS", 2)
+        monkeypatch.setattr(pums_api, "_census_get", fake_get)
+        monkeypatch.setattr(pums_api, "MAX_COLS_PER_REQUEST", 3)
+        monkeypatch.setattr(pums_api, "_MAX_API_WORKERS", 2)
         return truth
 
     def test_values_follow_their_key_when_chunks_are_reordered(self, monkeypatch):
         """The regression. Positional stacking put these on the wrong records."""
         truth = self._fake_api(monkeypatch, shuffle_after_first=True)
 
-        out = pums_data._fetch_table(
+        out = pums_api.fetch_table(
             "u", ["SERIALNO", "A", "B", "C", "D"], "06", "*", label="t", keys=("SERIALNO",)
         )
 
@@ -271,21 +271,21 @@ class TestChunksAreJoinedNotStacked:
         def fake_get(_base, cols, _state, _puma, *, label="", keys=()):  # noqa: ARG001
             return [list(cols), *[[s, "1", "2", "3", "4"][: len(cols)] for s in serials]]
 
-        monkeypatch.setattr(pums_data, "_census_get", fake_get)
-        monkeypatch.setattr(pums_data, "_MAX_COLS_PER_REQUEST", 3)
-        monkeypatch.setattr(pums_data, "_MAX_API_WORKERS", 2)
+        monkeypatch.setattr(pums_api, "_census_get", fake_get)
+        monkeypatch.setattr(pums_api, "MAX_COLS_PER_REQUEST", 3)
+        monkeypatch.setattr(pums_api, "_MAX_API_WORKERS", 2)
 
         with pytest.raises(ValueError, match="does not uniquely identify a row"):
-            pums_data._fetch_table(
+            pums_api.fetch_table(
                 "u", ["SERIALNO", "A", "B", "C"], "06", "*", label="t", keys=("SERIALNO",)
             )
 
     def test_a_key_missing_from_the_request_is_refused(self, monkeypatch):
         """Every chunk must carry the key, so the key has to be requested."""
-        monkeypatch.setattr(pums_data, "_MAX_COLS_PER_REQUEST", 3)
+        monkeypatch.setattr(pums_api, "MAX_COLS_PER_REQUEST", 3)
 
         with pytest.raises(ValueError, match="cannot chunk without SPORDER"):
-            pums_data._fetch_table(
+            pums_api.fetch_table(
                 "u",
                 ["SERIALNO", "A", "B", "C"],
                 "06",
@@ -309,7 +309,7 @@ class TestTheResponseIsCheckedBeforeItIsTrusted:
         """Rectangular and complete: nothing to say."""
         rows = [self.HEADER, ["2023HU0000001", "2", "1"], ["2023HU0000002", "3", "1"]]
 
-        pums_data._check_response_shape(rows, self.HEADER, "u")
+        pums_api._check_response_shape(rows, self.HEADER, "u")
 
     @pytest.mark.parametrize(
         ("bad_row", "match"),
@@ -331,19 +331,19 @@ class TestTheResponseIsCheckedBeforeItIsTrusted:
         rows = [self.HEADER, ["2023HU0000001", "2", "1"], bad_row]
 
         with pytest.raises(RuntimeError, match=match):
-            pums_data._check_response_shape(rows, self.HEADER, "u")
+            pums_api._check_response_shape(rows, self.HEADER, "u")
 
     def test_a_silently_omitted_column_is_refused(self):
         """Asking for a variable and not getting it must not pass unnoticed."""
         rows = [["SERIALNO", "NP"], ["2023HU0000001", "2"]]
 
         with pytest.raises(RuntimeError, match="omits requested column"):
-            pums_data._check_response_shape(rows, self.HEADER, "u")
+            pums_api._check_response_shape(rows, self.HEADER, "u")
 
     def test_an_empty_response_is_refused(self):
         """No header means nothing can be positioned at all."""
         with pytest.raises(RuntimeError, match="no rows at all"):
-            pums_data._check_response_shape([], self.HEADER, "u")
+            pums_api._check_response_shape([], self.HEADER, "u")
 
 
 class TestAnUnsoundResponseIsRetried:
@@ -375,14 +375,14 @@ class TestAnUnsoundResponseIsRetried:
             calls["n"] += 1
             return next(served)
 
-        monkeypatch.setattr(pums_data, "_census_get_once", once)
+        monkeypatch.setattr(pums_api, "_census_get_once", once)
         return calls
 
     def test_a_transient_fault_is_retried_and_recovers(self, monkeypatch):
         """One bad response then a good one: the caller never sees the fault."""
         calls = self._serve(monkeypatch, [self.DUPLICATED, self.SOUND])
 
-        rows = pums_data._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
+        rows = pums_api._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
 
         assert rows == self.SOUND
         assert calls["n"] == 2
@@ -391,7 +391,7 @@ class TestAnUnsoundResponseIsRetried:
         """Retrying good data would double every fetch."""
         calls = self._serve(monkeypatch, [self.SOUND])
 
-        pums_data._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
+        pums_api._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
 
         assert calls["n"] == 1
 
@@ -401,17 +401,17 @@ class TestAnUnsoundResponseIsRetried:
         The last failure's own message has to survive the give-up, or the report
         says only that it failed.
         """
-        self._serve(monkeypatch, [self.DUPLICATED] * pums_data._MAX_FETCH_ATTEMPTS)
+        self._serve(monkeypatch, [self.DUPLICATED] * pums_api.MAX_FETCH_ATTEMPTS)
 
         with pytest.raises(RuntimeError, match="times running") as excinfo:
-            pums_data._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
+            pums_api._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
         assert "duplicate SERIALNO, SPORDER" in str(excinfo.value)
 
     def test_no_keys_means_no_uniqueness_requirement(self, monkeypatch):
         """Some requests legitimately carry no full key; they must not be rejected."""
         calls = self._serve(monkeypatch, [self.DUPLICATED])
 
-        pums_data._census_get("u", self.HEADER, "06", "*")
+        pums_api._census_get("u", self.HEADER, "06", "*")
 
         assert calls["n"] == 1
 

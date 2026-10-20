@@ -385,5 +385,11 @@ Neither BATS project uses them.
     options:
       show_root_heading: true
       members:
-        - ExistingWeightConfig
         - add_existing_weights
+
+::: processing.weighting.existing.config
+    options:
+      show_root_heading: true
+      members:
+        - ExistingWeightsConfig
+        - ExistingWeightConfig

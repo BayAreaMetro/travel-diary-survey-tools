@@ -27,6 +27,7 @@ The ``compute_weights`` step orchestrates the full pipeline — see
 
     weighting/
     ├── existing_weights.py       # attach pre-computed weights
+    ├── existing/                 # its settings and redistribution onto usable records
     ├── compute_weights.py        # single @step() entry point for full weighting pipeline
     ├── weighting_pipeline.py     # internal class orchestrating the weighting process
     ├── controls/                 # control variable definitions & registry

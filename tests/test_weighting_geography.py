@@ -29,7 +29,7 @@ from processing.weighting.data_prep.crosswalk import (
     TargetZoneConfig,
     _load_target_zones,
 )
-from processing.weighting.diagnostics.charts import crosswalk_figure
+from processing.weighting.diagnostics.crosswalk_map import crosswalk_figure
 from processing.weighting.validation.coverage import check_control_geography_coverage
 from utils.crosswalk import (
     _cross_tabulate,

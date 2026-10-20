@@ -447,7 +447,7 @@ def weight_cascade(
     return rows
 
 
-_REDISTRIBUTION_TAIL = 1.5
+REDISTRIBUTION_TAIL = 1.5
 
 
 @dataclass(frozen=True)
@@ -536,7 +536,7 @@ def redistribution(
                 p90=float(ratio.quantile(0.9) or 0.0),
                 p99=float(ratio.quantile(0.99) or 0.0),
                 maximum=float(ratio.max() or 0.0),
-                share_above=100.0 * float((ratio > _REDISTRIBUTION_TAIL).sum()) / len(ratio),
+                share_above=100.0 * float((ratio > REDISTRIBUTION_TAIL).sum()) / len(ratio),
             )
         )
     return out
