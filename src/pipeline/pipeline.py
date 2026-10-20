@@ -394,7 +394,9 @@ class Pipeline:
                 diff = subprocess.check_output(  # noqa: S603
                     [git, "diff"],
                     stderr=subprocess.DEVNULL,
-                    text=True,
+                    # git writes UTF-8; the locale codec (cp1252 on Windows) fails on it
+                    encoding="utf-8",
+                    errors="replace",
                 ).strip()
                 if diff:
                     logger.debug("Uncommitted changes (git diff):\n%s", diff)
@@ -444,13 +446,13 @@ class Pipeline:
             logger.info("=" * 70)
 
             kwargs = self.parse_step_args(step_name, step_obj)
-            kwargs["validate_input"] = step_cfg.get("validate_input", True)
-            kwargs["validate_output"] = step_cfg.get("validate_output", False)
+            # Pass a flag only when the config sets it, so the step's @step() default stands.
+            for flag in ("validate_input", "validate_output", "cache"):
+                if flag in step_cfg:
+                    kwargs[flag] = step_cfg[flag]
             kwargs["canonical_data"] = self.data
 
-            # Pass cache configuration
             if self.cache:
-                kwargs["cache"] = step_cfg.get("cache", False)
                 kwargs["pipeline_cache"] = self.cache
 
             # Execute step

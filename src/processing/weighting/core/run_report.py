@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: DiagnosticsConfig) -> None:
     """Write one pipeline-contained interactive HTML report for the whole run.
 
-    Covers the weighting from geographic crosswalk through IPF convergence
+    Covers the weighting from geographic crosswalk through balancer convergence
     to what carries weight at every level below the household. Opens in any
     browser with no external dependencies beyond Plotly, loaded from CDN.
 

@@ -1,9 +1,10 @@
 """Canonical completeness and model-usability logic.
 
-Two kinds of flag roll **up** from two atomic facts -- whether each **trip** was
-surveyed, and each tour's structural validity:
+Two kinds of flag roll **up** from two atomic facts -- whether each **day** was
+surveyed (``days.survey_complete``, which the project cleaner sets from the day's
+surveyed trips or a declared no-travel day), and each tour's structural validity:
 
-* ``survey_complete`` -- was it reported? Rolls up from surveyed trips. One answer per
+* ``survey_complete`` -- was it reported? Rolls up from complete days. One answer per
   run, never narrowed by model criteria and never configurable: if it is wrong,
   the fix belongs upstream in the project cleaner.
 * one column per **usability profile** -- can the model consume it? Fuses each
@@ -18,8 +19,9 @@ does not, and needs no model geography at all.
 
 Every profile is named in config and answers every axis, so a column's meaning
 reads off the config without knowing a base rule, and no verdict appears that
-nobody asked for. Consumers name the profile they read
-(``usability_flag_col``), and ``survey_complete`` is always available as the floor
+nobody asked for. Consumers name the profiles they read (a formatter's
+``usability_profile``, the weighting's ``weight_profiles``), and ``survey_complete``
+is always available as the floor
 beneath all of them.
 
 Each flag comes from one place in the tree -- its **direction** -- via a counting
@@ -38,13 +40,14 @@ groupings, not parent/child.
 The flow, and the rule on each line:
 
 ```text
-COMPLETE -- rolls up from surveyed trips     op        rule
+COMPLETE -- rolls up from complete days     op        rule
 ------------------------------------------------------------------------
-trip .................................   direct    trip_survey_complete (measured leaf)
- └ person-day ........................   ALL       all trips surveyed, else declared no-travel
-    ├ person .........................   >=1       has >=1 complete day
-    └ household-day ..................   ALL       all surveyable members complete that date
-       └ household ...................   >=1       has >=1 complete household-day
+person-day ...........................   direct    days.survey_complete, from the cleaner
+                                                    (all trips surveyed, or no-travel)
+ ├ trip / tour .......................   inherit   its own value AND its day's
+ ├ person ............................   >=1       has >=1 complete day
+ └ household-day .....................   ALL       all surveyable members complete that date
+    └ household ......................   >=1       has >=1 complete household-day
 
 USABLE, UP (_cascade_up) -- counts from the tour fuse   op   rule
 ------------------------------------------------------------------------
@@ -61,7 +64,7 @@ USABLE, DOWN (_cascade_down) -- inherits from the household   op   rule
 household -> person -> day -> tour ..   inherit   unusable if the one it belongs to is
  └ linked trip / unlinked trip ......   inherit   takes its tour's verdict
 
-JOINT (_flag_joint) -- judged beside the chain, after it     op   rule
+JOINT (flag_joint) -- judged beside the chain, after it     op   rule
 ------------------------------------------------------------------------
 joint tour ..........................   >=2       >=2 tours on it, and its
                                                   household usable
@@ -71,7 +74,7 @@ joint trip ..........................   >=2       >=2 linked trips on it, likewi
 
 JOINT IDS -- joint_tour_id_<profile> on tours and both trip tables, and
 joint_trip_id_<profile> on linked trips: the bare id where the record is on it,
-null where it is not. Decided first within _flag_joint, read by the groupings
+null where it is not. Decided first within flag_joint, read by the groupings
 above, the weighting and the formatters; the bare id is the survey's own
 answer and is never edited.
 ------------------------------------------------------------------------

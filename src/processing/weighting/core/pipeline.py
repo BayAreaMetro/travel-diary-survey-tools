@@ -24,9 +24,9 @@ Orchestrates the full weighting pipeline via
 
 # Design decisions
 
-* **PopulationSim dependency** — uses PopulationSim's core numba balancer
-  (``np_balancer_numba``) directly — a pure ``@njit`` function (~120 lines)
-  taking numpy arrays.  No PopulationSim pipeline infrastructure involved.
+* **Balancer** — PopulationSim's numba balancer (``np_balancer_numba``),
+  vendored in ``balancing/_np_balancer.py``: a pure ``@njit`` function taking
+  numpy arrays, so PopulationSim itself is not a dependency.
 * **Geography columns** — three distinct levels: ``PUMA`` (raw Census
   PUMA), ``study_geoid`` (crosswalk target zones from the user's polygon
   file), and ``ctrl_geoid`` (balancing geography, equal to ``study_geoid``
@@ -126,7 +126,9 @@ class WeightingPipeline:
     # Usage
 
     ```python
-    pipeline = WeightingPipeline(controls=..., config=..., data=...)
+    pipeline = WeightingPipeline(
+        controls=..., config=..., data=..., balancing=..., importance=...
+    )
 
     pipeline.setup()
     pipeline.fetch_pums()

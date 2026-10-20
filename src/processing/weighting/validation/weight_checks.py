@@ -49,7 +49,7 @@ def weight_sanity_checks(
     geo_col: str = "ctrl_geoid",
     profile: str | None = None,
 ) -> None:
-    """Run weight sanity checks and log a summary report.
+    """Run weight sanity checks: log the fit to the controls, raise on a broken identity.
 
     Args:
         tables: Weighted canonical tables.

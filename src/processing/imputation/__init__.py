@@ -31,10 +31,11 @@ of canonical survey tables (households, persons, days, trips, tours).
 
     steps:
       - name: load_data
-      - name: custom_cleaning
+      - name: clean_<project>
       - name: imputation        # ← after cleaning, before linking
       - name: link_trips
-      - name: joint_trips
+      - name: detect_habitual_locations
+      - name: detect_joint_trips
       - name: extract_tours
 
 # Supported relationships for joining tables

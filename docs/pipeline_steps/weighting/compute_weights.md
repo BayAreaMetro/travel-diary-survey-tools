@@ -128,6 +128,19 @@ seed, weights or diagnostics.
         - GeographyCoverage
         - resolve_fitted_profiles
 
+## Settings
+
+The step's `params:` build these. `geography` is described with the
+[crosswalk][processing.weighting.data_prep.crosswalk.GeographyConfig].
+
+::: processing.weighting.core.specs
+    options:
+      show_root_heading: false
+      members:
+        - CensusConfig
+        - BalancingConfig
+        - DiagnosticsConfig
+
 ## Related Topics
 
 - [Data Preparation](data_preparation.md)

@@ -32,10 +32,10 @@ Orchestrates the full weighting pipeline in the following stages:
 8. **Importance resolution** -- compute per-control importance weights
    from replicate-weight MOE or explicit YAML overrides.
 9. **Balancing** -- build per-household incidence vectors and fit weights
-   using PopulationSim's numba-accelerated max-entropy balancer,
-   independently per zone.
-10. **[Weight propagation](balancing.md)** -- propagate final ``hh_weight`` to all
-    canonical tables (persons, days, trips, tours).
+   using a numba-accelerated max-entropy balancer (vendored from
+   PopulationSim), independently per zone, once per profile.
+10. **[Weight propagation](hierarchy.md)** -- propagate each profile's
+    ``hh_weight_<profile>`` to all canonical tables (persons, days, trips, tours).
 
 **E. [Diagnostics](diagnostics.md) & [Validation](validation.md)**
 
@@ -43,8 +43,9 @@ Orchestrates the full weighting pipeline in the following stages:
     for the run, comparing every profile fitted and carrying each one's
     convergence, fit, weight-quality and weight-cascade diagnostics.
 12. **Validation** -- run sanity checks on the final weights and control
-    totals.  Results are logged as warnings but are not currently included
-    in the HTML report — check the pipeline log to review them.
+    totals. The fit against the controls is logged; the hierarchy identities,
+    the joint-table sums and weight placement raise when they fail. None of it
+    is in the HTML report -- check the pipeline log.
 
 """
 

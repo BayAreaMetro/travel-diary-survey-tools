@@ -8,3 +8,14 @@
       filters:
         - "!^logger$"
         - "!^_"
+
+## Settings
+
+The step's settings, built from its `params:`.
+
+::: processing.joint_trips.joint_trip_configs
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members:
+        - JointTripConfig

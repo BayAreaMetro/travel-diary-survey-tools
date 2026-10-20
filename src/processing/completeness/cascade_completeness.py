@@ -80,7 +80,8 @@ def cascade_completeness(
 
     Nothing is implicit: every column stamped is named in config and every
     profile answers every axis. Consumers then choose which to honour by name
-    (``usability_flag_col``, in the weighting and both formatters), and none of
+    (``weight_profiles`` in the weighting, ``usability_profile`` in each
+    formatter), and none of
     them re-derive completeness or tour validity -- the formatters read the
     column and raise if it is absent. ``survey_complete`` is always available as the
     floor without being declared.

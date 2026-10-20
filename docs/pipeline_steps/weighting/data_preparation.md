@@ -10,9 +10,15 @@
     options:
       show_root_heading: true
       members:
-        - PumaCrosswalk
         - TargetZoneConfig
         - GeographyConfig
+
+<!-- Its own directive so its methods show: the site-wide filter hides lowercase names. -->
+::: processing.weighting.data_prep.crosswalk.PumaCrosswalk
+    options:
+      show_root_heading: true
+      filters:
+        - "!^_"
 
 ::: processing.weighting.data_prep.census_geo
     options:
@@ -52,4 +58,9 @@
       members:
         - recode_survey_households
         - recode_survey_persons
-        - build_seed_table
+
+::: processing.weighting.data_prep.incidence
+    options:
+      show_root_heading: true
+      members:
+        - build_incidence_table

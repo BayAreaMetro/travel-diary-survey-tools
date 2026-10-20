@@ -9,6 +9,19 @@
         - "!^logger$"
         - "!^_"
 
+## Settings
+
+`extraction` holds how tours are built. `habitual_match` (its `buffer_meters`) is
+documented with
+[habitual locations][processing.habitual_locations.habitual_location_configs.MatchConfig].
+
+::: processing.tours.tour_configs
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members:
+        - TourConfig
+
 ## Determining tour purpose
 
 A tour visits several places; the extractor picks which one *is* the tour

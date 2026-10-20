@@ -25,8 +25,10 @@ examples.
 
 ## Phase 3 -- Derive Missing Weights (when ``derive_missing_weights=True``)
 
-1. *Hierarchical carry-forward* for household → person → day → unlinked_trip:
-   validate parent has weights, then join parent weight to child via FK.
+1. *Down the hierarchy* for household → person → day → unlinked_trip:
+   validate parent has weights, then share the parent's weight among its usable
+   records (a person's usable days split their weight, rather than each
+   carrying all of it).
 2. *Aggregated weights* for linked_trip and tour: the mean of their members'
    final weights (excluding nulls and zeros). The joint levels **sum** instead
    -- see [`Agg`][processing.weighting.core.hierarchy.Agg].
@@ -127,12 +129,11 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     Loads weights from provided files and attaches them to the data.
 
     For any tables that exist, and do not have weights provided, we can optionally
-    derive missing weights by carrying forward weights from the next logical upstream table.
+    derive missing weights from the next logical upstream table.
 
-    For example, if only household weights exist, all subsequent tables (persons, days, trips)
-    will receive the household weight for each member record. If trip (unlinked) weights exist
-    but not linked trips or tours, the unlinked trip weights will be carried forward using
-    appropriate logic.
+    For example, if only household weights exist, persons share their household's
+    weight and each person's days split that person's weight. If trip (unlinked)
+    weights exist but not linked trips or tours, those are the mean of their trips.
 
     If a "middle" weight is missing, an error will be raised if derive_missing_weights is True.
     For example, if household and trip weights are provided, but not person or day weights,
@@ -181,7 +182,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
             keys: ``hh_weight``, ``person_weight``,
             ``day_weight``, ``unlinked_trip_weight``,
             ``linked_trip_weight``, ``joint_trip_weight``,
-            ``tour_weight``.
+            ``tour_weight``, ``joint_tour_weight``.
 
             Config options per entry:
 
@@ -213,7 +214,9 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     ```yaml
         - name: add_existing_weights
           params:
+            weight_profiles: [ctramp]
             preserve_travel_totals: true
+            household_size_top_group: 6
             derive_missing_weights: true
             weights:
               hh_weight:

@@ -43,7 +43,8 @@ jobs:
         run: uv sync --group dev
 
       - name: Build documentation
-        run: uv run mkdocs build
+        # --strict: a broken cross-reference or missing page fails the build
+        run: uv run mkdocs build --strict
 
       # Only a deploying push needs the artifact; a pull request is checked by
       # the build step above and stops there.

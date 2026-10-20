@@ -23,12 +23,11 @@ referential integrity across tables.
 * [`format_days`][processing.formatting.daysim.format_days]: Produces days_daysim table
   consistent with [`PersonDayDaysimModel`][data_canon.models.daysim.PersonDayDaysimModel].
 
-# Data Quality Filters
+# Record Selection
 
-- **Partial Tours**: Optionally drop tours without return home
-- **Missing TAZ**: Remove records without spatial assignment (required for model)
-- **Invalid Tours**: Filter out tours failing validation rules (zero distance,
-  negative duration, data quality flags)
+The step keeps the records its ``usability_profile`` admits (``usable_<profile>``),
+so partial tours, invalid tours and records without a TAZ are left out by the
+profile (its ``tour_closes_at`` and ``zone_coverage``), not by this step.
 
 # Implementation Notes
 
@@ -134,9 +133,7 @@ def format_daysim(
             linked_trips=canonical_linked_trips,
             tours=canonical_tours,
             days=canonical_days,
-            drop_partial_tours=True,
-            drop_missing_taz=True,
-            drop_invalid_tours=True
+            usability_profile="daysim",
         )
         households_daysim = result["households_daysim"]
         persons_daysim = result["persons_daysim"]

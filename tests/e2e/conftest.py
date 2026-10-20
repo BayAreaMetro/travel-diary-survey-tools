@@ -106,10 +106,10 @@ _DAYSIM_TABLES = (
 
 _STEP_ORDER = (
     "load_data",
+    "imputation",
     "link_trips",
     "detect_habitual_locations",
     "detect_joint_trips",
-    "imputation",
     "extract_tours",
     # Zones precede the cascade: a profile can gate on whether a record has a
     # zone, which it cannot do before the zone step has run.

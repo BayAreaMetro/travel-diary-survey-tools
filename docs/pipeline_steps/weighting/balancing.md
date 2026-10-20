@@ -25,5 +25,12 @@
       show_root_heading: true
       members:
         - balance_weights
-        - MergeSpec
+        - grid_search_expansion_factor
         - ZoneStatus
+
+::: processing.weighting.core.specs
+    options:
+      show_root_heading: false
+      members:
+        - MergeSpec
+        - GridPoint

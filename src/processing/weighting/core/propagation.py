@@ -1,6 +1,6 @@
 """Walk the weight hierarchy, moving weights between canonical tables.
 
-Used by both the ``weighting`` (computed) and ``existing_weights`` (supplied)
+Used by both the ``compute_weights`` (computed) and ``add_existing_weights`` (supplied)
 steps. The shape being walked is declared in [`processing.weighting.core.hierarchy`]
 [processing.weighting.core.hierarchy]; this module only moves weights along it.
 

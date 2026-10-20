@@ -2,7 +2,8 @@
 
 Entry point is [`generate_report`][processing.weighting.diagnostics.report.generate_report],
 which collects every fit a run produced, builds Plotly figures and HTML tables via the sibling
-modules (``charts``, ``data``, ``tables``), then renders them
+modules (``charts``, ``crosswalk_map``, ``data``, ``tables``, ``profile_tables``,
+``comparison``, ``glossary``), then renders them
 into a single ``.html`` file using a bundled Jinja2 template.
 
 # One document per run, not per fit

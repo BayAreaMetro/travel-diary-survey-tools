@@ -10,7 +10,6 @@ The canonical weight hierarchy and the code that walks it.
         - Level
         - Flow
         - Agg
-        - MEMBER_COUNT_COL
         - WEIGHT_CONFIG_MAPPING
         - weight_col_for
         - seed_col_for

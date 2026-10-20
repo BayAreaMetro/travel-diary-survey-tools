@@ -73,7 +73,9 @@ Nothing is recoded: a work-related stop stays work-related.
 
 ## Configuration
 
-The buffer is one top-level key that both steps read:
+Each step has its own `buffer_meters`: one for finding habitual locations, one for
+matching tour trip ends to them. They are separate settings. A project that wants
+them equal sets both from one template value, as bats_2023 does:
 
 ```yaml
 habitual_buffer_meters: "300"
@@ -87,8 +89,7 @@ steps:
       # min_dwell_minutes_by_purpose: {COLLEGE: 45, WORK_ACTIVITY: 240}
   - name: extract_tours
     params:
-      habitual_locations:
-        buffer_meters: "{{ habitual_buffer_meters }}"
+      buffer_meters: "{{ habitual_buffer_meters }}"  # extract_tours' habitual_match
 ```
 
 ## Outputs

@@ -243,7 +243,7 @@ def detect_joint_trips(
 
         # Phase 3: Similarity Filtering
 
-        ## Buffer Method (default):
+        ## Buffer Method:
 
         - Filter trip pairs where:
             - Spatial distance (haversine) ≤ space_threshold_meters for both
@@ -273,12 +273,12 @@ def detect_joint_trips(
         # Phase 5: Joint Trip Aggregation
 
         1. Assign unique joint_trip_id to each clique
-        2. Create joint_trips table with:
-            - Representative location/time (mean of participants)
-            - person_list: Array of participating person IDs
-            - trip_list: Array of individual linked_trip_ids
-            - num_participants: Count of travelers
-        3. Validate against reported num_travelers field if available
+        2. Create joint_trips table, one row per joint trip:
+            - joint_trip_id, hh_id, travel_date
+            - num_joint_travelers: number of member linked trips
+            - survey_complete: true only if every member trip is complete
+        3. Mark each member linked trip with its joint_trip_id
+        4. Validate against reported num_travelers field if available
 
     Notes:
         - Only compares trips within one household date (joint trips across

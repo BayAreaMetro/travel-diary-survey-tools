@@ -1,6 +1,6 @@
 """HTML table builders for the diagnostics report.
 
-This module generates the four main tables displayed in the diagnostics HTML report:
+This module generates five of the tables displayed in the diagnostics HTML report:
 
 1. **Balancer Performance Table** — Per-zone convergence status, target-fit metrics
    (MAPE, P90, Max), and weight quality metrics (CV, ESS%). Combines all key
@@ -14,6 +14,10 @@ This module generates the four main tables displayed in the diagnostics HTML rep
 
 4. **Crosswalk Summary Table** — Zone → HH samples mapping with optional zone group
    aggregation.
+
+5. **Imputation Summary Table** — Per control, how many seed rows had an empty
+   incidence block, and the cross-validated log-loss and F1 of the PUMS-trained
+   model that filled them.
 
 All table builders return raw HTML strings suitable for Jinja2 template insertion,
 built with the helpers in ``table_html``. The per-profile tables are in

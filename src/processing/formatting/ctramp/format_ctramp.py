@@ -5,8 +5,9 @@ CT-RAMP (Coordinated Travel - Regional Activity Modeling Platform) format for
 use with activity-based travel demand models. See [CTRAMP Data Models](../../models/ctramp.md).
 
 This module orchestrates the transformation of households, persons, tours, and
-trips from canonical format into seven CT-RAMP tables, intelligently handling
-missing data and providing configurable income thresholds and filtering options.
+trips from canonical format into eleven CT-RAMP tables, handling missing data
+and providing configurable income thresholds. Which records it writes is the
+``usability_profile``'s choice, not this step's.
 
 # Components
 
@@ -143,8 +144,8 @@ flowchart TD
 
 ## Execution Stages
 
-1. TAZ Filtering (optional): Households without valid home_taz are removed,
-   cascading to persons, tours, and trips
+1. Record selection: keeps the records the ``usability_profile`` admits
+   (``usable_<profile>``); a profile's ``zone_coverage`` leaves out records with no TAZ
 2. Households: Formatted first to establish income brackets needed downstream
 3. Tours: Formatted before persons to provide tour frequency statistics
 4. Persons: Combines tour-derived fields (activity patterns, frequencies) with
@@ -175,7 +176,7 @@ use these defaults:
 
 - `activity_pattern`: 'H' (home all day)
 - `imf_choice`: 0 (no mandatory tours)
-- `inmf_choice`: 1 (minimum valid code)
+- `inmf_choice`: 0 (no non-mandatory tours)
 - `wfh_choice`: 0 (no work from home)
 - `jtf_choice`: Derived from joint tour data if available; otherwise NONE_NONE (-4)
 
@@ -398,6 +399,8 @@ def format_ctramp(
               participants)
             - joint_trips_ctramp: Joint trip data (trip-level attributes for joint
               tours)
+            - all_tours_ctramp, all_trips_ctramp: individual and joint, together
+            - cdap_results_ctramp, ao_results_ctramp: CDAP and auto ownership results
 
     !!! Example
 
