@@ -615,13 +615,19 @@ def format_ctramp(
         )
 
     # Prepare result dictionary and clean up temporary columns
+    # Two tables come out of group_bys in no fixed order; sort them so runs match.
     tables = {
-        "households_ctramp": households_ctramp,
+        "households_ctramp": households_ctramp.sort("hh_id"),
         "persons_ctramp": persons_ctramp,
         "individual_trips_ctramp": individual_trips_ctramp,
         "individual_tours_ctramp": individual_tours_ctramp,
         "joint_trips_ctramp": joint_trips_ctramp,
-        "joint_tours_ctramp": joint_tours_ctramp,
+        # With no joint tours the table has no columns to sort on.
+        "joint_tours_ctramp": (
+            joint_tours_ctramp.sort("hh_id", "tour_id")
+            if joint_tours_ctramp.width
+            else joint_tours_ctramp
+        ),
         "mandatory_locations_ctramp": mandatory_location_ctramp,
         "all_tours_ctramp": all_tours_ctramp,
         "all_trips_ctramp": all_trips_ctramp,

@@ -88,11 +88,11 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
 
         1. Columns from the specified parent table(s) are joined onto the
            child table (e.g. ``persons`` ← ``households`` via ``hh_id``).
-        2. For each target column a ``hh_mode_{column}`` feature is
-           auto-generated — the mode of that column among *other* household
-           members (exclude-self).  This captures within-household
+        2. For each target column, ``n_hh_{column}={code}`` features are
+           auto-generated — how many of the person's *other* household
+           members have each code.  This captures within-household
            correlation (e.g. siblings sharing race/ethnicity).
-        3. Auto-generated ``hh_mode_*`` columns are appended to
+        3. Auto-generated ``n_hh_*`` columns are appended to
            ``categorical_features`` automatically.
         4. After imputation all joined/aggregated columns are stripped;
            the output schema is unchanged.

@@ -90,14 +90,16 @@ def select_representative_members(joint_members: pl.DataFrame) -> pl.DataFrame:
 
     # One representative per tour: sum each member's offset across the legs they
     # travelled, then take the most central. Legs with no joint tour fall back to
-    # being their own group, which is the same rule over a single leg.
+    # being their own group, which is the same rule over a single leg. The sum is
+    # rounded again: the legs are added in no fixed order, which changes its last
+    # digit and would let that, not the tie-break, settle a pair.
     group = pl.coalesce(
         pl.col("joint_tour_id").cast(pl.Utf8), pl.col("joint_trip_id").cast(pl.Utf8)
     )
     totals = (
         offsets.with_columns(group.alias("_group"))
         .group_by("_group", "person_id")
-        .agg(pl.col("_offset").sum())
+        .agg(pl.col("_offset").sum().round(9))
     )
     representative = (
         totals.sort(["_offset", "person_id"])

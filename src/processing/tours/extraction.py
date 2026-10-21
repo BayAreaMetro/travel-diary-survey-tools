@@ -244,11 +244,12 @@ def extract_tours(
         tours = tours.with_columns(pl.lit(None, dtype=pl.Int64).alias("joint_tour_id"))
 
     # Step 7: Validate tours and correct data quality issues
+    # Sorted: tours come out of group_bys in no fixed order, so runs would differ.
     tours = validate_and_correct_tours(
         tours,
         linked_trips_with_tour_dir,
         spatial_gap_threshold_meters=extraction.spatial_gap_threshold_meters,
-    )
+    ).sort("tour_id")
 
     # Step 8: Add tour_id and joint_tour_id to unlinked_trips
     unlinked_trips_with_tour_ids = unlinked_trips.join(

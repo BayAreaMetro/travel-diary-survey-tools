@@ -82,18 +82,8 @@ def _process_imputation(  # noqa: C901
             msg = f"{label}: At least one of numeric_features or categorical_features required"
             raise ValueError(msg)
 
-        # 1. Enrich (parent joins + child aggregations)
-        df, added_columns, categorical_features = enrich_dataframe(
-            df,
-            table_name,
-            tables,
-            join_tables_list,
-            target_columns,
-            categorical_features,
-            aggregate_from_config,
-        )
-
-        # 2. Prepare missing values (replace enum labels with null)
+        # 1. Prepare missing values (replace enum labels with null). Before the
+        #    enrichment, as validation does, so household counts skip missing answers.
         for column in target_columns:
             labels = (
                 missing_values_config.get(column, [])
@@ -102,6 +92,18 @@ def _process_imputation(  # noqa: C901
             )
             if labels:
                 df, _ = prepare_column_for_imputation(df, table_name, column, labels)
+
+        # 2. Enrich (parent joins + child aggregations)
+        df, added_columns, categorical_features, numeric_features = enrich_dataframe(
+            df,
+            table_name,
+            tables,
+            join_tables_list,
+            target_columns,
+            categorical_features,
+            aggregate_from_config,
+            numeric_features,
+        )
 
         # 3. Impute (strategy dispatch)
         # NOTE: This is kind of hacky to hard-code, but its hard to conform the interfaces
@@ -173,7 +175,8 @@ def _process_imputation(  # noqa: C901
                 validate_imputation,
                 random_state,
                 tables,
-                categorical_features,
+                # The configured features: validation enriches them itself
+                config.get("categorical_features"),
             )
             validation_results.extend(val_metrics)
 
@@ -216,7 +219,7 @@ def _validate_config(
         if labels:
             prepared, _ = prepare_column_for_imputation(prepared, table_name, column, labels)
 
-    prepared, _, val_cat_features = enrich_dataframe(
+    prepared, _, val_cat_features, val_num_features = enrich_dataframe(
         prepared,
         table_name,
         tables,
@@ -224,6 +227,7 @@ def _validate_config(
         target_columns,
         categorical_features,
         aggregate_from_config,
+        numeric_features,
     )
 
     if method == "knn":
@@ -236,7 +240,7 @@ def _validate_config(
             config.get("n_neighbors", 5),
             config.get("neighbor_weights", "distance"),
             random_state,
-            numeric_features,
+            val_num_features,
             val_cat_features,
         )
     elif method == "rf":
@@ -249,7 +253,7 @@ def _validate_config(
             config.get("n_estimators", 100),
             config.get("max_depth"),
             random_state,
-            numeric_features,
+            val_num_features,
             val_cat_features,
         )
     else:
@@ -261,7 +265,7 @@ def _validate_config(
             sample_pct,
             config.get("max_iter", 10),
             random_state,
-            numeric_features,
+            val_num_features,
             val_cat_features,
         )
 
