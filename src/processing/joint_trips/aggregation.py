@@ -111,6 +111,8 @@ def build_joint_trips_table(
 
     _validate_grouping_membership(joint_members)
 
+    # Sorted: group_by returns groups in no fixed order, so the table's rows
+    # would otherwise come out shuffled each run.
     return (
         joint_members.group_by("joint_trip_id")
         .agg(agg_exprs)
@@ -119,6 +121,7 @@ def build_joint_trips_table(
             on="joint_trip_id",
             how="left",
         )
+        .sort("joint_trip_id")
     )
 
 
