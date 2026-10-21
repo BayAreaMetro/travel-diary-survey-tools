@@ -123,8 +123,8 @@ class TestJoinParentTables:
 class TestAddHouseholdAggFeatures:
     """Tests for add_household_agg_features."""
 
-    def test_mode_excludes_self(self):
-        """Mode should be computed from other household members only."""
+    def test_counts_the_other_members(self):
+        """Each person counts the other members' codes, never their own."""
         df = pl.DataFrame(
             {
                 "hh_id": [1, 1, 1],
@@ -135,42 +135,58 @@ class TestAddHouseholdAggFeatures:
 
         result, added = add_household_agg_features(df, ["race"])
 
-        assert "hh_mode_race" in added
-        # Person 10: other members have [2, 2] => mode = 2
-        assert result.filter(pl.col("person_id") == 10)["hh_mode_race"][0] == 2
-        # Person 11: other members have [1, 2] => mode could be 1 or 2
-        # Person 12: other members have [1, 2] => mode could be 1 or 2
+        assert added == ["n_hh_race=1", "n_hh_race=2"]
+        counts = result.sort("person_id").select(added).rows()
+        # Person 10 sees two 2s; 11 and 12 each see one 1 and one 2 -- a tie a
+        # mode would have had to break.
+        assert counts == [(0, 2), (1, 1), (1, 1)]
 
-    def test_single_person_household_null(self):
-        """Single-person households should get null for hh_mode."""
+    def test_alone_or_with_unknown_members_counts_zero(self):
+        """Nobody else, or only members with a null value, counts zero."""
         df = pl.DataFrame(
             {
-                "hh_id": [1, 2],
-                "person_id": [10, 20],
-                "race": [1, 2],
+                "hh_id": [1, 2, 2],
+                "person_id": [10, 20, 21],
+                "race": [1, 2, None],
             }
         )
 
         result, added = add_household_agg_features(df, ["race"])
 
-        assert "hh_mode_race" in added
-        # Both are single-person households, so hh_mode should be null
-        assert result["hh_mode_race"].null_count() == 2
+        counts = result.sort("person_id").select(added).rows()
+        assert counts == [(0, 0), (0, 0), (0, 1)]
 
-    def test_all_null_target_column(self):
-        """Should produce null agg when all target values are null."""
+    def test_all_null_target_adds_nothing(self):
+        """A column with no values has no codes to count."""
         df = pl.DataFrame(
             {
                 "hh_id": [1, 1],
                 "person_id": [10, 11],
-                "race": [None, None],
+                "race": pl.Series([None, None], dtype=pl.Int64),
             }
         )
 
         result, added = add_household_agg_features(df, ["race"])
 
-        assert "hh_mode_race" in added
-        assert result["hh_mode_race"].null_count() == 2
+        assert added == []
+        assert result.equals(df)
+
+    def test_row_order_does_not_change_the_counts(self):
+        """The same persons in another order get the same counts."""
+        df = pl.DataFrame(
+            {
+                "hh_id": [1, 1, 1, 2, 2],
+                "person_id": [10, 11, 12, 20, 21],
+                "race": [1, 2, 2, 3, 1],
+            }
+        )
+
+        result, _ = add_household_agg_features(df, ["race"])
+        shuffled, _ = add_household_agg_features(
+            df.sample(fraction=1.0, shuffle=True, seed=7), ["race"]
+        )
+
+        assert shuffled.sort("person_id").equals(result.sort("person_id"))
 
     def test_missing_hh_or_person_id_skips(self):
         """Should skip gracefully if hh_id or person_id is missing."""
@@ -184,20 +200,29 @@ class TestAddHouseholdAggFeatures:
     @pytest.mark.parametrize(
         ("targets", "expected_added"),
         [
-            pytest.param(["race"], ["hh_mode_race"], id="one-column"),
+            pytest.param(["race"], ["n_hh_race=1", "n_hh_race=2"], id="one-column"),
             pytest.param(
                 ["race", "ethnicity"],
-                ["hh_mode_race", "hh_mode_ethnicity"],
+                [
+                    "n_hh_race=1",
+                    "n_hh_race=2",
+                    "n_hh_ethnicity=3",
+                    "n_hh_ethnicity=4",
+                ],
                 id="two-columns",
             ),
             # A target that is not on the frame is skipped, not invented.
-            pytest.param(["race", "nonexistent"], ["hh_mode_race"], id="one-column-absent"),
+            pytest.param(
+                ["race", "nonexistent"],
+                ["n_hh_race=1", "n_hh_race=2"],
+                id="one-column-absent",
+            ),
         ],
     )
-    def test_one_agg_column_per_existing_target(
+    def test_one_count_column_per_code_of_each_existing_target(
         self, targets: list[str], expected_added: list[str]
     ):
-        """Should add agg features for each target column that exists."""
+        """Should add one count per code for each target column that exists."""
         df = pl.DataFrame(
             {
                 "hh_id": [1, 1],
@@ -384,3 +409,56 @@ class TestAggregateFromChildren:
 
         result = strip_joined_columns(enriched, added)
         assert set(result.columns) == original_cols
+
+
+# ---------------------------------------------------------------------------
+# The imputation step with household counts and its self-check together
+# ---------------------------------------------------------------------------
+
+
+def test_household_counts_survive_the_validation_pass():
+    """Household counts and the self-check run together, as in the project configs.
+
+    The imputation pass and its validation pass each build the counts; they
+    must blank missing answers first and build the same columns, or validation
+    asks for columns its frame does not have.
+    """
+    from processing.imputation.impute import imputation  # noqa: PLC0415
+
+    n_hh = 30
+    hh_ids = [h for h in range(1, n_hh + 1) for _ in range(3)]
+    # Mixed households, with missing (995) and non-binary (4) answers to impute.
+    genders = [[2, 1, 1], [1, 2, 995], [2, 2, 4], [1, 1, 2], [995, 2, 1]]
+    persons = pl.DataFrame(
+        {
+            "hh_id": hh_ids,
+            "person_id": [h * 10 + i for h in range(1, n_hh + 1) for i in range(3)],
+            "gender": [g for h in range(n_hh) for g in genders[h % len(genders)]],
+            "age": [(h + i) % 6 + 1 for h in range(n_hh) for i in range(3)],
+        }
+    )
+    households = pl.DataFrame({"hh_id": list(range(1, n_hh + 1)), "residence_type": [1, 2] * 15})
+
+    result = imputation(
+        households=households,
+        persons=persons,
+        impute_columns={
+            "persons": [
+                {
+                    "column": "gender",
+                    "method": "rf",
+                    "missing_values": ["NON_BINARY", "MISSING"],
+                    "join_tables": ["households"],
+                    "categorical_features": ["age", "residence_type"],
+                }
+            ]
+        },
+        stash_preimputed=False,
+        random_state=42,
+        validate_imputation={"enabled": True, "n_folds": 2, "sample_pct": 50.0},
+        validate_input=False,
+    )
+
+    out = result["persons"]
+    assert set(out["gender"].unique().to_list()) <= {1, 2}
+    assert not [c for c in out.columns if c.startswith("n_hh_")]
