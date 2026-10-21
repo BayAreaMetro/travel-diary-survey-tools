@@ -167,18 +167,16 @@ def compare_imputation_methods(
             df, _ = prepare_column_for_imputation(df, table_name, column, mv)
 
         # Enrich with joins / aggregations (same as imputation pipeline)
-        categorical_features = entry["categorical_features"]
-        df, _, categorical_features = enrich_dataframe(
+        df, _, categorical_features, numeric_features = enrich_dataframe(
             df,
             table_name,
             tables,
             entry["join_tables"],
             [column],
-            categorical_features,
+            entry["categorical_features"],
             entry["aggregate_from"],
+            entry["numeric_features"],
         )
-
-        numeric_features = entry["numeric_features"]
 
         for method in _COMPARISON_METHODS:
             logger.info(

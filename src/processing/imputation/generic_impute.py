@@ -94,7 +94,7 @@ def _process_imputation(  # noqa: C901
                 df, _ = prepare_column_for_imputation(df, table_name, column, labels)
 
         # 2. Enrich (parent joins + child aggregations)
-        df, added_columns, categorical_features = enrich_dataframe(
+        df, added_columns, categorical_features, numeric_features = enrich_dataframe(
             df,
             table_name,
             tables,
@@ -102,6 +102,7 @@ def _process_imputation(  # noqa: C901
             target_columns,
             categorical_features,
             aggregate_from_config,
+            numeric_features,
         )
 
         # 3. Impute (strategy dispatch)
@@ -218,7 +219,7 @@ def _validate_config(
         if labels:
             prepared, _ = prepare_column_for_imputation(prepared, table_name, column, labels)
 
-    prepared, _, val_cat_features = enrich_dataframe(
+    prepared, _, val_cat_features, val_num_features = enrich_dataframe(
         prepared,
         table_name,
         tables,
@@ -226,6 +227,7 @@ def _validate_config(
         target_columns,
         categorical_features,
         aggregate_from_config,
+        numeric_features,
     )
 
     if method == "knn":
@@ -238,7 +240,7 @@ def _validate_config(
             config.get("n_neighbors", 5),
             config.get("neighbor_weights", "distance"),
             random_state,
-            numeric_features,
+            val_num_features,
             val_cat_features,
         )
     elif method == "rf":
@@ -251,7 +253,7 @@ def _validate_config(
             config.get("n_estimators", 100),
             config.get("max_depth"),
             random_state,
-            numeric_features,
+            val_num_features,
             val_cat_features,
         )
     else:
@@ -263,7 +265,7 @@ def _validate_config(
             sample_pct,
             config.get("max_iter", 10),
             random_state,
-            numeric_features,
+            val_num_features,
             val_cat_features,
         )
 

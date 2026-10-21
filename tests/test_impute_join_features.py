@@ -6,6 +6,7 @@ import pytest
 from processing.imputation.impute_utils import (
     add_household_agg_features,
     aggregate_from_children,
+    enrich_dataframe,
     join_parent_tables,
     strip_joined_columns,
 )
@@ -462,3 +463,41 @@ def test_household_counts_survive_the_validation_pass():
     out = result["persons"]
     assert set(out["gender"].unique().to_list()) <= {1, 2}
     assert not [c for c in out.columns if c.startswith("n_hh_")]
+
+
+@pytest.mark.parametrize(
+    ("table", "config", "prefix"),
+    [
+        pytest.param(
+            "persons", {"join_tables": ["households"]}, "n_hh_race=", id="household-counts"
+        ),
+        pytest.param(
+            "households",
+            {"aggregate_from": {"persons": {"pivot_count": ["race"]}}},
+            "persons_count_race=",
+            id="pivot-counts",
+        ),
+    ],
+)
+def test_counts_are_numeric_features(table, config, prefix):
+    """Added counts go in as numbers, not as one 0/1 column per count value."""
+    tables = {
+        "households": pl.DataFrame({"hh_id": [1, 2], "residence_type": [1, 2]}),
+        "persons": pl.DataFrame({"hh_id": [1, 1, 2], "person_id": [10, 11, 20], "race": [1, 2, 2]}),
+    }
+
+    _, added, categorical, numeric = enrich_dataframe(
+        tables[table],
+        table,
+        tables,
+        config.get("join_tables", []),
+        ["race"],
+        ["residence_type"],
+        config.get("aggregate_from"),
+        ["num_trips"],
+    )
+
+    counts = [c for c in added if c.startswith(prefix)]
+    assert counts
+    assert numeric == ["num_trips", *counts]
+    assert categorical == ["residence_type"]

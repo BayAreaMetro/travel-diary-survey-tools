@@ -694,15 +694,21 @@ def enrich_dataframe(
     target_columns: list[str],
     categorical_features: list[str] | None,
     aggregate_from_config: dict[str, dict[str, list[str]]] | None = None,
-) -> tuple[pl.DataFrame, list[str], list[str] | None]:
+    numeric_features: list[str] | None = None,
+) -> tuple[pl.DataFrame, list[str], list[str] | None, list[str] | None]:
     """Enrich a DataFrame with parent joins and child aggregations.
 
     Handles both directions:
       - Parent→child joins via ``join_tables`` config
       - Child→parent aggregations via ``aggregate_from`` config
 
+    The added counts (household counts, ``pivot_count``) are numeric features:
+    a count is a number, and as a category it would split into one column per
+    count value.
+
     Returns:
-        Tuple of (enriched_df, added_column_names, updated_categorical_features)
+        Tuple of (enriched_df, added_column_names, categorical_features,
+        numeric_features), the last two with the added counts in place.
     """
     added_columns: list[str] = []
 
@@ -714,13 +720,13 @@ def enrich_dataframe(
         df, agg_cols = add_household_agg_features(df, target_columns)
         added_columns.extend(agg_cols)
         if agg_cols:
-            categorical_features = list(categorical_features or []) + agg_cols
+            numeric_features = list(numeric_features or []) + agg_cols
 
     # Child aggregations (e.g. households aggregating from persons)
     if aggregate_from_config and tables:
         df, child_cols = aggregate_from_children(df, table_name, tables, aggregate_from_config)
         added_columns.extend(child_cols)
         if child_cols:
-            categorical_features = list(categorical_features or []) + child_cols
+            numeric_features = list(numeric_features or []) + child_cols
 
-    return df, added_columns, categorical_features
+    return df, added_columns, categorical_features, numeric_features
