@@ -511,16 +511,21 @@ def add_household_agg_features(
     hh_id_col: str = "hh_id",
     person_id_col: str = "person_id",
 ) -> tuple[pl.DataFrame, list[str]]:
-    """Add household-aggregated features for target columns.
+    """Count the rest of each person's household in each code of each target column.
 
-    For each target column, computes the mode of that column among *other*
-    household members (excluding the current person). This captures
-    within-household correlation (e.g., siblings likely share race/ethnicity).
+    Captures within-household correlation (e.g., siblings likely share
+    race/ethnicity). Column ``gender`` gains ``n_hh_gender=1``,
+    ``n_hh_gender=2``, ...: how many members of the person's household, not
+    counting the person, have that code. A child of a man and a woman counts
+    one of each; a person living alone counts zero. Members with a null value
+    are not counted.
 
-    The new columns are named ``hh_mode_{column}``.
+    The person is left out because their own value is the target: counting it
+    would hand the model the answer on the rows it learns from, and not on the
+    rows it predicts.
 
-    For single-person households or when all other members have null values,
-    the aggregated value will be null.
+    Counts, not the most common value: a tie (one man, one woman) has no single
+    answer, and settling it by row order made imputation differ run to run.
 
     Args:
         df: DataFrame with person-level records (must contain hh_id and person_id)
@@ -545,46 +550,21 @@ def add_household_agg_features(
         if col not in df.columns:
             continue
 
-        agg_col_name = f"hh_mode_{col}"
-
-        # For each person, compute the mode of `col` among other HH members
-        # Step 1: Build a lookup of hh_id + person_id -> value
-        # Step 2: Self-join excluding current person, group by hh_id+person_id, take mode
-
-        # Get all (hh_id, person_id, col_value) with non-null values
-        valid = df.select([hh_id_col, person_id_col, col]).filter(pl.col(col).is_not_null())
-
-        if valid.is_empty():
-            # No valid values to aggregate
-            df = df.with_columns(pl.lit(None).alias(agg_col_name))
-            added_columns.append(agg_col_name)
-            continue
-
-        # Cross-join within household: for each person, get other members' values
-        # Rename to avoid column conflicts
-        others = valid.rename({person_id_col: f"_other_{person_id_col}", col: f"_other_{col}"})
-
-        # Join on hh_id, then filter out self
-        crossed = (
-            df.select([hh_id_col, person_id_col])
-            .join(others, on=hh_id_col, how="left")
-            .filter(pl.col(person_id_col) != pl.col(f"_other_{person_id_col}"))
+        values = df[col].drop_nulls().unique().sort().to_list()
+        names = [f"n_hh_{col}={val}" for val in values]
+        # The household's count of each code, less the person's own.
+        df = df.with_columns(
+            (
+                (pl.col(col) == val).fill_null(value=False).sum().over(hh_id_col)
+                - (pl.col(col) == val).fill_null(value=False)
+            )
+            .cast(pl.Int32)
+            .alias(name)
+            for val, name in zip(values, names, strict=True)
         )
+        added_columns.extend(names)
 
-        # Compute mode per person
-        hh_agg = crossed.group_by([hh_id_col, person_id_col]).agg(
-            pl.col(f"_other_{col}").mode().first().alias(agg_col_name)
-        )
-
-        # Join back
-        df = df.join(hh_agg, on=[hh_id_col, person_id_col], how="left")
-        added_columns.append(agg_col_name)
-
-        logger.info(
-            "Added household aggregate feature '%s' for column '%s'",
-            agg_col_name,
-            col,
-        )
+        logger.info("Added %d household count features for column '%s'", len(names), col)
 
     return df, added_columns
 

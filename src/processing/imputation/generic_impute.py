@@ -82,7 +82,18 @@ def _process_imputation(  # noqa: C901
             msg = f"{label}: At least one of numeric_features or categorical_features required"
             raise ValueError(msg)
 
-        # 1. Enrich (parent joins + child aggregations)
+        # 1. Prepare missing values (replace enum labels with null). Before the
+        #    enrichment, as validation does, so household counts skip missing answers.
+        for column in target_columns:
+            labels = (
+                missing_values_config.get(column, [])
+                if isinstance(missing_values_config, dict)
+                else missing_values_config
+            )
+            if labels:
+                df, _ = prepare_column_for_imputation(df, table_name, column, labels)
+
+        # 2. Enrich (parent joins + child aggregations)
         df, added_columns, categorical_features = enrich_dataframe(
             df,
             table_name,
@@ -92,16 +103,6 @@ def _process_imputation(  # noqa: C901
             categorical_features,
             aggregate_from_config,
         )
-
-        # 2. Prepare missing values (replace enum labels with null)
-        for column in target_columns:
-            labels = (
-                missing_values_config.get(column, [])
-                if isinstance(missing_values_config, dict)
-                else missing_values_config
-            )
-            if labels:
-                df, _ = prepare_column_for_imputation(df, table_name, column, labels)
 
         # 3. Impute (strategy dispatch)
         # NOTE: This is kind of hacky to hard-code, but its hard to conform the interfaces
@@ -173,7 +174,8 @@ def _process_imputation(  # noqa: C901
                 validate_imputation,
                 random_state,
                 tables,
-                categorical_features,
+                # The configured features: validation enriches them itself
+                config.get("categorical_features"),
             )
             validation_results.extend(val_metrics)
 
