@@ -147,6 +147,9 @@ def _predict_null_rows(
     if null_rows.is_empty():
         return pl.DataFrame()
 
+    # One thread: threads sum the trees' probabilities in finishing order,
+    # which changes the last digits between runs.
+    clf.set_params(n_jobs=1)
     probas = clf.predict_proba(
         null_rows.select(feature_cols).to_numpy().astype(np.float32),
     )
@@ -191,6 +194,10 @@ def _train_and_predict(
 
     x_train = train_pivot.select(feature_cols).to_numpy().astype(np.float32)
     y_train = train_pivot.select(member_cols).to_numpy().argmax(axis=1)
+    # The pivot's row order varies run to run, and the forest samples rows by
+    # position. Sorting by the values fixes it; identical rows are interchangeable.
+    order = np.lexsort(np.column_stack([x_train, y_train]).T[::-1])
+    x_train, y_train = x_train[order], y_train[order]
 
     if len(np.unique(y_train)) < 2:  # noqa: PLR2004
         logger.warning("Only 1 class for %s — skipping", member_cols)

@@ -142,6 +142,9 @@ def impute_random_forest(  # noqa: PLR0915
         )
 
     model.fit(x_train, y_train)
+    # Threads sum the trees' votes in finishing order, which flips near-ties
+    # between runs; one thread predicts the same every time.
+    model.set_params(n_jobs=1)
     predicted = model.predict(x_predict)
 
     # Extract feature importance (MDI) and aggregate one-hot columns
