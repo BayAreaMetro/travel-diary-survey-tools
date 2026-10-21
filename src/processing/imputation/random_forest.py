@@ -122,6 +122,10 @@ def impute_random_forest(  # noqa: PLR0915
     x_train = x_all[known_mask]
     y_train = target_values[known_mask]
     x_predict = x_all[missing_mask]
+    # The forest samples training rows by position; sorting by value keeps it the
+    # same whatever order the rows arrive in. Identical rows are interchangeable.
+    order = np.lexsort(np.column_stack([x_train, y_train]).T[::-1])
+    x_train, y_train = x_train[order], y_train[order]
 
     # Choose classifier vs regressor
     use_classifier = is_categorical(df, column)
