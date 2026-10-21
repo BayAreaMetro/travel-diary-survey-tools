@@ -1,6 +1,6 @@
 r"""Maximum-entropy list balancer.
 
-Thin Polars→numpy bridge around PopulationSim's ``np_balancer_numba``.
+Thin Polars→numpy bridge around ``np_balancer_numba``, vendored from PopulationSim.
 Runs independently per geography zone.
 
 # Algorithm
@@ -18,18 +18,25 @@ vector.
 
 # Implementation
 
-Calls ``populationsim.balancing.balancers_numba.np_balancer_numba``
-directly — a pure ``@njit`` function (~120 lines) taking numpy arrays.
-No PopulationSim pipeline infrastructure involved.  Zones are
-independent and parallelisable via ``ThreadPoolExecutor``.
+Calls ``np_balancer_numba`` from ``_np_balancer``, vendored from PopulationSim
+v0.10.0 -- a pure ``@njit`` function taking numpy arrays, so PopulationSim is
+not a dependency.  Zones are independent and run in parallel via
+``ThreadPoolExecutor``.
 
 # Configuration (YAML)
 
+The ``balancing:`` block of ``compute_weights`` (see ``BalancingConfig``):
+
 ```yaml
-max_iterations: 1000
-convergence_threshold: 0.001
-max_expansion_factor: 10    # upper bound = initial_weight x factor
-min_expansion_factor: 0.1   # lower bound = initial_weight x factor
+balancing:
+  max_expansion_factor: 5.0     # upper bound = initial_weight x factor
+  min_expansion_factor: 0.01    # lower bound = initial_weight x factor
+  min_weight: 1                 # absolute floor
+  # max_weight: null            # absolute ceiling (optional)
+  max_iterations: 10000
+  n_workers: 8                  # zones balanced in parallel
+  default_importance: 100
+  moe_based_importance: true
 ```
 """
 
@@ -62,8 +69,8 @@ def balance_weights(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
-    balancing: BalancingConfig | None = None,
-    importance: ImportanceConfig | None = None,
+    balancing: BalancingConfig,
+    importance: ImportanceConfig,
     *,
     verbose: bool = True,
 ) -> tuple[pl.DataFrame, list[ZoneStatus]]:
@@ -76,9 +83,8 @@ def balance_weights(
             and zone-specific) must already be applied.
         control_totals: Per-zone targets (with merges already applied).
         targets: Control registry names.
-        balancing: Solver bounds, iteration limits, and parallelism
-            (defaults apply).
-        importance: Per-control importance weights (defaults apply).
+        balancing: Solver bounds, iteration limits, and parallelism.
+        importance: Per-control importance weights.
         verbose: Log per-zone convergence (default ``True``).
 
     Returns:
@@ -87,8 +93,6 @@ def balance_weights(
         *statuses* is one [`ZoneStatus`][processing.weighting.core.specs.ZoneStatus]
         entry per zone with convergence info.
     """
-    bal = balancing or BalancingConfig()
-    imp = importance or ImportanceConfig()
     geo_col = "ctrl_geoid"
 
     # Build per-zone inputs
@@ -106,20 +110,20 @@ def balance_weights(
                 zone_totals,
                 targets,
                 geo_id,
-                importance=imp.explicit or None,
-                default_importance=imp.default,
-                min_expansion_factor=bal.min_expansion_factor,
-                max_expansion_factor=bal.max_expansion_factor,
-                min_weight=bal.min_weight,
-                max_weight=bal.max_weight,
-                max_iterations=bal.max_iterations,
+                importance=importance.explicit or None,
+                default_importance=importance.default,
+                min_expansion_factor=balancing.min_expansion_factor,
+                max_expansion_factor=balancing.max_expansion_factor,
+                min_weight=balancing.min_weight,
+                max_weight=balancing.max_weight,
+                max_iterations=balancing.max_iterations,
                 verbose=verbose,
             )
         )
 
     # Run balancer — numba @njit releases the GIL so threads parallelize
-    if bal.n_workers > 1 and len(zone_inputs) > 1:
-        with ThreadPoolExecutor(max_workers=bal.n_workers) as pool:
+    if balancing.n_workers > 1 and len(zone_inputs) > 1:
+        with ThreadPoolExecutor(max_workers=balancing.n_workers) as pool:
             results = list(pool.map(_balance_zone, zone_inputs))
     else:
         results = [_balance_zone(z) for z in zone_inputs]
@@ -146,8 +150,8 @@ def grid_search_expansion_factor(
     targets: list[str],
     ef_grid: list[float],
     selected_ef: float,
-    balancing: BalancingConfig | None = None,
-    importance: ImportanceConfig | None = None,
+    balancing: BalancingConfig,
+    importance: ImportanceConfig,
 ) -> list[GridPoint]:
     """Re-run the balancer across a grid of ``max_expansion_factor`` values.
 
@@ -163,21 +167,13 @@ def grid_search_expansion_factor(
     at ``n_workers`` while using it fully: a run has few zones, and zone-level
     parallelism alone left most workers idle.
     """
-    bal = balancing or BalancingConfig()
     grid = sorted(set(ef_grid) | {selected_ef})
     if not grid:
         return []
 
     def run(ef: float) -> GridPoint:
         # Zones run one at a time here; the grid points share the worker pool
-        ef_bal = BalancingConfig(
-            max_expansion_factor=ef,
-            min_expansion_factor=bal.min_expansion_factor,
-            min_weight=bal.min_weight,
-            max_weight=bal.max_weight,
-            max_iterations=bal.max_iterations,
-            n_workers=1,
-        )
+        ef_bal = balancing.model_copy(update={"max_expansion_factor": ef, "n_workers": 1})
         weights, statuses = balance_weights(
             seed,
             control_totals,
@@ -219,9 +215,9 @@ def grid_search_expansion_factor(
             ess_pct=ess_pct,
         )
 
-    logger.info("Grid search: EF %s on %d worker(s)", grid, bal.n_workers)
-    if bal.n_workers > 1 and len(grid) > 1:
-        with ThreadPoolExecutor(max_workers=bal.n_workers) as pool:
+    logger.info("Grid search: EF %s on %d worker(s)", grid, balancing.n_workers)
+    if balancing.n_workers > 1 and len(grid) > 1:
+        with ThreadPoolExecutor(max_workers=balancing.n_workers) as pool:
             return list(pool.map(run, grid))
     return [run(ef) for ef in grid]
 

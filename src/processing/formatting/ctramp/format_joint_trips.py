@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPPersonType, CTRAMPTourCategory
+from data_canon.codebook.ctramp import CTRAMPTourCategory
 from data_canon.codebook.persons import SchoolType
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import TNCType
@@ -13,7 +13,7 @@ from .ctramp_config import CTRAMPConfig
 from .format_joint_tours import ctramp_joint_tour_numbers, joint_weight_columns
 from .joint_representative import log_members_spanning_zones, select_representative_members
 from .mode_mappings import aggregate_transit_submode, ctramp_mode_expression
-from .purpose_mappings import ctramp_purpose_category_expression
+from .purpose_mappings import NO_EMPLOYMENT, ctramp_purpose_category_expression
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +186,7 @@ def format_joint_trip(
                 pl.col("o_purpose_category"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
-                pl.lit(CTRAMPPersonType.NON_WORKER.value),
+                NO_EMPLOYMENT,
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -196,7 +196,7 @@ def format_joint_trip(
                 pl.col("d_purpose_category"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
-                pl.lit(CTRAMPPersonType.NON_WORKER.value),
+                NO_EMPLOYMENT,
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -206,7 +206,7 @@ def format_joint_trip(
                 pl.col("tour_purpose"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
-                pl.lit(CTRAMPPersonType.NON_WORKER.value),
+                NO_EMPLOYMENT,
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,

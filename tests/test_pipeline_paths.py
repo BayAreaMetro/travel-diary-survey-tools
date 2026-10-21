@@ -21,15 +21,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from pipeline.pipeline import (
-    Pipeline,
-    _check_input_paths,
-    _check_roots_resolved,
+from pipeline.config import (
     _referenced_names,
     _resolve_variables,
-    _shorthands_used_by_steps,
-    _template_namespace,
+    check_input_paths,
+    check_roots_resolved,
+    shorthands_used_by_steps,
+    template_namespace,
 )
+from pipeline.pipeline import Pipeline
 
 ROOTED = """
 survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/x"
@@ -62,38 +62,38 @@ class TestOneNamespace:
         """The machine-specific half, and the only half that comes from outside."""
         monkeypatch.setenv("MTC_DATA", "//share/models")
 
-        assert _template_namespace(_config())["MTC_DATA"] == "//share/models"
+        assert template_namespace(_config())["MTC_DATA"] == "//share/models"
 
     def test_the_configs_own_keys_are_still_available(self):
         """``log_file: "{{ output_dir }}/run.log"`` predates roots and must survive."""
-        assert "output_dir" in _template_namespace(_config())
+        assert "output_dir" in template_namespace(_config())
 
     def test_an_envs_block_supplies_a_committed_default(self):
         """For a root that genuinely is the same everywhere."""
         config = _config('ENVS:\n  SHARED: "/opt/shared"\nd: "{{ SHARED }}/x"')
 
-        assert _template_namespace(config)["SHARED"] == "/opt/shared"
+        assert template_namespace(config)["SHARED"] == "/opt/shared"
 
     def test_the_environment_beats_a_committed_default(self, monkeypatch):
         """The block is a default; a machine is the authority on its own mounts."""
         monkeypatch.setenv("SHARED", "/mnt/elsewhere")
         config = _config('ENVS:\n  SHARED: "/opt/shared"\nd: "{{ SHARED }}/x"')
 
-        assert _template_namespace(config)["SHARED"] == "/mnt/elsewhere"
+        assert template_namespace(config)["SHARED"] == "/mnt/elsewhere"
 
     def test_an_empty_variable_is_not_an_instruction(self, monkeypatch):
         """An exported-but-empty variable is a shell accident, not a value."""
         monkeypatch.setenv("SHARED", "")
         config = _config('ENVS:\n  SHARED: "/opt/shared"\nd: "{{ SHARED }}/x"')
 
-        assert _template_namespace(config)["SHARED"] == "/opt/shared"
+        assert template_namespace(config)["SHARED"] == "/opt/shared"
 
     def test_roots_resolve_through_to_a_full_path(self, monkeypatch):
         """The whole point: a real path, assembled from both halves."""
         monkeypatch.setenv("MTC_DATA", "//share/models")
         monkeypatch.setenv("BOX_DIR", "/box")
 
-        resolved = _resolve_variables(_template_namespace(_config()))
+        resolved = _resolve_variables(template_namespace(_config()))
 
         assert resolved["survey_dir"] == "//share/models/Data/HomeInterview/x"
         assert resolved["log_file"] == "/box/out/run.log"
@@ -101,7 +101,7 @@ class TestOneNamespace:
     def test_a_malformed_envs_block_is_refused(self):
         """A scalar where a mapping belongs would silently contribute nothing."""
         with pytest.raises(TypeError, match="must be a mapping"):
-            _template_namespace(_config("ENVS: not-a-mapping\nd: x"))
+            template_namespace(_config("ENVS: not-a-mapping\nd: x"))
 
 
 class TestAnUnsetRootIsNamed:
@@ -118,7 +118,7 @@ class TestAnUnsetRootIsNamed:
         config = _config()
 
         with pytest.raises(ValueError, match="not set anywhere") as excinfo:
-            _check_roots_resolved(config, _template_namespace(config))
+            check_roots_resolved(config, template_namespace(config))
 
         message = str(excinfo.value)
         assert "MTC_DATA" in message
@@ -131,7 +131,7 @@ class TestAnUnsetRootIsNamed:
         monkeypatch.setenv("BOX_DIR", "/box")
         config = _config()
 
-        _check_roots_resolved(config, _template_namespace(config))
+        check_roots_resolved(config, template_namespace(config))
 
     def test_references_are_found_wherever_they_appear(self):
         """Including inside step params, which is where most of them are."""
@@ -148,7 +148,7 @@ class TestOnlyReferencedPathsAreChecked:
 
     def test_a_shorthand_a_step_names_is_in_scope(self):
         """A live reference is what puts a path in scope."""
-        assert _shorthands_used_by_steps(_config()) == {"survey_dir"}
+        assert shorthands_used_by_steps(_config()) == {"survey_dir"}
 
     def test_a_shorthand_only_a_comment_names_is_not(self):
         """This is what stops `pums_dir` refusing a bats_2023 run."""
@@ -157,11 +157,11 @@ class TestOnlyReferencedPathsAreChecked:
             '      # p: "{{ pums_dir }}/x"\n      q: 1'
         )
 
-        assert _shorthands_used_by_steps(config) == set()
+        assert shorthands_used_by_steps(config) == set()
 
     def test_a_declared_but_unused_path_is_not_required_to_exist(self):
         """Declared, referenced by nothing, missing on disk -- and still fine."""
-        _check_input_paths({"pums_dir": "Z:/nowhere"}, used=set())
+        check_input_paths({"pums_dir": "Z:/nowhere"}, used=set())
 
 
 class TestMissingInputsFailBeforeTheRun:
@@ -169,25 +169,25 @@ class TestMissingInputsFailBeforeTheRun:
 
     def test_an_existing_directory_passes(self, tmp_path):
         """A correct config must be silent, or the check gets bypassed."""
-        _check_input_paths({"survey_dir": str(tmp_path)}, used={"survey_dir"})
+        check_input_paths({"survey_dir": str(tmp_path)}, used={"survey_dir"})
 
     def test_every_missing_path_is_named_at_once(self):
         """Otherwise the fix-run-wait loop repeats once per wrong path."""
         config = {"survey_dir": "Z:/nowhere", "TM2_shapefile_dir": "Z:/still/nowhere"}
 
         with pytest.raises(ValueError, match=r"director(y|ies) do(es)? not exist") as excinfo:
-            _check_input_paths(config, used=set(config))
+            check_input_paths(config, used=set(config))
 
         for key in config:
             assert key in str(excinfo.value)
 
     def test_output_directories_are_not_required_to_exist(self, tmp_path):
         """They are created on demand; demanding them up front would be wrong."""
-        _check_input_paths({"output_dir": str(tmp_path / "unmade")}, used={"output_dir"})
+        check_input_paths({"output_dir": str(tmp_path / "unmade")}, used={"output_dir"})
 
     def test_settings_that_are_not_directories_are_ignored(self):
         """Only ``*_dir`` names a directory; the rest are values, not paths."""
-        _check_input_paths(
+        check_input_paths(
             {"state_fips": "06", "log_file": "Z:/nowhere/run.log"},
             used={"state_fips", "log_file"},
         )

@@ -6,7 +6,7 @@ and temporal patterns.
 
 !!! Algorithm
 
-    The tour building process follows a seven-phase pipeline:
+    The tour building process runs these steps in order:
 
     # 1. Location Classification
 
@@ -23,8 +23,7 @@ and temporal patterns.
         * Departures from home (o_is_home=True, d_is_home=False)
         * Returns to home (o_is_home=False, d_is_home=True)
         * Day boundaries (first trip of person-day)
-    - Assigns sequential tour IDs within each person-day
-    - Format: tour_id = (day_id * 100) + tour_sequence_number
+    - Numbers the tours within each person-day (``tour_num``)
 
     # 3. Anchor Period Expansion (CRITICAL for subtours)
 
@@ -39,27 +38,27 @@ and temporal patterns.
     - Within expanded anchor periods, identifies subtours by detecting:
         * Departures from an anchor (o_at_anchor=True, d_at_anchor=False)
         * Returns to that same anchor (o_at_anchor=False, d_at_anchor=True)
-    - Assigns hierarchical subtour IDs
-    - Format: subtour_id = (tour_id * 10) + subtour_sequence_number
-    - Currently supports work-based subtours, extensible to school-based
+    - Numbers the subtours within each tour (``subtour_num``); work- and
+      school-based subtours alike
 
-    # 5. Tour Attribute Aggregation
+    # 5. Tour IDs and Attribute Aggregation
 
-    - Groups trips by tour_id (and subtour_id for subtours)
+    - ``tour_id`` is the ``day_id`` followed by four digits,
+      ``tour_num * 1000 + subtour_num * 10``; a subtour's ``parent_tour_id`` is
+      its tour's id with ``subtour_num`` 0
     - Computes tour-level attributes from constituent trips:
-        * tour_purpose: Highest priority destination purpose (person-category
-          specific hierarchy)
+        * tour_purpose: the primary destination's purpose, chosen by score
+          (activity duration and purpose, the default) or by the
+          person-category hierarchy (``tour_purpose_method``)
         * tour_mode: Highest priority travel mode (from configurable mode
           hierarchy)
         * origin_depart_time: First trip's departure time
         * dest_arrive_time: Last trip's arrival time
         * trip_count: Number of trips in tour
-        * stop_count: Number of intermediate stops (trip_count - 1)
 
-    - Assigns half-tour classification:
-        * "outbound": Trips before primary destination
-        * "inbound": Trips after primary destination
-        * "subtour": Work-based subtour trips
+    - Assigns each trip's ``tour_direction``: outbound (before the primary
+      destination) or inbound (after it). A subtour has two halves too;
+      subtour membership is read from ``parent_tour_id``, not the direction
 
     # 6. Joint Tour Identification
 
@@ -68,11 +67,16 @@ and temporal patterns.
     - Assigns joint_tour_id to tours with stable participant groups
     - Links tour-level joint travel to trip-level joint travel
 
-    # 7. Tour Validation and Correction
+    # 7. Tour Data Quality
 
-    - Validates tour structure consistency
-    - Corrects data quality issues (e.g., inconsistent timing, missing values)
+    - Stamps each tour's ``tour_data_quality``: valid, or the first reason it
+      is not a valid round trip (no destination, a spatial gap, another home,
+      split across days, at the diary's edge). Nothing is corrected
     - Adds tour_id and joint_tour_id to unlinked_trips for reference
+
+    # 8. Joint Tours Table
+
+    - Collapses the member tours of each joint tour into ``joint_tours``
 
     # Edge Case Handling is performed including
 
@@ -80,19 +84,18 @@ and temporal patterns.
     - Multi-day tours (spanning survey boundaries)
     - Missing work/school locations (null coordinates)
     - Non-sequential trip chains (spatial gaps)
-    - Hierarchical tour structure: Home-based tours → Work-based subtours
+    - Hierarchical tour structure: Home-based tours → work- and school-based subtours
     - Location matching allows for GPS/geocoding error through one buffer
     - Tour purpose reflects primary activity, not intermediate stops
-    - Extensible design allows future additions (school-based subtours, other
-      anchor types)
+    - Extensible design allows further anchor types
 """
 
 import logging
-from typing import Any
 
 import polars as pl
 
 from pipeline.decoration import step
+from processing.habitual_locations import MatchConfig
 from utils.create_ids import create_tour_ids
 
 from .aggregation_helpers import aggregate_tour_attributes
@@ -136,9 +139,10 @@ logger = logging.getLogger(__name__)
         "days": {"day_id", "travel_date", "begin_day", "end_day"},
     },
     produces={
-        "unlinked_trips": {"tour_id"},
-        "linked_trips": {"tour_id"},
-        "tours": {"tour_id"},
+        "unlinked_trips": {"tour_id", "joint_tour_id"},
+        "linked_trips": {"tour_id", "joint_tour_id"},
+        "tours": {"tour_id", "joint_tour_id"},
+        "joint_tours": {"joint_tour_id"},
     },
 )
 def extract_tours(
@@ -147,8 +151,9 @@ def extract_tours(
     linked_trips: pl.DataFrame,
     habitual_locations: pl.DataFrame,
     days: pl.DataFrame,
+    extraction: TourConfig,
+    habitual_match: MatchConfig,
     joint_trips: pl.DataFrame | None = None,
-    **kwargs: dict[str, Any],
 ) -> dict[str, pl.DataFrame]:
     """Extract hierarchical tour structures from linked trip data.
 
@@ -166,32 +171,26 @@ def extract_tours(
         days: Days with ``begin_day``/``end_day``. A day stated to begin or end
             at home counts beside the trip purpose at its first origin or last
             destination.
+        extraction: Tour-building rules. See ``TourConfig``.
+        habitual_match: Whether a trip end is at a habitual location, and the
+            distance within which it returns to a tour's primary destination.
+            The tours' own setting, separate from ``detect_habitual_locations``'.
         joint_trips: Optional joint trip aggregations. If provided, enables joint
             tour identification based on stable participant groups.
-        **kwargs: Configuration parameters for TourConfig:
-
-            - habitual_locations: The match rule (MatchConfig): the buffer, which
-              must be the one ``detect_habitual_locations`` used.
-            - mode_hierarchy: Mode priority for tour mode assignment (list).
-              Higher index = higher priority.
-            - purpose_hierarchy: Purpose priority by person type (dict).
-              Maps person categories to ordered purpose lists.
-            - person_category_expression: Polars expression to classify person
-              categories (e.g., worker, student).
 
     Returns:
         Dictionary containing:
 
             - unlinked_trips: Original unlinked trips with tour_id, joint_tour_id
-            - linked_trips: Trips with tour_id, subtour_id, half_tour, joint_tour_id
+            - linked_trips: Trips with tour_id, parent_tour_id, tour_direction,
+              joint_tour_id
             - tours: Aggregated tour records with purpose, mode, timing, trip counts,
-              and joint_tour_id
+              tour_data_quality and joint_tour_id
+            - joint_tours: One record per joint tour
     """
     logger.info("Building tours from linked trip data...")
 
-    config = TourConfig(**kwargs)  # pyright: ignore[reportArgumentType]
-
-    person_categories = persons.select("person_id", config.person_category_expression())
+    person_categories = persons.select("person_id", extraction.person_category_expression())
 
     msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
     logger.info(msg)
@@ -200,7 +199,7 @@ def extract_tours(
     linked_trips_classified = classify_trip_locations(
         linked_trips,
         habitual_locations,
-        config.habitual_locations,
+        habitual_match,
         days,
     ).join(person_categories, on="person_id", how="left")
 
@@ -211,7 +210,7 @@ def extract_tours(
     # Step 2: Identify home-based tours
     linked_trips_with_hb_tours = identify_home_based_tours(
         linked_trips=linked_trips_classified,
-        check_multiday_gaps=config.check_multiday_gaps,
+        check_multiday_gaps=extraction.check_multiday_gaps,
     )
 
     # Step 3: Expand anchor location periods (work, school, etc.)
@@ -227,7 +226,8 @@ def extract_tours(
     # Aggregate tour attributes, also adds tour direction (inbound/outbound)
     linked_trips_with_tour_dir, tours = aggregate_tour_attributes(
         linked_trips_with_tour_ids,
-        config,
+        extraction,
+        habitual_match,
     )
 
     # Step 6: Identify joint tours (tours where all trips involve same group)
@@ -247,7 +247,7 @@ def extract_tours(
     tours = validate_and_correct_tours(
         tours,
         linked_trips_with_tour_dir,
-        spatial_gap_threshold_meters=config.spatial_gap_threshold_meters,
+        spatial_gap_threshold_meters=extraction.spatial_gap_threshold_meters,
     )
 
     # Step 8: Add tour_id and joint_tour_id to unlinked_trips

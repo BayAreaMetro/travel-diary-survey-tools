@@ -124,7 +124,7 @@ def calculate_tour_purpose_and_destination(
 
 def calculate_destination_times(
     linked_trips: pl.DataFrame,
-    config: TourConfig,
+    buffer_meters: float,
 ) -> pl.DataFrame:
     """Calculate arrival and departure times at primary destination.
 
@@ -144,7 +144,8 @@ def calculate_destination_times(
 
     Args:
         linked_trips: Enhanced trip data with primary destination coordinates
-        config: TourConfig, whose habitual_locations carries the buffer
+        buffer_meters: The habitual-location buffer: a trip end this close to
+            the primary destination is at it.
 
     Returns:
         DataFrame with dest_arrive_time, dest_depart_time, and
@@ -152,7 +153,6 @@ def calculate_destination_times(
     """
     logger.info("Calculating destination arrival and departure times...")
     # A return to the primary destination is a trip end within the buffer of it.
-    buffer = config.habitual_locations.buffer_meters
     linked_trips = linked_trips.with_columns(
         [
             expr_haversine(
@@ -167,7 +167,7 @@ def calculate_destination_times(
                 pl.col("_primary_d_lat"),
                 pl.col("_primary_d_lon"),
             ).alias("_dist_o_to_primary"),
-            pl.lit(buffer).alias("_threshold"),
+            pl.lit(buffer_meters).alias("_threshold"),
         ]
     ).with_columns(
         [

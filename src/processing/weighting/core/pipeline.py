@@ -24,9 +24,9 @@ Orchestrates the full weighting pipeline via
 
 # Design decisions
 
-* **PopulationSim dependency** — uses PopulationSim's core numba balancer
-  (``np_balancer_numba``) directly — a pure ``@njit`` function (~120 lines)
-  taking numpy arrays.  No PopulationSim pipeline infrastructure involved.
+* **Balancer** — PopulationSim's numba balancer (``np_balancer_numba``),
+  vendored in ``balancing/_np_balancer.py``: a pure ``@njit`` function taking
+  numpy arrays, so PopulationSim itself is not a dependency.
 * **Geography columns** — three distinct levels: ``PUMA`` (raw Census
   PUMA), ``study_geoid`` (crosswalk target zones from the user's polygon
   file), and ``ctrl_geoid`` (balancing geography, equal to ``study_geoid``
@@ -49,7 +49,6 @@ Orchestrates the full weighting pipeline via
 """
 
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -69,19 +68,22 @@ from processing.weighting.core.propagation import (
     safe_join_weight,
     seed_admits,
 )
+from processing.weighting.core.run_report import generate_diagnostics
 from processing.weighting.core.specs import (
     BalancingConfig,
     ControlRegistryConfig,
     ControlTotals,
+    DiagnosticsConfig,
     ImportanceConfig,
     ProfileFit,
+    PUMSSource,
     WeightingConfig,
 )
 from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
 )
-from processing.weighting.data_prep.crosswalk import GeographyConfig, PumaCrosswalk
+from processing.weighting.data_prep.crosswalk import PumaCrosswalk
 from processing.weighting.data_prep.fractional_impute import fill_null_incidence
 from processing.weighting.data_prep.incidence import (
     IncidenceBundle,
@@ -92,21 +94,10 @@ from processing.weighting.data_prep.merges import (
     apply_1d_merges,
     merge_control_totals,
 )
-from processing.weighting.data_prep.pums_data import (
-    PUMSSource,
-    fetch_pums_data,
-    load_pums_from_files,
-)
+from processing.weighting.data_prep.pums_data import fetch_pums_data, load_pums_from_files
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
-)
-from processing.weighting.diagnostics import generate_report
-from processing.weighting.diagnostics.comparison import (
-    Comparison,
-    all_pairs,
-    fitted_weight_sets,
-    reference_weight_sets,
 )
 from processing.weighting.validation.checksums import check_incidence_sums
 from processing.weighting.validation.control_validation import (
@@ -135,7 +126,9 @@ class WeightingPipeline:
     # Usage
 
     ```python
-    pipeline = WeightingPipeline(controls=..., config=..., data=...)
+    pipeline = WeightingPipeline(
+        controls=..., config=..., data=..., balancing=..., importance=...
+    )
 
     pipeline.setup()
     pipeline.fetch_pums()
@@ -147,7 +140,7 @@ class WeightingPipeline:
     pipeline.aggregate_totals()
     pipeline.resolve_importance()
 
-    pipeline.fit_all()          # one fit per configured profile
+    pipeline.fit_all(diagnostics=...)  # one fit per configured profile
     ```
 
     # One fit per profile
@@ -190,8 +183,8 @@ class WeightingPipeline:
         controls: ControlRegistryConfig,
         config: WeightingConfig,
         data: CanonicalData,
-        balancing: BalancingConfig | None = None,
-        importance: ImportanceConfig | None = None,
+        balancing: BalancingConfig,
+        importance: ImportanceConfig,
     ) -> None:
         """Initialise with configuration and survey data."""
         if data.households is None or data.persons is None:
@@ -201,8 +194,8 @@ class WeightingPipeline:
         self.controls = controls
         self.config = config
         self.data = data
-        self.balancing = balancing or BalancingConfig()
-        self.importance_cfg = importance or ImportanceConfig()
+        self.balancing = balancing
+        self.importance_cfg = importance
 
         # Mutable state initialised empty; populated by phases
         self.control_moe = None
@@ -234,12 +227,12 @@ class WeightingPipeline:
         validate_total_control_categories(ctrl_instances)
         logger.info("Controls: %s", self.controls.target_names)
 
-        zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
+        zone_groups = self.config.geography.zone_groups
 
         # Prepare the crosswalk with the full set of zones (including zone groups)
         # Store as an instance attribute for use in zone assignment and diagnostics
         self.crosswalk = PumaCrosswalk(
-            GeographyConfig(**self.config.geography),
+            self.config.geography,
             state_fips=self.config.state_fips,
             pums_year=self.config.pums_year,
             cache_dir=self.cache_dir,
@@ -443,8 +436,7 @@ class WeightingPipeline:
         expands to less than the population it was fitted to.
 
         Args:
-            profile: Usability profile to fit, or None for a single un-suffixed
-                weight set gated on ``config.usability_flag_col``.
+            profile: Usability profile to fit.
 
         Returns:
             The seed and its metadata, ready to balance.
@@ -459,18 +451,15 @@ class WeightingPipeline:
             msg = "build_seed requires a households table"
             raise ValueError(msg)
 
-        bundle = self.survey_bundle
-        n_gated = 0
-        if self.config.exclude_incompletes:
-            if flag not in households.columns:
-                msg = (
-                    f"The weighting is gated on {flag!r}, which households does not carry. "
-                    f"{suggest_usability_columns(households)}"
-                )
-                raise ValueError(msg)
-            admitted = households.filter(seed_admits(flag)).select("hh_id").to_series()
-            n_gated = households.height - admitted.len()
-            bundle = bundle.filter_households(admitted)
+        if flag not in households.columns:
+            msg = (
+                f"The weighting is gated on {flag!r}, which households does not carry. "
+                f"{suggest_usability_columns(households)}"
+            )
+            raise ValueError(msg)
+        admitted = households.filter(seed_admits(flag)).select("hh_id").to_series()
+        n_gated = households.height - admitted.len()
+        bundle = self.survey_bundle.filter_households(admitted)
 
         logger.info(
             "Seed for %s: %d HHs, %d persons, %d HHs gated out",
@@ -573,135 +562,6 @@ class WeightingPipeline:
                 importance=imp_cfg,
             )
 
-    def generate_diagnostics(self, diagnostics: dict | None = None) -> None:
-        """Write one self-contained interactive HTML report for the whole run.
-
-        Covers the weighting from geographic crosswalk through IPF convergence
-        to what carries weight at every level below the household. Opens in any
-        browser with no external dependencies beyond Plotly, loaded from CDN.
-
-        One document, not one per profile. The crosswalk geometry, control
-        totals and PUMS incidence are built once in ``setup()`` however many
-        profiles are fitted -- and on a regional run that geometry is the great
-        majority of the file -- so writing a report per fit re-embedded the same
-        polygons once per profile. Only the balancer's output actually varies,
-        and it sits behind a profile toggle.
-
-        Report sections
-        ---------------
-        1. **Profile Comparison** — one row per fit: seed size, weight sums by
-           level, ESS%, CV, MAPE and convergence. The only view that needs every
-           fit at once, and so the only one no per-fit report could produce.
-        2. **Crosswalk Map** — choropleth showing how PUMAs overlap the target
-           zones, with allocation weights per PUMA-zone pair and each profile's
-           seed count in the zone tooltip.
-        3. **Weight Cascade** — per level, what the profile admitted and what
-           carries weight, every profile side by side; the redistribution each
-           survivor absorbs, how each weight set's lower levels descend from
-           the level above, the day-split identity, and control-geography
-           coverage.
-        4. **Weight Set Comparer** *(optional)* — any two weight sets compared
-           pairwise at any level, this run's fits against each other or against
-           sets named in ``diagnostics.compare_weights``. Omitted when there is
-           only one set to show.
-        5. **Fractional Seed Imputation** *(per profile)* — null rate per
-           control in the seed incidence, and the quality of the PUMS-trained
-           model that filled it.
-        6. **Balancer Performance** *(per profile)* — per-zone convergence,
-           target fit (MAPE, P90, Max), CV and ESS%.
-        7. **Weight Quality** *(per profile)* — per-zone weight and expansion
-           factor statistics, with violin plots.
-        8. **Expansion Factor Calibration** *(per profile, optional)* — MAPE vs
-           CV across the ``expansion_factor_grid`` values. Only included when
-           the grid was set in the weighting config.
-        9. **Target Fit (% Error)** *(per profile)* — diverging bars per control
-           category per zone, with PUMS replicate-weight whiskers.
-        10. **Unweighted Cell Counts** *(per profile)* — seed counts per control
-           category per zone, flagging sparse cells.
-
-        Numbers are assigned to the sections a run actually renders, so an
-        optional section that is absent takes its number with it rather than
-        leaving a gap.
-
-        Parameters
-        ----------
-        diagnostics:
-            The ``diagnostics`` block of the weighting config, or ``None``.
-
-            ``output_path`` is the destination for the HTML file, as a ``Path``
-            or a string (including Jinja-rendered template paths from the YAML).
-            When absent the file is written to ``<cache_dir>/diagnostics.html``
-            (or ``./weighting/diagnostics.html`` if no cache directory is
-            configured).  No profile suffix: a run writes one file however many
-            profiles it fits.
-
-            ``compare_weights`` names weight sets that arrived with the survey,
-            to compare this run's fits against.  See
-            [`reference_weight_sets`][processing.weighting.diagnostics.comparison
-            .reference_weight_sets] for why they are named rather than found.
-        """
-        if not self.fits:
-            logger.warning("No completed fits to report on; skipping diagnostics.")
-            return
-
-        settings = diagnostics or {}
-        output_path = settings.get("output_path")
-        if output_path is not None:
-            resolved_path = Path(output_path)
-        else:
-            report_dir = self.cache_dir or Path.cwd() / "weighting"
-            resolved_path = report_dir / "diagnostics.html"
-
-        zone_groups: dict[str, list[str]] | None = self.config.geography.get("zone_groups")
-        generate_report(
-            fits=self.fits,
-            control_totals=self.control_totals,
-            target_names=self.controls.target_names,
-            tables=self.data.as_dict(),
-            output_path=resolved_path,
-            run_meta=self._run_meta(),
-            puma_gdf=self.crosswalk.puma_gdf,
-            target_gdf=self.crosswalk.target_gdf,
-            crosswalk_df=self.crosswalk.crosswalk_df,
-            zone_groups=zone_groups,
-            merge_specs=self.controls.all_merges,
-            control_moe=self.control_moe,
-            pums_incidence=self.pums_incidence,
-            max_expansion_factor=self.balancing.max_expansion_factor,
-            comparison=self._weight_comparisons(settings.get("compare_weights")),
-        )
-
-    def _weight_comparisons(self, references: dict | None) -> Comparison:
-        """Compare every pair of weight sets this run can see.
-
-        Read before ``drop_unsuffixed_weights`` runs, which is the only moment a
-        supplied un-suffixed weight and this run's own output are both on the
-        table -- afterwards the bare column is gone precisely so that no reader
-        has to guess which of the two it was.
-        """
-        sets = fitted_weight_sets(list(self.fits)) + reference_weight_sets(references)
-        if len(sets) < 2:  # noqa: PLR2004 - a comparison needs two sides
-            return Comparison(sets=sets, pairs=[])
-        return Comparison(sets=sets, pairs=all_pairs(self.data.as_dict(), sets))
-
-    def _run_meta(self) -> dict[str, str]:
-        """Label/value pairs identifying this run, for the report header.
-
-        Reports get shared around detached from the run that made them, so the
-        file has to say which run it describes.
-        """
-        profiles = ", ".join(p or "the survey" for p in self.fits)
-        return {
-            "Run": datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
-            "PUMS": f"{self.config.pums_year} &middot; FIPS {self.config.state_fips}",
-            "Profiles": profiles,
-            "Expansion bounds": (
-                f"{self.balancing.min_expansion_factor:g}&ndash;"
-                f"{self.balancing.max_expansion_factor:g}"
-            ),
-            "Controls": ", ".join(self.controls.target_names),
-        }
-
     def propagate_fit(self, fit: ProfileFit) -> None:
         """Attach one fit's weights to households and propagate them down.
 
@@ -736,7 +596,7 @@ class WeightingPipeline:
         # "no estimate exists" rather than "excluded".
         hh = tables["households"]
         flag = fit.usability_flag_col
-        if self.config.exclude_incompletes and hh is not None and flag in hh.columns:
+        if hh is not None and flag in hh.columns:
             tables["households"] = hh.with_columns(
                 pl.when(seed_admits(flag))
                 .then(pl.col(hh_weight_col))
@@ -748,7 +608,7 @@ class WeightingPipeline:
         propagate_weights(
             tables,
             has_weight,
-            usability_flag_col=flag if self.config.exclude_incompletes else None,
+            usability_flag_col=flag,
             profile=fit.profile,
         )
 
@@ -769,7 +629,7 @@ class WeightingPipeline:
         self.fits[fit.profile] = fit
         return fit
 
-    def fit_all(self, *, diagnostics: dict | None = None) -> dict[str | None, ProfileFit]:
+    def fit_all(self, *, diagnostics: DiagnosticsConfig) -> dict[str | None, ProfileFit]:
         """Run one fit per configured profile, then raise if any failed to converge.
 
         Every profile is attempted and the report written before raising, so a
@@ -781,7 +641,7 @@ class WeightingPipeline:
         """
         for profile in self.config.fitted_profiles:
             self.fit(profile)
-        self.generate_diagnostics(diagnostics)
+        generate_diagnostics(self, diagnostics)
 
         failed = {
             fit.profile or "the survey": fit.unconverged_zones

@@ -106,9 +106,10 @@ def link_trips(
                 - Time gap between trips ≤ max_dwell_time minutes
                 - Distance between previous destination and current origin
                   ≤ dwell_buffer_distance meters
+                - With split_on_occupancy, the reported party size is unchanged
             - Otherwise, start a new linked trip
-        3. Assign globally unique linked_trip_id =
-           (day_id * 1000) + sequence_number
+        3. Assign globally unique linked_trip_id: the day_id followed by a
+           two-digit sequence number
 
         # Phase 2: Aggregate Linked Trips
 
@@ -120,11 +121,11 @@ def link_trips(
             - Duration: Sum of all trip durations (including dwell time)
             - Purposes: First origin purpose, last destination purpose
             - Mode Logic:
-                - If any trip uses transit → mode_type = TRANSIT
-                - Otherwise, use mode of longest distance trip
+                - If any segment uses a transit mode → the mode of the
+                  longest-duration transit segment
+                - Otherwise, the mode of the longest-duration segment
             - Transit Details: Count boarding/alighting, aggregate access/egress modes
             - Driver/Passenger: Aggregate from component trips
-        3. Create trip_list array containing all component trip IDs
 
     Notes:
         - Links trips when travelers make intermediate stops for mode changes or transfers

@@ -40,7 +40,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import polars as pl
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from shapely.ops import unary_union
 
 from processing.weighting.data_prep.census_geo import get_block_gdf, get_puma_gdf
@@ -67,8 +67,10 @@ def _build_zone_remap(zone_groups: dict[str, list[str]]) -> dict[str, str]:
 class TargetZoneConfig(BaseModel):
     """Target zone polygon source."""
 
+    model_config = ConfigDict(extra="forbid")
+
     file: str
-    id_field: str | None = None
+    id_field: str | None = Field(description="Zone-ID column; null for one study-area boundary.")
 
 
 class GeographyConfig(BaseModel):
@@ -76,12 +78,17 @@ class GeographyConfig(BaseModel):
 
     Attributes:
         target_zones: Polygon file and optional zone-ID column.
-        resolution: Raster cell size in metres (default 250).
+        resolution: Raster cell size in metres.
+        min_allocation: PUMA slivers allocated less than this share are dropped.
+        zone_groups: Named groups of target zones balanced as one; null for none.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     target_zones: TargetZoneConfig
-    resolution: int = 100
-    min_allocation: float = 0.0
+    resolution: int
+    min_allocation: float
+    zone_groups: dict[str, list[str]] | None
 
     @field_validator("resolution")
     @classmethod

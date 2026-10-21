@@ -50,6 +50,7 @@ from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, Reside
 from data_canon.codebook.persons import (
     AgeCategory,
     CommuteFreq,
+    Education,
     Employment,
     Ethnicity,
     Gender,
@@ -123,22 +124,15 @@ class PersonModel(BaseModel):
     ethnicity: Ethnicity | None = schema_field(default=None)
     telework_freq: CommuteFreq | None = schema_field(default=None)
     commute_freq: CommuteFreq | None = schema_field(default=None)
+    education: Education | None = schema_field(default=None)
     # Employer *provides* commute subsidy: Free (fully subsidized) parking at work
-    commute_subsidy_provide_free_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_provide_free_parking: BooleanYesNo | None = schema_field(default=None)
     # Employer *provides* commute subsidy: Discounted (partially subsidized) parking at work
-    commute_subsidy_provide_discounted_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_provide_discounted_parking: BooleanYesNo | None = schema_field(default=None)
     # Uses commute subsidy: Free (fully subsidized) parking at work
-    commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(default=None)
     # Uses commute subsidy: Discounted (partially subsidized) parking at work
-    commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(
-        default=None, required_in_steps=["format_ctramp"]
-    )
+    commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(default=None)
     # NOTE: is proxy is vague.
     # Better and more flexible would be to have proxy_person_id on the proxied person
     # This allows for multiple proxy reporters and is more explicit.

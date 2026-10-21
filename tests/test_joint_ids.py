@@ -157,11 +157,19 @@ class TestFullyJoint:
 
     @pytest.mark.parametrize(
         "purpose",
-        [PurposeCategory.WORK, PurposeCategory.SCHOOL, PurposeCategory.ESCORT],
+        [
+            PurposeCategory.WORK,
+            PurposeCategory.WORK_RELATED,
+            PurposeCategory.SCHOOL,
+            PurposeCategory.ESCORT,
+        ],
         ids=lambda p: p.name,
     )
     def test_work_school_and_escort_are_never_joint(self, purpose):
-        """Person 2's tour is one a model never draws jointly, so they are not on it."""
+        """Person 2's tour is one a model never draws jointly, so they are not on it.
+
+        Work-related counts as work: a model treats a meeting or jobsite as work.
+        """
         tables = _household({1: [500], 2: [500], 3: [500]}, {1: SHOP, 2: purpose.value, 3: SHOP})
         out = _stamp(STRICT, tables)
         assert _on_tour(out, STRICT) == {1: True, 2: False, 3: True}

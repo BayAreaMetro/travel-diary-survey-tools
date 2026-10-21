@@ -1,6 +1,6 @@
 """Rules for matching trip ends to habitual locations, and for finding them."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from data_canon.codebook.trips import Purpose
 
@@ -9,12 +9,15 @@ DEFAULT_AT_ADDRESS_METERS = 100.0
 
 
 class MatchConfig(BaseModel):
-    """The one rule for whether a point is at a habitual location.
+    """The rule for whether a point is at a habitual location.
 
-    Every step that asks the question takes this, so projects set the buffer
-    once (a top-level config key referenced by each step) and the answer cannot
-    differ between them.
+    Each step that asks the question has its own copy: detecting the locations
+    and matching tours to them are separate settings, which a project may give
+    the same value through one config variable. The buffer has no default: it
+    suits one survey's location noise, so the config states it.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     at_address_meters: float = Field(
         default=DEFAULT_AT_ADDRESS_METERS,
@@ -30,7 +33,6 @@ class MatchConfig(BaseModel):
         ),
     )
     buffer_meters: float = Field(
-        default=DEFAULT_BUFFER_METERS,
         gt=0,
         description=(
             "Distance in metres within which two points are the same place. It "
@@ -54,6 +56,14 @@ class HabitualLocationConfig(MatchConfig):
     brief stop.
     """
 
+    include_observed_homes: bool = Field(
+        description=(
+            "Whether to add homes found from where days were said to begin or "
+            "end, beside the reported ones. An analyst's choice with no default: "
+            "a 'home' answer away from the reported home becomes another home, "
+            "and tours touching it are graded OTHER_HOME."
+        ),
+    )
     min_dwell_minutes: float = Field(
         default=90.0,
         ge=0,

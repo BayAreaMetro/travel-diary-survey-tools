@@ -30,7 +30,9 @@ def standard_config() -> CTRAMPConfig:
         income_med_threshold=60000,  # $60k ($2000, MTC)
         income_high_threshold=100000,  # $100k ($2000, MTC)
         income_survey_year_to_ctramp_year=0.5319148936,
+        taz_field="taz",
         age_adult=4,  # AGE_18_TO_24 = category 4 (18+ are adults)
+        gender_default_for_missing="f",
     )
 
 

@@ -3,8 +3,6 @@
 import inspect
 import json
 import logging
-import os
-import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -12,202 +10,94 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, ValidationError
 
 from data_canon.core.dataclass import CanonicalData
 from pipeline.cache import PipelineCache
+from pipeline.config import (
+    check_input_paths,
+    check_roots_resolved,
+    resolve_templates,
+    shorthands_used_by_steps,
+    template_namespace,
+)
+from pipeline.decoration import PIPELINE_ARGS, field_owners, settings_models
 from pipeline.logger import setup_logging
 
 logger = logging.getLogger(__name__)
 
-# Enough passes to resolve any sane chain of shorthands referring to shorthands,
-# and few enough that a cycle is reported rather than spun on.
-MAX_TEMPLATE_PASSES = 10
 
-
-def _substitute(text: str, variables: dict[str, str]) -> str:
-    """Replace every ``{{ name }}`` in one string with its value."""
-    for name, value in variables.items():
-        text = text.replace(f"{{{{ {name} }}}}", str(value))
-    return text
-
-
-#: Config key holding committed root defaults. Anything declared here is a
-#: default the environment may replace, not a claim about this machine.
-ENVS_KEY = "ENVS"
-
-
-def _template_namespace(config: dict[str, Any]) -> dict[str, str]:
-    """Everything a ``{{ name }}`` may refer to, lowest precedence first.
-
-    Three sources feed one namespace, which is what keeps this from being a
-    second mechanism bolted beside the templating that already exists:
-
-    1. the config's own top-level strings -- ``output_dir`` and friends, so
-       ``log_file: "{{ output_dir }}/run.log"`` keeps working;
-    2. committed defaults under ``ENVS``, for a root that genuinely is the same
-       everywhere;
-    3. the environment, including a ``.env`` the runners load, which is where a
-       machine says where it mounts a shared location.
-
-    The environment wins, and that is not an override of anything stated as
-    fact: a config says ``{{ MTC_DATA }}/Data/...``, which is true wherever
-    MTC_DATA points. Only the root is machine-specific, and only the root comes
-    from outside. The structure beneath it is shared knowledge and stays in the
-    config where it can be reviewed.
-
-    Args:
-        config: The raw configuration, before substitution.
-
-    Returns:
-        Mapping of template name to value.
-    """
-    namespace = {key: value for key, value in config.items() if isinstance(value, str)}
-
-    declared = config.get(ENVS_KEY) or {}
-    if not isinstance(declared, dict):
+def _check_config_keys(
+    step_name: str, params: dict[str, Any], tables: set[str], accepted: set[str]
+) -> None:
+    """Raise on a config key that names a table, or that nothing in the step takes."""
+    table_keys = sorted(k for k in params if k in tables)
+    if table_keys:
         msg = (
-            f"'{ENVS_KEY}' must be a mapping of root name to value, got {type(declared).__name__}."
+            f"Config for step '{step_name}' sets {table_keys}, which name "
+            "canonical tables. Tables are passed by the pipeline and cannot "
+            "be set in config."
+        )
+        raise ValueError(msg)
+    unknown = sorted(k for k in params if k not in accepted)
+    if unknown:
+        msg = (
+            f"Config for step '{step_name}' sets {unknown}, which the step "
+            f"does not take. It takes: {sorted(accepted)}."
+        )
+        raise ValueError(msg)
+
+
+def _model_settings(
+    step_name: str, arg_name: str, params: dict[str, Any], flat: dict[str, Any]
+) -> object | None:
+    """A model argument's keys, as a block or flat; None when the config gives neither.
+
+    Raises:
+        ValueError: If the config gives both, which leaves two places to read.
+    """
+    block = params.get(arg_name)
+    if block is not None and flat:
+        msg = (
+            f"Config for step '{step_name}' sets {sorted(flat)} flat and also a "
+            f"'{arg_name}:' block; write those settings one way."
+        )
+        raise ValueError(msg)
+    if block is not None:
+        return block
+    return flat or None
+
+
+def _build_settings(
+    step_name: str, arg_name: str, model: type[BaseModel], settings: object
+) -> BaseModel:
+    """Build a step's settings model from its keys, naming the step on failure.
+
+    Raises:
+        TypeError: If the model allows extra fields, which would let a misspelt
+            key in a block through unread.
+        ValueError: If a block is not a mapping, or the model rejects the keys.
+    """
+    if model.model_config.get("extra") != "forbid":
+        msg = (
+            f"{model.__name__} (step '{step_name}', argument '{arg_name}') must set "
+            'model_config = ConfigDict(extra="forbid"), or a misspelt key is ignored.'
         )
         raise TypeError(msg)
-    namespace.update({str(k): str(v) for k, v in declared.items()})
-
-    for name in list(namespace) + [str(k) for k in declared]:
-        value = os.environ.get(name)
-        if value:
-            namespace[name] = value
-
-    # A root referenced but declared nowhere still has to come from somewhere.
-    for name in _referenced_names(config):
-        if name not in namespace and os.environ.get(name):
-            namespace[name] = os.environ[name]
-
-    return namespace
-
-
-def _referenced_names(config: dict[str, Any]) -> set[str]:
-    """Every ``{{ name }}`` appearing anywhere in the config."""
-    return set(re.findall(r"\{\{\s*(\w+)\s*\}\}", yaml.safe_dump(config)))
-
-
-def _check_roots_resolved(config: dict[str, Any], namespace: dict[str, str]) -> None:
-    """Fail if a referenced root is declared nowhere, naming it.
-
-    Left unresolved, ``{{ MTC_DATA }}`` renders literally and surfaces later as
-    a baffling "no such file or directory" containing brace characters. The
-    root is missing, and saying so is more useful than anything downstream can
-    work out.
-
-    Raises:
-        ValueError: Naming every unresolved root and where to set it.
-    """
-    missing = sorted(name for name in _referenced_names(config) if name not in namespace)
-    if not missing:
-        return
-    listed = "\n  - ".join(missing)
-    msg = (
-        f"The config refers to root(s) that are not set anywhere:\n  - {listed}"
-        f"\n\nA root says where a shared location is mounted on this machine, so it "
-        f"cannot be committed. Set each one in a .env file beside the project (see "
-        f"example.env), or in your environment. Everything below the root stays in the "
-        f"config and is the same for everyone."
-    )
-    raise ValueError(msg)
-
-
-def _shorthands_used_by_steps(raw_config: dict[str, Any]) -> set[str]:
-    """Which shorthands the configured steps actually refer to.
-
-    Read off the *unsubstituted* steps, so a shorthand is only in scope when a
-    step names it as ``{{ key }}``. A commented-out parameter is not a
-    reference: YAML drops comments before this sees them, which is what makes
-    the distinction free. ``pums_dir`` in bats_2023 is exactly that -- declared,
-    and used only by two commented lines -- so requiring it to exist would
-    refuse to start a run that never reads it.
-    """
-    rendered = yaml.safe_dump(raw_config.get("steps", []))
-    return {key for key in raw_config if isinstance(key, str) and f"{{{{ {key} }}}}" in rendered}
-
-
-def _check_input_paths(config: dict[str, Any], used: set[str]) -> None:
-    """Fail before the first step if an input directory a step needs is missing.
-
-    Every one of these is read by some step, but never the first one, so a wrong
-    drive letter surfaces minutes into a run rather than at the start -- and one
-    path at a time: fix, re-run, wait, discover the next. A wrong
-    ``TM2_shapefile_dir`` was found this way, eight steps in, after the survey
-    had been read, trips linked, tours built and weights computed.
-
-    Only inputs a configured step refers to are checked. Output directories are
-    created on demand, and a path nothing reads is not this function's business.
-
-    Args:
-        config: The fully substituted configuration.
-        used: Shorthands the steps refer to, from
-            :func:`_shorthands_used_by_steps`.
-
-    Raises:
-        ValueError: Naming every missing path at once, and how to redirect them.
-    """
-    missing = [
-        f"{key}: {value}"
-        for key, value in sorted(config.items())
-        if key in used
-        and isinstance(value, str)
-        and key.endswith("_dir")
-        and not key.startswith("output")
-        and "{{" not in value  # unresolved: the template error covers it
-        and not Path(value).exists()
-    ]
-    if not missing:
-        return
-
-    plural = "ies do" if len(missing) > 1 else "y does"
-    listed = "\n  - ".join(missing)
-    msg = (
-        f"Configured input director{plural} not exist on this machine:\n  - {listed}"
-        f"\n\nChecked before the pipeline starts, so a wrong path costs a second "
-        "rather than a run. Point each one somewhere real by setting an environment "
-        "variable of the same name -- a .env file beside the project is read "
-        "automatically -- which keeps machine-specific paths out of the shared config."
-    )
-    raise ValueError(msg)
-
-
-def _resolve_variables(variables: dict[str, str]) -> dict[str, str]:
-    """Expand the shorthands against each other before anything else uses them.
-
-    Config shorthands routinely refer to other shorthands
-    (``output_dir: "{{ survey_dir }}/analysis"``). Substituting in a single pass
-    resolves such a reference only when its target happens to be declared later
-    in the file, because the pass has already moved past an earlier one -- so
-    the same config works or silently emits a literal ``{{ survey_dir }}`` path
-    depending on the order its keys were written in. Resolving the shorthands
-    to a fixed point first makes declaration order irrelevant.
-
-    Args:
-        variables: Top-level string values from the config, unexpanded.
-
-    Returns:
-        The same mapping with every nested reference expanded.
-
-    Raises:
-        ValueError: A reference could not be resolved within
-            ``MAX_TEMPLATE_PASSES``, which means the shorthands refer to each
-            other in a cycle.
-    """
-    resolved = dict(variables)
-    for _ in range(MAX_TEMPLATE_PASSES):
-        expanded = {key: _substitute(value, resolved) for key, value in resolved.items()}
-        if expanded == resolved:
-            return resolved
-        resolved = expanded
-
-    unresolved = sorted(key for key, value in resolved.items() if "{{" in value)
-    msg = (
-        f"Config variables still reference each other after {MAX_TEMPLATE_PASSES} "
-        f"passes: {unresolved}. They likely refer to each other in a cycle."
-    )
-    raise ValueError(msg)
+    if not isinstance(settings, dict):
+        msg = (
+            f"Config for step '{step_name}' sets '{arg_name}' to {settings!r}; it must be "
+            f"a block of {model.__name__} settings."
+        )
+        raise ValueError(msg)  # noqa: TRY004 - a config error, reported as one
+    try:
+        return model.model_validate(settings)
+    except ValidationError as e:
+        msg = (
+            f"Config for step '{step_name}', {model.__name__} settings (flat, or under "
+            f"'{arg_name}:'):\n{e}"
+        )
+        raise ValueError(msg) from e
 
 
 class Pipeline:
@@ -293,24 +183,9 @@ class Pipeline:
         with Path(self.config_path).open() as f:
             config = yaml.safe_load(f)
 
-        # Extract top-level variables for substitution
-        _check_roots_resolved(config, _template_namespace(config))
-        variables = _resolve_variables(_template_namespace(config))
-
-        def replace_templates(obj: Any) -> Any:  # noqa: ANN401
-            if isinstance(obj, str):
-                return _substitute(obj, variables)
-
-            if isinstance(obj, dict):
-                return {k: replace_templates(v) for k, v in obj.items()}
-
-            if isinstance(obj, list):
-                return [replace_templates(item) for item in obj]
-
-            return obj
-
-        resolved = replace_templates(config)
-        _check_input_paths(resolved, _shorthands_used_by_steps(config))
+        check_roots_resolved(config, template_namespace(config))
+        resolved = resolve_templates(config)
+        check_input_paths(resolved, shorthands_used_by_steps(config))
         return resolved
 
     def _scan_cache(self) -> None:
@@ -440,54 +315,64 @@ class Pipeline:
         If argument name matches a canonical table, it is passed from self.data.
         Else, it is taken from the step configuration "parameters".
 
+        A config key the step does not take raises, as does one naming a
+        canonical table: either would otherwise be dropped without a word, and
+        the step would run on its own default instead of the configured value.
+
+        An argument annotated with a pydantic model is built from its fields'
+        keys. They sit flat under ``params:``, each routed to the model that
+        owns the name, or in a block named after the argument; not both. The
+        model decides what may be left out: a field with a default may, one
+        without may not, the same rule as a plain argument.
+
         Args:
             step_name: Name of the step.
             step_obj: The step function or class.
 
         """
         step_args = inspect.signature(step_obj).parameters
+        models = settings_models(step_obj)
+        owners = field_owners(step_obj)
+        tables = {"canonical_data", *self.data.TABLE_NAMES}
+        plain = {a for a in step_args if a not in PIPELINE_ARGS | tables | set(models)}
 
-        # if the arg name is a canonical table, pass it from self.data
+        params = next(
+            (s.get("params") or {} for s in self.config["steps"] if s["name"] == step_name),
+            {},
+        )
+        _check_config_keys(step_name, params, tables, plain | set(models) | set(owners))
+
+        flat: dict[str, dict[str, Any]] = {arg: {} for arg in models}
+        for key, value in params.items():
+            if key in owners:
+                flat[owners[key]][key] = value
+
         data_kwargs = {}
         config_kwargs = {}
-
-        reserved = {
-            "canonical_data",
-            "validate_input",
-            "validate_output",
-            "cache",
-            "pipeline_cache",
-            "kwargs",
-        }
-        expected_kwargs = [x for x in step_args if x not in reserved]
-
         for arg_name, param in step_args.items():
             if arg_name == "canonical_data":
                 # Pass the entire CanonicalData instance if requested
                 data_kwargs[arg_name] = self.data
             elif hasattr(self.data, arg_name):
                 data_kwargs[arg_name] = getattr(self.data, arg_name)
-            else:
-                step_cfg = self.config["steps"]
-                params = next(
-                    (s.get("params", {}) for s in step_cfg if s["name"] == step_name),
-                    {},
+            elif arg_name in models:
+                settings = _model_settings(step_name, arg_name, params, flat[arg_name])
+                if settings is None and param.default is not param.empty:
+                    continue
+                config_kwargs[arg_name] = _build_settings(
+                    step_name, arg_name, models[arg_name], {} if settings is None else settings
                 )
-                # Only add if parameter exists in config or has default
-                if arg_name in params:
-                    config_kwargs[arg_name] = params[arg_name]
-                elif param.default is not inspect.Parameter.empty or arg_name in reserved:
-                    # Has default value, don't need to provide it
-                    pass
-                else:
-                    # If no default and not in config, omit it
-                    # This will cause TypeError if it's required
-                    msg = (
-                        f"Missing required parameter '{arg_name}' "
-                        f"for step '{step_name}'. Function expects "
-                        f""""{'", "'.join(expected_kwargs)}"."""
-                    )
-                    raise ValueError(msg)
+            elif arg_name in params:
+                config_kwargs[arg_name] = params[arg_name]
+            elif param.default is not inspect.Parameter.empty or arg_name in PIPELINE_ARGS:
+                # Has default value, don't need to provide it
+                pass
+            else:
+                msg = (
+                    f"Missing required parameter '{arg_name}' for step '{step_name}'. "
+                    f"It takes: {sorted(plain | set(owners))}."
+                )
+                raise ValueError(msg)
 
         return {**data_kwargs, **config_kwargs}
 
@@ -509,7 +394,9 @@ class Pipeline:
                 diff = subprocess.check_output(  # noqa: S603
                     [git, "diff"],
                     stderr=subprocess.DEVNULL,
-                    text=True,
+                    # git writes UTF-8; the locale codec (cp1252 on Windows) fails on it
+                    encoding="utf-8",
+                    errors="replace",
                 ).strip()
                 if diff:
                     logger.debug("Uncommitted changes (git diff):\n%s", diff)
@@ -559,13 +446,13 @@ class Pipeline:
             logger.info("=" * 70)
 
             kwargs = self.parse_step_args(step_name, step_obj)
-            kwargs["validate_input"] = step_cfg.get("validate_input", True)
-            kwargs["validate_output"] = step_cfg.get("validate_output", False)
+            # Pass a flag only when the config sets it, so the step's @step() default stands.
+            for flag in ("validate_input", "validate_output", "cache"):
+                if flag in step_cfg:
+                    kwargs[flag] = step_cfg[flag]
             kwargs["canonical_data"] = self.data
 
-            # Pass cache configuration
             if self.cache:
-                kwargs["cache"] = step_cfg.get("cache", False)
                 kwargs["pipeline_cache"] = self.cache
 
             # Execute step

@@ -1,7 +1,7 @@
 """The per-profile column contract, from config to consumer.
 
-Three things have to line up. A config names its universes, and an ambiguous
-naming is refused rather than guessed at. Each universe's columns are its base
+Three things have to line up. A config names its universes, and an unstated or
+repeated one is refused rather than guessed at. Each universe's columns are its base
 name with the profile appended verbatim, and the suffix never reaches the id
 columns derived from the same stem. A consumer then reads the columns belonging
 to the profile it gates on -- reading another profile's weights, or falling back
@@ -36,20 +36,19 @@ def _config(**overrides) -> WeightingConfig:
 # Which universes a run is being asked to weight
 #
 # Both weighting entry points resolve this through one function, so they cannot
-# disagree about what naming a flag, a profile list, or both is meant to mean.
-# The cases that must be refused are all ones where the config is ambiguous
-# rather than wrong in a way the run would notice.
+# disagree about what a profile list means. The cases that must be refused are
+# ones the run would not otherwise notice.
 # ---------------------------------------------------------------------------
 class TestResolvingTheUniverse:
-    """What the two spellings resolve to, and which are refused."""
-
-    def test_a_single_flag_means_one_unsuffixed_set(self):
-        """``(None,)`` is what makes every column keep its declared name."""
-        assert resolve_fitted_profiles("ctramp", None) == (None,)
+    """What a profile list resolves to, and which lists are refused."""
 
     def test_profiles_are_returned_in_the_order_given(self):
         """Fits run in this order, and their reports are read in it."""
-        assert resolve_fitted_profiles(None, ["b", "a"]) == ("b", "a")
+        assert resolve_fitted_profiles(["b", "a"]) == ("b", "a")
+
+    def test_a_single_profile_is_a_list_of_one(self):
+        """One profile still writes suffixed columns; there is no bare set."""
+        assert resolve_fitted_profiles(["ctramp"]) == ("ctramp",)
 
     @pytest.mark.parametrize(
         "profiles",
@@ -61,51 +60,24 @@ class TestResolvingTheUniverse:
     def test_an_unstated_universe_is_refused(self, profiles):
         """Both spellings of "no opinion" reach the same refusal."""
         with pytest.raises(ValueError, match="needs a universe"):
-            resolve_fitted_profiles(None, profiles)
-
-    def test_naming_both_is_refused(self):
-        """They say different things about what gets fitted and what gets written.
-
-        The message names both, so the fix is visible without going back to
-        the config.
-        """
-        with pytest.raises(ValueError, match="Name either usability_profile") as excinfo:
-            resolve_fitted_profiles("x", ["y"])
-        assert "'x'" in str(excinfo.value)
-        assert "y" in str(excinfo.value)
+            resolve_fitted_profiles(profiles)
 
     def test_a_repeated_profile_is_refused(self):
         """The second fit would overwrite the first under the same column names."""
         with pytest.raises(ValueError, match="same profile twice"):
-            resolve_fitted_profiles(None, ["a", "b", "a"])
+            resolve_fitted_profiles(["a", "b", "a"])
 
 
 class TestTheConfigUsesIt:
-    """WeightingConfig delegates, and adds only the rule that is its own."""
+    """WeightingConfig delegates to the same resolution."""
 
     def test_a_profile_config_exposes_one_fit_each(self):
         """One balancing run per profile, in the order configured."""
         assert _config(weight_profiles=("a", "b")).fitted_profiles == ("a", "b")
 
     def test_flag_for_resolves_the_profile_to_its_column(self):
-        """A profile gates on its own verdict column, whichever way it was named."""
+        """A profile gates on its own verdict column."""
         assert _config(weight_profiles=("a",)).flag_for("a") == "usable_a"
-        assert _config(usability_profile="x").flag_for(None) == "usable_x"
-
-    def test_profiles_without_the_gate_are_refused(self):
-        """Every fit would then see the same seed and differ in name only.
-
-        That is the one outcome this whole change exists to prevent: weights
-        indistinguishable from fitted ones that match no control total.
-        """
-        with pytest.raises(ValueError, match="requires exclude_incompletes"):
-            _config(weight_profiles=("a",), exclude_incompletes=False)
-
-    def test_a_single_flag_without_the_gate_is_still_allowed(self):
-        """It weights every complete household, which is a coherent thing to ask."""
-        assert _config(
-            usability_profile="survey_complete", exclude_incompletes=False
-        ).fitted_profiles == (None,)
 
 
 # ---------------------------------------------------------------------------

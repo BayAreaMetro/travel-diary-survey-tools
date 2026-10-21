@@ -1,62 +1,22 @@
 # Controls
 
-::: processing.weighting.controls
-    options:
-      show_root_heading: true
-      show_docstring_description: true
-      members: false
+The `controls:` list of [Compute Weights](compute_weights.md#settings) names the
+targets the weights are balanced to. Each entry is a name from the table below,
+with an optional `importance` and an optional `merge` that joins categories into
+one, using the category names shown:
 
-::: processing.weighting.controls.base
-    options:
-      show_root_heading: true
-      members:
-        - ControlLevel
-        - ControlTarget
+```yaml
+controls:
+  - name: h_total
+    importance: 200
+  - name: h_size
+    merge:
+      size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+  - name: p_gender
+```
 
-::: processing.weighting.controls.registry
-    options:
-      show_root_heading: true
-      members:
-        - CONTROLS
-        - resolve_targets
-        - pums_variables
+## Available controls
 
-::: processing.weighting.controls.enums
-    options:
-      show_root_heading: true
-      members:
-        - HHSizeCategory
-        - HHWorkersCategory
-        - HHVehiclesCategory
-        - HHChildrenCategory
-        - GenderCategory
-        - EmploymentCategory
-        - CommuteModeCategory
-        - StudentCategory
-        - TotalCategory
+<!-- weighting-controls -->
 
-::: processing.weighting.controls.household
-    options:
-      show_root_heading: true
-      members:
-        - HHSizeControl
-        - HHIncomeControl
-        - HHWorkersControl
-        - HHVehiclesControl
-        - HHChildrenControl
-        - HHTotalControl
-        - HHIncomeBySizeControl
-
-::: processing.weighting.controls.person
-    options:
-      show_root_heading: true
-      members:
-        - GenderControl
-        - EmploymentControl
-        - CommuteModeControl
-        - StudentControl
-        - EducationControl
-        - RaceControl
-        - EthnicityControl
-        - AgeControl
-        - PersonTotalControl
+Code: [processing.weighting.controls](../../reference/processing/weighting/controls.md)

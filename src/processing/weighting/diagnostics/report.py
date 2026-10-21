@@ -2,7 +2,8 @@
 
 Entry point is [`generate_report`][processing.weighting.diagnostics.report.generate_report],
 which collects every fit a run produced, builds Plotly figures and HTML tables via the sibling
-modules (``charts``, ``data``, ``tables``), then renders them
+modules (``charts``, ``crosswalk_map``, ``data``, ``tables``, ``profile_tables``,
+``comparison``, ``glossary``), then renders them
 into a single ``.html`` file using a bundled Jinja2 template.
 
 # One document per run, not per fit
@@ -37,13 +38,13 @@ from geopandas import GeoDataFrame
 from processing.weighting.core.specs import ControlTotals, ProfileFit
 
 from .charts import (
-    crosswalk_figure,
     ef_tradeoff_figure,
     fit_diverging_figure,
     imputation_distribution_figure,
     violins_figure,
 )
 from .comparison import Comparison, fitted_weight_sets, inheritance, payload
+from .crosswalk_map import crosswalk_figure
 from .data import (
     apply_fit_merges,
     compute_weighted_totals,
@@ -56,16 +57,18 @@ from .data import (
     zone_fit_summary,
 )
 from .glossary import CASCADE, COMPARER, FIT, IMPUTATION, WEIGHTS, glossary_groups, term
-from .tables import (
-    balancer_performance_table,
+from .profile_tables import (
     cascade_table,
     coverage_table,
-    crosswalk_summary_table,
-    imputation_summary_table,
     inheritance_table,
     profile_comparison_table,
     redistribution_table,
     split_identity_table,
+)
+from .tables import (
+    balancer_performance_table,
+    crosswalk_summary_table,
+    imputation_summary_table,
     unweighted_cell_counts,
     weight_quality_table,
 )

@@ -8,7 +8,9 @@ that leverages the `@step()` decorator's automatic Pydantic model validation.
 
     # Pydantic Model Validation
 
-    1. This step is decorated with `@step(validate_input=True, validate_output=True)`
+    1. This step is decorated with `@step(validate_input=True, validate_output=True)`.
+       Its config entry can override either flag; a flag the config leaves out keeps
+       the decorator's value
     2. The pipeline framework automatically validates all input/output against Pydantic
        data models
     3. Validation checks:

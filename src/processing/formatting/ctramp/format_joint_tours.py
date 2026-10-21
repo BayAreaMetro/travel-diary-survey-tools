@@ -6,7 +6,6 @@ from collections.abc import Collection
 import polars as pl
 
 from data_canon.codebook.ctramp import (
-    CTRAMPPersonType,
     CTRAMPTourCategory,
     TourComposition,
 )
@@ -19,7 +18,7 @@ from .mode_mappings import (
     aggregate_transit_submode,
     ctramp_mode_expression,
 )
-from .purpose_mappings import ctramp_purpose_category_expression
+from .purpose_mappings import NO_EMPLOYMENT, ctramp_purpose_category_expression
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +173,7 @@ def format_joint_tour(
                 pl.col("tour_purpose"),
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
-                pl.lit(CTRAMPPersonType.NON_WORKER.value),
+                NO_EMPLOYMENT,
                 config.income_low_threshold,
                 config.income_med_threshold,
                 config.income_high_threshold,
@@ -296,9 +295,7 @@ def ctramp_joint_tour_numbers(tours_canonical: pl.DataFrame) -> pl.DataFrame:
     landed on does exist.
 
     Args:
-        tours_canonical: Canonical tours, already passed through
-            [`identify_misclassified_joint_tours`]
-            [processing.formatting.ctramp.format_joint_tours.identify_misclassified_joint_tours].
+        tours_canonical: Canonical tours.
 
     Returns:
         One row per joint tour: ``joint_tour_id`` and its 0-based

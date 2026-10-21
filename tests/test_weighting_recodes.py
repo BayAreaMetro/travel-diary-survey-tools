@@ -22,6 +22,7 @@ from processing.weighting.controls.enums import (
     HHWorkersCategory,
     StudentCategory,
 )
+from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
@@ -83,6 +84,10 @@ def survey_persons() -> pl.DataFrame:
             "student": [2, 2, 2, 2, 0, 2],  # 2=non-student, 0=FT in-person
             "school_type": [None, None, None, None, 5, None],  # 5=K-12
             "work_mode": [1, None, 3, None, None, 11],
+            # Workers who rarely telework, so work_mode decides their commute mode
+            "job_type": [1, None, 1, None, None, 1],
+            "telework_freq": [8, None, 7, None, None, 8],
+            "commute_freq": [2, None, 2, None, None, 2],
         }
     )
 
@@ -296,8 +301,8 @@ class TestRecodeSurveyPersons:
                 "age": [age],
             }
         )
-        result = recode_survey_persons(persons, ["p_student"])
-        assert result["p_student"].to_list() == [expected]
+        result = persons.select(CONTROLS["p_student"].survey_expr())
+        assert result.to_series().to_list() == [expected]
 
     def test_age_recode(self, survey_persons):
         """Age category recode should map canonical AgeCategory values to control categories."""
@@ -368,19 +373,31 @@ class TestRecodeSurveyPersons:
                 "commute_freq": pl.Series([commute_freq], dtype=pl.Int64),
             }
         )
-        result = recode_survey_persons(persons, ["p_commute_mode"])
-        assert result["p_commute_mode"].to_list() == [expected]
+        result = persons.select(CONTROLS["p_commute_mode"].survey_expr())
+        assert result.to_series().to_list() == [expected]
 
-    def test_missing_field_raises(self):
-        """Requesting a target whose source field is absent must raise."""
-        persons_minimal = pl.DataFrame(
-            {
-                "hh_id": [1],
-                "person_id": [101],
-            }
+    @pytest.mark.parametrize(
+        ("drop", "null", "target", "error"),
+        [
+            pytest.param("commute_freq", None, "p_commute_mode", KeyError, id="missing"),
+            pytest.param(None, "gender", "p_gender", ValueError, id="all_null"),
+            pytest.param(None, "employment", "h_workers", ValueError, id="all_null_count_input"),
+        ],
+    )
+    def test_control_inputs_must_have_values(
+        self, survey_households, survey_persons, drop, null, target, error
+    ):
+        """A configured control raises on a field that is absent or null on every row."""
+        persons = survey_persons.drop(drop) if drop else survey_persons
+        if null:
+            persons = persons.with_columns(pl.lit(None, dtype=pl.Int64).alias(null))
+        call = (
+            (lambda: recode_survey_households(survey_households, persons, [target]))
+            if target.startswith("h_")
+            else (lambda: recode_survey_persons(persons, [target]))
         )
-        with pytest.raises(KeyError, match="gender"):
-            recode_survey_persons(persons_minimal, ["p_gender"])
+        with pytest.raises(error, match=drop or null):
+            call()
 
     @pytest.mark.parametrize(
         ("targets", "expected"),

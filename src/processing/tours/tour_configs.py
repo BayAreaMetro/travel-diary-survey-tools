@@ -36,12 +36,11 @@ HHMM times, tour reordering, etc.) as needed.
 from typing import Literal
 
 import polars as pl
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from data_canon.codebook.persons import AgeCategory, Employment, SchoolType, Student
 from data_canon.codebook.tours import PersonCategory
 from data_canon.codebook.trips import ModeType, PurposeCategory
-from processing.habitual_locations import MatchConfig
 
 
 class TourConfig(BaseModel):
@@ -50,8 +49,10 @@ class TourConfig(BaseModel):
     This config uses Pydantic for validation and provides type-safe access
     to tour building parameters including mode hierarchies and purpose
     priorities. The one distance that decides whether a trip end is at a place
-    lives in ``habitual_locations``.
+    is not here: ``extract_tours`` takes it as its own ``MatchConfig``.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     # Mode hierarchy: position in list determines priority
     # (later in list = higher priority for tour mode assignment)
@@ -281,24 +282,13 @@ class TourConfig(BaseModel):
     )
 
     spatial_gap_threshold_meters: float = Field(
-        default=1000.0,
         description=(
             "A tour is flagged SPATIAL_GAP when any internal junction has a "
             "gap greater than this (meters) between one trip's destination and "
             "the next trip's origin - i.e. a missing leg the tour extractor "
-            "would otherwise silently weld into one 'survey_complete' tour. Default "
-            "1 km catches genuine teleports while ignoring same-place geocoding "
+            "would otherwise silently weld into one 'survey_complete' tour. "
+            "BATS uses 1 km, which catches genuine teleports while ignoring same-place geocoding "
             "jitter."
-        ),
-    )
-
-    habitual_locations: MatchConfig = Field(
-        default_factory=MatchConfig,
-        description=(
-            "The rule for whether a trip end is at a habitual location. Its "
-            "buffer must be the one detect_habitual_locations used, and is also "
-            "the distance within which a trip end returns to a tour's primary "
-            "destination."
         ),
     )
 

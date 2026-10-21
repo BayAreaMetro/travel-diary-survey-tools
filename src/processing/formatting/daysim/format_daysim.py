@@ -2,7 +2,7 @@
 
 Transforms canonical survey data (persons, households, trips, tours, days) into
 DaySim activity-based travel demand model format, applying model-specific coding
-schemes and data structures. See [DaySim Data Models](../../models/daysim.md).
+schemes and data structures. See [DaySim Data Models][daysim-output-models].
 
 This module orchestrates specialized formatting for each table type, applying
 DaySim-specific integer codes for categorical variables while maintaining
@@ -23,12 +23,11 @@ referential integrity across tables.
 * [`format_days`][processing.formatting.daysim.format_days]: Produces days_daysim table
   consistent with [`PersonDayDaysimModel`][data_canon.models.daysim.PersonDayDaysimModel].
 
-# Data Quality Filters
+# Record Selection
 
-- **Partial Tours**: Optionally drop tours without return home
-- **Missing TAZ**: Remove records without spatial assignment (required for model)
-- **Invalid Tours**: Filter out tours failing validation rules (zero distance,
-  negative duration, data quality flags)
+The step keeps the records its ``usability_profile`` admits (``usable_<profile>``),
+so partial tours, invalid tours and records without a TAZ are left out by the
+profile (its ``tour_closes_at`` and ``zone_coverage``), not by this step.
 
 # Implementation Notes
 
@@ -47,6 +46,7 @@ import polars as pl
 
 from pipeline.decoration import step
 from processing.formatting.usable_records import keep_usable
+from processing.formatting.usual_workplace import fill_usual_workplace
 
 from .format_days import format_days
 from .format_households import format_households
@@ -81,6 +81,8 @@ def format_daysim(
     tours: pl.DataFrame,
     days: pl.DataFrame,
     usability_profile: str,
+    habitual_locations: pl.DataFrame | None = None,
+    habitual_location_days: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to DaySim model specification.
 
@@ -100,6 +102,13 @@ def format_daysim(
             Required: with several profiles stamped there is no defensible
             default, and naming a different one from the CT-RAMP formatter or
             the weighting means those outputs describe different universes.
+        habitual_locations: Habitual locations, zoned by ``add_zone_ids``. An
+            employed person who reported no workplace takes their most-visited
+            observed workplace as ``pwtaz``/``pwpcl`` (see
+            [`usual_workplace`][processing.formatting.usual_workplace]). None
+            leaves the reported workplaces alone.
+        habitual_location_days: Time spent at each habitual location per day,
+            which picks the most-visited workplace.
 
     Returns:
         Dictionary containing:
@@ -124,9 +133,7 @@ def format_daysim(
             linked_trips=canonical_linked_trips,
             tours=canonical_tours,
             days=canonical_days,
-            drop_partial_tours=True,
-            drop_missing_taz=True,
-            drop_invalid_tours=True
+            usability_profile="daysim",
         )
         households_daysim = result["households_daysim"]
         persons_daysim = result["persons_daysim"]
@@ -154,6 +161,15 @@ def format_daysim(
     tours = gated["tours"]
     linked_trips = gated["linked_trips"]
     unlinked_trips = gated["unlinked_trips"]
+
+    # The survey asks for a workplace only when the job has one fixed location;
+    # for anyone else employed, their trips may show one.
+    persons = fill_usual_workplace(
+        persons,
+        habitual_locations,
+        habitual_location_days,
+        zone_names=[z for z in ("taz", "maz") if f"work_{z}" in persons.columns],
+    )
 
     # Format each table
 

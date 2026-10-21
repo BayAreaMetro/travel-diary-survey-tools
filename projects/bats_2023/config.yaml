@@ -28,14 +28,14 @@ TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
 # Distance within which a trip end is at a habitual location (home, work,
-# school). detect_habitual_locations finds the locations with it and
-# extract_tours matches trips to them with it, so both steps read this one key.
+# school). detect_habitual_locations and extract_tours each have their own
+# buffer_meters setting; both use this value here.
 habitual_buffer_meters: "300"
 
 # Pipeline configuration
 steps:
   - name: load_data
-    validate_input: false # This will override @step(validate=True/False) in the function definition
+    validate_input: false  # overrides the step's @step() value; leave it out to keep that
     cache: true
     params:
       input_paths:
@@ -68,7 +68,7 @@ steps:
         persons:
           - column: gender
             method: rf
-            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting (ACS only includes male/female, so the weighting approachreflects this constraint)
+            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting (ACS only includes male/female, so the weighting approach reflects this constraint)
             join_tables: [households]
             # numeric_features: [age] # Optional if you have them.
             numeric_features: [num_trips]
@@ -99,7 +99,7 @@ steps:
           #   categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
           #   max_iter: 10
 
-      # Optional: create diagnostic flags (default: true)
+      # Optional: keep each imputed column's original values in <column>_preimputed (default: true)
       stash_preimputed: true
       random_state: 42     # For reproducibility
 
@@ -139,21 +139,22 @@ steps:
     validate_input: false
     cache: true
     params:
-      config:
-        method: "mahalanobis"
-        # Covariance for Mahalanobis distance calculation
-        # Think of this as the standard deviation of measurement noise in each dimension
-        # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
-        # Default [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
-        covariance: [10000, 10000, 100, 100]
-        # Confidence level: Higher = stricter matching (fewer detections)
-        # 0.90 = 90% confidence (strict), 0.75 = moderate, 0.50 = permissive
-        confidence_level: 0.90
+      method: "mahalanobis"
+      # Covariance for Mahalanobis distance calculation
+      # Think of this as the standard deviation of measurement noise in each dimension
+      # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
+      # [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
+      covariance: [10000, 10000, 100, 100]
+      # Confidence level: higher = stricter. It reads backward and is not the
+      # share of joint pairs kept. With this covariance, 0.90 closely matches
+      # the buffer method below (see JointTripConfig.get_distance_threshold).
+      confidence_level: 0.90
 
-        # Alternative: simpler buffer method with time/space thresholds
-        # method: "buffer"
-        # time_threshold_minutes: 15.0
-        # space_threshold_meters: 100.0
+      # Alternative: simpler buffer method with time/space thresholds
+      # method: "buffer"
+      # covariance: null
+      # time_threshold_minutes: 15.0
+      # space_threshold_meters: 100.0
 
   - name: extract_tours
     validate_input: false
@@ -165,8 +166,7 @@ steps:
       # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
-      habitual_locations:
-        buffer_meters: "{{ habitual_buffer_meters }}"
+      buffer_meters: "{{ habitual_buffer_meters }}"
 
   - name: add_zone_ids
     validate_input: false
@@ -175,10 +175,10 @@ steps:
       projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
       max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
       zone_geographies:
-        - zone_name: "taz"  # Primary TAZ for DaySim (TM1)
+        - zone_name: "taz"  # TM2 TAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/tazs_TM2_2_5.shp"
           zone_id_field: "TAZ_NODE"
-        - zone_name: "maz"  # Primary MAZ for DaySim (TM2)
+        - zone_name: "maz"  # TM2 MAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/mazs_TM2_2_5.shp"
           zone_id_field: "MAZ_NODE"
         # Add additional zone geographies as needed:
@@ -228,9 +228,10 @@ steps:
       #
       #   joint_tours:         fully_joint   a joint tour is only the members who
       #                                      share every leg of it, and never a
-      #                                      work, school or escort tour -- the
-      #                                      models draw a joint tour's trips once
-      #                                      for everyone on it. A member who
+      #                                      work, work-related, school or escort
+      #                                      tour -- the models draw a joint
+      #                                      tour's trips once for everyone on
+      #                                      it. A member who
       #                                      leaves for a leg travels alone, as
       #                                      an individual tour
       #                        partial       the joint groups the survey detected,
@@ -259,13 +260,13 @@ steps:
     validate_input: false
     cache: true
     params:
-      # -- PUMS 1-year microdata (California) ---------------------------
-      # (Optional) will download from Census if not provided
-      # pums_households: "{{ pums_dir }}/psam_h06.csv"
-      # pums_persons: "{{ pums_dir }}/psam_p06.csv"
-
-      state_fips: "06"
-      pums_year: 2023
+      # -- Census controls ---------------------------------------------
+      census:
+        state_fips: "06"
+        pums_year: 2023
+        # PUMS microdata; downloaded from the Census if not given
+        # pums_households: "{{ pums_dir }}/psam_h06.csv"
+        # pums_persons: "{{ pums_dir }}/psam_p06.csv"
 
       # -- Sample Plan Path ------------------------------------------------
       sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
@@ -299,15 +300,16 @@ steps:
           # "Napa": ["097"]
 
       # -- Balancer settings -------------------------------------------
-      max_expansion_factor: 5.0    # upper bound = initial_weight × factor
-      min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
-      min_weight: 1                # absolute floor (no weight < 1)
-      # max_weight:                # absolute ceiling (null = no ceiling)
-      max_iterations: 10000
-      n_workers: 8                 # parallel zone balancing (numba releases GIL)
-      default_importance: 100      # baseline importance for controls without an explicit override
-      # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
-      moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+      balancing:
+        max_expansion_factor: 5.0    # upper bound = initial_weight × factor
+        min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+        min_weight: 1                # absolute floor (no weight < 1)
+        # max_weight:                # absolute ceiling (null = no ceiling)
+        max_iterations: 10000
+        n_workers: 8                 # parallel zone balancing (numba releases GIL)
+        default_importance: 100      # baseline importance for controls without an explicit override
+        # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
+        moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
 
       # -- One balancing run per profile -------------------------------
       # Each profile named here is fitted separately, and its own flag is the
@@ -319,9 +321,6 @@ steps:
       # Each parent's weight is spread across its usable children, so excluding a
       # record does not shrink the expansion. Name `survey_complete` here to weight the
       # whole valid survey, partial and overnight tours included.
-      #
-      # Mutually exclusive with usability_profile, which weights one profile and
-      # writes the un-suffixed columns.
       weight_profiles: [ctramp, daysim, analysis]
 
       # Homes outside the control geography (region_county.shp, strict
@@ -330,11 +329,6 @@ steps:
       # rather than returning nulls quietly. Measured 0.00% on 2019 and 2023, so
       # this is a tripwire for a misconfigured geography, not a routine dial.
       max_unplaceable_share: 0.01
-
-      # -- EF grid search (optional) -----------------------------------
-      # Re-run balancing across a grid of max_expansion_factor values and
-      # add a diagnostic chart showing fit vs weight quality tradeoffs.
-      expansion_factor_grid: [2, 3, 4, 5, 7, 10, 15, 20]
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -441,6 +435,10 @@ steps:
       diagnostics:
         output_path: "{{ output_dir }}/weighting_diagnostics_2023.html"
 
+        # Re-run balancing across a grid of max_expansion_factor values and
+        # add a diagnostic chart showing fit vs weight quality tradeoffs.
+        expansion_factor_grid: [2, 3, 4, 5, 7, 10, 15, 20]
+
         # Weight sets that arrived with the survey, to compare our fits against
         # in the report's comparer section. Named rather than discovered: a
         # vendor suffix is indistinguishable from a profile suffix (a scan would
@@ -469,7 +467,7 @@ steps:
 
 
   # -- Existing weights (alternative to computing new weights) ----------
-  # Uncomment this block and comment out the 'weighting' step above
+  # Uncomment this block and comment out the 'compute_weights' step above
   # to use pre-computed weights from an external source.
   # - name: add_existing_weights
   #   validate_input: false
@@ -499,7 +497,6 @@ steps:
   #         weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
   #         weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
   #         weight_path: "{{ weights_dir }}/trip_weights.csv"
-  #         keep_name: false # Defaults to false, but you could keep original name if desired
 
 
   # - name: final_check

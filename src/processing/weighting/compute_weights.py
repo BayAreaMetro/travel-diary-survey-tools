@@ -2,14 +2,14 @@
 
 Orchestrates the full weighting pipeline in the following stages:
 
-**A. [Geography Crosswalk](crosswalk.md)**
+**A. [Geography Crosswalk][weighting-crosswalk]**
 
 1. **Setup** -- register controls from YAML config, build the geographic
    crosswalk (translating between Census PUMAs and the project's custom
    weighting geography using block-group population as the intermediary),
    and prepare the sample plan.
 
-**B. [Control Data Preparation](data_preparation.md)**
+**B. [Control Data Preparation][weighting-data-preparation]**
 
 2. **PUMS recoding** -- load PUMS 1-year microdata and recode into the
    YAML-configured variable bins used by the controls.
@@ -18,7 +18,7 @@ Orchestrates the full weighting pipeline in the following stages:
 4. **Control aggregation** -- apply the crosswalk to PUMS and aggregate
    into marginal control totals per zone.
 
-**C. [Survey Seed Preparation](data_preparation.md)**
+**C. [Survey Seed Preparation][weighting-data-preparation]**
 
 5. **Survey recoding** -- recode canonical survey variables into the same
    bin / group categories as the PUMS controls.
@@ -27,24 +27,25 @@ Orchestrates the full weighting pipeline in the following stages:
 7. **Zone assignment** -- assign survey households to weighting zones via
    the geographic crosswalk.
 
-**D. [Maximum-Entropy Balancing](balancing.md)**
+**D. [Maximum-Entropy Balancing][weighting-balancing]**
 
 8. **Importance resolution** -- compute per-control importance weights
    from replicate-weight MOE or explicit YAML overrides.
 9. **Balancing** -- build per-household incidence vectors and fit weights
-   using PopulationSim's numba-accelerated max-entropy balancer,
-   independently per zone.
-10. **[Weight propagation](balancing.md)** -- propagate final ``hh_weight`` to all
-    canonical tables (persons, days, trips, tours).
+   using a numba-accelerated max-entropy balancer (vendored from
+   PopulationSim), independently per zone, once per profile.
+10. **[Weight propagation][weighting-hierarchy]** -- propagate each profile's
+    ``hh_weight_<profile>`` to all canonical tables (persons, days, trips, tours).
 
-**E. [Diagnostics](diagnostics.md) & [Validation](validation.md)**
+**E. [Diagnostics][weighting-diagnostics] & [Validation][weighting-validation]**
 
 11. **Diagnostics** -- generate one self-contained interactive HTML report
     for the run, comparing every profile fitted and carrying each one's
     convergence, fit, weight-quality and weight-cascade diagnostics.
 12. **Validation** -- run sanity checks on the final weights and control
-    totals.  Results are logged as warnings but are not currently included
-    in the HTML report — check the pipeline log to review them.
+    totals. The fit against the controls is logged; the hierarchy identities,
+    the joint-table sums and weight placement raise when they fail. None of it
+    is in the HTML report -- check the pipeline log.
 
 """
 
@@ -64,10 +65,13 @@ from processing.weighting.core.pipeline import WeightingPipeline
 from processing.weighting.core.propagation import drop_unsuffixed_weights
 from processing.weighting.core.specs import (
     BalancingConfig,
+    CensusConfig,
     ControlRegistryConfig,
+    DiagnosticsConfig,
     ImportanceConfig,
     WeightingConfig,
 )
+from processing.weighting.data_prep.crosswalk import GeographyConfig
 from processing.weighting.validation.weight_checks import weight_sanity_checks
 
 logger = logging.getLogger(__name__)
@@ -110,41 +114,75 @@ def _split_weighting_columns(
 # ===========================================================================
 
 
-@step()
+@step(
+    # Every field any control in weighting/controls/ reads, whether or not a project
+    # turns that control on. Adding a control means adding its fields here.
+    requires={
+        "households": {
+            "hh_id",
+            "home_lon",
+            "home_lat",
+            "survey_complete",
+            "usable_<profile>",
+            "income_bin",  # h_income
+            "num_vehicles",  # h_vehicles
+        },
+        "persons": {
+            "person_id",
+            "hh_id",  # also h_size
+            "employment",  # h_workers, p_employment
+            "age",  # h_children, p_age, p_student
+            "student",  # p_student
+            "school_type",  # p_student
+            "gender",  # p_gender
+            "race",  # p_race
+            "ethnicity",  # p_ethnicity
+            "education",  # p_education
+            "work_mode",  # p_commute_mode
+            "job_type",  # p_commute_mode
+            "telework_freq",  # p_commute_mode
+            "commute_freq",  # p_commute_mode
+        },
+        "days": {"day_id", "person_id"},
+        "unlinked_trips": {"unlinked_trip_id", "day_id", "linked_trip_id"},
+        "linked_trips": {"linked_trip_id", "tour_id", "joint_trip_id"},
+        "tours": {"tour_id", "joint_tour_id"},
+        "joint_trips": {"joint_trip_id"},
+        "joint_tours": {"joint_tour_id"},
+    },
+    produces={
+        "households": {"hh_weight_<profile>"},
+        "persons": {"person_weight_<profile>"},
+        "days": {"day_weight_<profile>"},
+        "unlinked_trips": {"unlinked_trip_weight_<profile>"},
+        "linked_trips": {"linked_trip_weight_<profile>"},
+        "tours": {"tour_weight_<profile>"},
+        "joint_trips": {"joint_trip_weight_<profile>"},
+        "joint_tours": {"joint_tour_weight_<profile>"},
+        "household_weights": {
+            "hh_id",
+            "study_geoid",
+            "ctrl_geoid",
+            "bg_geo_id",
+            "base_weight_<profile>",
+            "hh_weight_<profile>",
+        },
+    },
+)
 def compute_weights(  # noqa: PLR0913
-    # -- Config params (from YAML) --------------------------------------
-    state_fips: str,
-    pums_year: int,
+    # -- Settings (from YAML) -------------------------------------------
+    census: CensusConfig,
+    geography: GeographyConfig,
+    balancing: BalancingConfig,
     controls: list[dict],
-    geography: dict,
+    diagnostics: DiagnosticsConfig,
+    weight_profiles: list[str],
+    max_unplaceable_share: float,
+    sample_plan: str | None,
+    strict_survey_nulls: bool = False,
     *,
-    # -- Existing PUMS files (optional) ---------------------------------
-    pums_households: str | None = None,
-    pums_persons: str | None = None,
-    # -- Sample plan (optional) -----------------------------------------
-    sample_plan: str | None = None,
     # -- Pipeline plumbing (auto-injected by @step decorator) -----------
     pipeline_cache: PipelineCache | None = None,
-    # -- Importance / MOE -----------------------------------------------
-    moe_based_importance: bool = False,
-    default_importance: float = 100.0,
-    # -- Balancing params -----------------------------------------------
-    max_expansion_factor: float = 10.0,
-    min_expansion_factor: float = 0.1,
-    min_weight: float | None = 1,
-    max_weight: float | None = None,
-    max_iterations: int = 10_000,
-    n_workers: int = 1,
-    # -- Diagnostics ----------------------------------------------------
-    expansion_factor_grid: list[float] | None = None,
-    diagnostics: dict | None = None,
-    # -- Validation ------------------------------------------------------
-    strict_survey_nulls: bool = False,
-    # -- Completeness handling ------------------------------------------
-    exclude_incompletes: bool = True,
-    usability_profile: str | None = None,
-    weight_profiles: list[str] | None = None,
-    max_unplaceable_share: float = 0.01,
     # -- Canonical tables (auto-injected by pipeline) -------------------
     canonical_data: CanonicalData | None = None,
     households: pl.DataFrame | None = None,
@@ -158,11 +196,35 @@ def compute_weights(  # noqa: PLR0913
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
-    Flat-parameter entry point required by the ``@step()`` decorator
-    (YAML → keyword args).  Constructs a
+    Constructs a
     [`WeightingPipeline`][processing.weighting.core.pipeline.WeightingPipeline];
-    Full documentation of the algorithm, configuration, and diagnostics in included
-    in that class.
+    full documentation of the algorithm, configuration, and diagnostics is
+    included in that class.
+
+    Args:
+        census: Where the Census controls come from. See ``CensusConfig``.
+        geography: The zones weights are balanced over. See ``GeographyConfig``.
+        balancing: Solver bounds and control importance. See ``BalancingConfig``.
+        controls: The control list, each by registry name with optional
+            ``importance`` and ``merge``.
+        diagnostics: The report. See ``DiagnosticsConfig``.
+        weight_profiles: Usability profiles to weight, one fit each; a single
+            profile is a list of one.
+        max_unplaceable_share: The most of the survey whose homes may fall
+            outside the control geography before the step raises.
+        sample_plan: Path to the sample plan for base weights; null for none.
+        strict_survey_nulls: Raise on survey nulls in control variables rather
+            than imputing them.
+        pipeline_cache: Supplied by the pipeline.
+        canonical_data: Supplied by the pipeline.
+        households: Households.
+        persons: Persons.
+        days: Days.
+        unlinked_trips: Unlinked trips.
+        linked_trips: Linked trips.
+        joint_trips: Joint trips.
+        tours: Tours.
+        joint_tours: Joint tours.
     """
     if households is None or persons is None:
         msg = "Weighting requires at least households and persons tables."
@@ -180,42 +242,29 @@ def compute_weights(  # noqa: PLR0913
         joint_trips=joint_trips,
         joint_tours=joint_tours,
     )
-    # Prepare the pipeline configuration objects
     wt_config = WeightingConfig(
         geography=geography,
-        state_fips=state_fips,
-        pums_year=pums_year,
-        pums_households=pums_households,  # Optional local files take precedence over API fetching
-        pums_persons=pums_persons,  # Optional local files take precedence over API fetching
+        state_fips=census.state_fips,
+        pums_year=census.pums_year,
+        pums_households=census.pums_households,  # local files take precedence over the API
+        pums_persons=census.pums_persons,
         sample_plan=sample_plan,
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
-        expansion_factor_grid=expansion_factor_grid,
+        expansion_factor_grid=diagnostics.expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
-        exclude_incompletes=exclude_incompletes,
-        usability_profile=usability_profile,
-        weight_profiles=tuple(weight_profiles or ()),
+        weight_profiles=tuple(weight_profiles),
         max_unplaceable_share=max_unplaceable_share,
     )
-    # Prepare the balancing configs (max expansion factor, weight bounds, max iterations, etc.)
-    balance_cfg = BalancingConfig(
-        max_expansion_factor=max_expansion_factor,
-        min_expansion_factor=min_expansion_factor,
-        min_weight=min_weight,
-        max_weight=max_weight,
-        max_iterations=max_iterations,
-        n_workers=n_workers,
-    )
-    # Prepare the importance config (MOE-based, explicit overrides, or default).
+    # Importance for controls without their own; per-control overrides come from controls.
     importance_cfg = ImportanceConfig(
-        moe_based=moe_based_importance,
-        default=default_importance,
+        moe_based=balancing.moe_based_importance,
+        default=balancing.default_importance,
     )
-    # Initialize and run the pipeline with the provided configs and data
     wt_pipeline = WeightingPipeline(
         controls=ControlRegistryConfig.from_yaml(controls),
         config=wt_config,
         data=data,
-        balancing=balance_cfg,
+        balancing=balancing,
         importance=importance_cfg,
     )
 
@@ -243,7 +292,7 @@ def compute_weights(  # noqa: PLR0913
         "controls over its own universe and writes its own columns; nothing is derived "
         "from another fit.",
         len(profiles),
-        ", ".join(p or "the whole survey" for p in profiles),
+        ", ".join(profiles),
     )
     # The whole block, not one key: the comparer also reads it, and it must run
     # before drop_unsuffixed_weights below takes the supplied weights away.
@@ -260,7 +309,7 @@ def compute_weights(  # noqa: PLR0913
             profile=fit.profile,
         )
 
-    drop_unsuffixed_weights(result_tables, profiles)
+    drop_unsuffixed_weights(result_tables)
 
     # The suffixed names come from config, so they cannot be model fields; without
     # registering them the delivered output would drop them.

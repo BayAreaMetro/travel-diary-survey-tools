@@ -203,12 +203,7 @@ def detect_joint_trips(
     linked_trips: pl.DataFrame,
     households: pl.DataFrame,
     days: pl.DataFrame,
-    method: str = "buffer",
-    time_threshold_minutes: float = 15.0,
-    space_threshold_meters: float = 100.0,
-    covariance: list[float] | list[list[float]] | None = None,
-    confidence_level: float = 0.90,
-    log_discrepancies: bool = False,
+    matching: JointTripConfig,
 ) -> dict[str, pl.DataFrame]:
     """Detect joint trips among household members using similarity matching.
 
@@ -222,15 +217,8 @@ def detect_joint_trips(
         households: Household table for pre-filtering.
         days: Days with ``travel_date``; trips are paired only within one
             household date, and each joint trip records it.
-        method: Detection method - "buffer" or "mahalanobis" (default: "buffer").
-        time_threshold_minutes: Max time difference for buffer method (default: 15.0).
-        space_threshold_meters: Max spatial distance for buffer method (default: 100.0).
-        covariance: Covariance matrix for mahalanobis method - diagonal (4 values) or
-            full (4x4 matrix). If None, uses defaults (~84m spatial, ~4.5min temporal).
-        confidence_level: Statistical confidence level for mahalanobis (default: 0.90).
-            Higher = stricter. 0.90 is strict, 0.75 is moderate.
-        log_discrepancies: Whether to log trips with reported vs detected traveler
-            mismatches (default: False).
+        matching: How trips are matched: the method and its thresholds, from
+            the config's ``matching:`` block. See ``JointTripConfig``.
 
     Returns:
         Dictionary containing:
@@ -255,7 +243,7 @@ def detect_joint_trips(
 
         # Phase 3: Similarity Filtering
 
-        ## Buffer Method (default):
+        ## Buffer Method:
 
         - Filter trip pairs where:
             - Spatial distance (haversine) ≤ space_threshold_meters for both
@@ -268,7 +256,8 @@ def detect_joint_trips(
 
         - Calculate statistical distance using covariance matrix:
             - Accounts for correlated variations in space/time
-            - Compares to chi-squared distribution at confidence_level
+            - Keeps pairs whose distance is below a cutoff set by
+              confidence_level (see ``JointTripConfig.get_distance_threshold``)
         - More sophisticated, calibrated to actual joint trip patterns
         - Can capture joint trips more flexibly than fixed thresholds
 
@@ -284,12 +273,12 @@ def detect_joint_trips(
         # Phase 5: Joint Trip Aggregation
 
         1. Assign unique joint_trip_id to each clique
-        2. Create joint_trips table with:
-            - Representative location/time (mean of participants)
-            - person_list: Array of participating person IDs
-            - trip_list: Array of individual linked_trip_ids
-            - num_participants: Count of travelers
-        3. Validate against reported num_travelers field if available
+        2. Create joint_trips table, one row per joint trip:
+            - joint_trip_id, hh_id, travel_date
+            - num_joint_travelers: number of member linked trips
+            - survey_complete: true only if every member trip is complete
+        3. Mark each member linked trip with its joint_trip_id
+        4. Validate against reported num_travelers field if available
 
     Notes:
         - Only compares trips within one household date (joint trips across
@@ -302,24 +291,9 @@ def detect_joint_trips(
           number of travelers
         - Non-joint trips retain joint_trip_id = NULL
     """
-    # Validate and construct config
-    config = JointTripConfig(
-        method=method,
-        time_threshold_minutes=time_threshold_minutes,
-        space_threshold_meters=space_threshold_meters,
-        covariance=covariance,
-        confidence_level=confidence_level,
-        log_discrepancies=log_discrepancies,
-    )
-
-    # Default covariance for Mahalanobis if not provided
-    if config.method == "mahalanobis" and config.covariance is None:
-        config.covariance = [7000, 7000, 20, 20]  # ~84m, ~84m, ~4.5min, ~4.5min
-        logger.info("Using default diagonal covariance for Mahalanobis method")
-
     logger.info(
         "Detecting joint trips using %s method (%d trips, %d households)",
-        config.method,
+        matching.method,
         len(linked_trips),
         len(households),
     )
@@ -349,17 +323,17 @@ def detect_joint_trips(
     trip_pairs = compute_pairwise_distances(trip_pairs)
 
     # Apply filtering based on method
-    if config.method == "buffer":
+    if matching.method == "buffer":
         filtered_pairs = apply_buffer_filter(
             trip_pairs,
-            config.space_threshold_meters,
-            config.time_threshold_minutes,
+            matching.space_threshold_meters,
+            matching.time_threshold_minutes,
         )
     else:  # mahalanobis
         filtered_pairs = apply_mahalanobis_filter(
             trip_pairs,
-            config.covariance,
-            config.distance_threshold,
+            matching.covariance,
+            matching.get_distance_threshold(),
         )
 
     if len(filtered_pairs) == 0:
@@ -381,7 +355,7 @@ def detect_joint_trips(
             "Flagged %d clique conflicts resolved by quality ranking",
             len(flagged_conflicts),
         )
-        if log_discrepancies:
+        if matching.log_discrepancies:
             # Show first 5 flagged conflicts
             for i, clique in enumerate(flagged_conflicts[:5], 1):
                 logger.debug("Flagged clique %d: trips %s", i, clique)
@@ -403,7 +377,7 @@ def detect_joint_trips(
     validate_against_num_travelers(
         linked_trips_with_joints,
         joint_trip_assignments,
-        config.log_discrepancies,
+        matching.log_discrepancies,
     )
 
     # Drop intermediate distance columns before returning

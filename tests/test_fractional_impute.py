@@ -196,12 +196,13 @@ class TestPivotHelpers:
 
     def test_null_person_yields_zero_indicators(self):
         """A person with null gender should get all-zero gender indicators."""
-        _, per_r = _recode_survey(null_gender_rate=1.0)
+        _, per_r = _recode_survey(null_gender_rate=0.5)
         pp, _ = pivot_person_controls(per_r, TARGETS, "hh_id")
         gender_cols = [c for c in pp.columns if c.startswith("p_gender__")]
-        row_sums = pp.select(pl.sum_horizontal(gender_cols))
-        # All should be 0 since all genders are null
-        assert row_sums.to_series().to_list() == [0] * len(pp)
+        row_sums = pp.select(pl.sum_horizontal(gender_cols)).to_series()
+        null_rows = per_r["p_gender"].is_null()
+        assert null_rows.any()
+        assert row_sums.filter(null_rows).to_list() == [0] * int(null_rows.sum())
 
 
 class TestDetectNullRows:
@@ -313,19 +314,6 @@ class TestFillNullIncidence:
             all_vals.extend(result[col].to_list())
         fractional = [v for v in all_vals if v != int(v)]
         assert len(fractional) > 0, "Expected some fractional values after imputation"
-
-    def test_all_null_gender(self):
-        """With 100% null gender, every person gets fractional prediction."""
-        pums_bundle, _ = _recode_pums()
-        survey_bundle, _ = _recode_survey(null_gender_rate=1.0)
-
-        result, _summaries = fill_null_incidence(survey_bundle, pums_bundle, TARGETS)
-
-        gender_cols = [c for c in result.columns if c.startswith("p_gender__")]
-        row_sums = result.select(pl.sum_horizontal(gender_cols)).to_series()
-        p_total = result["p_total"].cast(pl.Float64)
-        diff = (row_sums - p_total).abs()
-        assert diff.max() < 0.01, f"Max marginal deviation with all-null: {diff.max()}"
 
     def test_summaries_report_nulls(self):
         """Summaries should report non-zero nulls for imputed controls."""

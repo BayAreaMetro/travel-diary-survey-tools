@@ -84,7 +84,7 @@ def compute_base_weights(
     """Add ``base_weight`` column to the seed table.
 
     Args:
-        seed: Household seed table from ``build_seed_table``.  Must
+        seed: Household seed table from ``build_incidence_table``.  Must
             contain ``hh_id`` and *geo_col*.  When using a sample plan,
             must also contain ``bg_geo_id`` (assigned via
             [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).

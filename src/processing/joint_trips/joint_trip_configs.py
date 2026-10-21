@@ -35,7 +35,7 @@ from typing import Literal
 
 import numpy as np
 import polars as pl
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from scipy import stats
 
 from utils.helpers import expr_haversine as haversine_dist
@@ -50,21 +50,21 @@ class JointTripConfig(BaseModel):
         time_threshold_minutes: Maximum time difference for buffer method
         space_threshold_meters: Maximum spatial distance for buffer method
         covariance: Diagonal variances (list of 4) or full covariance matrix
-            (4x4 list of lists) in units [m^2, m^2, min^2, min^2].
-            None defaults to [7000, 7000, 20, 20] based on empirical
-            variance from BATS 2023: origin ~84m std (7142 m² var),
-            dest ~84m (7089 m²), depart ~4.7min (22 min²),
-            arrive ~4.6min (21 min²).
-        confidence_level: Confidence threshold for joint trip detection
-            (mahalanobis method only). Represents confidence that detected
-            pairs are truly joint trips. E.g., 0.90 means 90% confidence
-            (strict - fewer detections). Higher values = stricter matching.
+            (4x4 list of lists) in units [m^2, m^2, min^2, min^2]. Required
+            for mahalanobis; null for buffer. The empirical variance of BATS
+            2023 household joint trips is about [7000, 7000, 20, 20]: origin
+            ~84m std (7142 m² var), dest ~84m (7089 m²), depart ~4.7min
+            (22 min²), arrive ~4.6min (21 min²).
+        confidence_level: Strictness of the mahalanobis cutoff. Higher values
+            keep fewer pairs. It is not the share of joint pairs kept; see
+            ``get_distance_threshold``.
         log_discrepancies: If True, log DEBUG-level details when detected
             joint trip size differs from reported num_travelers field
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     method: Literal["buffer", "mahalanobis"] = Field(
-        default="buffer",
         description=("Detection method: buffer (strict) or mahalanobis (statistical)"),
     )
 
@@ -81,26 +81,24 @@ class JointTripConfig(BaseModel):
     )
 
     covariance: Sequence[float | int] | Sequence[Sequence[float | int]] | None = Field(
-        default=None,
         description=(
             "Diagonal (4 values) or full (4x4) covariance matrix in units "
-            "[origin_m^2, dest_m^2, depart_min^2, arrive_min^2]. "
-            "None defaults to diagonal [7000, 7000, 20, 20] based on "
-            "empirical variance from BATS 2023 household joint trips: "
+            "[origin_m^2, dest_m^2, depart_min^2, arrive_min^2]. Required for "
+            "mahalanobis; null for buffer. The empirical variance of BATS 2023 "
+            "household joint trips is about diagonal [7000, 7000, 20, 20]: "
             "origin ~84m std dev (7142 m² var), dest ~84m (7089 m²), "
             "depart ~4.7min (22 min²), arrive ~4.6min (21 min²)."
         ),
     )
 
     confidence_level: float = Field(
-        default=0.90,
         gt=0,
         lt=1,
         description=(
-            "Confidence threshold for joint trip detection "
-            "(mahalanobis method only). Represents confidence that "
-            "detected pairs are truly joint trips. E.g., 0.90 means "
-            "90% confidence (strict matching). Higher = stricter."
+            "Strictness of the mahalanobis cutoff (mahalanobis method only). "
+            "Higher = stricter. It reads backward from the usual meaning of "
+            "confidence and is not the share of joint pairs kept. See "
+            "get_distance_threshold."
         ),
     )
 
@@ -176,29 +174,44 @@ class JointTripConfig(BaseModel):
         """Ensure required parameters are provided for each method."""
         if self.method == "mahalanobis" and self.covariance is None:
             msg = (
-                "covariance must be provided for mahalanobis method. "
-                "Use default [7000, 7000, 20, 20] or run calibration."
+                "covariance must be provided for mahalanobis method, e.g. the BATS 2023 "
+                "empirical [7000, 7000, 20, 20], or run calibration."
             )
             raise ValueError(msg)
         return self
 
     def get_distance_threshold(self) -> float:
-        """Convert confidence level to chi-squared threshold.
+        """Convert confidence_level to the cutoff the mahalanobis filter uses.
 
-        For 4D Mahalanobis distance (origin, dest, depart, arrive),
-        the squared distance follows chi-squared distribution with df=4.
+        Returns ``chi2.ppf(1 - confidence_level, df=4)``. Two things make
+        this read backward:
 
-        Higher confidence_level → lower threshold → stricter matching.
-        E.g., confidence_level=0.90 means accept only bottom 10%
-        (very strict).
+        - The level is inverted. Usually "90% confidence" would keep 90% of
+          true matches; here a higher level gives a lower cutoff.
+        - ``apply_mahalanobis_filter`` compares the cutoff to the distance
+          ``d``, while the chi-squared distribution describes ``d**2``.
+
+        If the covariance were exactly the noise between true joint pairs, the
+        share of them kept would be ``chi2.cdf(cutoff**2, df=4)``:
+
+        | confidence_level | cutoff | true matches kept |
+        |---|---|---|
+        | 0.95 | 0.711 | ~3% |
+        | 0.90 | 1.064 | ~11% |
+        | 0.75 | 1.923 | ~55% |
+        | 0.50 | 3.357 | ~98% |
+
+        A covariance wider than that noise loosens the cutoff in real terms.
+        On BATS 2023, covariance ``[10000, 10000, 100, 100]`` at 0.90 found
+        35,021 joint trips against 35,628 from the buffer method (15 min /
+        100 m), with 98% of matched pairs in common.
 
         Returns:
-            Chi-squared threshold value for use in similarity filtering
+            The cutoff on the Mahalanobis distance ``d``.
         """
         if self.method != "mahalanobis":
             return 0.0  # Not used for buffer method
-        # Invert confidence for chi-squared percentile
-        # confidence=0.90 means accept only bottom 10% (strict)
+        # Inverted on purpose: higher confidence_level, lower cutoff.
         return float(stats.chi2.ppf(1 - self.confidence_level, df=4))
 
     class ConfigDict:

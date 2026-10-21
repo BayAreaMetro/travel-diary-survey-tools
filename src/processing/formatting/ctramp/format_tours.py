@@ -23,7 +23,10 @@ from processing.formatting.ctramp.mode_mappings import (
     ctramp_mode_expression,
 )
 from processing.formatting.ctramp.person_mappings import EMPLOYMENT_TO_CTRAMP
-from processing.formatting.ctramp.purpose_mappings import ctramp_purpose_category_expression
+from processing.formatting.ctramp.purpose_mappings import (
+    ctramp_purpose_category_expression,
+    is_work_purpose,
+)
 from processing.formatting.ctramp.student_mappings import ctramp_student_category_expression
 
 from .ctramp_config import CTRAMPConfig
@@ -82,7 +85,7 @@ def _prepare_individual_tours(
         )
 
     individual_tours = selected.join(
-        persons.select(["person_id", "person_num", "person_type", "school_type"]),
+        persons.select(["person_id", "person_num", "person_type", "school_type", "employment"]),
         on="person_id",
         how="left",
     ).join(
@@ -107,7 +110,7 @@ def _prepare_individual_tours(
             pl.col("tour_purpose"),
             pl.col("income"),
             pl.col("school_type"),
-            pl.col("person_type"),
+            pl.col("employment"),
             config.income_low_threshold,
             config.income_med_threshold,
             config.income_high_threshold,
@@ -116,14 +119,16 @@ def _prepare_individual_tours(
         ).alias("tour_purpose_ctramp")
     )
 
-    mandatory_purposes = [PurposeCategory.WORK.value, PurposeCategory.SCHOOL.value]
     return individual_tours.with_columns(
         pl.when(
             (pl.col("parent_tour_id") != pl.col("tour_id"))
-            & (pl.col("_parent_tour_purpose") == PurposeCategory.WORK.value)
+            & is_work_purpose(pl.col("_parent_tour_purpose"), pl.col("employment"))
         )
         .then(pl.lit(CTRAMPTourCategory.AT_WORK.value))
-        .when(pl.col("tour_purpose").is_in(mandatory_purposes))
+        .when(
+            is_work_purpose(pl.col("tour_purpose"), pl.col("employment"))
+            | (pl.col("tour_purpose") == PurposeCategory.SCHOOL.value)
+        )
         .then(pl.lit(CTRAMPTourCategory.MANDATORY.value))
         .otherwise(pl.lit(CTRAMPTourCategory.INDIVIDUAL_NON_MANDATORY.value))
         .alias("tour_category_ctramp")
@@ -158,7 +163,11 @@ def _add_at_work_frequency(individual_tours: pl.DataFrame) -> pl.DataFrame:
             how="left",
         )
         .with_columns(
-            pl.when(pl.col("tour_purpose") != PurposeCategory.WORK.value)
+            # Only a home-based work tour has an at-work frequency; a subtour is not one.
+            pl.when(
+                (pl.col("parent_tour_id") != pl.col("tour_id"))
+                | ~is_work_purpose(pl.col("tour_purpose"), pl.col("employment"))
+            )
             .then(pl.lit(AtWorkFreq.NONE_NOT_WORK.value))
             .when(pl.col("_subtour_total").fill_null(0) == 0)
             .then(pl.lit(AtWorkFreq.NO_SUBTOUR.value))

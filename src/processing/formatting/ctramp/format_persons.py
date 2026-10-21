@@ -11,13 +11,13 @@ Transforms canonical person data into CT-RAMP model format, including:
   inmf_choice (non-mandatory tour frequency), and activity_pattern from
   tour data when available
 - **Work-from-Home**: Sets wfh_choice based on work tours vs work days
-- **Value of Time**: Calculates based on employment type and household income
-  bracket
-- **Placeholders**: Uses sensible defaults when tour data is unavailable
+- **Value of Time**: Left null. It is a model output, not survey data, and is
+  kept only if the input already carries it
+- **Defaults**: A person with no tours gets activity_pattern 'H' and zero tour
+  frequencies
 
-Note: Some fields like activity_pattern, imf_choice, and inmf_choice require
-tour data and are set to placeholder values. These would be populated from
-actual tour extraction results in a full pipeline.
+activity_pattern, imf_choice and inmf_choice are derived from the person's
+formatted tours.
 """
 
 import logging
@@ -46,7 +46,7 @@ from .student_mappings import (
     ctramp_student_category_expression,
     log_student_category_warnings,
 )
-from .tour_frequency_mappings import aggregate_tour_statistics
+from .tour_frequency_mappings import aggregate_tour_statistics, log_patterns_not_offered
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,7 @@ def format_persons(
             - age: Person age
             - gender: Gender (m/f)
             - type: Person type (1-8)
-            - value_of_time: Value of time ($/hour)
+            - value_of_time: Value of time ($/hour); null unless supplied
             - fp_choice: Free parking choice (1/2)
             - activity_pattern: Daily activity pattern (M/N/H)
             - imf_choice: Individual mandatory tour frequency
@@ -304,8 +304,10 @@ def format_persons(
             pl.col("imf_choice").fill_null(0),  # 0 mandatory tours
             pl.col("inmf_choice").fill_null(0),  # 0 non-mandatory tours
             pl.col("work_count").fill_null(0),  # 0 work tours
+            pl.col("school_count").fill_null(0),  # 0 school tours
         ]
     )
+    log_patterns_not_offered(persons_ctramp)
 
     # Derive wfh_choice from employment status, observed telecommute time, and work tours.
     # This reflects the travel model's binary treatment: a person either WFH or commutes on a day.

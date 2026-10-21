@@ -1,6 +1,6 @@
 """HTML table builders for the diagnostics report.
 
-This module generates the four main tables displayed in the diagnostics HTML report:
+This module generates five of the tables displayed in the diagnostics HTML report:
 
 1. **Balancer Performance Table** — Per-zone convergence status, target-fit metrics
    (MAPE, P90, Max), and weight quality metrics (CV, ESS%). Combines all key
@@ -15,12 +15,14 @@ This module generates the four main tables displayed in the diagnostics HTML rep
 4. **Crosswalk Summary Table** — Zone → HH samples mapping with optional zone group
    aggregation.
 
-All table builders return raw HTML strings suitable for Jinja2 template insertion.
-The `_html_table()` helper provides a consistent interface for simple tables and
-supports grouped/spanned headers for complex layouts.
-"""
+5. **Imputation Summary Table** — Per control, how many seed rows had an empty
+   incidence block, and the cross-validated log-loss and F1 of the PUMS-trained
+   model that filled them.
 
-import re
+All table builders return raw HTML strings suitable for Jinja2 template insertion,
+built with the helpers in ``table_html``. The per-profile tables are in
+``profile_tables``.
+"""
 
 import polars as pl
 
@@ -28,101 +30,15 @@ from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
 from processing.weighting.core.specs import (
     ControlTotals,
-    GeographyCoverage,
     ImputationSummary,
     ZoneStatus,
 )
 
-from .comparison import Inheritance
 from .data import (
-    _REDISTRIBUTION_TAIL,
-    CascadeRow,
-    ProfileSummary,
-    RedistributionRow,
-    SplitIdentityRow,
     category_label_map,
 )
 from .glossary import term
-
-# ---------------------------------------------------------------------------
-# HTML primitives
-# ---------------------------------------------------------------------------
-
-
-def _tag(name: str, text: str, **attrs: str) -> str:
-    """Wrap *text* in an HTML element with optional attributes."""
-    attr_str = "".join(f' {k.rstrip("_")}="{v}"' for k, v in attrs.items()) if attrs else ""
-    return f"<{name}{attr_str}>{text}</{name}>"
-
-
-def _wbr(text: str) -> str:
-    """Insert ``<wbr>`` word-break opportunities after ``/``, ``-``, ``_``, and spaces."""
-    return re.sub(r"([/_\- ])", r"\1<wbr>", text)
-
-
-def _html_table(
-    headers: list[str],
-    rows: list[list[str]],
-    *,
-    group_row: list[tuple[str, int]] | None = None,
-    css_class: str = "",
-) -> str:
-    r"""Build a ``<table>`` from *headers* and pre-formatted cell strings.
-
-    Provides a consistent interface for generating HTML tables with single or
-    multi-tier headers. Cells starting with ``<td`` are inserted as-is to support
-    pre-styled cells (e.g., CSS classes for coloring convergence status).
-
-    Args:
-        headers: Column header labels for a single-row header, or sub-column labels
-            when `group_row` is used.
-        rows: Table body, one list per row. Each cell is a pre-formatted string.
-        group_row: Optional two-tier header specification. Each tuple is
-            ``(label, colspan)``. Columns with ``colspan == 1`` span both header rows
-            (``rowspan="2"``). Columns with ``colspan > 1`` become group headers
-            spanning multiple sub-columns (labels consumed from `headers` list).
-        css_class: Optional CSS class name applied to the ``<table>`` element.
-
-    Returns:
-        Complete HTML ``<table>`` string.
-
-    Example:
-        Simple table:
-        >>> _html_table(["Zone", "Count"], [["A", "100"], ["B", "200"]])
-        '<table>\n<tr><th>Zone</th><th>Count</th></tr>\n...'
-
-        Grouped header:
-        >>> _html_table(
-        ...     ["Target", "% Error"],  # sub-headers
-        ...     [["A", "1000", "+2.5%"]],
-        ...     group_row=[("Zone", 1), ("Household", 2)]  # Zone spans both rows
-        ... )
-    """
-    cls = f' class="{css_class}"' if css_class else ""
-
-    if group_row is not None:
-        top_cells: list[str] = []
-        sub_cells: list[str] = []
-        for label, span in group_row:
-            if span == 1:
-                top_cells.append(f'<th rowspan="2">{label}</th>')
-            else:
-                top_cells.append(f'<th colspan="{span}">{label}</th>')
-                sub_cells.extend(_tag("th", headers.pop(0)) for _ in range(span))
-        head = "<tr>" + "".join(top_cells) + "</tr>\n<tr>" + "".join(sub_cells) + "</tr>"
-    else:
-        head = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
-
-    body = "\n".join(
-        "<tr>" + "".join(c if c.startswith("<td") else _tag("td", c) for c in cells) + "</tr>"
-        for cells in rows
-    )
-    return f"<table{cls}>\n{head}\n{body}\n</table>"
-
-
-# ---------------------------------------------------------------------------
-# Section 0 — Fractional seed imputation
-# ---------------------------------------------------------------------------
+from .table_html import html_table, tag, wbr
 
 _HIGH_NULL_PCT = 25
 
@@ -168,12 +84,7 @@ def imputation_summary_table(summaries: list[ImputationSummary]) -> str:
                 status,
             ]
         )
-    return _html_table(headers, rows)
-
-
-# ---------------------------------------------------------------------------
-# Section 2 — Balancer Performance (convergence + target fit)
-# ---------------------------------------------------------------------------
+    return html_table(headers, rows)
 
 
 def balancer_performance_table(
@@ -200,7 +111,7 @@ def balancer_performance_table(
         Person (Target, % Error), MAPE, P90, Max, CV, ESS%.
 
     Note:
-        Uses `_html_table()` with a two-tier grouped header. The "Household" and
+        Uses `html_table()` with a two-tier grouped header. The "Household" and
         "Person" columns span their respective Target/% Error sub-columns.
     """
     status_map = {s.geo_id: s for s in statuses}
@@ -256,12 +167,7 @@ def balancer_performance_table(
             ]
         )
 
-    return _html_table(sub_headers, rows, group_row=group_row)
-
-
-# ---------------------------------------------------------------------------
-# Section 3 — Weight Quality (distribution + ESS + CV + expansion factors)
-# ---------------------------------------------------------------------------
+    return html_table(sub_headers, rows, group_row=group_row)
 
 
 def _weight_stats(w: pl.Series, bw: pl.Series) -> dict[str, str]:
@@ -345,12 +251,8 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
     zones = sorted(weighted["ctrl_geoid"].unique().to_list())
     rows = [_row(str(z), weighted.filter(pl.col("ctrl_geoid") == z)) for z in zones]
     rows.append(_row("TOTAL", weighted))
-    return _html_table(headers, rows)
+    return html_table(headers, rows)
 
-
-# ---------------------------------------------------------------------------
-# Section 5 — Unweighted cell counts (data sparsity matrix)
-# ---------------------------------------------------------------------------
 
 _LOW_COUNT_THRESHOLD = 30
 
@@ -498,10 +400,10 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
 
     header = (
         "<tr>"
-        + _tag("th", "Control")
-        + _tag("th", "Category")
-        + "".join(_tag("th", _wbr(str(z))) for z in zones)
-        + _tag("th", "Total")
+        + tag("th", "Control")
+        + tag("th", "Category")
+        + "".join(tag("th", wbr(str(z))) for z in zones)
+        + tag("th", "Total")
         + "</tr>"
     )
 
@@ -546,11 +448,6 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     return '<table class="sparsity">\n' + header + "\n" + "\n".join(data_rows) + "\n</table>"
 
 
-# ---------------------------------------------------------------------------
-# Section 1b — Crosswalk summary table
-# ---------------------------------------------------------------------------
-
-
 def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> str:  # noqa: C901, PLR0912
     """Compact Zone -> HH Samples table with optional Zone Group column."""
     # study_geoid is the raw crosswalk geography; ctrl_geoid may be grouped.
@@ -588,7 +485,7 @@ def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> s
     if has_groups:
         headers += ["Zone Group", "Grouped HH Samples"]
     headers += ["Zone", "HH Samples"]
-    header = "<tr>" + "".join(_tag("th", h) for h in headers) + "</tr>"
+    header = "<tr>" + "".join(tag("th", h) for h in headers) + "</tr>"
 
     # Build runs of consecutive zones sharing the same group for rowspan
     group_runs: list[tuple[str, int]] = []  # (group_name, span)
@@ -625,241 +522,10 @@ def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> s
                     run_idx += 1
                     pos_in_run = 0
             else:
-                cells += _tag("td", "")
-                cells += _tag("td", "")
+                cells += tag("td", "")
+                cells += tag("td", "")
         cells += f'<td style="text-align:left">{geo}</td>'
-        cells += _tag("td", f"{sample_counts.get(geo, 0):,}")
+        cells += tag("td", f"{sample_counts.get(geo, 0):,}")
         body_rows.append(f"<tr>{cells}</tr>")
 
     return f"<table>\n{header}\n" + "\n".join(body_rows) + "\n</table>"
-
-
-# ---------------------------------------------------------------------------
-# Section 1 — Profile comparison (one row per fit)
-# ---------------------------------------------------------------------------
-
-
-def profile_comparison_table(rows: list[ProfileSummary]) -> str:
-    """Compare every fit in the run, one row each.
-
-    Each profile is balanced to the same controls over its own universe, so the
-    totals should land on the same targets. Divergence is the usability gate
-    changing what the survey can reach, not the balancer failing -- which is why
-    this table only exists once all the fits are done.
-    """
-    headers = [
-        "Profile",
-        "Households&nbsp;in&nbsp;sample",
-        "&Sigma;&nbsp;hh&nbsp;weight",
-        "&Sigma;&nbsp;person&nbsp;weight",
-        "&Sigma;&nbsp;day&nbsp;weight",
-        term("ess", "ESS&nbsp;%"),
-        term("cv"),
-        term("maxmed"),
-        term("mape"),
-        "Converged",
-    ]
-    body: list[list[str]] = []
-    for r in rows:
-        converged = f"{r.zones_converged} / {r.zones_total}"
-        css = "converged" if r.zones_converged == r.zones_total else "failed"
-        body.append(
-            [
-                r.profile or "the survey",
-                f"{r.seed_households:,}",
-                f"{r.weight_sums.get('households', 0.0):,.0f}",
-                f"{r.weight_sums.get('persons', 0.0):,.0f}",
-                f"{r.weight_sums.get('days', 0.0):,.0f}",
-                f"{r.ess_pct:.1f}%",
-                f"{r.cv:.3f}",
-                f"{r.max_over_median:.1f}",
-                f"{r.mape:.2f}%",
-                f'<td class="{css}">{converged}</td>',
-            ]
-        )
-    return _html_table(headers, body)
-
-
-# ---------------------------------------------------------------------------
-# Section — Weight cascade (all profiles side by side)
-# ---------------------------------------------------------------------------
-
-
-def cascade_table(cascades: dict[str | None, list[CascadeRow]]) -> str:
-    """Per-level weight coverage, one column group per profile.
-
-    Shown side by side rather than behind the profile toggle: the counts are
-    small enough to compare directly, and a labelled column cannot be misread
-    the way a toggled chart can.
-    """
-    if not cascades:
-        return ""
-    profiles = list(cascades)
-    by_table: dict[str, dict[str | None, CascadeRow]] = {}
-    for profile, rows in cascades.items():
-        for row in rows:
-            by_table.setdefault(row.table, {})[profile] = row
-
-    group_row = [("Level", 1), ("Rows", 1)]
-    group_row += [(p or "the survey", 3) for p in profiles]
-    sub_headers = ["Usable", "Weighted", "Unweighted"] * len(profiles)
-
-    body: list[list[str]] = []
-    for table, per_profile in by_table.items():
-        any_row = next(iter(per_profile.values()))
-        cells = [table, f"{any_row.rows:,}"]
-        for profile in profiles:
-            row = per_profile.get(profile)
-            if row is None:
-                cells += ["—", "—", "—"]
-                continue
-            unweighted = (
-                f'<td class="failed">{row.unweighted:,}</td>'
-                if row.unweighted
-                else f"{row.unweighted:,}"
-            )
-            cells += [f"{row.usable:,}", f"{row.weighted:,}", unweighted]
-        body.append(cells)
-    return _html_table(sub_headers, body, group_row=group_row)
-
-
-def redistribution_table(rows: dict[str | None, list[RedistributionRow]]) -> str:
-    """Child/parent weight ratio per copy-and-conserve edge, per profile."""
-    headers = [
-        "Levels",
-        "Profile",
-        "Median",
-        "P90",
-        "P99",
-        "Max",
-        f"&gt;&thinsp;{_REDISTRIBUTION_TAIL:g}&times;",
-    ]
-    body: list[list[str]] = []
-    for profile, edges in rows.items():
-        for r in edges:
-            body.append(  # noqa: PERF401
-                [
-                    f"{r.table} / {r.parent}",
-                    profile or "the survey",
-                    f"{r.p50:.2f}",
-                    f"{r.p90:.2f}",
-                    f"{r.p99:.2f}",
-                    f"{r.maximum:.1f}",
-                    f"{r.share_above:.1f}%",
-                ]
-            )
-    return _html_table(headers, body) if body else ""
-
-
-def split_identity_table(rows: dict[str | None, list[SplitIdentityRow]]) -> str:
-    """Whether each split level's children still sum to their parent's weight."""
-    headers = [
-        "Levels",
-        "Profile",
-        "Higher-level&nbsp;records",
-        "Largest&nbsp;gap",
-        "With&nbsp;no&nbsp;usable&nbsp;lower-level&nbsp;record",
-        "Weight&nbsp;not&nbsp;passed&nbsp;down",
-        "Lower-level&nbsp;records&nbsp;each",
-    ]
-    body: list[list[str]] = []
-    for profile, edges in rows.items():
-        for r in edges:
-            stranded = (
-                f'<td class="failed">{r.stranded_parents:,}</td>'
-                if r.stranded_parents
-                else f'<td class="converged">{r.stranded_parents:,}</td>'
-            )
-            body.append(
-                [
-                    f"{r.table} / {r.parent}",
-                    profile or "the survey",
-                    f"{r.parents_checked:,}",
-                    f"{r.max_residual:.1e}",
-                    stranded,
-                    f"{r.stranded_weight:,.0f}",
-                    f"{r.min_children}&ndash;{r.max_children} (med {r.median_children})",
-                ]
-            )
-    return _html_table(headers, body) if body else ""
-
-
-def coverage_table(coverages: dict[str | None, GeographyCoverage]) -> str:
-    """Households each profile admits that the control geography cannot place.
-
-    A household outside every control polygon belongs to no balancing zone, so
-    no fit can give it a weight. That is a bound on what the weighting answers,
-    and it is stated rather than left to be inferred from a column of nulls.
-    """
-    headers = [
-        "Profile",
-        "Households",
-        "In&nbsp;a&nbsp;zone",
-        "Outside&nbsp;all&nbsp;zones",
-        "Share",
-    ]
-    body: list[list[str]] = []
-    for profile, cov in coverages.items():
-        unplaceable = (
-            f'<td class="failed">{cov.n_unplaceable:,}</td>'
-            if cov.n_unplaceable
-            else f'<td class="converged">{cov.n_unplaceable:,}</td>'
-        )
-        body.append(
-            [
-                profile or "the survey",
-                f"{cov.n_universe:,}",
-                f"{cov.n_placed:,}",
-                unplaceable,
-                f"{cov.unplaceable_share * 100:.2f}%",
-            ]
-        )
-    return _html_table(headers, body)
-
-
-def inheritance_table(rows: list[Inheritance], labels: dict[str, str]) -> str:
-    """How each set's weight descends from the level above, and by what mechanism.
-
-    The mechanism is the column that matters. *Copied* means the level adds
-    nothing of its own, so a comparison there restates the level above. *Adjusted*
-    means records were rescaled individually after the weight descended, which is
-    the one case where the level no longer nests inside its parent -- and the one
-    a reader is most likely to mistake for the harmless kind.
-    """
-    if not rows:
-        return ""
-    headers = [
-        "Level",
-        "Weight set",
-        "Records",
-        term("inherit", "Same&nbsp;as&nbsp;level&nbsp;above"),
-        "Groups&nbsp;with&nbsp;unequal&nbsp;adjustments",
-        "Largest&nbsp;difference",
-        "Mechanism",
-    ]
-    verdicts = {
-        "copied": '<td class="failed">copied</td>',
-        "redistributed": "redistributed",
-        "adjusted": '<td class="failed">adjusted per record</td>',
-    }
-    body: list[list[str]] = []
-    for row in rows:
-        uniform = row.max_scope_spread <= 1 + 1e-9
-        spread = "&mdash;" if uniform else f"{row.max_scope_spread:,.2f}&times;"
-        varying = (
-            f'<td class="failed">{row.n_scopes_varying:,}</td>'
-            if row.n_scopes_varying
-            else f"{row.n_scopes_varying:,}"
-        )
-        body.append(
-            [
-                f"{row.level} &larr; {row.parent}",
-                labels.get(row.set_name, row.set_name),
-                f"{row.n:,}",
-                f"{row.share:.1f}%",
-                varying,
-                spread,
-                verdicts[row.mode],
-            ]
-        )
-    return _html_table(headers, body, css_class="inherit")

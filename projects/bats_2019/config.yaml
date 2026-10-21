@@ -1,5 +1,6 @@
 # Processing Pipeline Configuration for BATS 2019
-# This config file demonstrates the full pipeline with DaySim and CTRAMP formatting
+# This config runs the pipeline through compute_weights and writes the canonical tables;
+# it has no formatting steps.
 
 # config.yaml
 
@@ -26,14 +27,14 @@ TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 log_file: "{{ output_dir }}/pipeline_2019.log" # If not set, logs just to console, if not absolute saves to .cache directory
 # Distance within which a trip end is at a habitual location (home, work,
-# school). detect_habitual_locations finds the locations with it and
-# extract_tours matches trips to them with it, so both steps read this one key.
+# school). detect_habitual_locations and extract_tours each have their own
+# buffer_meters setting; both use this value here.
 habitual_buffer_meters: "300"
 
 # Pipeline configuration
 steps:
   - name: load_data
-    validate_input: false # This will override @step(validate=True/False) in the function definition
+    validate_input: false  # overrides the step's @step() value; leave it out to keep that
     cache: true
     params:
       input_paths:
@@ -119,21 +120,22 @@ steps:
     validate_input: true
     cache: true
     params:
-      config:
-        method: "mahalanobis"
-        # Covariance for Mahalanobis distance calculation
-        # Think of this as the standard deviation of measurement noise in each dimension
-        # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
-        # Default [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
-        covariance: [10000, 10000, 100, 100]
-        # Confidence level: Higher = stricter matching (fewer detections)
-        # 0.90 = 90% confidence (strict), 0.75 = moderate, 0.50 = permissive
-        confidence_level: 0.90
+      method: "mahalanobis"
+      # Covariance for Mahalanobis distance calculation
+      # Think of this as the standard deviation of measurement noise in each dimension
+      # Diagonal: [origin_var_m^2, dest_var_m^2, depart_var_min^2, arrive_var_min^2]
+      # [10000, 10000, 100, 100] = 100m, 100m, 10min, 10min std devs
+      covariance: [10000, 10000, 100, 100]
+      # Confidence level: higher = stricter. It reads backward and is not the
+      # share of joint pairs kept. With this covariance, 0.90 closely matches
+      # the buffer method below (see JointTripConfig.get_distance_threshold).
+      confidence_level: 0.90
 
-        # Alternative: simpler buffer method with time/space thresholds
-        # method: "buffer"
-        # time_threshold_minutes: 15.0
-        # space_threshold_meters: 100.0
+      # Alternative: simpler buffer method with time/space thresholds
+      # method: "buffer"
+      # covariance: null
+      # time_threshold_minutes: 15.0
+      # space_threshold_meters: 100.0
 
   - name: extract_tours
     validate_input: true
@@ -145,8 +147,7 @@ steps:
       # would otherwise weld into one "survey_complete" tour. 1 km catches genuine
       # teleports while ignoring same-place geocoding jitter.
       spatial_gap_threshold_meters: 1000.0
-      habitual_locations:
-        buffer_meters: "{{ habitual_buffer_meters }}"
+      buffer_meters: "{{ habitual_buffer_meters }}"
 
   - name: add_zone_ids
     validate_input: true
@@ -155,10 +156,10 @@ steps:
       projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
       max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
       zone_geographies:
-        - zone_name: "taz"  # Primary TAZ for DaySim (TM1)
+        - zone_name: "taz"  # TM2 TAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/tazs_TM2_2_5.shp"
           zone_id_field: "TAZ_NODE"
-        - zone_name: "maz"  # Primary MAZ for DaySim (TM2)
+        - zone_name: "maz"  # TM2 MAZ, used by DaySim
           shapefile: "{{ TM2_shapefile_dir }}/mazs_TM2_2_5.shp"
           zone_id_field: "MAZ_NODE"
         # Add additional zone geographies as needed:
@@ -196,30 +197,33 @@ steps:
           zone_coverage: none
           joint_tours: partial
 
-  # - name: weighting
-  #   validate_input: true
-  #   cache: true
-
 
   - name: compute_weights
     validate_input: true
     cache: true
     params:
-      # -- PUMS 1-year microdata (California) ---------------------------
-      # (Optional) will download from Census if not provided
-      # pums_households: "{{ pums_dir }}/psam_h06.csv"
-      # pums_persons: "{{ pums_dir }}/psam_p06.csv"
+      # -- Census controls ---------------------------------------------
+      census:
+        state_fips: "06"
+        pums_year: 2019
+        # PUMS microdata; downloaded from the Census if not given
+        # pums_households: "{{ pums_dir }}/psam_h06.csv"
+        # pums_persons: "{{ pums_dir }}/psam_p06.csv"
 
-      state_fips: "06"
-      pums_year: 2019
+      # Which profiles decide who carries weight, one weight set each, suffixed
+      # with the profile name. Named rather than defaulted: with several stamped
+      # there is no defensible default, and a silent choice would weight a
+      # different universe than the formatters emit.
+      weight_profiles: [ctramp]
 
-      # Which profile decides who carries weight. Named rather than defaulted:
-      # with several stamped there is no defensible default, and a silent choice
-      # would weight a different universe than the formatters emit.
-      usability_profile: ctramp
+      # Homes outside the control geography belong to no balancing zone and can
+      # carry no fitted weight. Error above this share rather than returning
+      # nulls quietly. A tripwire for a misconfigured geography.
+      max_unplaceable_share: 0.01
 
       # -- Sample Plan Path ------------------------------------------------
-      # sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
+      # null: no sample plan for 2019.
+      sample_plan: null
 
       # -- Geography crosswalk ------------------------------------------
       # Specify a polygon file for target zones.  The crosswalk module
@@ -250,20 +254,16 @@ steps:
           # "Napa": ["097"]
 
       # -- Balancer settings -------------------------------------------
-      max_expansion_factor: 4.0    # upper bound = initial_weight × factor
-      min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
-      min_weight: 1                # absolute floor (no weight < 1)
-      # max_weight:                # absolute ceiling (null = no ceiling)
-      max_iterations: 10000
-      n_workers: 8                 # parallel zone balancing (numba releases GIL)
-      default_importance: 100      # baseline importance for controls without an explicit override
-      # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
-      moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
-
-      # -- EF grid search (optional) -----------------------------------
-      # Re-run balancing across a grid of max_expansion_factor values and
-      # add a diagnostic chart showing fit vs weight quality tradeoffs.
-      expansion_factor_grid: [2, 3, 4, 5, 7, 10]
+      balancing:
+        max_expansion_factor: 4.0    # upper bound = initial_weight × factor
+        min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+        min_weight: 1                # absolute floor (no weight < 1)
+        # max_weight:                # absolute ceiling (null = no ceiling)
+        max_iterations: 10000
+        n_workers: 8                 # parallel zone balancing (numba releases GIL)
+        default_importance: 100      # baseline importance for controls without an explicit override
+        # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
+        moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -382,6 +382,10 @@ steps:
       diagnostics:
         output_path: "{{ output_dir }}/weighting_diagnostics_2019.html"
 
+        # Re-run balancing across a grid of max_expansion_factor values and
+        # add a diagnostic chart showing fit vs weight quality tradeoffs.
+        expansion_factor_grid: [2, 3, 4, 5, 7, 10]
+
 
   # - name: add_existing_weights
   #   validate_input: false
@@ -397,6 +401,8 @@ steps:
   #     max_weight_factor:
   #       households: 2.0
   #     derive_missing_weights: true
+  #     # Required. The profiles to weight, one column set each.
+  #     weight_profiles: [ctramp, daysim, analysis]
   #     weights:
   #       hh_weight:
   #         weight_path: "{{ survey_dir }}/weights/households_weights.csv"
@@ -414,6 +420,8 @@ steps:
       # zone and pre-imputation columns steps register. Set false to dump
       # every column on the frame when debugging.
       write_only_canonical: true
+      # null: no enum codebook is written.
+      enum_codebook_path: null
       output_paths:
         # Standard Survey Formats
         households: "{{ output_dir }}/survey/households_2019.csv"

@@ -313,11 +313,7 @@ Two consequences:
 
 ## Settings
 
-| Setting | Required | What it does |
-|---|---|---|
-| `preserve_travel_totals` | yes | Whether a kept day's dropped trips hand their weight to its kept trips |
-| `household_size_top_group` | yes | Sizes from this one up share one household factor |
-| `max_weight_factor` | no | Per table, the most a record's final weight may be, as a multiple of its supplied weight |
+<!-- step-settings: add_existing_weights -->
 
 **`preserve_travel_totals`.** Either way, trips move with their day, and tours
 are the mean of their trips.
@@ -340,7 +336,7 @@ well. A table left out has no limit. Limits on persons and days are for surveys
 where members rarely drop; in BATS 2023 one person can carry a whole household
 of four.
 
-```yaml
+```yaml title="Example"
 - name: add_existing_weights
   params:
     preserve_travel_totals: true
@@ -351,13 +347,13 @@ of four.
     weight_profiles: [ctramp, daysim, analysis]
     weights:
       hh_weight:
-        weight_path: "{{ weights_dir }}/hh_weights.csv"
+        weight_path: "data/weights/hh_weights.csv"
       person_weight:
-        weight_path: "{{ weights_dir }}/person_weights.csv"
+        weight_path: "data/weights/person_weights.csv"
       day_weight:
-        weight_path: "{{ weights_dir }}/day_weights.csv"
+        weight_path: "data/weights/day_weights.csv"
       unlinked_trip_weight:
-        weight_path: "{{ weights_dir }}/trip_weights.csv"
+        weight_path: "data/weights/trip_weights.csv"
         weight_id_col: trip_id
         weight_col: trip_weight
 ```
@@ -381,9 +377,4 @@ one table-wide factor instead of following the level above:
 
 Neither BATS project uses them.
 
-::: processing.weighting.existing_weights
-    options:
-      show_root_heading: true
-      members:
-        - ExistingWeightConfig
-        - add_existing_weights
+Code: [processing.weighting.existing](../../reference/processing/weighting/existing.md)

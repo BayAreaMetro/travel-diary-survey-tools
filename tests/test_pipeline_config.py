@@ -14,9 +14,15 @@ network drives and reads ``.env`` at module level.
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
+
+import processing
+from data_canon.core.dataclass import CanonicalData
+from pipeline.config import resolve_templates
+from pipeline.pipeline import Pipeline
 
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 
@@ -109,12 +115,13 @@ def _step_params(config_path: Path, step_name: str) -> dict:
     return {}
 
 
-# Every consumer of a usability profile, and the key it names one under.
+# Every consumer of a usability profile, and the key it names them under: the
+# weighting takes a list, a formatter one profile.
 _PROFILE_CONSUMERS = (
-    ("compute_weights", "usability_flag_col"),
-    ("add_existing_weights", "usability_flag_col"),
-    ("format_ctramp", "usability_flag_col"),
-    ("format_daysim", "usability_flag_col"),
+    ("compute_weights", "weight_profiles"),
+    ("add_existing_weights", "weight_profiles"),
+    ("format_ctramp", "usability_profile"),
+    ("format_daysim", "usability_profile"),
 )
 
 # Always available: the cascade stamps it on every run, whatever profiles a
@@ -141,10 +148,8 @@ def test_named_profiles_are_stamped_by_the_cascade(project_dir: Path):
 
     for step_name, key in _PROFILE_CONSUMERS:
         params = _step_params(config_path, step_name)
-        named = [
-            *([params[key]] if params.get(key) else []),
-            *(params.get("weight_profiles") or []),
-        ]
+        value = params.get(key) or []
+        named = value if isinstance(value, list) else [value]
         for profile in named:
             assert profile in legal, (
                 f"{project_dir.name}: step {step_name!r} names profile {profile!r}, which "
@@ -153,17 +158,22 @@ def test_named_profiles_are_stamped_by_the_cascade(project_dir: Path):
 
 
 @pytest.mark.parametrize("project_dir", _project_dirs(), ids=lambda p: p.name)
-def test_weighting_names_one_universe(project_dir: Path):
-    """A weighting step names a single profile or a profile list, never both."""
-    config_path = project_dir / "config.yaml"
-    for step_name in ("compute_weights", "add_existing_weights"):
-        params = _step_params(config_path, step_name)
-        if not params:
+def test_config_keys_are_taken_by_their_steps(project_dir: Path):
+    """Every key a project config sets reaches its step, and none it needs is missing.
+
+    The pipeline raises on either, but only when the step runs; this catches it
+    in CI. Templates are resolved as the pipeline resolves them, so a setting
+    written as ``{{ name }}`` is checked as its value. Project-specific steps
+    outside ``processing`` are skipped.
+    """
+    with (project_dir / "config.yaml").open() as f:
+        config = resolve_templates(yaml.safe_load(f))
+    fake = SimpleNamespace(config=config, data=CanonicalData())
+    for step_cfg in config["steps"]:
+        step_func = getattr(processing, step_cfg["name"], None)
+        if step_func is None:
             continue
-        assert not (params.get("usability_flag_col") and params.get("weight_profiles")), (
-            f"{project_dir.name}: step {step_name!r} names both usability_flag_col and "
-            "weight_profiles; they mean different things about what gets fitted."
-        )
+        Pipeline.parse_step_args(fake, step_cfg["name"], step_func)
 
 
 def test_projects_are_discovered():
