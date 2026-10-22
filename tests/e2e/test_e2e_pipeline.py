@@ -34,7 +34,7 @@ from tests.e2e.assertions import assert_referential_integrity, assert_tables_non
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
 
 # Core canonical tables produced regardless of the optional-step toggles.
-CORE_TABLES = ["households", "persons", "days", "unlinked_trips", "linked_trips", "tours"]
+CORE_TABLES = ["households", "persons", "person_days", "unlinked_trips", "linked_trips", "tours"]
 
 _DAYSIM_TABLES = [
     "households_daysim",
@@ -81,7 +81,14 @@ class TestStepToggling:
     def test_core_output_files_written(self, profile_run):
         _name, _enabled, _result, output_dir = profile_run
         survey = Path(output_dir) / "survey"
-        for fname in ["households", "persons", "days", "unlinked_trips", "linked_trips", "tours"]:
+        for fname in [
+            "households",
+            "persons",
+            "person_days",
+            "unlinked_trips",
+            "linked_trips",
+            "tours",
+        ]:
             path = survey / f"{fname}.csv"
             assert path.exists(), f"Missing output file: {path}"
             assert path.stat().st_size > 0, f"Empty output file: {path}"
@@ -249,7 +256,7 @@ class TestWorkRelatedTours:
 
     3101 is employed with no reported workplace and a full day at one place;
     3102 is retired and volunteers; 3201 is employed with no reported workplace
-    and only a short meeting. CT-RAMP person ids are the survey day_id.
+    and only a short meeting. CT-RAMP person ids are the survey person_day_id.
     """
 
     OBSERVED_WORKPLACE, RETIREE, NO_WORKPLACE = 310101, 310201, 320101

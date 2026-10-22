@@ -268,7 +268,7 @@ class TestEndToEndFormatting:
             joint_trips=empty_joint_trips(),
             unlinked_trips=empty_unlinked_trips(),
             joint_tours=empty_joint_tours(),
-            days=days_for_persons(persons),
+            person_days=days_for_persons(persons),
             ctramp=standard_config,
         )
 
@@ -320,7 +320,7 @@ class TestEndToEndFormatting:
             joint_trips=empty_joint_trips(),
             unlinked_trips=empty_unlinked_trips(),
             joint_tours=empty_joint_tours(),
-            days=days_for_persons(persons),
+            person_days=days_for_persons(persons),
             ctramp=standard_config,
         )
 

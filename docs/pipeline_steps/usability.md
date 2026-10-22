@@ -60,7 +60,7 @@ whose:
 | `usable_` | `usable_ctramp` | the per-record verdict on every table, joint tables included, from this step |
 | `hh_day_` | `hh_day_ctramp` | whether every surveyable member's day passed, that date |
 | `joint_tour_id_`, `joint_trip_id_` | `joint_tour_id_ctramp` | the joint group a record is on for that profile, null where the profile splits it off |
-| `hh_weight_`, `day_weight_`, … | `hh_weight_ctramp` | the weight fitted over that profile's universe |
+| `hh_weight_`, `person_day_weight_`, … | `hh_weight_ctramp` | the weight fitted over that profile's universe |
 | `base_weight_` | `base_weight_ctramp` | the seed weight its fit started from |
 
 Two profiles can therefore never write the same column, whatever they are

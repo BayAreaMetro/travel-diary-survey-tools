@@ -30,8 +30,8 @@ by construction:
 Days use a different DOWN rule (``split=True``): a person's usable days jointly
 represent that person *once*, not once each --
 
-    day_weight = person_weight / n_usable_days        (usable days; 0 otherwise)
-    sum(day_weight over a person's days) == person_weight
+    person_day_weight = person_weight / n_usable_days        (usable days; 0 otherwise)
+    sum(person_day_weight over a person's days) == person_weight
 
 the vendor's own convention (their weighted days are exactly ``person_weight /
 n``), with our usability flag deciding which days count.  Summing day weights
@@ -230,7 +230,7 @@ def split_among_usable(
         w = parent_weight / n_usable_children    (usable children; 0 otherwise)
 
     so the usable children of every parent sum exactly to the parent's weight.
-    This is the vendor's own day-weight convention (``day_weight =
+    This is the vendor's own day-weight convention (``person_day_weight =
     person_weight / n_weighted_days``), with our usability flag deciding which
     children count. There is **no cross-parent pooling**: a parent whose
     children are all unusable is a reported shortfall, never re-homed onto

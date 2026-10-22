@@ -1,7 +1,7 @@
 """Canonical completeness and model-usability logic.
 
 Two kinds of flag roll **up** from two atomic facts -- whether each **day** was
-surveyed (``days.survey_complete``, which the project cleaner takes from the
+surveyed (``person_days.survey_complete``, which the project cleaner takes from the
 survey vendor's own day verdict), and each tour's structural validity:
 
 * ``survey_complete`` -- was it reported? Rolls up from complete days. One answer per
@@ -42,7 +42,7 @@ The flow, and the rule on each line:
 ```text
 COMPLETE -- rolls up from complete days     op        rule
 ------------------------------------------------------------------------
-person-day ...........................   direct    days.survey_complete, from the cleaner
+person-day ...........................   direct    person_days.survey_complete, from the cleaner
                                                     (the vendor's day verdict, as given)
  ├ trip / tour .......................   inherit   its own value AND its day's (no own
                                                     value: the day's alone)

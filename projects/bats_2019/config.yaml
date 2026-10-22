@@ -40,7 +40,7 @@ steps:
       input_paths:
         households: "{{ survey_dir }}/hh.tsv"
         persons: "{{ survey_dir }}/person.tsv"
-        days: "{{ survey_dir }}/day.tsv"
+        person_days: "{{ survey_dir }}/day.tsv"
         unlinked_trips: "{{ survey_dir }}/trip.tsv"
 
   - name: clean_2019_bats
@@ -408,8 +408,8 @@ steps:
   #         weight_path: "{{ survey_dir }}/weights/households_weights.csv"
   #       person_weight:
   #         weight_path: "{{ survey_dir }}/weights/persons_weights.csv"
-  #       day_weight:
-  #         weight_path: "{{ survey_dir }}/weights/days_weights.csv"
+  #       person_day_weight:
+  #         weight_path: "{{ survey_dir }}/weights/person_days_weights.csv"
   #       unlinked_trip_weight:
   #         weight_path: "{{ survey_dir }}/weights/unlinked_trips_weights.csv"
 
@@ -426,7 +426,7 @@ steps:
         # Standard Survey Formats
         households: "{{ output_dir }}/survey/households_2019.csv"
         persons: "{{ output_dir }}/survey/persons_2019.csv"
-        days: "{{ output_dir }}/survey/days_2019.csv"
+        person_days: "{{ output_dir }}/survey/person_days_2019.csv"
         unlinked_trips: "{{ output_dir }}/survey/unlinked_trips_2019.csv"
         linked_trips: "{{ output_dir }}/survey/linked_trips_2019.csv"
         tours: "{{ output_dir }}/survey/tours_2019.csv"

@@ -51,7 +51,7 @@ def _one_person(**tour_overrides) -> dict:
     """One person, one day, one tour -- the smallest frame the cascade accepts."""
     tour = {
         "tour_id": [10],
-        "day_id": [1],
+        "person_day_id": [1],
         "person_id": [1],
         "survey_complete": [True],
         "parent_tour_id": [10],
@@ -64,9 +64,9 @@ def _one_person(**tour_overrides) -> dict:
         "persons": pl.DataFrame(
             {"person_id": [1], "hh_id": [1], "survey_complete": [True], "surveyable": [True]}
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1],
+                "person_day_id": [1],
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": [DATE],
@@ -108,10 +108,15 @@ class TestAVerdictIsAlwaysABoolean:
         """The property itself, over every table the cascade touches."""
         tables = _one_person(tour_data_quality=[None], tour_category=[None])
         tables["linked_trips"] = pl.DataFrame(
-            {"linked_trip_id": [100], "tour_id": [10], "day_id": [1], "survey_complete": [None]}
+            {
+                "linked_trip_id": [100],
+                "tour_id": [10],
+                "person_day_id": [1],
+                "survey_complete": [None],
+            }
         )
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1], "day_id": [1], "survey_complete": [None]}
+            {"joint_tour_id": [1], "person_day_id": [1], "survey_complete": [None]}
         )
 
         stamped = _stamp(tables)
@@ -207,8 +212,8 @@ class TestEmptyTables:
             "survey_complete": pl.Boolean,
             "surveyable": pl.Boolean,
         },
-        "days": {
-            "day_id": pl.Int64,
+        "person_days": {
+            "person_day_id": pl.Int64,
             "person_id": pl.Int64,
             "hh_id": pl.Int64,
             "travel_date": pl.Datetime,
@@ -216,7 +221,7 @@ class TestEmptyTables:
         },
         "tours": {
             "tour_id": pl.Int64,
-            "day_id": pl.Int64,
+            "person_day_id": pl.Int64,
             "survey_complete": pl.Boolean,
             "parent_tour_id": pl.Int64,
             "tour_data_quality": pl.Int64,
@@ -261,9 +266,9 @@ class TestSurveyableMembers:
                     "surveyable": surveyable,
                 }
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [1, 2],
+                    "person_day_id": [1, 2],
                     "person_id": [1, 2],
                     "hh_id": [1, 1],
                     "travel_date": [DATE, DATE],
@@ -273,7 +278,7 @@ class TestSurveyableMembers:
             "tours": pl.DataFrame(
                 {
                     "tour_id": [10, 20],
-                    "day_id": [1, 2],
+                    "person_day_id": [1, 2],
                     "person_id": [1, 2],
                     "survey_complete": [True, True],
                     "parent_tour_id": [10, 20],
@@ -291,14 +296,14 @@ class TestSurveyableMembers:
         assert stamped["household_days"]["usable_test"].to_list() == [True]
         assert stamped["households"]["usable_test"].to_list() == [True]
         # Their own row keeps its own verdict rather than borrowing the good one.
-        assert stamped["days"]["usable_test"].to_list() == [True, False]
+        assert stamped["person_days"]["usable_test"].to_list() == [True, False]
 
     def test_a_date_with_no_surveyable_member_carries_no_usable_day(self):
         """The household-day exists, but nobody it was meant to observe was observed."""
         stamped = _stamp(self._two_members([False, False], [False, False]))
 
         assert stamped["household_days"]["survey_complete"].to_list() == [False]
-        assert stamped["days"]["usable_test"].to_list() == [False, False]
+        assert stamped["person_days"]["usable_test"].to_list() == [False, False]
         assert stamped["households"]["usable_test"].to_list() == [False]
 
     def test_a_contradictory_unsurveyable_day_is_believed_not_overruled(self):
@@ -312,7 +317,7 @@ class TestSurveyableMembers:
         """
         stamped = _stamp(self._two_members([True, False], [False, True]))
 
-        assert stamped["days"]["survey_complete"].to_list() == [False, True]
+        assert stamped["person_days"]["survey_complete"].to_list() == [False, True]
         assert stamped["household_days"]["usable_test"].to_list() == [False]
         assert stamped["households"]["usable_test"].to_list() == [False]
 
@@ -332,7 +337,7 @@ class TestSubtoursWhoseParentIsMissing:
         tables["tours"] = pl.DataFrame(
             {
                 "tour_id": [10, 11],
-                "day_id": [1, 1],
+                "person_day_id": [1, 1],
                 "person_id": [1, 1],
                 "survey_complete": [True, True],
                 "parent_tour_id": [10, 10],
@@ -364,9 +369,9 @@ class TestJointQuorum:
                     "surveyable": [True] * n,
                 }
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": list(range(1, n + 1)),
+                    "person_day_id": list(range(1, n + 1)),
                     "person_id": list(range(1, n + 1)),
                     "hh_id": [1] * n,
                     "travel_date": [DATE] * n,
@@ -376,7 +381,7 @@ class TestJointQuorum:
             "tours": pl.DataFrame(
                 {
                     "tour_id": [10 + i for i in range(n)],
-                    "day_id": list(range(1, n + 1)),
+                    "person_day_id": list(range(1, n + 1)),
                     "person_id": list(range(1, n + 1)),
                     "joint_tour_id": [1] * n,
                     "survey_complete": [True] * n,
@@ -386,7 +391,7 @@ class TestJointQuorum:
                 }
             ),
             "joint_tours": pl.DataFrame(
-                {"joint_tour_id": [1], "day_id": [1], "survey_complete": [True]}
+                {"joint_tour_id": [1], "person_day_id": [1], "survey_complete": [True]}
             ),
         }
 
@@ -411,7 +416,7 @@ class TestJointQuorum:
         """A member table that was never supplied is a legitimate partial call."""
         tables = _one_person()
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1, 2], "day_id": [1, 1], "survey_complete": [True, False]}
+            {"joint_tour_id": [1, 2], "person_day_id": [1, 1], "survey_complete": [True, False]}
         )
 
         stamped = _stamp(tables)
@@ -445,7 +450,7 @@ class TestStampingTwice:
         tables["tours"] = pl.DataFrame(
             {
                 "tour_id": [10, 11],
-                "day_id": [1, 1],
+                "person_day_id": [1, 1],
                 "person_id": [1, 1],
                 "survey_complete": [True, True],
                 "parent_tour_id": [10, 11],

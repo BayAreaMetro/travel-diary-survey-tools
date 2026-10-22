@@ -174,7 +174,7 @@ def _validate_joint_tours_have_joint_trips(linked_trips: pl.DataFrame) -> None:
     raise ValueError(msg)
 
 
-def build_joint_tours_table(tours: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
+def build_joint_tours_table(tours: pl.DataFrame, person_days: pl.DataFrame) -> pl.DataFrame:
     """Build the canonical ``joint_tours`` table from tours carrying a joint id.
 
     One row per ``joint_tour_id``, mirroring how ``build_joint_trips_table``
@@ -185,7 +185,7 @@ def build_joint_tours_table(tours: pl.DataFrame, days: pl.DataFrame) -> pl.DataF
     Args:
         tours: Canonical tours, after ``identify_joint_tours`` has stamped
             ``joint_tour_id``.
-        days: Days with ``day_id``, ``hh_day_id`` and ``travel_date``; see
+        person_days: Days with ``person_day_id``, ``hh_day_id`` and ``travel_date``; see
             :func:`processing.joint_trips.aggregation.household_day_of`.
 
     Returns:
@@ -197,7 +197,7 @@ def build_joint_tours_table(tours: pl.DataFrame, days: pl.DataFrame) -> pl.DataF
         "joint_tour_id": pl.Int64,
         "hh_id": pl.Int64,
         "hh_day_id": pl.Int64,
-        "travel_date": days.schema["travel_date"],
+        "travel_date": person_days.schema["travel_date"],
         "num_participants": pl.Int64,
     }
     if "joint_tour_id" not in tours.columns:
@@ -218,7 +218,9 @@ def build_joint_tours_table(tours: pl.DataFrame, days: pl.DataFrame) -> pl.DataF
     joint_tours = (
         members.group_by("joint_tour_id")
         .agg(agg)
-        .join(household_day_of(members, days, "joint_tour_id"), on="joint_tour_id", how="left")
+        .join(
+            household_day_of(members, person_days, "joint_tour_id"), on="joint_tour_id", how="left"
+        )
         .sort("joint_tour_id")
     )
 

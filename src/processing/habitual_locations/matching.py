@@ -76,7 +76,7 @@ def _purpose_agrees(
     )
 
 
-def with_stated_day_ends(points: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
+def with_stated_day_ends(points: pl.DataFrame, person_days: pl.DataFrame) -> pl.DataFrame:
     """Add where the respondent said the day began or ended, as a purpose.
 
     Sets ``stated_purpose`` / ``stated_purpose_category`` at a day's first
@@ -84,8 +84,8 @@ def with_stated_day_ends(points: pl.DataFrame, days: pl.DataFrame) -> pl.DataFra
     everywhere else, including every day the survey did not ask.
 
     Args:
-        points: Points with ``day_id``, ``is_day_start`` and ``is_day_end``.
-        days: Days with ``day_id``, ``begin_day`` and ``end_day``.
+        points: Points with ``person_day_id``, ``is_day_start`` and ``is_day_end``.
+        person_days: Days with ``person_day_id``, ``begin_day`` and ``end_day``.
 
     Returns:
         The points with ``stated_purpose`` and ``stated_purpose_category``.
@@ -101,7 +101,11 @@ def with_stated_day_ends(points: pl.DataFrame, days: pl.DataFrame) -> pl.DataFra
         .then(pl.col("end_day"))
     )
     return (
-        points.join(days.select("day_id", "begin_day", "end_day"), on="day_id", how="left")
+        points.join(
+            person_days.select("person_day_id", "begin_day", "end_day"),
+            on="person_day_id",
+            how="left",
+        )
         .with_columns(
             answer.replace_strict(stated_purpose, default=None, return_dtype=pl.Int64).alias(
                 "stated_purpose"
@@ -209,7 +213,7 @@ def match_trip_ends(
     linked_trips: pl.DataFrame,
     locations: pl.DataFrame,
     config: MatchConfig,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
 ) -> pl.DataFrame:
     """Say which habitual location each trip origin and destination is at.
 
@@ -225,30 +229,32 @@ def match_trip_ends(
 
     Args:
         linked_trips: Linked trips with ``linked_trip_id``, ``person_id``,
-            ``day_id``, ``depart_time``, o/d coordinates and o/d purpose
+            ``person_day_id``, ``depart_time``, o/d coordinates and o/d purpose
             columns.
         locations: Habitual locations with ``habitual_location_id``.
         config: Provides the buffer.
-        days: Days with ``begin_day``/``end_day`` (see
+        person_days: Days with ``begin_day``/``end_day`` (see
             :func:`with_stated_day_ends`).
 
     Returns:
         The trips with those columns added.
     """
-    order = pl.col("depart_time").rank("ordinal").over(["person_id", "day_id"])
+    order = pl.col("depart_time").rank("ordinal").over(["person_id", "person_day_id"])
     for end in ("o", "d"):
         points = linked_trips.select(
             pl.col("linked_trip_id").alias("_pt"),
             "person_id",
-            "day_id",
+            "person_day_id",
             pl.col(f"{end}_lat").alias("lat"),
             pl.col(f"{end}_lon").alias("lon"),
             pl.col(f"{end}_purpose").alias("purpose"),
             pl.col(f"{end}_purpose_category").alias("purpose_category"),
             ((order == 1) & (end == "o")).alias("is_day_start"),
-            ((order == pl.len().over(["person_id", "day_id"])) & (end == "d")).alias("is_day_end"),
+            ((order == pl.len().over(["person_id", "person_day_id"])) & (end == "d")).alias(
+                "is_day_end"
+            ),
         )
-        matches = match_points(with_stated_day_ends(points, days), locations, config)
+        matches = match_points(with_stated_day_ends(points, person_days), locations, config)
         for name, loc_type, source in _END_MATCHES:
             of_kind = pl.col("location_type") == loc_type.value
             if source is not None:

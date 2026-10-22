@@ -26,9 +26,9 @@ def _days() -> tuple[pl.DataFrame, pl.DataFrame]:
     copied trips all surveyed. Day 4: child, no trips, a no-travel reason. Day 5:
     child, one trip without a trip survey. Only day 2 is complete to the vendor.
     """
-    days = pl.DataFrame(
+    person_days = pl.DataFrame(
         {
-            "day_id": [1, 2, 3, 4, 5],
+            "person_day_id": [1, 2, 3, 4, 5],
             "is_participant": [1, 0, 0, 0, 0],
             "is_complete": [0, 1, 0, 0, 0],
             "proxy_complete": [995, 1, 995, 995, 995],
@@ -37,9 +37,12 @@ def _days() -> tuple[pl.DataFrame, pl.DataFrame]:
         }
     )
     trips = pl.DataFrame(
-        {"day_id": [1, 1, 2, 3, 3, 5], "survey_complete": [True, True, True, True, None, False]}
+        {
+            "person_day_id": [1, 1, 2, 3, 3, 5],
+            "survey_complete": [True, True, True, True, None, False],
+        }
     )
-    return days, trips
+    return person_days, trips
 
 
 @pytest.mark.parametrize(
@@ -52,13 +55,13 @@ def _days() -> tuple[pl.DataFrame, pl.DataFrame]:
 )
 def test_child_day_complete(setting, expected):
     """Adults always take the vendor's verdict; the setting decides children's days."""
-    days, trips = _days()
-    out = cleaner.day_survey_complete(days, trips, setting)
-    assert out.sort("day_id")["survey_complete"].to_list() == expected
+    person_days, trips = _days()
+    out = cleaner.day_survey_complete(person_days, trips, setting)
+    assert out.sort("person_day_id")["survey_complete"].to_list() == expected
 
 
 def test_unknown_setting_raises():
     """A misspelled setting must not quietly pick a rule."""
-    days, trips = _days()
+    person_days, trips = _days()
     with pytest.raises(ValueError, match="child_day_complete"):
-        cleaner.day_survey_complete(days, trips, "observed")
+        cleaner.day_survey_complete(person_days, trips, "observed")

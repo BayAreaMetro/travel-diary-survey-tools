@@ -99,7 +99,7 @@ def _aggregate_and_classify_tours(
             # Identifiers (tour_id is automatically included from group_by)
             pl.col("person_id").first(),
             pl.col("hh_id").first(),
-            pl.col("day_id").first(),
+            pl.col("person_day_id").first(),
             pl.col("tour_num").first(),
             pl.col("subtour_num").first(),
             pl.col("parent_tour_id").first(),
@@ -186,7 +186,7 @@ def _aggregate_and_classify_tours(
             .otherwise(pl.lit(TourCategory.PARTIAL_BOTH))
             .alias("tour_category"),
         ]
-    ).sort(["person_id", "day_id", "origin_depart_time"])
+    ).sort(["person_id", "person_day_id", "origin_depart_time"])
 
     return tours
 

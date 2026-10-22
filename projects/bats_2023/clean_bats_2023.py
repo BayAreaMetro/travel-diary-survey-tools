@@ -73,11 +73,11 @@ def trip_survey_verdict(col: str) -> pl.Expr:
 
 
 def day_survey_complete(
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     child_day_complete: Literal["vendor", "observed_trips"],
 ) -> pl.DataFrame:
-    """Set ``days.survey_complete``: the vendor's day verdict, with a choice for children.
+    """Set ``person_days.survey_complete``: the vendor's day verdict, with a choice for children.
 
     The vendor decides what a complete survey day is, and an adult's day always
     takes its ``is_complete``. Children (``is_participant`` 0) do not take the
@@ -100,13 +100,13 @@ def day_survey_complete(
     """
     vendor = pl.col("is_complete") == 1
     if child_day_complete == "vendor":
-        return days.with_columns(vendor.fill_null(value=False).alias("survey_complete"))
+        return person_days.with_columns(vendor.fill_null(value=False).alias("survey_complete"))
     if child_day_complete != "observed_trips":
         msg = f"child_day_complete must be 'vendor' or 'observed_trips', got {child_day_complete!r}"
         raise ValueError(msg)
 
     # all() skips nulls: a trip with no verdict of its own does not decide the day.
-    all_surveyed = unlinked_trips.group_by("day_id").agg(
+    all_surveyed = unlinked_trips.group_by("person_day_id").agg(
         pl.col("survey_complete").all().alias("_all_surveyed")
     )
     observed = (pl.col("proxy_complete") == 1) | (
@@ -115,7 +115,7 @@ def day_survey_complete(
         .otherwise(pl.col("num_reasons_no_travel") >= 1)
     )
     return (
-        days.join(all_surveyed, on="day_id", how="left")
+        person_days.join(all_surveyed, on="person_day_id", how="left")
         .with_columns(
             pl.when(pl.col("is_participant") == 0)
             .then(observed)
@@ -131,7 +131,7 @@ def day_survey_complete(
 def clean_2023_bats(
     households: pl.DataFrame,
     persons: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     child_day_complete: Literal["vendor", "observed_trips"],
 ) -> dict[str, pl.DataFrame]:
@@ -140,7 +140,7 @@ def clean_2023_bats(
     Args:
         households: Vendor households.
         persons: Vendor persons.
-        days: Vendor person-days.
+        person_days: Vendor person-days.
         unlinked_trips: Vendor trips.
         child_day_complete: How a child's day is judged complete; see
             :func:`day_survey_complete`. Required, so every config says which.
@@ -149,13 +149,15 @@ def clean_2023_bats(
     # Much wow...
     logger.info("Cleaning 2023 trip data")
 
-    # Rename columns to match expected names
+    # Rename columns to match expected names. The vendor's day_id is our person_day_id.
     unlinked_trips = unlinked_trips.rename(
         {
             "arrive_second": "arrive_seconds",
             "trip_id": "unlinked_trip_id",
+            "day_id": "person_day_id",
         }
     )
+    person_days = person_days.rename({"day_id": "person_day_id"})
 
     # Add time columns if missing
     unlinked_trips = add_time_columns(unlinked_trips)
@@ -240,7 +242,7 @@ def clean_2023_bats(
     # contribute no travel days, and a synthesized all-null day would wrongly
     # veto the household-day completeness reduction (ALL members complete).
     persons_without_days = persons.filter(
-        ~pl.col("person_id").is_in(days["person_id"].unique().implode())
+        ~pl.col("person_id").is_in(person_days["person_id"].unique().implode())
         & (pl.col("surveyable") == 1)
     )
 
@@ -251,26 +253,26 @@ def clean_2023_bats(
 
     # Get travel_dow from other household members' days
     days_for_dow = (
-        days.select(["hh_id", "travel_dow", "travel_date", "day_num"])
+        person_days.select(["hh_id", "travel_dow", "travel_date", "day_num"])
         .filter(pl.col("hh_id").is_in(persons_without_days["hh_id"].unique().implode()))
         .unique()
     )
 
     # Which day columns to include
-    day_cols = ["hh_id", "person_id", "day_id", "travel_dow", "travel_date", "day_num"]
+    day_cols = ["hh_id", "person_id", "person_day_id", "travel_dow", "travel_date", "day_num"]
 
     # Create a default day for each person without days
     dummy_days = (
         persons_without_days.join(days_for_dow, on="hh_id", how="left")
         .with_columns(
-            # Construct default day_id (person_id * 100 + day_num)
-            (pl.col("person_id") * 100 + pl.col("day_num")).alias("day_id")
+            # Construct default person_day_id (person_id * 100 + day_num)
+            (pl.col("person_id") * 100 + pl.col("day_num")).alias("person_day_id")
         )
         .select(day_cols)
     )
     # Add dummy days to days dataframe
-    _days = days.clone()
-    days = pl.concat([_days, dummy_days], how="diagonal")
+    _days = person_days.clone()
+    person_days = pl.concat([_days, dummy_days], how="diagonal")
 
     # CLEANUP HOUSEHOLD ATTRIBUTES =================================
     # Move residence type and residence rent/own from persons to households
@@ -426,10 +428,10 @@ def clean_2023_bats(
     unlinked_trips = unlinked_trips.rename(
         {"trip_survey_complete": "survey_complete"}
     ).with_columns(trip_survey_verdict("survey_complete"))
-    days = day_survey_complete(days, unlinked_trips, child_day_complete)
+    person_days = day_survey_complete(person_days, unlinked_trips, child_day_complete)
 
     # HOUSEHOLD DAYS ===================================================
-    days, household_days = create_household_days(days)
+    person_days, household_days = create_household_days(person_days)
 
     households = households.rename({"is_complete": "survey_complete"}).with_columns(
         pl.col("survey_complete").cast(pl.Boolean)
@@ -442,7 +444,7 @@ def clean_2023_bats(
         "households": households,
         "persons": persons,
         "household_days": household_days,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "habitual_locations": reported_habitual_locations(
             households, persons, extra=second_homes(persons)

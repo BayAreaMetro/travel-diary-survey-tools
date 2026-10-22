@@ -14,7 +14,7 @@ from .matching import best_match, match_points, with_stated_day_ends
 DAY_COLUMNS = [
     "habitual_location_id",
     "person_id",
-    "day_id",
+    "person_day_id",
     "location_type",
     "dwell_minutes",
     "n_visits",
@@ -28,7 +28,7 @@ def day_schema() -> dict[str, pl.DataType]:
     return {
         "habitual_location_id": pl.Int64,
         "person_id": pl.Int64,
-        "day_id": pl.Int64,
+        "person_day_id": pl.Int64,
         "location_type": pl.Int64,
         "dwell_minutes": pl.Float64,
         "n_visits": pl.Int64,
@@ -41,7 +41,7 @@ def build_location_days(
     episodes: pl.DataFrame,
     locations: pl.DataFrame,
     config: MatchConfig,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
 ) -> pl.DataFrame:
     """Aggregate stays into one row per habitual location per day.
 
@@ -53,19 +53,19 @@ def build_location_days(
         episodes: Stays, as produced by ``build_presence_episodes``.
         locations: Habitual locations with ``habitual_location_id``.
         config: Provides the buffer.
-        days: Days with ``begin_day``/``end_day``.
+        person_days: Days with ``begin_day``/``end_day``.
 
     Returns:
         Table conforming to ``HabitualLocationDayModel``.
     """
     stays = episodes.with_row_index("_pt").with_columns(pl.col("_pt").cast(pl.Int64))
-    best = best_match(match_points(with_stated_day_ends(stays, days), locations, config))
+    best = best_match(match_points(with_stated_day_ends(stays, person_days), locations, config))
     attributed = stays.join(
         best.select("_pt", "habitual_location_id", "location_type"), on="_pt", how="inner"
     )
 
     location_days = (
-        attributed.group_by(["habitual_location_id", "person_id", "day_id", "location_type"])
+        attributed.group_by(["habitual_location_id", "person_id", "person_day_id", "location_type"])
         .agg(
             pl.col("dwell_minutes").sum().alias("_dwell_sum"),
             pl.col("dwell_minutes").count().alias("_dwell_measured"),
@@ -84,4 +84,6 @@ def build_location_days(
         .with_columns(pl.col("n_visits").cast(pl.Int64))
     )
 
-    return location_days.select(DAY_COLUMNS).sort(["person_id", "day_id", "habitual_location_id"])
+    return location_days.select(DAY_COLUMNS).sort(
+        ["person_id", "person_day_id", "habitual_location_id"]
+    )

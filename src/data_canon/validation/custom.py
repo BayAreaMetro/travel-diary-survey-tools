@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 CUSTOM_VALIDATORS: dict[str, list[Callable]] = {
     "households": [],
     "persons": [],
-    "days": [],
+    "person_days": [],
     "unlinked_trips": [],
     "linked_trips": [],
     "tours": [],
@@ -50,13 +50,13 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
     max_distance = 1000  # Define threshold distance in meters
 
     # Compare o_lat/o_lon of the next trip to d_lat/d_lon of current trip
-    # Compute distance, and compare to threshold over person_id and day_id
+    # Compute distance, and compare to threshold over person_id and person_day_id
     teleports = (
         unlinked_trips.with_columns(
             pl.col("d_lat").alias("current_d_lat"),
             pl.col("d_lon").alias("current_d_lon"),
-            pl.col("o_lat").shift(-1).over(["person_id", "day_id"]).alias("next_o_lat"),
-            pl.col("o_lon").shift(-1).over(["person_id", "day_id"]).alias("next_o_lon"),
+            pl.col("o_lat").shift(-1).over(["person_id", "person_day_id"]).alias("next_o_lat"),
+            pl.col("o_lon").shift(-1).over(["person_id", "person_day_id"]).alias("next_o_lon"),
         )
         .with_columns(
             expr_haversine(
@@ -70,7 +70,7 @@ def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
         .select(
             pl.col("unlinked_trip_id"),
             pl.col("person_id"),
-            pl.col("day_id"),
+            pl.col("person_day_id"),
             pl.col("distance_meters"),
         )
     )
@@ -217,7 +217,7 @@ def check_trip_spatial_continuity(linked_trips: pl.DataFrame) -> list[str]:
     than ordinary respondent gaps.
 
     Args:
-        linked_trips: Linked trips with person_id, day_id, depart_time and
+        linked_trips: Linked trips with person_id, person_day_id, depart_time and
             o/d coordinates
 
     Returns:
@@ -226,15 +226,15 @@ def check_trip_spatial_continuity(linked_trips: pl.DataFrame) -> list[str]:
     """
     errors: list[str] = []
 
-    required = {"person_id", "day_id", "depart_time", "o_lat", "o_lon", "d_lat", "d_lon"}
+    required = {"person_id", "person_day_id", "depart_time", "o_lat", "o_lon", "d_lat", "d_lon"}
     if not required.issubset(linked_trips.columns):
         return errors
 
     junctions = (
-        linked_trips.sort(["person_id", "day_id", "depart_time"])
+        linked_trips.sort(["person_id", "person_day_id", "depart_time"])
         .with_columns(
-            pl.col("o_lat").shift(-1).over(["person_id", "day_id"]).alias("_next_o_lat"),
-            pl.col("o_lon").shift(-1).over(["person_id", "day_id"]).alias("_next_o_lon"),
+            pl.col("o_lat").shift(-1).over(["person_id", "person_day_id"]).alias("_next_o_lat"),
+            pl.col("o_lon").shift(-1).over(["person_id", "person_day_id"]).alias("_next_o_lon"),
         )
         # Keep only real junctions (a following trip exists in the same day).
         .filter(pl.col("_next_o_lat").is_not_null())

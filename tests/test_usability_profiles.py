@@ -86,9 +86,9 @@ def _one_household(quality: TourDataQuality, category: TourCategory) -> dict:
                 "surveyable": [True, True],
             }
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1, 2],
+                "person_day_id": [1, 2],
                 "person_id": [1, 2],
                 "hh_id": [1, 1],
                 "travel_date": [datetime(2023, 5, 1)] * 2,
@@ -98,7 +98,7 @@ def _one_household(quality: TourDataQuality, category: TourCategory) -> dict:
         "tours": pl.DataFrame(
             {
                 "tour_id": [10, 20],
-                "day_id": [1, 2],
+                "person_day_id": [1, 2],
                 "person_id": [1, 2],
                 "survey_complete": [True, True],
                 "parent_tour_id": [10, 20],
@@ -341,7 +341,7 @@ def _household_with_joint_records() -> dict[str, pl.DataFrame]:
         {
             "linked_trip_id": [1000, 2000],
             "tour_id": [10, 20],
-            "day_id": [1, 2],
+            "person_day_id": [1, 2],
             "joint_trip_id": [500, 500],
             "survey_complete": [True, True],
         }
@@ -350,15 +350,15 @@ def _household_with_joint_records() -> dict[str, pl.DataFrame]:
         {
             "unlinked_trip_id": [1, 2],
             "tour_id": [10, 20],
-            "day_id": [1, 2],
+            "person_day_id": [1, 2],
             "survey_complete": [True, True],
         }
     )
     tables["joint_tours"] = pl.DataFrame(
-        {"joint_tour_id": [100], "day_id": [1], "survey_complete": [True]}
+        {"joint_tour_id": [100], "person_day_id": [1], "survey_complete": [True]}
     )
     tables["joint_trips"] = pl.DataFrame(
-        {"joint_trip_id": [500], "day_id": [1], "survey_complete": [True]}
+        {"joint_trip_id": [500], "person_day_id": [1], "survey_complete": [True]}
     )
     return tables
 

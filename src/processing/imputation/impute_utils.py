@@ -419,12 +419,12 @@ def build_feature_matrix(
 # Maps (child_table, parent_table) -> join_key column name.
 FK_RELATIONSHIPS: dict[tuple[str, str], str] = {
     ("persons", "households"): "hh_id",
-    ("days", "persons"): "person_id",
-    ("days", "households"): "hh_id",
-    ("unlinked_trips", "days"): "day_id",
+    ("person_days", "persons"): "person_id",
+    ("person_days", "households"): "hh_id",
+    ("unlinked_trips", "person_days"): "person_day_id",
     ("unlinked_trips", "persons"): "person_id",
     ("unlinked_trips", "households"): "hh_id",
-    ("linked_trips", "days"): "day_id",
+    ("linked_trips", "person_days"): "person_day_id",
     ("linked_trips", "persons"): "person_id",
     ("linked_trips", "households"): "hh_id",
     ("tours", "persons"): "person_id",

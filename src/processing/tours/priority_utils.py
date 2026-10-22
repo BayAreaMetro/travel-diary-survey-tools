@@ -109,7 +109,7 @@ def add_activity_duration_column(
     uses the provided default duration.
 
     Args:
-        df: DataFrame with arrive_time, depart_time, person_id, day_id columns
+        df: DataFrame with arrive_time, depart_time, person_id, person_day_id columns
         default_minutes: Default duration for last trip of day (default: 240)
         alias: Column name for the duration values
 
@@ -118,7 +118,10 @@ def add_activity_duration_column(
     """
     return df.with_columns(
         [
-            (pl.col("depart_time").shift(-1).over(["person_id", "day_id"]) - pl.col("arrive_time"))
+            (
+                pl.col("depart_time").shift(-1).over(["person_id", "person_day_id"])
+                - pl.col("arrive_time")
+            )
             .dt.total_minutes()
             .fill_null(default_minutes)
             .alias(alias)
