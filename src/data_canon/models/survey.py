@@ -169,6 +169,7 @@ class PersonDayModel(BaseModel):
     )
     day_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
+    hh_day_id: int = schema_field(ge=1, fk_to="household_days.hh_day_id")
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
     begin_day: BeginEndDay | None = schema_field(
@@ -201,6 +202,24 @@ class PersonDayModel(BaseModel):
     # usability profile, as hh_day_{profile}. Those names come from config, so
     # they cannot be model fields; cascade_completeness registers them as
     # generated columns with a description of what each one gated.
+
+
+class HouseholdDayModel(BaseModel):
+    """One household's travel date: every member's person-day on it, together.
+
+    The vendor sends no household-day file, so each project's cleaner builds
+    this table from the person-days (``utils.create_ids.create_household_days``).
+    Joint trips and joint tours belong to a household-day rather than to any one
+    member's day.
+    """
+
+    hh_day_id: int = schema_field(
+        ge=1,
+        unique=True,
+        description="hh_id * 100 + day_num: the household's day, as day_id is the person's.",
+    )
+    hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
+    travel_date: datetime = schema_field()
 
 
 class UnlinkedTripModel(BaseModel):

@@ -17,6 +17,7 @@ from data_canon.codebook.persons import Ethnicity, Race
 from data_canon.core.labeled_enum import LabeledEnum
 from pipeline.decoration import step
 from processing.habitual_locations import reported_habitual_locations
+from utils.create_ids import create_household_days
 from utils.helpers import add_time_columns, expr_haversine, get_income_midpoint
 
 logger = logging.getLogger(__name__)
@@ -427,6 +428,9 @@ def clean_2023_bats(
     ).with_columns(trip_survey_verdict("survey_complete"))
     days = day_survey_complete(days, unlinked_trips, child_day_complete)
 
+    # HOUSEHOLD DAYS ===================================================
+    days, household_days = create_household_days(days)
+
     households = households.rename({"is_complete": "survey_complete"}).with_columns(
         pl.col("survey_complete").cast(pl.Boolean)
     )
@@ -437,6 +441,7 @@ def clean_2023_bats(
     return {
         "households": households,
         "persons": persons,
+        "household_days": household_days,
         "days": days,
         "unlinked_trips": unlinked_trips,
         "habitual_locations": reported_habitual_locations(

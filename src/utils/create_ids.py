@@ -213,3 +213,39 @@ def create_tour_ids(
     linked_trips = linked_trips.drop("_tour_id_suffix", "_parent_tour_id_suffix")
 
     return linked_trips
+
+
+def create_household_days(days: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Build the household-day table from person-days, and put ``hh_day_id`` on each.
+
+    A household-day is one household's travel date: every member's day on it.
+    Its id is ``hh_id * 100 + day_num``, the household-level twin of the
+    person-day id (``person_id * 100 + day_num``), so a household's day numbers
+    must name its dates one to one. A survey whose members number the same date
+    differently, or reuse a number for two dates, would have its household-days
+    merged or split by the encoding, so that raises rather than guessing.
+
+    Args:
+        days: Person-days with ``hh_id``, ``day_num`` and ``travel_date``.
+
+    Returns:
+        The person-days with ``hh_day_id`` added, and one row per household-day
+        holding ``hh_day_id``, ``hh_id`` and ``travel_date``.
+
+    Raises:
+        ValueError: If a household's day numbers and dates are not one to one.
+    """
+    pairs = days.select("hh_id", "day_num", "travel_date").unique()
+    for key, other in (("day_num", "travel_date"), ("travel_date", "day_num")):
+        clashes = pairs.group_by("hh_id", key).agg(pl.len().alias("_n")).filter(pl.col("_n") > 1)
+        if not clashes.is_empty():
+            msg = (
+                f"{clashes.height} household {key}(s) map to more than one {other}, so "
+                f"hh_id * 100 + day_num cannot name household-days. First: "
+                f"{clashes.head(3).select('hh_id', key).to_dicts()}"
+            )
+            raise ValueError(msg)
+
+    hh_day_id = (pl.col("hh_id") * 100 + pl.col("day_num")).cast(pl.Int64).alias("hh_day_id")
+    household_days = pairs.select(hh_day_id, "hh_id", "travel_date").sort("hh_day_id")
+    return days.with_columns(hh_day_id), household_days
