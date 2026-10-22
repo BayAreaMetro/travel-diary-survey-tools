@@ -31,13 +31,21 @@ def days_not_asked(linked_trips: pl.DataFrame) -> pl.DataFrame:
     """Days for the trips, from a survey that did not ask where days began or ended.
 
     Each day's ``travel_date`` is the date its first trip departs, so members of
-    one household travelling on the same date share it.
+    one household travelling on the same date share it, and so share a
+    household-day, numbered in date order.
     """
     return (
         linked_trips.group_by(pl.col("day_id").cast(pl.Int64))
-        .agg(pl.col("depart_time").min().dt.date().alias("travel_date"))
+        .agg(
+            pl.col("hh_id").first(),
+            pl.col("depart_time").min().dt.date().alias("travel_date"),
+        )
         .sort("day_id")
         .with_columns(
+            (
+                pl.col("hh_id") * 100
+                + pl.col("travel_date").rank("dense").over("hh_id").cast(pl.Int64)
+            ).alias("hh_day_id"),
             pl.lit(None, dtype=pl.Int64).alias("begin_day"),
             pl.lit(None, dtype=pl.Int64).alias("end_day"),
         )

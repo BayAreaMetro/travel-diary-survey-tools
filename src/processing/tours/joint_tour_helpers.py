@@ -38,7 +38,7 @@ import logging
 
 import polars as pl
 
-from processing.joint_trips.aggregation import household_date_of
+from processing.joint_trips.aggregation import household_day_of
 from utils.create_ids import create_concatenated_id
 
 logger = logging.getLogger(__name__)
@@ -185,16 +185,18 @@ def build_joint_tours_table(tours: pl.DataFrame, days: pl.DataFrame) -> pl.DataF
     Args:
         tours: Canonical tours, after ``identify_joint_tours`` has stamped
             ``joint_tour_id``.
-        days: Days with ``day_id`` and ``travel_date``; see
-            :func:`processing.joint_trips.aggregation.household_date_of`.
+        days: Days with ``day_id``, ``hh_day_id`` and ``travel_date``; see
+            :func:`processing.joint_trips.aggregation.household_day_of`.
 
     Returns:
-        One row per joint tour with ``hh_id``, ``travel_date``, ``num_participants``
+        One row per joint tour with ``hh_id``, ``hh_day_id``, ``travel_date``,
+        ``num_participants``
         and, where the member tours carry it, ``survey_complete``.
     """
     schema = {
         "joint_tour_id": pl.Int64,
         "hh_id": pl.Int64,
+        "hh_day_id": pl.Int64,
         "travel_date": days.schema["travel_date"],
         "num_participants": pl.Int64,
     }
@@ -216,7 +218,7 @@ def build_joint_tours_table(tours: pl.DataFrame, days: pl.DataFrame) -> pl.DataF
     joint_tours = (
         members.group_by("joint_tour_id")
         .agg(agg)
-        .join(household_date_of(members, days, "joint_tour_id"), on="joint_tour_id", how="left")
+        .join(household_day_of(members, days, "joint_tour_id"), on="joint_tour_id", how="left")
         .sort("joint_tour_id")
     )
 

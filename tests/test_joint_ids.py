@@ -377,6 +377,7 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
             "day_id": [1, 2, 3, 11, 12, 13],
             "person_id": [1, 2, 3, 1, 2, 3],
             "hh_id": [1] * 6,
+            "hh_day_id": [101] * 3 + [102] * 3,
             "travel_date": [travel_date] * 3 + [next_date] * 3,
             "survey_complete": [True] * 6,
         }

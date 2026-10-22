@@ -543,13 +543,17 @@ class JointTripModel(BaseModel):
 
     joint_trip_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
-    travel_date: datetime = schema_field(
+    hh_day_id: int = schema_field(
+        ge=1,
+        fk_to="household_days.hh_day_id",
         description=(
-            "The household date this grouping happened on, shared by every "
-            "member's day. Not any one member's day_id: a grouping belongs to "
-            "the household's date, and a member's own day can be unusable while "
-            "the others' are not."
+            "The household-day this grouping happened on, shared by every member's "
+            "day. Not any one member's day_id: a grouping belongs to the household's "
+            "day, and a member's own day can be unusable while the others' are not."
         ),
+    )
+    travel_date: datetime = schema_field(
+        description="The household-day's date, repeated here so it reads without a lookup.",
     )
     num_joint_travelers: int = schema_field(
         ge=2,
@@ -579,13 +583,17 @@ class JointTourModel(BaseModel):
 
     joint_tour_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
-    travel_date: datetime = schema_field(
+    hh_day_id: int = schema_field(
+        ge=1,
+        fk_to="household_days.hh_day_id",
         description=(
-            "The household date this grouping happened on, shared by every "
-            "member's day. Not any one member's day_id: a grouping belongs to "
-            "the household's date, and a member's own day can be unusable while "
-            "the others' are not."
+            "The household-day this grouping happened on, shared by every member's "
+            "day. Not any one member's day_id: a grouping belongs to the household's "
+            "day, and a member's own day can be unusable while the others' are not."
         ),
+    )
+    travel_date: datetime = schema_field(
+        description="The household-day's date, repeated here so it reads without a lookup.",
     )
     num_participants: int = schema_field(
         ge=2,

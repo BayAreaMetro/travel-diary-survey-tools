@@ -311,6 +311,7 @@ def create_day(
         "day_id": day_id,
         "person_id": person_id,
         "hh_id": hh_id,
+        "hh_day_id": hh_id * 100 + day_num,
         "person_num": person_num,
         "day_num": day_num,
         "travel_date": travel_date,

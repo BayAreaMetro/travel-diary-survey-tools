@@ -192,11 +192,11 @@ def _assign_joint_trip_ids(
             "depart_time",
             "arrive_time",
         },
-        "days": {"day_id", "travel_date"},
+        "days": {"day_id", "hh_day_id", "travel_date"},
     },
     produces={
         "linked_trips": {"joint_trip_id"},
-        "joint_trips": {"joint_trip_id", "hh_id", "travel_date"},
+        "joint_trips": {"joint_trip_id", "hh_id", "hh_day_id", "travel_date"},
     },
 )
 def detect_joint_trips(

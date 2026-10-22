@@ -136,13 +136,13 @@ logger = logging.getLogger(__name__)
             "lon",
             "source",
         },
-        "days": {"day_id", "travel_date", "begin_day", "end_day"},
+        "days": {"day_id", "hh_day_id", "travel_date", "begin_day", "end_day"},
     },
     produces={
         "unlinked_trips": {"tour_id", "joint_tour_id"},
         "linked_trips": {"tour_id", "joint_tour_id"},
         "tours": {"tour_id", "joint_tour_id"},
-        "joint_tours": {"joint_tour_id"},
+        "joint_tours": {"joint_tour_id", "hh_id", "hh_day_id", "travel_date"},
     },
 )
 def extract_tours(
