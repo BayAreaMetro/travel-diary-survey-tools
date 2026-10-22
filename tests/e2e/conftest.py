@@ -205,6 +205,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 "input_paths": {
                     "households": f"{survey}/households.parquet",
                     "persons": f"{survey}/persons.parquet",
+                    "household_days": f"{survey}/household_days.parquet",
                     "days": f"{survey}/days.parquet",
                     "unlinked_trips": f"{survey}/unlinked_trips.parquet",
                     "habitual_locations": f"{survey}/habitual_locations.parquet",

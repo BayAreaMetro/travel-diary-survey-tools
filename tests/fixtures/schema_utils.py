@@ -20,6 +20,7 @@ from data_canon.models.survey import (
     UnlinkedTripModel,
 )
 from processing.weighting.core.hierarchy import WEIGHT_COLUMNS
+from utils.create_ids import create_household_days
 
 # Which canonical table each model describes, for looking up its weight column.
 _TABLE_OF_MODEL = {
@@ -251,3 +252,24 @@ def empty_joint_trips(usability_flag_col: str = "usable_test") -> pl.DataFrame:
     """
     schema = model_to_polars_schema(JointTripModel)
     return _with_generated(schema, JointTripModel, usability_flag_col)
+
+
+def add_household_days(tables: dict) -> dict:
+    """Build ``household_days`` and ``hh_day_id`` from ``tables["days"]``, in place.
+
+    The pipeline gets them from the project cleaner; hand-built test tables need
+    them before the cascade, which requires both. A fixture without ``day_num``
+    has its household's dates numbered in order. Returns *tables*, so a call
+    can wrap the argument it prepares.
+    """
+    days = tables.get("days")
+    if days is None or "household_days" in tables:
+        return tables
+    numbered = "day_num" not in days.columns
+    if numbered:
+        days = days.with_columns(
+            pl.col("travel_date").rank("dense").over("hh_id").cast(pl.Int64).alias("day_num")
+        )
+    days, tables["household_days"] = create_household_days(days)
+    tables["days"] = days.drop("day_num") if numbered else days
+    return tables

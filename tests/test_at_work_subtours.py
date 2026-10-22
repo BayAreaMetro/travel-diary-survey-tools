@@ -49,6 +49,7 @@ from tests.fixtures import (
 )
 from tests.fixtures.fixtures import process_scenario_through_pipeline
 from tests.fixtures.scenario_builders import multi_stop_tour
+from tests.fixtures.schema_utils import add_household_days
 from tests.fixtures.tour_pipeline import locate_and_extract_tours
 from tests.fixtures.tour_records import get_tour_schema
 
@@ -250,7 +251,7 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
         "tours": tours.with_columns(pl.lit(value=True).alias("survey_complete")),
     }
     compute_usability(
-        tables,
+        add_household_days(tables),
         profile=UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
     )
     return dict(zip(*tables["tours"].select("tour_id", "usable_test"), strict=True))

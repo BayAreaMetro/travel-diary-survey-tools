@@ -38,6 +38,7 @@ UPDATE_ENV = "E2E_BASELINE_UPDATE"
 PRIMARY_KEYS = {
     "households": ("hh_id",),
     "persons": ("person_id",),
+    "household_days": ("hh_day_id",),
     "days": ("day_id",),
     "unlinked_trips": ("unlinked_trip_id",),
     "linked_trips": ("linked_trip_id",),

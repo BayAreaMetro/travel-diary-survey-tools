@@ -25,6 +25,7 @@ from processing.completeness import (
 from processing.completeness.kept_records import keep_records, select_profile_columns
 from processing.joint_trips.aggregation import build_joint_trips_table
 from processing.tours.joint_tour_helpers import build_joint_tours_table
+from tests.fixtures.schema_utils import add_household_days
 
 STRICT = UsabilityProfile(
     "strict",
@@ -116,7 +117,7 @@ def _household(
 
 def _stamp(profile: UsabilityProfile, tables: dict) -> dict[str, pl.DataFrame]:
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(working)
+    cascade_complete(add_household_days(working))
     stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
 
@@ -247,7 +248,7 @@ class TestTheColumnIsPerProfile:
         """Strict drops person 3; partial keeps them; the id itself never moves."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
         working: dict[str, pl.DataFrame | None] = dict(tables)
-        cascade_complete(working)
+        cascade_complete(add_household_days(working))
         stamp_usable(working, STRICT)
         stamp_usable(working, LOOSE)
         tours = working["tours"]

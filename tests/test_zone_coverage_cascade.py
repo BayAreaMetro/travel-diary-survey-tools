@@ -19,6 +19,7 @@ import polars as pl
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import UsabilityProfile, compute_usability
+from tests.fixtures.schema_utils import add_household_days
 
 ZONE = "taz"
 VALID, COMPLETE = TourDataQuality.VALID.value, TourCategory.COMPLETE.value
@@ -76,7 +77,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
 def _verdict(trip_zones, *, coverage: str) -> bool:
     tables = _tables(trip_zones)
     profile = UsabilityProfile("u", "primary_home", "all_members", zone_coverage=coverage)
-    compute_usability(tables, profile=profile)
+    compute_usability(add_household_days(tables), profile=profile)
     return bool(tables["tours"]["usable_u"][0])
 
 

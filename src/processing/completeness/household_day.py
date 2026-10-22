@@ -1,9 +1,11 @@
 """The household-date reduction, for both kinds of flag.
 
-A **household-day** is the set of person-days sharing one ``hh_id`` and
-``travel_date``. Both reductions here are the same shape -- ALL surveyable
-members' days pass, written back onto every day on that date -- and they sit
-side by side so the usable one reads as the mirror of the complete one.
+A **household-day** is one household's travel date (``household_days``, built by
+the project cleaner): the person-days sharing one ``hh_day_id``. Both reductions
+here are the same shape -- ALL surveyable members' days pass -- and they sit side
+by side so the usable one reads as the mirror of the complete one. Each writes
+onto ``household_days``; :func:`with_household_day` reads the verdict back for
+the person-day level.
 """
 
 import polars as pl
@@ -31,88 +33,103 @@ def _join_surveyable(days: pl.DataFrame, persons: pl.DataFrame | None) -> pl.Dat
     )
 
 
+def _require_household_days(tables: dict[str, pl.DataFrame | None]) -> pl.DataFrame:
+    """Return ``household_days``, raising if person-days arrive without it.
+
+    The table is canonical and every cleaner builds it, so its absence is a
+    caller error. Judging dates some other way would give a different answer
+    silently.
+
+    Raises:
+        ValueError: If ``household_days`` is missing, or days carry no ``hh_day_id``.
+    """
+    household_days = tables.get("household_days")
+    days = tables.get("days")
+    if household_days is None or days is None or "hh_day_id" not in days.columns:
+        msg = (
+            "The household-day reductions need the household_days table and hh_day_id "
+            "on days. Build them in the project cleaner with "
+            "utils.create_ids.create_household_days."
+        )
+        raise ValueError(msg)
+    return household_days
+
+
+def _reduce_to_household_days(
+    tables: dict[str, pl.DataFrame | None], own: pl.Expr, column: str
+) -> None:
+    """Write ALL(surveyable members' *own*) onto ``household_days.<column>``, in place.
+
+    A household-day with no surveyable member's day on it still exists; nothing
+    the survey meant to observe was observed on it, so it is False rather than
+    vacuously True.
+    """
+    household_days = _require_household_days(tables)
+    days = _join_surveyable(tables["days"], tables.get("persons"))
+    reduced = (
+        days.filter(pl.col("_surveyable"))
+        .group_by("hh_day_id")
+        .agg(own.fill_null(value=False).all().alias("_verdict"))
+    )
+    tables["household_days"] = (
+        household_days.drop(column, strict=False)
+        .join(reduced, on="hh_day_id", how="left")
+        .with_columns(pl.col("_verdict").fill_null(value=False).alias(column))
+        .drop("_verdict")
+    )
+
+
 def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
-    """Stamp ``hh_day_survey_complete`` on the days table, in place (reverse cascade).
+    """Stamp ``household_days.survey_complete``, in place (the reverse cascade).
 
-    A **household-day** -- the set of person-days sharing one ``hh_id`` and
-    ``travel_date`` -- is complete only when every *surveyable* member's day is
-    complete (an ALL reduction over surveyable member-days). The result is
-    written back onto each day on that date, so ``hh_day_survey_complete`` marks
-    whether the day belongs to a coherently observed household-date.
-
-    Unsurveyable members (see :func:`_join_surveyable`) neither veto the date
-    nor borrow its verdict: their own day rows -- if a data source carries any
-    -- keep their own ``survey_complete``, which is normally False since they file no
-    trips. A source that nonetheless marks one complete is believed rather than
-    overruled: the contradiction is upstream, and inventing a verdict here would
-    hide it.
+    A household-day is complete only when every *surveyable* member's day is
+    complete: an ALL reduction over those person-days, which are the vendor's
+    verdicts. It decides nothing of its own. Unsurveyable members (see
+    :func:`_join_surveyable`) take no part.
 
     This runs after :func:`rollup_completeness`, so ``survey_complete`` already
     reflects ancestry; the reduction then flows the other way, up from members to
-    the shared date. Idempotent. Days without ``hh_id`` / ``travel_date`` (e.g.
-    schema-only fixtures) fall back to each day's own ``survey_complete``.
+    the shared date. Idempotent.
     """
     days = tables.get("days")
     if days is None or "survey_complete" not in days.columns:
         return
-
-    own = pl.col("survey_complete").fill_null(value=False)
-    if "hh_id" not in days.columns or "travel_date" not in days.columns:
-        tables["days"] = days.with_columns(own.alias("hh_day_survey_complete"))
-        return
-
-    days = _join_surveyable(days, tables.get("persons"))
-    # all() over an empty set is True: a date observed only through unsurveyable
-    # members has no surveyable observation to fail -- and no surveyable day to
-    # gain usability from it either.
-    household_day = days.group_by("hh_id", "travel_date").agg(
-        own.filter(pl.col("_surveyable")).all().alias("_hh_day_survey_complete")
-    )
-    tables["days"] = (
-        days.join(household_day, on=["hh_id", "travel_date"], how="left")
-        .with_columns(
-            pl.when(pl.col("_surveyable"))
-            .then(pl.col("_hh_day_survey_complete").fill_null(value=False))
-            .otherwise(own)
-            .alias("hh_day_survey_complete")
-        )
-        .drop("_hh_day_survey_complete", "_surveyable")
-    )
+    _reduce_to_household_days(tables, pl.col("survey_complete"), "survey_complete")
 
 
 def flag_household_day_usable(
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
 ) -> None:
-    """Stamp the household-day usable flag: ALL surveyable member-days usable, in place.
+    """Stamp ``household_days.<flag>``: ALL surveyable members' days usable, in place.
 
     The usable-side mirror of :func:`flag_household_day_complete`: a household-day
-    is *usable* only when every surveyable member's day is model-usable, not
-    merely complete. ``household`` then needs at least one such date.
-    Unsurveyable members neither veto the date nor inherit its verdict.
-    Requires the per-record flag on days; days without ``hh_id`` /
-    ``travel_date`` fall back to each day's own verdict.
+    is *usable* only when every surveyable member's day is usable under the
+    profile, not merely complete. Requires the per-record flag on days.
     """
     days = tables.get("days")
     if days is None or cols.flag not in days.columns:
         return
+    _reduce_to_household_days(tables, pl.col(cols.flag), cols.flag)
 
-    own = pl.col(cols.flag).fill_null(value=False)
-    if "hh_id" not in days.columns or "travel_date" not in days.columns:
-        tables["days"] = days.with_columns(own.alias(cols.household_day))
-        return
 
-    days = _join_surveyable(days, tables.get("persons"))
-    household_day = days.group_by("hh_id", "travel_date").agg(
-        own.filter(pl.col("_surveyable")).all().alias("_hh_day_usable")
-    )
-    tables["days"] = (
-        days.join(household_day, on=["hh_id", "travel_date"], how="left")
-        .with_columns(
-            pl.when(pl.col("_surveyable"))
-            .then(pl.col("_hh_day_usable").fill_null(value=False))
-            .otherwise(own)
-            .alias(cols.household_day)
-        )
-        .drop("_hh_day_usable", "_surveyable")
-    )
+def with_household_day(
+    days: pl.DataFrame,
+    tables: dict[str, pl.DataFrame | None],
+    column: str,
+    alias: str,
+) -> pl.DataFrame:
+    """Return *days* with *alias*: its household-day's *column*.
+
+    An unsurveyable member's day takes no part in the household-day, so it is
+    not judged by it either: it keeps its own *column*.
+    """
+    household_days = _require_household_days(tables)
+    verdict = household_days.select("hh_day_id", pl.col(column).alias("_hh_day_verdict"))
+    days = _join_surveyable(days, tables.get("persons")).join(verdict, on="hh_day_id", how="left")
+    return days.with_columns(
+        pl.when(pl.col("_surveyable"))
+        .then(pl.col("_hh_day_verdict").fill_null(value=False))
+        .otherwise(pl.col(column).fill_null(value=False))
+        .alias(alias)
+    ).drop("_hh_day_verdict", "_surveyable")

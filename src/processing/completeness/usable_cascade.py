@@ -10,7 +10,7 @@ below are in the order they run.
 
 import polars as pl
 
-from .household_day import flag_household_day_usable
+from .household_day import flag_household_day_usable, with_household_day
 from .joint_groupings import flag_joint
 from .profiles import UsabilityProfile
 from .survey_complete import cascade_complete
@@ -20,6 +20,7 @@ from .zone_coverage import _home_zone_ok
 # The down walk, as (table, the table it inherits from, the key joining them),
 # in order: each row's parent has already inherited its own by the time it runs.
 _DOWN_EDGES = (
+    ("household_days", "households", "hh_id"),
     ("persons", "households", "hh_id"),
     ("days", "persons", "person_id"),
     ("tours", "days", "day_id"),
@@ -81,8 +82,8 @@ def _flag_days(
 
     A day is usable only within a complete household-day: even a genuine
     no-travel day is only a clean observation when the whole household was
-    observed that date. ``hh_day_survey_complete`` already implies the day's own
-    ``survey_complete`` (it is an ALL over the members, which includes this one), so
+    observed that date. The household-day's ``survey_complete`` already implies
+    the day's own (it is an ALL over the members, which includes this one), so
     a profile admitting incomplete household-days falls back to that own
     reporting rather than dropping the term entirely.
 
@@ -103,11 +104,11 @@ def _flag_days(
         )
         raise ValueError(msg)
 
-    base = (
-        pl.col("hh_day_survey_complete").fill_null(value=False)
-        if cols.needs_whole_household_day
-        else pl.col("survey_complete").fill_null(value=False)
-    )
+    if cols.needs_whole_household_day:
+        days = with_household_day(days, tables, "survey_complete", "_hh_day_complete")
+        base = pl.col("_hh_day_complete")
+    else:
+        base = pl.col("survey_complete").fill_null(value=False)
 
     # A no-travel day has no tour to carry the household's home zone, so it
     # takes the term directly or it would outlive its own household.
@@ -130,6 +131,7 @@ def _flag_days(
     else:
         flagged = days.with_columns(base.alias(cols.flag))
 
+    flagged = flagged.drop("_hh_day_complete", strict=False)
     tables["days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
 
 
@@ -189,16 +191,16 @@ def _flag_households(
     rather than left holding weight it cannot pass down.
 
     A profile whose ``household_day_needs`` is ``nothing`` counts usable *days*
-    instead. Reading the household-day column here regardless would leave the
+    instead. Reading the household-days here regardless would leave the
     household on the strict rule while its tours and days had already relaxed --
     the profile would look like it worked, and the household would still be
     dropped and its weight zeroed.
 
-    Requires days to carry the profile's household-day column; a days table
+    Requires the counted table (household-days, or days) to carry the flag; one
     present but unflagged raises rather than silently passing every household.
 
     Raises:
-        ValueError: If days is present but has not been flagged yet.
+        ValueError: If the counted table is present but has not been flagged yet.
     """
     households = tables.get("households")
     if households is None or "survey_complete" not in households.columns:
@@ -206,20 +208,20 @@ def _flag_households(
 
     base = pl.col("survey_complete").fill_null(value=False)
     # The date-level reduction is only the rule while coherence is required.
-    counts = cols.household_day if cols.needs_whole_household_day else cols.flag
-    days = tables.get("days")
-    if days is not None and counts not in days.columns:
+    counted = "household_days" if cols.needs_whole_household_day else "days"
+    rows = tables.get(counted)
+    if rows is not None and cols.flag not in rows.columns:
         msg = (
-            f"Cannot flag households: days has no {counts} column yet. Flag days "
-            "first, otherwise every household silently passes."
+            f"Cannot flag households: {counted} has no {cols.flag} column yet. Flag "
+            f"{counted} first, otherwise every household silently passes."
         )
         raise ValueError(msg)
-    if days is None or "hh_id" not in days.columns:
+    if rows is None or "hh_id" not in rows.columns:
         tables["households"] = households.with_columns(base.alias(cols.flag))
         return
 
     hh_has_usable_day = (
-        days.filter(pl.col(counts).fill_null(value=False))
+        rows.filter(pl.col(cols.flag).fill_null(value=False))
         .select("hh_id")
         .unique()
         .with_columns(pl.lit(value=True).alias("_hh_has_usable_day"))
