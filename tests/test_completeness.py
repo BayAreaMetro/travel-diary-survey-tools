@@ -73,6 +73,17 @@ class TestRollupCompleteness:
         rollup_completeness(tables)
         assert tables["tours"]["survey_complete"].to_list() == [False]
 
+    @pytest.mark.parametrize(("day_id", "expected"), [(1, True), (2, False)])
+    def test_no_own_verdict_takes_the_days(self, day_id, expected):
+        """A trip with no verdict of its own (the vendor's NA) is as complete as its day."""
+        tables = self._tables()
+        tables["unlinked_trips"] = pl.DataFrame(
+            {"unlinked_trip_id": [1], "day_id": [day_id], "survey_complete": [None]},
+            schema_overrides={"survey_complete": pl.Boolean},
+        )
+        rollup_completeness(tables)
+        assert tables["unlinked_trips"]["survey_complete"].to_list() == [expected]
+
     def test_household_needs_a_complete_household_day(self):
         """Hh 1 has a complete household-day (d1); hh 2 has none."""
         tables = self._tables()

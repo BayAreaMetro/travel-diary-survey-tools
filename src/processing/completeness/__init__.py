@@ -1,8 +1,8 @@
 """Canonical completeness and model-usability logic.
 
 Two kinds of flag roll **up** from two atomic facts -- whether each **day** was
-surveyed (``days.survey_complete``, which the project cleaner sets from the day's
-surveyed trips or a declared no-travel day), and each tour's structural validity:
+surveyed (``days.survey_complete``, which the project cleaner takes from the
+survey vendor's own day verdict), and each tour's structural validity:
 
 * ``survey_complete`` -- was it reported? Rolls up from complete days. One answer per
   run, never narrowed by model criteria and never configurable: if it is wrong,
@@ -43,8 +43,9 @@ The flow, and the rule on each line:
 COMPLETE -- rolls up from complete days     op        rule
 ------------------------------------------------------------------------
 person-day ...........................   direct    days.survey_complete, from the cleaner
-                                                    (all trips surveyed, or no-travel)
- ├ trip / tour .......................   inherit   its own value AND its day's
+                                                    (the vendor's day verdict, as given)
+ ├ trip / tour .......................   inherit   its own value AND its day's (no own
+                                                    value: the day's alone)
  ├ person ............................   >=1       has >=1 complete day
  └ household-day .....................   ALL       all surveyable members complete that date
     └ household ......................   >=1       has >=1 complete household-day
@@ -86,8 +87,8 @@ fully_joint .........................   class     usable, not work/school/escort
                                                   people and one purpose, or everyone
                                                   on it travels alone
 
-declared no-travel: num_reasons_no_travel >= 1, OR proxy_complete (a proxy filled the day in --
-  this is how children, who file no trips themselves, still get a complete day).
+no-travel day: a complete day with no trips. Whether it is complete is the vendor's call
+  (a no-travel reason given, or, for a child, a proxy report), never re-judged here.
 surveyable: persons whose travel the survey could collect at all. Unsurveyable persons
   (unrelated members, e.g. roommates) have no day rows in the vendor data; where a source
   carries any, they neither veto the household-day ALL reductions nor inherit their verdict.
