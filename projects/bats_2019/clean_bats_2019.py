@@ -810,8 +810,14 @@ def flag_measured_completeness(
         Tuple of (days, unlinked_trips), each carrying ``survey_complete``, plus the
         per-day trip counts kept for debugging.
     """
+    # 995 is the vendor's NA, on trips it added without a trip survey: no verdict of
+    # their own (null), so the cascade gives them their day's.
+    trip_flag = pl.col("survey_complete_trip")
     unlinked_trips = unlinked_trips.with_columns(
-        (pl.col("survey_complete_trip") == 1).alias("survey_complete")
+        pl.when(trip_flag == 995)  # noqa: PLR2004
+        .then(None)
+        .otherwise(trip_flag == 1)
+        .alias("survey_complete")
     )
 
     # Add num_complete_trips column to help with debugging and weighting later

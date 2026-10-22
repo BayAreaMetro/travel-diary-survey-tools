@@ -92,8 +92,6 @@ class TestAVerdictIsAlwaysABoolean:
             pytest.param({"tour_data_quality": [None]}, id="quality"),
             # Same for the equality term, which is only live at ``primary_home``.
             pytest.param({"tour_category": [None]}, id="category"),
-            # An unreported record is not usable, and never was ambiguous.
-            pytest.param({"survey_complete": [None]}, id="complete"),
         ],
     )
     def test_a_null_descriptor_is_rejected_not_propagated(self, override: dict):

@@ -185,6 +185,8 @@ steps:
         unlinked_trips: "{{ survey_dir }}/trip.csv"
 
   - name: clean_2023_bats  # the project's own cleaning step
+    params:
+      child_day_complete: vendor
 
   - name: link_trips
     params:

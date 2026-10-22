@@ -47,6 +47,11 @@ steps:
   - name: clean_2023_bats
     validate_input: false
     cache: true
+    params:
+      # How a child's day counts as complete. "vendor": only with the adult's proxy
+      # report, as the vendor decides. "observed_trips": also from the trips copied
+      # from an adult they travelled with (see day_survey_complete).
+      child_day_complete: vendor
 
   - name: imputation
     validate_input: false
