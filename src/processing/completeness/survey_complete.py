@@ -20,13 +20,15 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
     """Roll ``survey_complete`` UP from days, then broadcast each day's value down, in place.
 
     Completeness is measured at the person-day (``days.survey_complete`` is set
-    upstream by the project cleaner from surveyed trips / a declared no-travel
-    day). This derives the rest:
+    upstream by the project cleaner, from the vendor's day verdict). This derives
+    the rest:
 
     * ``persons.survey_complete`` = it has at least one complete day (an ANY rollup).
     * every day-record (trip, tour) = its own reporting AND its day complete --
       broadcast down, since a trip is no more complete than the day it sits in.
-      Joint trips and tours are not day-records; see ``_DAY_RECORDS``.
+      A record with no verdict of its own (null, e.g. a trip the vendor added
+      without a trip survey) takes its day's. Joint trips and tours are not
+      day-records; see ``_DAY_RECORDS``.
 
     ``households.survey_complete`` is a household-day rollup and is set separately by
     :func:`rollup_household_complete` (it needs ``hh_day_survey_complete`` first). Tables
@@ -55,8 +57,9 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
         tables[name] = (
             df.join(day_flag, on="day_id", how="left")
             .with_columns(
+                # A null own verdict defers to the day's.
                 (
-                    pl.col("survey_complete").fill_null(value=False)
+                    pl.col("survey_complete").fill_null(value=True)
                     & pl.col("_day_complete").fill_null(value=True)
                 ).alias("survey_complete")
             )

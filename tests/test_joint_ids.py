@@ -181,6 +181,31 @@ class TestFullyJoint:
         assert _on_tour(out, STRICT) == {1: False, 2: False}
         assert out["joint_tours"][STRICT.flag].to_list() == [False]
 
+    def test_an_unreported_traveller_is_pruned_not_the_tour(self):
+        """Persons 1 and 2 share both legs; person 3 joins them for the second.
+
+        Person 3's trip on that leg went unreported, so joint trip 501 is
+        incomplete as a whole. Person 3 is pruned from it; persons 1 and 2 keep
+        their joint tour and both its joint trips, so no leg of it is left
+        without one.
+        """
+        tables = _household({1: [500, 501], 2: [500, 501], 3: [501]})
+        tables["linked_trips"] = tables["linked_trips"].with_columns(
+            (pl.col("tour_id") != 30).alias("survey_complete")
+        )
+        tables["joint_trips"] = tables["joint_trips"].with_columns(
+            (pl.col("joint_trip_id") != 501).alias("survey_complete")
+        )
+        out = _stamp(STRICT, tables)
+        assert _on_tour(out, STRICT) == {1: True, 2: True, 3: False}
+        assert out["joint_tours"][STRICT.flag].to_list() == [True]
+        assert out["joint_trips"].sort("joint_trip_id")[STRICT.flag].to_list() == [True, True]
+        trips = out["linked_trips"]
+        stray = trips.filter(
+            pl.col(STRICT.joint_tour_id).is_not_null() & pl.col(STRICT.joint_trip_id).is_null()
+        )
+        assert stray.is_empty()
+
     def test_linked_trips_follow_their_tour(self):
         """A trip is in its joint trip only while its tour is in its joint tour."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
