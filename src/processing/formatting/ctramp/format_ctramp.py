@@ -296,7 +296,6 @@ def _drop_excess_fields(
         },
         "linked_trips": {
             "linked_trip_id",
-            "hh_id",
             "tour_id",
             "o_purpose_category",
             "d_purpose_category",
@@ -315,7 +314,6 @@ def _drop_excess_fields(
         },
         "tours": {
             "tour_id",
-            "hh_id",
             "parent_tour_id",
             "subtour_num",
             "tour_purpose",
@@ -324,8 +322,8 @@ def _drop_excess_fields(
             "origin_depart_time",
             "origin_arrive_time",
         },
-        "joint_trips": {"joint_trip_id", "hh_id"},
-        "days": {"person_id", "hh_id", "day_id", "travel_date"},
+        "joint_trips": {"joint_trip_id", "hh_day_id"},
+        "days": {"person_id", "hh_id", "day_id", "hh_day_id"},
     },
 )
 def format_ctramp(
