@@ -176,7 +176,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
     output_paths = {
         "households": f"{out}/survey/households.csv",
         "persons": f"{out}/survey/persons.csv",
-        "days": f"{out}/survey/days.csv",
+        "person_days": f"{out}/survey/person_days.csv",
         "unlinked_trips": f"{out}/survey/unlinked_trips.csv",
         "linked_trips": f"{out}/survey/linked_trips.csv",
         "tours": f"{out}/survey/tours.csv",
@@ -206,7 +206,7 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                     "households": f"{survey}/households.parquet",
                     "persons": f"{survey}/persons.parquet",
                     "household_days": f"{survey}/household_days.parquet",
-                    "days": f"{survey}/days.parquet",
+                    "person_days": f"{survey}/person_days.parquet",
                     "unlinked_trips": f"{survey}/unlinked_trips.parquet",
                     "habitual_locations": f"{survey}/habitual_locations.parquet",
                 }

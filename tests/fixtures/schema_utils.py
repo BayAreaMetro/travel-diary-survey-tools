@@ -26,7 +26,7 @@ from utils.create_ids import create_household_days
 _TABLE_OF_MODEL = {
     "HouseholdModel": "households",
     "PersonModel": "persons",
-    "PersonDayModel": "days",
+    "PersonDayModel": "person_days",
     "UnlinkedTripModel": "unlinked_trips",
     "LinkedTripModel": "linked_trips",
     "JointTripModel": "joint_trips",
@@ -210,14 +210,14 @@ def days_for_persons(
     """Build a single-day person-day table covering every person given.
 
     ``format_ctramp`` expands households and persons to person-day rows with an
-    *inner* join on the ``days`` table, and restricts tours/trips to those days
-    with a semi-join. A test that passes a ``days`` table therefore gets empty
+    *inner* join on the ``person_days`` table, and restricts tours/trips to those days
+    with a semi-join. A test that passes a ``person_days`` table therefore gets empty
     CT-RAMP output for every person not represented here.
 
-    ``day_id`` is a person-day key and must be unique, so it follows the same
+    ``person_day_id`` is a person-day key and must be unique, so it follows the same
     convention as the pipeline and the e2e toy data: ``person_id * 100 + day_num``.
     CT-RAMP ids derive from it, so a person's CT-RAMP ``person_id`` becomes that
-    ``day_id`` and its household becomes ``hh_id * 100 + day_num``.
+    ``person_day_id`` and its household becomes ``hh_id * 100 + day_num``.
 
     Args:
         persons: Canonical persons DataFrame with person_id and hh_id
@@ -233,7 +233,7 @@ def days_for_persons(
         return empty_days()
     return (
         persons.select(
-            (pl.col("person_id") * 100 + day_num).cast(pl.Int64).alias("day_id"),
+            (pl.col("person_id") * 100 + day_num).cast(pl.Int64).alias("person_day_id"),
             pl.col("person_id"),
             pl.col("hh_id"),
             (pl.col("hh_id") * 100 + day_num).cast(pl.Int64).alias("hh_day_id"),
@@ -256,21 +256,21 @@ def empty_joint_trips(usability_flag_col: str = "usable_test") -> pl.DataFrame:
 
 
 def add_household_days(tables: dict) -> dict:
-    """Build ``household_days`` and ``hh_day_id`` from ``tables["days"]``, in place.
+    """Build ``household_days`` and ``hh_day_id`` from ``tables["person_days"]``, in place.
 
     The pipeline gets them from the project cleaner; hand-built test tables need
     them before the cascade, which requires both. A fixture without ``day_num``
     has its household's dates numbered in order. Returns *tables*, so a call
     can wrap the argument it prepares.
     """
-    days = tables.get("days")
-    if days is None or "household_days" in tables:
+    person_days = tables.get("person_days")
+    if person_days is None or "household_days" in tables:
         return tables
-    numbered = "day_num" not in days.columns
+    numbered = "day_num" not in person_days.columns
     if numbered:
-        days = days.with_columns(
+        person_days = person_days.with_columns(
             pl.col("travel_date").rank("dense").over("hh_id").cast(pl.Int64).alias("day_num")
         )
-    days, tables["household_days"] = create_household_days(days)
-    tables["days"] = days.drop("day_num") if numbered else days
+    person_days, tables["household_days"] = create_household_days(person_days)
+    tables["person_days"] = person_days.drop("day_num") if numbered else person_days
     return tables

@@ -22,8 +22,8 @@ from .zone_coverage import _home_zone_ok
 _DOWN_EDGES = (
     ("household_days", "households", "hh_id"),
     ("persons", "households", "hh_id"),
-    ("days", "persons", "person_id"),
-    ("tours", "days", "day_id"),
+    ("person_days", "persons", "person_id"),
+    ("tours", "person_days", "person_day_id"),
     ("linked_trips", "tours", "tour_id"),
     ("unlinked_trips", "tours", "tour_id"),
 )
@@ -93,8 +93,8 @@ def _flag_days(
     Raises:
         ValueError: If tours is present but has not been flagged yet.
     """
-    days = tables.get("days")
-    if days is None or "survey_complete" not in days.columns:
+    person_days = tables.get("person_days")
+    if person_days is None or "survey_complete" not in person_days.columns:
         return
     tours = tables.get("tours")
     if tours is not None and cols.flag not in tours.columns:
@@ -105,7 +105,7 @@ def _flag_days(
         raise ValueError(msg)
 
     if cols.needs_whole_household_day:
-        days = with_household_day(days, tables, "survey_complete", "_hh_day_complete")
+        person_days = with_household_day(person_days, tables, "survey_complete", "_hh_day_complete")
         base = pl.col("_hh_day_complete")
     else:
         base = pl.col("survey_complete").fill_null(value=False)
@@ -113,26 +113,26 @@ def _flag_days(
     # A no-travel day has no tour to carry the household's home zone, so it
     # takes the term directly or it would outlive its own household.
     home = _home_zone_ok(tables, cols)
-    if home is not None and "hh_id" in days.columns:
-        days = days.join(home, on="hh_id", how="left")
+    if home is not None and "hh_id" in person_days.columns:
+        person_days = person_days.join(home, on="hh_id", how="left")
         base = base & pl.col("_home_zone_ok").fill_null(value=False)
     else:
         home = None
 
-    if tours is not None and "day_id" in tours.columns:
-        day_has_usable = tours.group_by("day_id").agg(
+    if tours is not None and "person_day_id" in tours.columns:
+        day_has_usable = tours.group_by("person_day_id").agg(
             pl.col(cols.flag).any().alias("_day_has_usable_tour")
         )
-        days = days.join(day_has_usable, on="day_id", how="left")
+        person_days = person_days.join(day_has_usable, on="person_day_id", how="left")
         # null == the day has no tours at all -> a legitimate no-travel day.
-        flagged = days.with_columns(
+        flagged = person_days.with_columns(
             (base & pl.col("_day_has_usable_tour").fill_null(value=True)).alias(cols.flag)
         ).drop("_day_has_usable_tour")
     else:
-        flagged = days.with_columns(base.alias(cols.flag))
+        flagged = person_days.with_columns(base.alias(cols.flag))
 
     flagged = flagged.drop("_hh_day_complete", strict=False)
-    tables["days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
+    tables["person_days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
 
 
 def _flag_persons(
@@ -153,20 +153,20 @@ def _flag_persons(
     persons = tables.get("persons")
     if persons is None or "survey_complete" not in persons.columns:
         return
-    days = tables.get("days")
-    if days is not None and cols.flag not in days.columns:
+    person_days = tables.get("person_days")
+    if person_days is not None and cols.flag not in person_days.columns:
         msg = (
             f"Cannot flag persons: days has no {cols.flag} column yet. Flag days first, "
             "otherwise every person silently passes on completeness alone."
         )
         raise ValueError(msg)
-    if days is None or "person_id" not in days.columns:
+    if person_days is None or "person_id" not in person_days.columns:
         tables["persons"] = persons.with_columns(
             pl.col("survey_complete").fill_null(value=False).alias(cols.flag)
         )
         return
     has_usable_day = (
-        days.filter(pl.col(cols.flag).fill_null(value=False))
+        person_days.filter(pl.col(cols.flag).fill_null(value=False))
         .select("person_id")
         .unique()
         .with_columns(pl.lit(value=True).alias("_u"))
@@ -208,7 +208,7 @@ def _flag_households(
 
     base = pl.col("survey_complete").fill_null(value=False)
     # The date-level reduction is only the rule while coherence is required.
-    counted = "household_days" if cols.needs_whole_household_day else "days"
+    counted = "household_days" if cols.needs_whole_household_day else "person_days"
     rows = tables.get(counted)
     if rows is not None and cols.flag not in rows.columns:
         msg = (

@@ -42,7 +42,7 @@ DEFAULT_TRANSIT_MODE_CODES = [
 
 
 def _create_trips_from_spec(
-    trip_specs: list[dict], person_id: int, hh_id: int, day_id: int = 1
+    trip_specs: list[dict], person_id: int, hh_id: int, person_day_id: int = 1
 ) -> list[dict]:
     """Create trips from a specification array.
 
@@ -59,7 +59,7 @@ def _create_trips_from_spec(
             - purpose: Legacy purpose field (optional)
         person_id: Person ID
         hh_id: Household ID
-        day_id: Day ID (defaults to 1)
+        person_day_id: Day ID (defaults to 1)
 
     Returns:
         List of trip dictionaries
@@ -84,7 +84,7 @@ def _create_trips_from_spec(
             unlinked_trip_id=spec["unlinked_trip_id"],
             person_id=person_id,
             hh_id=hh_id,
-            day_id=day_id,
+            person_day_id=person_day_id,
             o_lat=o_location.lat,
             o_lon=o_location.lon,
             d_lat=d_location.lat,
@@ -147,7 +147,7 @@ def simple_work_tour(
 
     # Create day
     day = create_day(
-        day_id=1,
+        person_day_id=1,
         person_id=person_id,
         hh_id=hh_id,
         num_trips=2,
@@ -184,14 +184,14 @@ def simple_work_tour(
         },
     ]
 
-    trips = _create_trips_from_spec(trip_specs, person_id, hh_id, day_id=1)
+    trips = _create_trips_from_spec(trip_specs, person_id, hh_id, person_day_id=1)
     unlinked_trips = pl.DataFrame(trips)
 
     households = pl.DataFrame([household])
     persons = pl.DataFrame([person])
-    days = pl.DataFrame([day])
+    person_days = pl.DataFrame([day])
 
-    return households, persons, days, unlinked_trips
+    return households, persons, person_days, unlinked_trips
 
 
 def transit_commute(
@@ -236,7 +236,7 @@ def transit_commute(
     )
 
     day = create_day(
-        day_id=1,
+        person_day_id=1,
         person_id=person_id,
         hh_id=hh_id,
         num_trips=6,
@@ -337,14 +337,14 @@ def transit_commute(
         },
     ]
 
-    trips = _create_trips_from_spec(trip_specs, person_id, hh_id, day_id=1)
+    trips = _create_trips_from_spec(trip_specs, person_id, hh_id, person_day_id=1)
     unlinked_trips = pl.DataFrame(trips)
 
     households = pl.DataFrame([household])
     persons = pl.DataFrame([person])
-    days = pl.DataFrame([day])
+    person_days = pl.DataFrame([day])
 
-    return households, persons, days, unlinked_trips
+    return households, persons, person_days, unlinked_trips
 
 
 def multi_stop_tour(
@@ -387,7 +387,7 @@ def multi_stop_tour(
         work_lon=WORK_LOCATION.lon,
     )
 
-    day = create_day(day_id=1, person_id=person_id, hh_id=hh_id, num_trips=4)
+    day = create_day(person_day_id=1, person_id=person_id, hh_id=hh_id, num_trips=4)
 
     # Home → Work → Stop → Work → Home
     trips = [
@@ -449,10 +449,10 @@ def multi_stop_tour(
 
     households = pl.DataFrame([household])
     persons = pl.DataFrame([person])
-    days = pl.DataFrame([day])
+    person_days = pl.DataFrame([day])
     unlinked_trips = pl.DataFrame(trips)
 
-    return households, persons, days, unlinked_trips
+    return households, persons, person_days, unlinked_trips
 
 
 def multi_tour_day(
@@ -495,7 +495,7 @@ def multi_tour_day(
         home_lon=HOME_LOCATION.lon,
     )
 
-    day = create_day(day_id=1, person_id=person_id, hh_id=hh_id, num_trips=4)
+    day = create_day(person_day_id=1, person_id=person_id, hh_id=hh_id, num_trips=4)
 
     # Home → Work → Home → Shop → Home
     trips = [
@@ -555,10 +555,10 @@ def multi_tour_day(
 
     households = pl.DataFrame([household])
     persons = pl.DataFrame([person])
-    days = pl.DataFrame([day])
+    person_days = pl.DataFrame([day])
     unlinked_trips = pl.DataFrame(trips)
 
-    return households, persons, days, unlinked_trips
+    return households, persons, person_days, unlinked_trips
 
 
 def work_tour_no_usual_location(
@@ -605,7 +605,7 @@ def work_tour_no_usual_location(
         work_taz=None,
     )
 
-    day = create_day(day_id=1, person_id=person_id, hh_id=hh_id, num_trips=2)
+    day = create_day(person_day_id=1, person_id=person_id, hh_id=hh_id, num_trips=2)
 
     # Home → Work → Home (work destination is ad-hoc, not usual location)
     trips = [
@@ -639,10 +639,10 @@ def work_tour_no_usual_location(
 
     households = pl.DataFrame([household])
     persons = pl.DataFrame([person])
-    days = pl.DataFrame([day])
+    person_days = pl.DataFrame([day])
     unlinked_trips = pl.DataFrame(trips)
 
-    return households, persons, days, unlinked_trips
+    return households, persons, person_days, unlinked_trips
 
 
 def multi_person_household(

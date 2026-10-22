@@ -63,7 +63,7 @@ def _days(*schedule, person_id: int = 101, hh_id: int = 1, person_num: int = 1) 
     """Day records for one person, one per ``(travel_dow, survey_complete)`` pair."""
     return [
         create_day(
-            day_id=day_num,
+            person_day_id=day_num,
             person_id=person_id,
             hh_id=hh_id,
             person_num=person_num,
@@ -130,12 +130,12 @@ class TestDayCompleteness:
 
     def test_compute_day_completeness_multiple_persons(self):
         """Test day completeness with multiple persons."""
-        days = pl.DataFrame(
+        person_days = pl.DataFrame(
             _days((TravelDow.MONDAY, True), person_id=101, person_num=1)
             + _days((TravelDow.MONDAY, False), person_id=102, person_num=2)
         )
 
-        result = compute_day_completeness(days)
+        result = compute_day_completeness(person_days)
 
         assert len(result) == 2
         assert result.filter(pl.col("pno") == 1)["mon_complete"][0] == 1
@@ -258,7 +258,11 @@ class TestPersonFormatting:
         """
         days_list = _days((TravelDow.MONDAY, True))
         persons = pl.DataFrame(
-            [create_person(person_id=101, hh_id=1, person_num=1, days=days_list, **attributes)]
+            [
+                create_person(
+                    person_id=101, hh_id=1, person_num=1, person_days=days_list, **attributes
+                )
+            ]
         )
 
         result = format_persons(persons, pl.DataFrame(days_list))
@@ -281,7 +285,7 @@ class TestPersonFormatting:
                     age=AgeCategory.AGE_35_TO_44,
                     employment=Employment.EMPLOYED_FULLTIME,
                     gender=gender,
-                    days=[d for d in days_list if d["person_id"] == person_id],
+                    person_days=[d for d in days_list if d["person_id"] == person_id],
                 )
                 for person_id, person_num, gender in (
                     (101, 1, Gender.MALE),
@@ -324,7 +328,7 @@ class TestHouseholdFormatting:
                     hh_id=1,
                     person_num=1,
                     person_type=DaysimPersonType.FULL_TIME_WORKER,
-                    days=days_list,
+                    person_days=days_list,
                 )
             ]
         )
@@ -560,7 +564,9 @@ class TestTourFormatting:
         """
         data = create_simple_work_tour_processed()
 
-        result = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
+        result = format_tours(
+            data["persons"], data["person_days"], data["linked_trips"], data["tours"]
+        )
 
         assert len(result) == 1
         assert result["hhno"][0] == 1
@@ -621,12 +627,14 @@ class TestWorkRelatedCountsAsWork:
         """The tour, its trip to the stop, and the day's usual-work count all say work."""
         data = _work_related_day(worker=True)
 
-        tours = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
-        days = format_days(data["persons"], data["days"], data["tours"])
+        tours = format_tours(
+            data["persons"], data["person_days"], data["linked_trips"], data["tours"]
+        )
+        person_days = format_days(data["persons"], data["person_days"], data["tours"])
 
         assert tours["pdpurp"][0] == DaysimPurpose.WORK.value
         assert _outbound_dpurp(data) == DaysimPurpose.WORK.value
-        assert days["uwtours"][0] == 1
+        assert person_days["uwtours"][0] == 1
 
     def test_an_employed_students_work_related_tour_is_work(self):
         """Employment decides, not person type: a student with a job works too."""
@@ -638,7 +646,9 @@ class TestWorkRelatedCountsAsWork:
             pl.lit(SchoolType.COLLEGE_4YEAR.value).cast(pl.Int64).alias("school_type"),
         )
 
-        tours = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
+        tours = format_tours(
+            data["persons"], data["person_days"], data["linked_trips"], data["tours"]
+        )
 
         assert tours["pdpurp"][0] == DaysimPurpose.WORK.value
 
@@ -646,12 +656,14 @@ class TestWorkRelatedCountsAsWork:
         """A retiree's volunteering stays personal business, and is no usual-work tour."""
         data = _work_related_day(worker=False)
 
-        tours = format_tours(data["persons"], data["days"], data["linked_trips"], data["tours"])
-        days = format_days(data["persons"], data["days"], data["tours"])
+        tours = format_tours(
+            data["persons"], data["person_days"], data["linked_trips"], data["tours"]
+        )
+        person_days = format_days(data["persons"], data["person_days"], data["tours"])
 
         assert tours["pdpurp"][0] == DaysimPurpose.PERSONAL_BUSINESS.value
         assert _outbound_dpurp(data) == DaysimPurpose.PERSONAL_BUSINESS.value
-        assert days["uwtours"][0] == 0
+        assert person_days["uwtours"][0] == 0
 
 
 class TestEndToEndDaysimFormatting:
@@ -667,7 +679,7 @@ class TestEndToEndDaysimFormatting:
             data["unlinked_trips"],
             data["linked_trips"],
             data["tours"],
-            data["days"],
+            data["person_days"],
             usability_profile="test",
         )
 
@@ -693,7 +705,7 @@ class TestEndToEndDaysimFormatting:
             data["unlinked_trips"],
             data["linked_trips"],
             data["tours"],
-            data["days"],
+            data["person_days"],
             usability_profile="test",
         )
 
@@ -715,7 +727,7 @@ class TestEndToEndDaysimFormatting:
             data["unlinked_trips"],
             data["linked_trips"],
             data["tours"],
-            data["days"],
+            data["person_days"],
             usability_profile="test",
         )
 
@@ -739,7 +751,7 @@ class TestEndToEndDaysimFormatting:
             data["unlinked_trips"],
             data["linked_trips"],
             data["tours"],
-            data["days"],
+            data["person_days"],
             usability_profile="test",
         )
 

@@ -38,8 +38,8 @@ def create_simple_work_tour_processed(
         Dict with keys: households, persons, days, unlinked_trips,
                        linked_trips, tours
     """
-    households, persons, days, unlinked_trips = simple_work_tour(hh_id, person_id)
-    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
+    households, persons, person_days, unlinked_trips = simple_work_tour(hh_id, person_id)
+    return process_scenario_through_pipeline(households, persons, person_days, unlinked_trips)
 
 
 def create_transit_commute_processed() -> dict[str, pl.DataFrame]:
@@ -49,8 +49,8 @@ def create_transit_commute_processed() -> dict[str, pl.DataFrame]:
         Dict with keys: households, persons, days, unlinked_trips,
                        linked_trips, tours
     """
-    households, persons, days, unlinked_trips = transit_commute()
-    return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
+    households, persons, person_days, unlinked_trips = transit_commute()
+    return process_scenario_through_pipeline(households, persons, person_days, unlinked_trips)
 
 
 def create_multi_person_household_processed(
@@ -75,7 +75,7 @@ def create_multi_person_household_processed(
 
         days_list.append(
             create_day(
-                day_id=person_id,
+                person_day_id=person_id,
                 person_id=person_id,
                 hh_id=hh_id,
                 person_num=person_num,
@@ -93,7 +93,7 @@ def create_multi_person_household_processed(
                         unlinked_trip_id=unlinked_trip_id,
                         person_id=person_id,
                         hh_id=hh_id,
-                        day_id=person_id,
+                        person_day_id=person_id,
                         person_num=person_num,
                         o_purpose_category=PurposeCategory.HOME,
                         d_purpose_category=PurposeCategory.WORK,
@@ -106,7 +106,7 @@ def create_multi_person_household_processed(
                         unlinked_trip_id=unlinked_trip_id + 1,
                         person_id=person_id,
                         hh_id=hh_id,
-                        day_id=person_id,
+                        person_day_id=person_id,
                         person_num=person_num,
                         o_purpose_category=PurposeCategory.WORK,
                         d_purpose_category=PurposeCategory.HOME,
@@ -119,15 +119,15 @@ def create_multi_person_household_processed(
             )
             unlinked_trip_id += 2
 
-    days = pl.DataFrame(days_list)
+    person_days = pl.DataFrame(days_list)
     unlinked_trips = pl.DataFrame(unlinked_trips_list) if unlinked_trips_list else pl.DataFrame()
 
     if not unlinked_trips.is_empty():
-        return process_scenario_through_pipeline(households, persons, days, unlinked_trips)
+        return process_scenario_through_pipeline(households, persons, person_days, unlinked_trips)
     return {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": pl.DataFrame(),
         "tours": pl.DataFrame(),
@@ -252,7 +252,7 @@ def add_test_taz_maz_ids(
 def process_scenario_through_pipeline(
     households: pl.DataFrame,
     persons: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
 ) -> dict[str, pl.DataFrame]:
     """Process a scenario through link_trips → extract_tours pipeline.
@@ -263,7 +263,7 @@ def process_scenario_through_pipeline(
     Args:
         households: Households DataFrame
         persons: Persons DataFrame
-        days: Days DataFrame
+        person_days: Days DataFrame
         unlinked_trips: Unlinked trips DataFrame
 
     Returns:
@@ -300,7 +300,7 @@ def process_scenario_through_pipeline(
         linked_trips=tour_result["linked_trips"],
         tours=tour_result["tours"],
     )
-    data_with_zones["days"] = days  # Days do not need zone IDs
+    data_with_zones["person_days"] = person_days  # Days do not need zone IDs
 
     # Stamp the usability verdict the formatters read. The real pipeline gets it
     # from cascade_completeness, which needs reporting flags these synthetic

@@ -24,14 +24,21 @@ logger = logging.getLogger(__name__)
     # The columns to impute come from impute_columns, so the step checks them itself.
     produces={
         table: {"<column>_preimputed"}
-        for table in ("households", "persons", "days", "unlinked_trips", "linked_trips", "tours")
+        for table in (
+            "households",
+            "persons",
+            "person_days",
+            "unlinked_trips",
+            "linked_trips",
+            "tours",
+        )
     },
 )
 def imputation(  # noqa: C901, PLR0912, PLR0915
     # Optional canonical tables
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
-    days: pl.DataFrame | None = None,
+    person_days: pl.DataFrame | None = None,
     unlinked_trips: pl.DataFrame | None = None,
     linked_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
@@ -137,7 +144,7 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
     Args:
         households: Households table (optional).
         persons: Persons table (optional).
-        days: Days table (optional).
+        person_days: Days table (optional).
         unlinked_trips: Unlinked trips table (optional).
         linked_trips: Linked trips table (optional).
         tours: Tours table (optional).
@@ -261,7 +268,7 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
     tables = {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "tours": tours,

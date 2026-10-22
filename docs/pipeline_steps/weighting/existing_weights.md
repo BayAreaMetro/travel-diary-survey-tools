@@ -307,7 +307,7 @@ Two consequences:
 
 - **Usable records the supplier weighted 0 stay 0.** The step logs how many
   per table, for example `days: N of M usable record(s) were supplied a
-  day_weight of 0`.
+  person_day_weight of 0`.
 - **A trip weighted above 0 on a day weighted 0 is an error.** There is no day
   factor to scale it by, so the step raises rather than guessing.
 
@@ -350,8 +350,8 @@ of four.
         weight_path: "data/weights/hh_weights.csv"
       person_weight:
         weight_path: "data/weights/person_weights.csv"
-      day_weight:
-        weight_path: "data/weights/day_weights.csv"
+      person_day_weight:
+        weight_path: "data/weights/person_day_weights.csv"
       unlinked_trip_weight:
         weight_path: "data/weights/trip_weights.csv"
         weight_id_col: trip_id

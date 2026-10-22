@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def format_tours(
     persons: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
 ) -> pl.DataFrame:
@@ -36,7 +36,7 @@ def format_tours(
 
     Args:
         persons: DataFrame with canonical person fields
-        days: DataFrame with canonical day fields
+        person_days: DataFrame with canonical day fields
         linked_trips: DataFrame with canonical linked trip fields
         tours: DataFrame with canonical tour fields
 
@@ -53,8 +53,8 @@ def format_tours(
             how="left",
         )
         .join(
-            days.select(["hh_id", "person_id", "day_id", "travel_dow"]),
-            on=["hh_id", "person_id", "day_id"],
+            person_days.select(["hh_id", "person_id", "person_day_id", "travel_dow"]),
+            on=["hh_id", "person_id", "person_day_id"],
             how="left",
         )
         .join(persons.select("person_id", "employment"), on="person_id", how="left")

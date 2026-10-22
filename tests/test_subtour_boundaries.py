@@ -60,7 +60,7 @@ def _tour(legs: list[tuple[int, int]], anchor: LocationType = LocationType.WORK)
     return pl.DataFrame(
         {
             "person_id": [1] * n,
-            "day_id": [11] * n,
+            "person_day_id": [11] * n,
             "tour_num": [1] * n,
             "linked_trip_id": list(range(1, n + 1)),
             **columns,

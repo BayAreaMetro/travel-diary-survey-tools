@@ -14,14 +14,14 @@ from .usable_cascade import stamp_usable
 @step(
     requires={
         "household_days": {"hh_day_id", "hh_id"},
-        "days": {"day_id", "hh_id", "hh_day_id", "survey_complete"},
-        "tours": {"tour_id", "day_id", "survey_complete"},
+        "person_days": {"person_day_id", "hh_id", "hh_day_id", "survey_complete"},
+        "tours": {"tour_id", "person_day_id", "survey_complete"},
     },
     produces={
         "households": {"survey_complete", "usable_<profile>"},
         "persons": {"survey_complete", "usable_<profile>"},
         "household_days": {"survey_complete", "usable_<profile>"},
-        "days": {"usable_<profile>"},
+        "person_days": {"usable_<profile>"},
         "unlinked_trips": {"survey_complete", "usable_<profile>", "joint_tour_id_<profile>"},
         "linked_trips": {
             "survey_complete",
@@ -38,7 +38,7 @@ def cascade_completeness(
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
     household_days: pl.DataFrame | None = None,
-    days: pl.DataFrame | None = None,
+    person_days: pl.DataFrame | None = None,
     unlinked_trips: pl.DataFrame | None = None,
     linked_trips: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
@@ -97,7 +97,7 @@ def cascade_completeness(
         households: Canonical households.
         persons: Canonical persons.
         household_days: Canonical household-days, built by the project cleaner.
-        days: Canonical person-days.
+        person_days: Canonical person-days.
         unlinked_trips: Canonical unlinked trips.
         linked_trips: Canonical linked trips.
         joint_trips: Aggregated joint trips.
@@ -134,7 +134,7 @@ def cascade_completeness(
         "households": households,
         "persons": persons,
         "household_days": household_days,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "joint_trips": joint_trips,

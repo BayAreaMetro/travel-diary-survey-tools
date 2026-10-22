@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 _WEIGHT_COLUMNS = {
     "households": "hh_weight",
     "persons": "person_weight",
-    "days": "day_weight",
+    "person_days": "person_day_weight",
     "tours": "tour_weight",
     "linked_trips": "linked_trip_weight",
     "unlinked_trips": "unlinked_trip_weight",
@@ -53,7 +53,7 @@ _WEIGHT_COLUMNS = {
 _ID_COLUMNS = {
     "households": "hh_id",
     "persons": "person_id",
-    "days": "day_id",
+    "person_days": "person_day_id",
     "tours": "tour_id",
     "linked_trips": "linked_trip_id",
     "unlinked_trips": "unlinked_trip_id",

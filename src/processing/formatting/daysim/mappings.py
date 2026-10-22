@@ -326,4 +326,4 @@ def daysim_tour_number() -> pl.Expr:
     than restating the rule. Both frames are filtered by the same drop cascade
     before formatting, so they rank over the same set of tours.
     """
-    return pl.col("tour_id").rank("dense").over(["person_id", "day_id"]).cast(pl.Int16)
+    return pl.col("tour_id").rank("dense").over(["person_id", "person_day_id"]).cast(pl.Int16)

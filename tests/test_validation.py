@@ -137,9 +137,9 @@ class TestRequiredChildrenWhen:
                 for i in range(len(surveyable_values))
             ]
         ).with_columns(pl.Series("surveyable", surveyable_values, dtype=pl.Boolean))
-        data.days = pl.DataFrame(
+        data.person_days = pl.DataFrame(
             {
-                "day_id": [1000 + p for p in with_days],
+                "person_day_id": [1000 + p for p in with_days],
                 "person_id": with_days,
                 "hh_id": [1] * len(with_days),
                 "travel_date": [datetime(2024, 1, 17)] * len(with_days),
@@ -197,7 +197,7 @@ class TestCustomValidators:
         def trip(trip_id: int, depart: datetime, arrive: datetime) -> dict:
             return create_unlinked_trip(
                 unlinked_trip_id=trip_id,
-                day_id=10101,
+                person_day_id=10101,
                 depart_time=depart,
                 arrive_time=arrive,
                 duration_minutes=(arrive - depart).total_seconds() / 60,
@@ -322,7 +322,7 @@ class TestTripSpatialContinuity:
             {
                 "linked_trip_id": list(range(1, len(points) + 1)),
                 "person_id": [p[0] for p in points],
-                "day_id": [p[1] for p in points],
+                "person_day_id": [p[1] for p in points],
                 "depart_time": [p[2] for p in points],
                 "o_lat": [p[3][0] for p in points],
                 "o_lon": [p[3][1] for p in points],
@@ -385,5 +385,5 @@ class TestTripSpatialContinuity:
 
     def test_missing_columns_is_noop(self):
         """Frames without coordinate columns produce no errors."""
-        trips = pl.DataFrame({"linked_trip_id": [1], "person_id": [1], "day_id": [1]})
+        trips = pl.DataFrame({"linked_trip_id": [1], "person_id": [1], "person_day_id": [1]})
         assert check_trip_spatial_continuity(trips) == []

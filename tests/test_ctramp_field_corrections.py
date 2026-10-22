@@ -53,7 +53,7 @@ from tests.fixtures.schema_utils import model_to_polars_schema
 def joint_tours_for(tours: pl.DataFrame) -> pl.DataFrame:
     """A joint_tours row per joint_tour_id the given tours name.
 
-    hh_id and day_id come from the member tours rather than being invented, since
+    hh_id and person_day_id come from the member tours rather than being invented, since
     joint_tours carries required references to households and days -- inventing
     them makes the joint tour itself dangle and get dropped.
     """
@@ -66,7 +66,7 @@ def joint_tours_for(tours: pl.DataFrame) -> pl.DataFrame:
         members.group_by("joint_tour_id")
         .agg(
             pl.col("hh_id").first(),
-            pl.col("day_id").first(),
+            pl.col("person_day_id").first(),
             pl.len().cast(pl.Int64).alias("num_participants"),
         )
         .with_columns(pl.lit(value=True).alias("usable_test"))
@@ -130,11 +130,11 @@ class TestHouseholdFieldCorrections:
                     tour_id=1000 + i,
                     hh_id=1,
                     person_id=person_id,
-                    day_id=day_id,
+                    person_day_id=person_day_id,
                     joint_tour_id=joint_tour_id,
                     tour_purpose=PurposeCategory.SHOP,
                 )
-                for i, (person_id, day_id, joint_tour_id) in enumerate(
+                for i, (person_id, person_day_id, joint_tour_id) in enumerate(
                     [
                         (101, 10101, 9001),
                         (102, 10201, 9001),
@@ -155,12 +155,12 @@ class TestHouseholdFieldCorrections:
                     linked_trip_id=10000 + 4 * leg + i,
                     tour_id=1000 + i,
                     person_id=person_id,
-                    day_id=day_id,
+                    person_day_id=person_day_id,
                     tour_direction=direction,
                     joint_tour_id=joint_tour_id,
                 )
                 for leg, direction in enumerate((TourDirection.OUTBOUND, TourDirection.INBOUND))
-                for i, (person_id, day_id, joint_tour_id) in enumerate(
+                for i, (person_id, person_day_id, joint_tour_id) in enumerate(
                     [
                         (101, 10101, 9001),
                         (102, 10201, 9001),
@@ -180,7 +180,7 @@ class TestHouseholdFieldCorrections:
             joint_trips=empty_joint_trips(),
             unlinked_trips=empty_unlinked_trips(),
             joint_tours=joint_tours_for(tours),
-            days=days_for_persons(persons),
+            person_days=days_for_persons(persons),
             ctramp=standard_config,
         )
 

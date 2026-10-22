@@ -167,7 +167,7 @@ class PersonDayModel(BaseModel):
         # a genuine no-travel day.
         required_child_when="surveyable",
     )
-    day_id: int = schema_field(ge=1, unique=True)
+    person_day_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     hh_day_id: int = schema_field(ge=1, fk_to="household_days.hh_day_id")
     travel_date: datetime = schema_field()
@@ -203,7 +203,7 @@ class HouseholdDayModel(BaseModel):
     hh_day_id: int = schema_field(
         ge=1,
         unique=True,
-        description="hh_id * 100 + day_num: the household's day, as day_id is the person's.",
+        description="hh_id * 100 + day_num: the household's day, as person_day_id is the person's.",
     )
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     travel_date: datetime = schema_field()
@@ -225,7 +225,7 @@ class UnlinkedTripModel(BaseModel):
     """Trip data model for validation."""
 
     unlinked_trip_id: int = schema_field(ge=1, unique=True)
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     linked_trip_id: int = schema_field(ge=1, fk_to="linked_trips.linked_trip_id")
@@ -289,7 +289,7 @@ class UnlinkedTripModel(BaseModel):
 class LinkedTripModel(BaseModel):
     """Linked Trip data model for validation."""
 
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
 
@@ -408,7 +408,7 @@ class TourModel(BaseModel):
     tour_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     tour_num: int = schema_field(ge=1)
     subtour_num: int = schema_field(ge=0)
     parent_tour_id: int = schema_field(ge=1, fk_to="tours.tour_id")
@@ -548,7 +548,7 @@ class JointTripModel(BaseModel):
         fk_to="household_days.hh_day_id",
         description=(
             "The household-day this grouping happened on, shared by every member's "
-            "day. Not any one member's day_id: a grouping belongs to the household's "
+            "day. Not any one member's person_day_id: a grouping belongs to the household's "
             "day, and a member's own day can be unusable while the others' are not."
         ),
     )
@@ -588,7 +588,7 @@ class JointTourModel(BaseModel):
         fk_to="household_days.hh_day_id",
         description=(
             "The household-day this grouping happened on, shared by every member's "
-            "day. Not any one member's day_id: a grouping belongs to the household's "
+            "day. Not any one member's person_day_id: a grouping belongs to the household's "
             "day, and a member's own day can be unusable while the others' are not."
         ),
     )
@@ -700,7 +700,7 @@ class HabitualLocationDayModel(BaseModel):
         fk_to="habitual_locations.habitual_location_id",
     )
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     location_type: LocationType = schema_field(
         description="Kind of location, denormalized from the parent row for filtering."
     )

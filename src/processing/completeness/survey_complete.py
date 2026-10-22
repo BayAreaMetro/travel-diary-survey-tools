@@ -19,7 +19,7 @@ _DAY_RECORDS = ("unlinked_trips", "linked_trips", "tours")
 def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
     """Roll ``survey_complete`` UP from days, then broadcast each day's value down, in place.
 
-    Completeness is measured at the person-day (``days.survey_complete`` is set
+    Completeness is measured at the person-day (``person_days.survey_complete`` is set
     upstream by the project cleaner, from the vendor's day verdict). This derives
     the rest:
 
@@ -34,14 +34,14 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
     :func:`rollup_household_complete` (it needs ``household_days`` judged first). Tables
     lacking ``survey_complete`` or the join key are left unchanged. Idempotent.
     """
-    days = tables.get("days")
-    if days is None or "survey_complete" not in days.columns:
+    person_days = tables.get("person_days")
+    if person_days is None or "survey_complete" not in person_days.columns:
         return
     day_complete = pl.col("survey_complete").fill_null(value=False)
 
     persons = tables.get("persons")
-    if persons is not None and "person_id" in days.columns:
-        per_flag = days.group_by("person_id").agg(day_complete.any().alias("_c"))
+    if persons is not None and "person_id" in person_days.columns:
+        per_flag = person_days.group_by("person_id").agg(day_complete.any().alias("_c"))
         tables["persons"] = (
             persons.drop("survey_complete", strict=False)
             .join(per_flag, on="person_id", how="left")
@@ -49,13 +49,13 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
             .drop("_c")
         )
 
-    day_flag = days.select("day_id", day_complete.alias("_day_complete"))
+    day_flag = person_days.select("person_day_id", day_complete.alias("_day_complete"))
     for name in _DAY_RECORDS:
         df = tables.get(name)
-        if df is None or "survey_complete" not in df.columns or "day_id" not in df.columns:
+        if df is None or "survey_complete" not in df.columns or "person_day_id" not in df.columns:
             continue
         tables[name] = (
-            df.join(day_flag, on="day_id", how="left")
+            df.join(day_flag, on="person_day_id", how="left")
             .with_columns(
                 # A null own verdict defers to the day's.
                 (

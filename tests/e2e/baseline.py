@@ -39,14 +39,14 @@ PRIMARY_KEYS = {
     "households": ("hh_id",),
     "persons": ("person_id",),
     "household_days": ("hh_day_id",),
-    "days": ("day_id",),
+    "person_days": ("person_day_id",),
     "unlinked_trips": ("unlinked_trip_id",),
     "linked_trips": ("linked_trip_id",),
     "joint_trips": ("joint_trip_id",),
     "tours": ("tour_id",),
     "joint_tours": ("joint_tour_id",),
     "habitual_locations": ("habitual_location_id",),
-    "habitual_location_days": ("habitual_location_id", "day_id"),
+    "habitual_location_days": ("habitual_location_id", "person_day_id"),
     # Formatted output. These models declare no unique field, so the keys are the
     # ones the formats themselves use to identify a record -- CT-RAMP scopes ids
     # to the person-day, DaySim numbers everything from the household down.

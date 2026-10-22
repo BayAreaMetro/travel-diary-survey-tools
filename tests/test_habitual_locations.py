@@ -93,7 +93,7 @@ def _second_home(lat_lon: tuple[float, float], person_id: int = 1) -> pl.DataFra
 
 def _trip(
     person_id: int,
-    day_id: int,
+    person_day_id: int,
     dest: tuple[float, float],
     dwell: int,
     purpose: Purpose = Purpose.PRIMARY_WORKPLACE,
@@ -104,9 +104,9 @@ def _trip(
     """Build one linked-trip row with the columns the builders read."""
     return {
         "person_id": person_id,
-        "day_id": day_id,
-        "depart_time": datetime(2023, 5, 1) + timedelta(days=day_id, hours=hour),
-        "arrive_time": datetime(2023, 5, 1) + timedelta(days=day_id, hours=hour, minutes=30),
+        "person_day_id": person_day_id,
+        "depart_time": datetime(2023, 5, 1) + timedelta(days=person_day_id, hours=hour),
+        "arrive_time": datetime(2023, 5, 1) + timedelta(days=person_day_id, hours=hour, minutes=30),
         "o_lat": origin[0],
         "o_lon": origin[1],
         "o_purpose": origin_purpose.value,
@@ -125,14 +125,14 @@ def _trips(*rows: dict) -> pl.DataFrame:
 
 
 def _days(*rows: tuple[int, BeginEndDay | None, BeginEndDay | None]) -> pl.DataFrame:
-    """Days as (day_id, begin_day, end_day)."""
+    """Days as (person_day_id, begin_day, end_day)."""
     return pl.DataFrame(
         {
-            "day_id": [r[0] for r in rows],
+            "person_day_id": [r[0] for r in rows],
             "begin_day": [r[1].value if r[1] else None for r in rows],
             "end_day": [r[2].value if r[2] else None for r in rows],
         },
-        schema={"day_id": pl.Int64, "begin_day": pl.Int64, "end_day": pl.Int64},
+        schema={"person_day_id": pl.Int64, "begin_day": pl.Int64, "end_day": pl.Int64},
     )
 
 
@@ -149,15 +149,15 @@ _CONFIG = HabitualLocationConfig(buffer_meters=300.0, include_observed_homes=Tru
 
 def _not_asked(trips: pl.DataFrame) -> pl.DataFrame:
     """Days for the trips, with no stated start or end."""
-    return _days(*((d, None, None) for d in sorted(set(trips["day_id"].to_list()))))
+    return _days(*((d, None, None) for d in sorted(set(trips["person_day_id"].to_list()))))
 
 
-def _build(trips, days=None, extra=None, persons=None, *, observed_homes=True, **config):
+def _build(trips, person_days=None, extra=None, persons=None, *, observed_homes=True, **config):
     """Deliver the table for the standard two people, then detect."""
     return add_observed_locations(
         _delivered(extra, persons),
         trips,
-        days if days is not None else _not_asked(trips),
+        person_days if person_days is not None else _not_asked(trips),
         HabitualLocationConfig(
             **{**_CONFIG.model_dump(), "include_observed_homes": observed_homes, **config}
         ),
@@ -420,12 +420,12 @@ def test_stated_home_at_the_reported_second_home_is_not_added_again():
 # --- the match -----------------------------------------------------------------
 
 
-def _match(trips, days=None, extra=None, persons=None) -> dict:
+def _match(trips, person_days=None, extra=None, persons=None) -> dict:
     """Build the locations, match the trip ends, and return the last trip's row."""
-    days = days if days is not None else _not_asked(trips)
-    locations, _days_table = _build(trips, days, extra, persons)
+    person_days = person_days if person_days is not None else _not_asked(trips)
+    locations, _days_table = _build(trips, person_days, extra, persons)
     matched = match_trip_ends(
-        trips, locations, MatchConfig(buffer_meters=_CONFIG.buffer_meters), days
+        trips, locations, MatchConfig(buffer_meters=_CONFIG.buffer_meters), person_days
     )
     return matched.sort("linked_trip_id").row(-1, named=True)
 
@@ -545,9 +545,9 @@ def test_tables_do_not_depend_on_row_order():
         _trip(1, 12, ALT_SCHOOL, 100, purpose=Purpose.COLLEGE),
         _trip(1, 12, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, origin=ALT_SCHOOL, hour=18),
     ]
-    days = _days((10, None, None), (11, None, None), (12, None, BeginEndDay.OTHER_HOME))
-    forward = _build(_trips(*rows), days)
-    backward = _build(_trips(*reversed(rows)), days)
+    person_days = _days((10, None, None), (11, None, None), (12, None, BeginEndDay.OTHER_HOME))
+    forward = _build(_trips(*rows), person_days)
+    backward = _build(_trips(*reversed(rows)), person_days)
     assert forward[0].equals(backward[0])
     assert forward[1].equals(backward[1])
 
@@ -581,44 +581,44 @@ def test_observed_identifiers_continue_after_the_delivered_ones():
 
 def test_day_row_counts_visits_and_totals_dwell():
     """Two stays in a day are one row: two visits, dwell summed."""
-    _locations, days = _build(
+    _locations, person_days = _build(
         _trips(
             _trip(1, 10, USUAL_WORK, 200, hour=8),
             _trip(1, 10, ALT_SCHOOL, 45, purpose=Purpose.DINING, origin=USUAL_WORK, hour=12),
             _trip(1, 10, USUAL_WORK, 100, origin=ALT_SCHOOL, hour=13),
         )
     )
-    row = days.filter(pl.col("location_type") == LocationType.WORK.value).row(0, named=True)
+    row = person_days.filter(pl.col("location_type") == LocationType.WORK.value).row(0, named=True)
     assert row["n_visits"] == 2
     assert row["dwell_minutes"] == 300
 
 
 def test_unmeasurable_dwell_is_null_not_zero():
     """A stay with no recorded end is unknown-length, which is not zero-length."""
-    _locations, days = _build(
+    _locations, person_days = _build(
         _trips(_trip(1, 10, HOME, -1, purpose=Purpose.HOME, origin=USUAL_WORK))
     )
-    row = days.filter(~pl.col("is_day_start")).row(0, named=True)
+    row = person_days.filter(~pl.col("is_day_start")).row(0, named=True)
     assert row["location_type"] == LocationType.HOME.value
     assert row["dwell_minutes"] is None
 
 
 def test_day_rows_flag_where_the_day_began_and_ended():
     """The day's first origin and last destination are marked on their locations."""
-    _locations, days = _build(
+    _locations, person_days = _build(
         _trips(
             _trip(1, 10, ALT_SCHOOL, 60, purpose=Purpose.DINING, hour=8),
             _trip(1, 10, HOME, -1, purpose=Purpose.HOME, origin=ALT_SCHOOL, hour=18),
         )
     )
-    row = days.row(0, named=True)
-    assert days.height == 1
+    row = person_days.row(0, named=True)
+    assert person_days.height == 1
     assert (row["is_day_start"], row["is_day_end"]) == (True, True)
 
 
 def test_rows_conform_to_models():
     """Every row of both tables validates against its model."""
-    locations, days = _build(
+    locations, person_days = _build(
         _trips(
             _trip(1, 10, ALT_WORK, 120),
             _trip(1, 12, ALT_SCHOOL, 200, purpose=Purpose.K12_SCHOOL),
@@ -629,5 +629,5 @@ def test_rows_conform_to_models():
     )
     for row in locations.iter_rows(named=True):
         HabitualLocationModel(**row)  # raises on any schema violation
-    for row in days.iter_rows(named=True):
+    for row in person_days.iter_rows(named=True):
         HabitualLocationDayModel(**row)

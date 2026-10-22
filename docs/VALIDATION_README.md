@@ -40,7 +40,7 @@ Automatically checks uniqueness on primary key columns.
 **Built-in constraints:**
 - `households`: `hh_id` must be unique
 - `persons`: `person_id` must be unique
-- `days`: `day_id` must be unique
+- `person_days`: `person_day_id` must be unique
 - `unlinked_trips`: `trip_id` must be unique
 - `linked_trips`: `linked_trip_id` must be unique
 - `tours`: `tour_id` must be unique
@@ -72,10 +72,10 @@ Ensures referential integrity between related tables.
 
 **Built-in FK relationships:**
 - `persons.hh_id` → `households.hh_id`
-- `days.person_id` → `persons.person_id`
-- `days.hh_id` → `households.hh_id`
+- `person_days.person_id` → `persons.person_id`
+- `person_days.hh_id` → `households.hh_id`
 - `unlinked_trips.person_id` → `persons.person_id`
-- `unlinked_trips.day_id` → `days.day_id`
+- `unlinked_trips.person_day_id` → `person_days.person_day_id`
 - `linked_trips.person_id` → `persons.person_id`
 - `linked_trips.tour_id` → `tours.tour_id`
 - `tours.person_id` → `persons.person_id`
@@ -284,7 +284,7 @@ updates (`produces`), table by table:
 
 ```python
 @step(
-    requires={"linked_trips": {"day_id", "o_purpose_category", "d_purpose_category"}},
+    requires={"linked_trips": {"person_day_id", "o_purpose_category", "d_purpose_category"}},
     produces={"tours": {"tour_id", "joint_tour_id"}},
 )
 def extract_tours(...): ...

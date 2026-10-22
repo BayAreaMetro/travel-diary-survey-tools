@@ -492,15 +492,17 @@ def check_days_carry_their_person(
     Raises:
         ValueError: Naming the persons whose days do not sum to them.
     """
-    persons, days = tables.get("persons"), tables.get("days")
+    persons, person_days = tables.get("persons"), tables.get("person_days")
     person_wt = weight_col_for("person_weight", profile)
-    day_wt = weight_col_for("day_weight", profile)
-    if persons is None or days is None:
+    day_wt = weight_col_for("person_day_weight", profile)
+    if persons is None or person_days is None:
         return
-    if person_wt not in persons.columns or day_wt not in days.columns:
+    if person_wt not in persons.columns or day_wt not in person_days.columns:
         return
 
-    per_person = days.group_by("person_id").agg(pl.col(day_wt).fill_null(0.0).sum().alias("_days"))
+    per_person = person_days.group_by("person_id").agg(
+        pl.col(day_wt).fill_null(0.0).sum().alias("_days")
+    )
     merged = persons.select("person_id", pl.col(person_wt).fill_null(0.0).alias("_person")).join(
         per_person, on="person_id", how="full", coalesce=True
     )

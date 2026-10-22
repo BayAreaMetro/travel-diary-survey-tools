@@ -83,7 +83,7 @@ def _trips(legs: list[tuple]) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "unlinked_trip_id": list(range(1, len(legs) + 1)),
-            "day_id": [1] * len(legs),
+            "person_day_id": [1] * len(legs),
             "person_id": [1] * len(legs),
             "hh_id": [1] * len(legs),
             "travel_dow": [TravelDow.WEDNESDAY.value] * len(legs),
@@ -239,9 +239,9 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
     exactly how #85 reached the formatters.
     """
     tables = {
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": tours["day_id"].unique().sort(),
+                "person_day_id": tours["person_day_id"].unique().sort(),
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": [datetime(2024, 1, 17)],
@@ -406,10 +406,10 @@ class TestSubtourReachesDaysim:
     @pytest.fixture
     def daysim_tours(self):
         """Run the lunch-subtour scenario through link -> extract -> DaySim tours."""
-        households, persons, days, unlinked_trips = multi_stop_tour()
-        data = process_scenario_through_pipeline(households, persons, days, unlinked_trips)
+        households, persons, person_days, unlinked_trips = multi_stop_tour()
+        data = process_scenario_through_pipeline(households, persons, person_days, unlinked_trips)
         return format_tours_daysim(
-            data["persons"], data["days"], data["linked_trips"], data["tours"]
+            data["persons"], data["person_days"], data["linked_trips"], data["tours"]
         ), data
 
     def test_subtour_gets_its_own_daysim_tour_number(self, daysim_tours):
@@ -451,6 +451,6 @@ class TestSubtourReachesDaysim:
         can no longer tell them apart.
         """
         _result, data = daysim_tours
-        days_daysim = format_days_daysim(data["persons"], data["days"], data["tours"])
+        days_daysim = format_days_daysim(data["persons"], data["person_days"], data["tours"])
         assert days_daysim["hbtours"].sum() == 1, "one home-based work tour"
         assert days_daysim["wbtours"].sum() == 1, "one at-work subtour"

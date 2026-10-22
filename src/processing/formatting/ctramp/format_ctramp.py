@@ -265,7 +265,7 @@ def _drop_excess_fields(
     # Derived by ablation against the 2023 canonical output: every column below was
     # dropped in turn and the step re-run, keeping those whose absence raised. Columns
     # whose absence merely degrades the output (weights, `industry`, `tnc_type`,
-    # the usability flag, the `day_id`s) are deliberately excluded - see module note.
+    # the usability flag, the `person_day_id`s) are deliberately excluded - see module note.
     # Zone columns are omitted because their names come from the `taz_field` param
     # (e.g. `o_TAZ1454`) and so cannot be expressed statically.
     requires={
@@ -323,7 +323,7 @@ def _drop_excess_fields(
             "origin_arrive_time",
         },
         "joint_trips": {"joint_trip_id", "hh_day_id"},
-        "days": {"person_id", "hh_id", "day_id", "hh_day_id"},
+        "person_days": {"person_id", "hh_id", "person_day_id", "hh_day_id"},
     },
 )
 def format_ctramp(
@@ -334,7 +334,7 @@ def format_ctramp(
     tours: pl.DataFrame,
     joint_trips: pl.DataFrame,
     joint_tours: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     ctramp: CTRAMPConfig,
     habitual_locations: pl.DataFrame | None = None,
     habitual_location_days: pl.DataFrame | None = None,
@@ -364,8 +364,8 @@ def format_ctramp(
             submodes for formatted tours and trips. May be empty but must be provided.
         joint_trips: Aggregated joint trip data. Required columns: joint_trip_id,
             hh_id, num_joint_travelers.
-        days: Canonical person-days data. Required columns: person_id, hh_id,
-            day_id. Used to expand persons and households to the person-day
+        person_days: Canonical person-days data. Required columns: person_id, hh_id,
+            person_day_id. Used to expand persons and households to the person-day
             level and encode the survey day into CTRAMP hh_id / person_id so
             that multi-day respondents produce one distinct CTRAMP record per
             day rather than one record that conflates all survey days.
@@ -445,7 +445,7 @@ def format_ctramp(
         {
             "households": households,
             "persons": persons,
-            "days": days,
+            "person_days": person_days,
             "tours": tours,
             "linked_trips": linked_trips,
             "unlinked_trips": unlinked_trips,
@@ -456,7 +456,7 @@ def format_ctramp(
     )
     households = gated["households"]
     persons = gated["persons"]
-    days = gated["days"]
+    person_days = gated["person_days"]
     tours = gated["tours"]
     linked_trips = gated["linked_trips"]
     unlinked_trips = gated["unlinked_trips"]
@@ -484,7 +484,7 @@ def format_ctramp(
         tours,
         linked_trips,
         joint_trips,
-    ) = incorporate_day_into_ids(households, persons, tours, linked_trips, joint_trips, days)
+    ) = incorporate_day_into_ids(households, persons, tours, linked_trips, joint_trips, person_days)
 
     # Format each table ----------------------------------------------------
     # Format households first since it has no derived field dependencies

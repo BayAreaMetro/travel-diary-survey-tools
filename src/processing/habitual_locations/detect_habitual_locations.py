@@ -44,7 +44,7 @@ def _check_delivered(delivered: pl.DataFrame) -> None:
 def add_observed_locations(
     delivered: pl.DataFrame,
     linked_trips: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     config: HabitualLocationConfig,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Append observed locations to the delivered ones, and build the day table.
@@ -53,7 +53,7 @@ def add_observed_locations(
         delivered: The delivered ``habitual_locations``: reported rows only.
         linked_trips: Linked trips with coordinates, purposes, times and
             ``d_activity_duration``.
-        days: Days with ``day_id``, ``begin_day`` and ``end_day``.
+        person_days: Days with ``person_day_id``, ``begin_day`` and ``end_day``.
         config: Detection and matching rules, including whether to add
             observed homes.
 
@@ -75,7 +75,9 @@ def add_observed_locations(
 
     # Identify observed habitual locations meeting criteria
     homes = (
-        [observed_homes(episodes, days, delivered, config)] if config.include_observed_homes else []
+        [observed_homes(episodes, person_days, delivered, config)]
+        if config.include_observed_homes
+        else []
     )
     found = pl.concat(
         [
@@ -94,7 +96,7 @@ def add_observed_locations(
     ).sort(["person_id", "location_type", "location_num"])
 
     # Build the habitual location days table based on the combined locations
-    location_days = build_location_days(episodes, locations, config, days)
+    location_days = build_location_days(episodes, locations, config, person_days)
 
     logger.info(
         "Habitual locations: %d reported, %d observed, with %d location-days",
@@ -120,7 +122,7 @@ def add_observed_locations(
         "linked_trips": {
             "linked_trip_id",
             "person_id",
-            "day_id",
+            "person_day_id",
             "depart_time",
             "arrive_time",
             "o_lat",
@@ -133,7 +135,7 @@ def add_observed_locations(
             "d_purpose_category",
             "d_activity_duration",
         },
-        "days": {"day_id", "begin_day", "end_day"},
+        "person_days": {"person_day_id", "begin_day", "end_day"},
     },
     produces={
         "habitual_locations": {"habitual_location_id"},
@@ -143,7 +145,7 @@ def add_observed_locations(
 def detect_habitual_locations(
     habitual_locations: pl.DataFrame,
     linked_trips: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     locations: HabitualLocationConfig,
 ) -> dict[str, pl.DataFrame]:
     """Find observed homes, workplaces and schools, and record presence per day.
@@ -156,7 +158,7 @@ def detect_habitual_locations(
     Args:
         habitual_locations: The delivered table, reported locations only.
         linked_trips: Linked trips.
-        days: Days with ``begin_day``/``end_day``.
+        person_days: Days with ``begin_day``/``end_day``.
         locations: Detection and matching rules, including whether to add
             observed homes. See ``HabitualLocationConfig``.
 
@@ -166,7 +168,7 @@ def detect_habitual_locations(
     observed, location_days = add_observed_locations(
         habitual_locations,
         linked_trips,
-        days,
+        person_days,
         locations,
     )
     return {"habitual_locations": observed, "habitual_location_days": location_days}

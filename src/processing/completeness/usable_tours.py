@@ -62,15 +62,19 @@ def _flag_tours(
     else:
         home = None
 
-    days = tables.get("days")
-    if not cols.needs_whole_household_day or days is None or "day_id" not in tours.columns:
+    person_days = tables.get("person_days")
+    if (
+        not cols.needs_whole_household_day
+        or person_days is None
+        or "person_day_id" not in tours.columns
+    ):
         flagged = tours.with_columns(usable.alias(cols.flag))
     else:
-        coherence = with_household_day(days, tables, "survey_complete", "_hh_day_complete").select(
-            "day_id", "_hh_day_complete"
-        )
+        coherence = with_household_day(
+            person_days, tables, "survey_complete", "_hh_day_complete"
+        ).select("person_day_id", "_hh_day_complete")
         flagged = (
-            tours.join(coherence, on="day_id", how="left")
+            tours.join(coherence, on="person_day_id", how="left")
             .with_columns(
                 (usable & pl.col("_hh_day_complete").fill_null(value=False)).alias(cols.flag)
             )

@@ -18,7 +18,7 @@ def incorporate_day_into_ids(
     tours: pl.DataFrame,
     linked_trips: pl.DataFrame,
     joint_trips: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Expand records to person-day level and encode the survey day into CTRAMP IDs.
 
@@ -29,7 +29,7 @@ def incorporate_day_into_ids(
 
     ID encoding (preserves the canonical hierarchical structure):
         - CTRAMP hh_id  = hh_day_id = hh_id * 100 + day_num   (unique per household-day)
-        - CTRAMP person_id = day_id                (unique per person-day)
+        - CTRAMP person_id = person_day_id                (unique per person-day)
 
     Both formulas are invertible: the original IDs can always be recovered from
     the CTRAMP IDs.
@@ -37,11 +37,11 @@ def incorporate_day_into_ids(
     Args:
         households: Canonical households (one row per household).
         persons: Canonical persons (one row per person).
-        tours: Canonical tours (one row per tour, already has day_id).
-        linked_trips: Canonical linked trips (one row per trip, already has day_id).
+        tours: Canonical tours (one row per tour, already has person_day_id).
+        linked_trips: Canonical linked trips (one row per trip, already has person_day_id).
         joint_trips: Canonical joint trips (one row per joint trip, with its
             ``hh_day_id``).
-        days: Canonical person-days with person_id, hh_id, day_id and hh_day_id.
+        person_days: Canonical person-days with person_id, hh_id, person_day_id and hh_day_id.
 
     Returns:
         Tuple of (households, persons, tours, linked_trips, joint_trips) where
@@ -54,20 +54,20 @@ def incorporate_day_into_ids(
     # it directly as the WFH indicator instead of relying on job_type alone.
     _day_cols = [
         pl.col("person_id"),
-        pl.col("day_id").alias("ctramp_person_id"),
+        pl.col("person_day_id").alias("ctramp_person_id"),
         pl.col("hh_day_id").alias("ctramp_hh_id"),
     ]
-    if "telecommute_time" in days.columns:
+    if "telecommute_time" in person_days.columns:
         _day_cols.append(pl.col("telecommute_time"))
-    person_day_map = days.select(_day_cols)
+    person_day_map = person_days.select(_day_cols)
 
     # Count survey days per household and per person for weight scaling.
     # When a household/person is expanded to X day-records, each copy must
     # carry weight W/X so the sum of weights is preserved across the expansion.
     # A household's days are its household-days, not its person-day rows.
-    hh_day_unique = days.select("hh_id", pl.col("hh_day_id").alias("ctramp_hh_id")).unique()
+    hh_day_unique = person_days.select("hh_id", pl.col("hh_day_id").alias("ctramp_hh_id")).unique()
     hh_num_days = hh_day_unique.group_by("hh_id").agg(pl.len().alias("num_hh_days"))
-    person_num_days = days.group_by("person_id").agg(pl.len().alias("num_person_days"))
+    person_num_days = person_days.group_by("person_id").agg(pl.len().alias("num_person_days"))
 
     # Build a household-day map: original hh_id → [ctramp_hh_id, num_hh_days]
     hh_day_map = hh_day_unique.join(hh_num_days, on="hh_id")
@@ -109,26 +109,30 @@ def incorporate_day_into_ids(
         len(persons),
     )
 
-    # The `days` table has already been filtered to valid (non-zero-weight) days
+    # The `person_days` table has already been filtered to valid (non-zero-weight) days
     # (e.g. Mon-Thu only).  Tours, trips, and joint trips must also be restricted
     # to those days so that every tour/trip record can be joined back to a person
     # record. The inner joins drop the rest and bring each record its household-day,
     # keeping the records in order as the semi-joins they replace did.
-    valid_days = days.select("day_id", "hh_day_id")
+    valid_days = person_days.select("person_day_id", "hh_day_id")
 
     # Update tours: drop non-target days, then encode CTRAMP IDs
-    if len(tours) > 0 and "day_id" in tours.columns:
+    if len(tours) > 0 and "person_day_id" in tours.columns:
         tours = (
-            tours.join(valid_days, on="day_id", how="inner", maintain_order="left")
-            .with_columns(pl.col("hh_day_id").alias("hh_id"), pl.col("day_id").alias("person_id"))
+            tours.join(valid_days, on="person_day_id", how="inner", maintain_order="left")
+            .with_columns(
+                pl.col("hh_day_id").alias("hh_id"), pl.col("person_day_id").alias("person_id")
+            )
             .drop("hh_day_id")
         )
 
     # Update linked_trips: drop non-target days, then encode CTRAMP IDs
-    if len(linked_trips) > 0 and "day_id" in linked_trips.columns:
+    if len(linked_trips) > 0 and "person_day_id" in linked_trips.columns:
         linked_trips = (
-            linked_trips.join(valid_days, on="day_id", how="inner", maintain_order="left")
-            .with_columns(pl.col("hh_day_id").alias("hh_id"), pl.col("day_id").alias("person_id"))
+            linked_trips.join(valid_days, on="person_day_id", how="inner", maintain_order="left")
+            .with_columns(
+                pl.col("hh_day_id").alias("hh_id"), pl.col("person_day_id").alias("person_id")
+            )
             .drop("hh_day_id")
         )
 

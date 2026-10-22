@@ -38,9 +38,9 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
         "persons": pl.DataFrame(
             {"person_id": [1], "hh_id": [1], "survey_complete": [True], "surveyable": [True]}
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1],
+                "person_day_id": [1],
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": ["2023-01-02"],
@@ -50,7 +50,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
         "tours": pl.DataFrame(
             {
                 "tour_id": [1],
-                "day_id": [1],
+                "person_day_id": [1],
                 "person_id": [1],
                 "hh_id": [1],
                 "survey_complete": [True],
@@ -64,7 +64,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
             {
                 "linked_trip_id": list(range(1, n + 1)),
                 "tour_id": [1] * n,
-                "day_id": [1] * n,
+                "person_day_id": [1] * n,
                 "survey_complete": [True] * n,
                 f"o_{ZONE}": [z[0] for z in trip_zones],
                 f"d_{ZONE}": [z[1] for z in trip_zones],

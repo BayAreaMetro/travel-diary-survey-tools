@@ -98,7 +98,7 @@ def _new_places(
     registry, exactly as reported.
 
     Args:
-        stops: Evidence stops with ``person_id``, ``day_id``, ``lat``, ``lon``
+        stops: Evidence stops with ``person_id``, ``person_day_id``, ``lat``, ``lon``
             and ``seen_at``.
         known: Locations of the same kind with ``person_id``, ``lat``, ``lon``.
         config: Provides the buffer.
@@ -109,7 +109,7 @@ def _new_places(
     """
     evidence = stops.select(
         "person_id",
-        "day_id",
+        "person_day_id",
         "lat",
         "lon",
         "seen_at",
@@ -117,7 +117,7 @@ def _new_places(
     )
     seeds = known.select(
         "person_id",
-        pl.lit(None, dtype=evidence.schema["day_id"]).alias("day_id"),
+        pl.lit(None, dtype=evidence.schema["person_day_id"]).alias("person_day_id"),
         "lat",
         "lon",
         pl.lit(None, dtype=evidence.schema["seen_at"]).alias("seen_at"),
@@ -133,7 +133,7 @@ def _new_places(
     labelled = label_clusters(points, config.buffer_meters)
     places = labelled.group_by(["person_id", "_cluster"], maintain_order=True).agg(
         pl.col("_is_seed").any().alias("_at_known"),
-        pl.col("day_id").drop_nulls().n_unique().cast(pl.Int64).alias("_n_days"),
+        pl.col("person_day_id").drop_nulls().n_unique().cast(pl.Int64).alias("_n_days"),
         pl.col("seen_at").min().alias("_first_seen"),
         pl.col("lat").filter(~pl.col("_is_seed")).mean().alias("lat"),
         pl.col("lon").filter(~pl.col("_is_seed")).mean().alias("lon"),
@@ -193,7 +193,7 @@ def observed_locations(
 
 def observed_homes(
     episodes: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     reported: pl.DataFrame,
     config: HabitualLocationConfig,
 ) -> pl.DataFrame:
@@ -208,7 +208,7 @@ def observed_homes(
 
     Args:
         episodes: Stays, as produced by ``build_presence_episodes``.
-        days: Days with ``day_id``, ``begin_day`` and ``end_day``.
+        person_days: Days with ``person_day_id``, ``begin_day`` and ``end_day``.
         reported: Reported locations.
         config: Provides the buffer.
 
@@ -216,7 +216,7 @@ def observed_homes(
         Observed HOME rows, not primary.
     """
     stated = episodes.join(
-        days.select("day_id", "begin_day", "end_day"), on="day_id", how="inner"
+        person_days.select("person_day_id", "begin_day", "end_day"), on="person_day_id", how="inner"
     ).filter(
         (pl.col("is_day_start") & pl.col("begin_day").is_in(STATED_HOMES))
         | (pl.col("is_day_end") & pl.col("end_day").is_in(STATED_HOMES))

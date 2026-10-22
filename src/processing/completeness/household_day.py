@@ -13,7 +13,7 @@ import polars as pl
 from .profiles import UsabilityProfile
 
 
-def _join_surveyable(days: pl.DataFrame, persons: pl.DataFrame | None) -> pl.DataFrame:
+def _join_surveyable(person_days: pl.DataFrame, persons: pl.DataFrame | None) -> pl.DataFrame:
     """Return *days* with a ``_surveyable`` bool column joined from persons.
 
     A person is *surveyable* when the survey could collect their travel at all;
@@ -22,13 +22,17 @@ def _join_surveyable(days: pl.DataFrame, persons: pl.DataFrame | None) -> pl.Dat
     rows whatsoever. When the persons table (or its ``surveyable`` column) is
     absent, every member-day counts, preserving the plain ALL reduction.
     """
-    if persons is None or "surveyable" not in persons.columns or "person_id" not in days.columns:
-        return days.with_columns(pl.lit(value=True).alias("_surveyable"))
+    if (
+        persons is None
+        or "surveyable" not in persons.columns
+        or "person_id" not in person_days.columns
+    ):
+        return person_days.with_columns(pl.lit(value=True).alias("_surveyable"))
     flag = persons.select(
         "person_id",
         pl.col("surveyable").cast(pl.Boolean).fill_null(value=True).alias("_surveyable"),
     )
-    return days.join(flag, on="person_id", how="left").with_columns(
+    return person_days.join(flag, on="person_id", how="left").with_columns(
         pl.col("_surveyable").fill_null(value=True)
     )
 
@@ -44,8 +48,8 @@ def _require_household_days(tables: dict[str, pl.DataFrame | None]) -> pl.DataFr
         ValueError: If ``household_days`` is missing, or days carry no ``hh_day_id``.
     """
     household_days = tables.get("household_days")
-    days = tables.get("days")
-    if household_days is None or days is None or "hh_day_id" not in days.columns:
+    person_days = tables.get("person_days")
+    if household_days is None or person_days is None or "hh_day_id" not in person_days.columns:
         msg = (
             "The household-day reductions need the household_days table and hh_day_id "
             "on days. Build them in the project cleaner with "
@@ -65,9 +69,9 @@ def _reduce_to_household_days(
     vacuously True.
     """
     household_days = _require_household_days(tables)
-    days = _join_surveyable(tables["days"], tables.get("persons"))
+    person_days = _join_surveyable(tables["person_days"], tables.get("persons"))
     reduced = (
-        days.filter(pl.col("_surveyable"))
+        person_days.filter(pl.col("_surveyable"))
         .group_by("hh_day_id")
         .agg(own.fill_null(value=False).all().alias("_verdict"))
     )
@@ -91,8 +95,8 @@ def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     reflects ancestry; the reduction then flows the other way, up from members to
     the shared date. Idempotent.
     """
-    days = tables.get("days")
-    if days is None or "survey_complete" not in days.columns:
+    person_days = tables.get("person_days")
+    if person_days is None or "survey_complete" not in person_days.columns:
         return
     _reduce_to_household_days(tables, pl.col("survey_complete"), "survey_complete")
 
@@ -107,14 +111,14 @@ def flag_household_day_usable(
     is *usable* only when every surveyable member's day is usable under the
     profile, not merely complete. Requires the per-record flag on days.
     """
-    days = tables.get("days")
-    if days is None or cols.flag not in days.columns:
+    person_days = tables.get("person_days")
+    if person_days is None or cols.flag not in person_days.columns:
         return
     _reduce_to_household_days(tables, pl.col(cols.flag), cols.flag)
 
 
 def with_household_day(
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     tables: dict[str, pl.DataFrame | None],
     column: str,
     alias: str,
@@ -126,8 +130,10 @@ def with_household_day(
     """
     household_days = _require_household_days(tables)
     verdict = household_days.select("hh_day_id", pl.col(column).alias("_hh_day_verdict"))
-    days = _join_surveyable(days, tables.get("persons")).join(verdict, on="hh_day_id", how="left")
-    return days.with_columns(
+    person_days = _join_surveyable(person_days, tables.get("persons")).join(
+        verdict, on="hh_day_id", how="left"
+    )
+    return person_days.with_columns(
         pl.when(pl.col("_surveyable"))
         .then(pl.col("_hh_day_verdict").fill_null(value=False))
         .otherwise(pl.col(column).fill_null(value=False))
