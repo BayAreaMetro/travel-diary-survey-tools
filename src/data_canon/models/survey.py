@@ -189,19 +189,6 @@ class PersonDayModel(BaseModel):
         ),
     )
     survey_complete: bool | None = schema_field(default=False)
-    hh_day_survey_complete: bool | None = schema_field(
-        default=None,
-        description=(
-            "Household-day coherence: every member of the household reported a "
-            "complete day on this travel_date. Stamped by the cascade_completeness "
-            "step as an ALL reduction over member-days. Under a profile that "
-            "asks for whole household-days, a day is only usable within one."
-        ),
-    )
-    # The usable-side mirror of hh_day_survey_complete is now stamped once per
-    # usability profile, as hh_day_{profile}. Those names come from config, so
-    # they cannot be model fields; cascade_completeness registers them as
-    # generated columns with a description of what each one gated.
 
 
 class HouseholdDayModel(BaseModel):
@@ -220,6 +207,18 @@ class HouseholdDayModel(BaseModel):
     )
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     travel_date: datetime = schema_field()
+    survey_complete: bool | None = schema_field(
+        default=None,
+        description=(
+            "Every surveyable member's day on this date is complete, as the vendor "
+            "judged each one; False where no surveyable member has a day on it. "
+            "Stamped by the cascade_completeness step. Under a profile that asks "
+            "for whole household-days, a person-day is only usable within one."
+        ),
+    )
+    # The usable-side mirror is stamped once per usability profile, as
+    # usable_{profile}. Those names come from config, so they cannot be model
+    # fields; cascade_completeness registers them as generated columns.
 
 
 class UnlinkedTripModel(BaseModel):

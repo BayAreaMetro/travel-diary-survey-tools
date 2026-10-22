@@ -33,6 +33,7 @@ from data_canon.codebook.persons import (
 )
 from data_canon.codebook.trips import Driver, Mode, ModeType, Purpose, PurposeCategory
 from processing.habitual_locations import reported_habitual_locations
+from utils.create_ids import create_household_days
 
 # ---------------------------------------------------------------------------
 # Coordinates (synthetic SF Bay Area -- no real addresses)
@@ -1284,7 +1285,7 @@ def _build_records():
 def build_survey_dataframes():
     """Return canonical survey data as a dict of Polars DataFrames.
 
-    Keys: households, persons, days, unlinked_trips
+    Keys: households, persons, household_days, days, unlinked_trips, habitual_locations
     """
     hh, per, day, trip = _build_records()
     households = pl.DataFrame(hh)
@@ -1315,10 +1316,15 @@ def build_survey_dataframes():
     )
 
     persons = pl.DataFrame(per)
+    # The household-days a project cleaner would build.
+    days, household_days = create_household_days(
+        pl.DataFrame(day, schema_overrides={"begin_day": pl.Int64, "end_day": pl.Int64})
+    )
     tables = {
         "households": households,
         "persons": persons,
-        "days": pl.DataFrame(day, schema_overrides={"begin_day": pl.Int64, "end_day": pl.Int64}),
+        "household_days": household_days,
+        "days": days,
         "unlinked_trips": pl.DataFrame(trip),
         # Delivered with the survey: the reported home, work and school only.
         "habitual_locations": reported_habitual_locations(households, persons),

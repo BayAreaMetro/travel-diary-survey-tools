@@ -31,7 +31,7 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
       day-records; see ``_DAY_RECORDS``.
 
     ``households.survey_complete`` is a household-day rollup and is set separately by
-    :func:`rollup_household_complete` (it needs ``hh_day_survey_complete`` first). Tables
+    :func:`rollup_household_complete` (it needs ``household_days`` judged first). Tables
     lacking ``survey_complete`` or the join key are left unchanged. Idempotent.
     """
     days = tables.get("days")
@@ -71,21 +71,15 @@ def rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     """Set ``households.survey_complete`` = has at least one complete household-day, in place.
 
     A household is complete when at least one date was coherently observed (every
-    member complete). Requires ``hh_day_survey_complete`` on days (from
-    :func:`flag_household_day_complete`). Left unchanged if days or the flag is
-    absent.
+    member complete). Requires ``household_days.survey_complete`` (from
+    :func:`flag_household_day_complete`). Left unchanged if either is absent.
     """
     households = tables.get("households")
-    days = tables.get("days")
-    if (
-        households is None
-        or days is None
-        or "hh_day_survey_complete" not in days.columns
-        or "hh_id" not in days.columns
-    ):
+    household_days = tables.get("household_days")
+    if households is None or household_days is None or "survey_complete" not in household_days:
         return
     has_complete_day = (
-        days.filter(pl.col("hh_day_survey_complete").fill_null(value=False))
+        household_days.filter(pl.col("survey_complete").fill_null(value=False))
         .select("hh_id")
         .unique()
         .with_columns(pl.lit(value=True).alias("_h"))

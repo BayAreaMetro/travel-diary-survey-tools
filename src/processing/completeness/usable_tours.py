@@ -9,6 +9,7 @@ import polars as pl
 
 from data_canon.codebook.tours import TourCategory
 
+from .household_day import with_household_day
 from .profiles import _ADMITTED_QUALITY, TourClosesAt, UsabilityProfile
 from .zone_coverage import _home_zone_ok, _trips_with_zones_per_tour, _zone_expr
 
@@ -23,7 +24,7 @@ def _flag_tours(
     household-date, and -- where the profile names a geography -- every one of its
     trips can be addressed in it, not merely its own endpoints. Without the coherence term
     CT-RAMP (which reads the tour's flag) would keep a tour the weighting has
-    zeroed. ``hh_day_survey_complete`` is available because the reverse cascade runs
+    zeroed. ``household_days.survey_complete`` is available because the reverse cascade runs
     before this.
 
     Subtours then take their parent's verdict on top of their own: an at-work
@@ -62,24 +63,18 @@ def _flag_tours(
         home = None
 
     days = tables.get("days")
-    coherence_required = cols.needs_whole_household_day
-    if (
-        not coherence_required
-        or days is None
-        or "hh_day_survey_complete" not in days.columns
-        or "day_id" not in tours.columns
-    ):
+    if not cols.needs_whole_household_day or days is None or "day_id" not in tours.columns:
         flagged = tours.with_columns(usable.alias(cols.flag))
     else:
-        coherence = days.select(
-            "day_id", pl.col("hh_day_survey_complete").alias("_hh_day_survey_complete")
-        ).unique(subset="day_id")
+        coherence = with_household_day(days, tables, "survey_complete", "_hh_day_complete").select(
+            "day_id", "_hh_day_complete"
+        )
         flagged = (
             tours.join(coherence, on="day_id", how="left")
             .with_columns(
-                (usable & pl.col("_hh_day_survey_complete").fill_null(value=False)).alias(cols.flag)
+                (usable & pl.col("_hh_day_complete").fill_null(value=False)).alias(cols.flag)
             )
-            .drop("_hh_day_survey_complete")
+            .drop("_hh_day_complete")
         )
 
     if home is not None:
