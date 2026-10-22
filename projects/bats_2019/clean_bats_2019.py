@@ -14,6 +14,7 @@ from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel
 from pipeline.decoration import step
 from pipeline.step_registry import get_all_required_fields
 from processing.habitual_locations import reported_habitual_locations
+from utils.create_ids import create_household_days
 from utils.helpers import expr_haversine
 
 logger = logging.getLogger(__name__)
@@ -877,9 +878,13 @@ def clean_2019_bats(
     # Only the measured leaf; cascade_completeness derives the rest.
     days, unlinked_trips = flag_measured_completeness(days, unlinked_trips)
 
+    # HOUSEHOLD DAYS ==================================
+    days, household_days = create_household_days(days)
+
     results = {
         "households": households,
         "persons": persons,
+        "household_days": household_days,
         "days": days,
         "unlinked_trips": unlinked_trips,
     }
