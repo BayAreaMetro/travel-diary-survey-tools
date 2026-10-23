@@ -395,6 +395,14 @@ def clean_days(
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Clean day_num issues in days and unlinked trips."""
     logger.info("Cleaning 2019 day data")
+
+    # The vendor puts a trip that departs before 3 a.m. on the day before, and
+    # gives day_num 0 to one whose day before is outside the diary: no surveyed
+    # day holds it, so it is dropped rather than attached to a day it is not on.
+    outside = unlinked_trips.filter(pl.col("day_num") == 0)
+    if not outside.is_empty():
+        logger.info("Dropping %d trips on the vendor's day 0, before the diary", outside.height)
+        unlinked_trips = unlinked_trips.filter(pl.col("day_num") != 0)
     person_days = person_days.with_columns(
         # to datetime
         travel_date=pl.col("travel_date").str.to_datetime("%Y-%m-%d").dt.date(),
@@ -499,12 +507,10 @@ def clean_days(
         n_missing_before - n_missing_after,
     )
 
-    # Replace the original day_num in the day table to match the new logic
-    person_days = person_days.rename({"day_num": "day_num_old"}).join(
-        unique_days,
-        on=["hh_id", "travel_date"],
-        how="left",
-    )
+    # Person-days keep the vendor's day_num: one to one with each household's
+    # dates, and equal to the renumbering wherever that numbers a date. The
+    # renumbering only reaches dates with trips, so it would leave no-travel days
+    # without one.
 
     # Join to unlinked_trips to get the new day_num based on shifted travel_date
     unlinked_trips = unlinked_trips.join(
@@ -852,6 +858,29 @@ def flag_measured_completeness(
     return person_days, unlinked_trips
 
 
+def placeholder_survey_complete(
+    households: pl.DataFrame, persons: pl.DataFrame, person_days: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Give households and persons a placeholder ``survey_complete``.
+
+    The 2019 vendor files carry completeness per day only, and the field check
+    needs the column on households and persons too. cascade_completeness replaces
+    both with its own rollup of the day verdicts, so this only has to exist: a
+    household or person with at least one complete day.
+    """
+    complete = person_days.filter(pl.col("survey_complete"))
+    return (
+        households.with_columns(
+            pl.col("hh_id").is_in(complete["hh_id"].unique().implode()).alias("survey_complete")
+        ),
+        persons.with_columns(
+            pl.col("person_id")
+            .is_in(complete["person_id"].unique().implode())
+            .alias("survey_complete")
+        ),
+    )
+
+
 @step()
 def clean_2019_bats(
     households: pl.DataFrame,
@@ -877,6 +906,7 @@ def clean_2019_bats(
     # FLAG COMPLETE DAYS ==================================
     # Only the measured leaf; cascade_completeness derives the rest.
     person_days, unlinked_trips = flag_measured_completeness(person_days, unlinked_trips)
+    households, persons = placeholder_survey_complete(households, persons, person_days)
 
     # HOUSEHOLD DAYS ==================================
     person_days, household_days = create_household_days(person_days)
