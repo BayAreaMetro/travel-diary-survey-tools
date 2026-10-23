@@ -96,7 +96,7 @@ class TestPartialCalls:
         assert "Skipping the kept-records total check: persons" in caplog.text
 
 
-def _people_and_days(day_weights: list[float]) -> dict[str, pl.DataFrame]:
+def _people_and_days(person_day_weights: list[float]) -> dict[str, pl.DataFrame]:
     """Person 1 (weight 10) owns days 10 and 11; person 2 (weight 6) owns day 20.
 
     Person 3 (weight 0) owns no day at all.
@@ -105,8 +105,12 @@ def _people_and_days(day_weights: list[float]) -> dict[str, pl.DataFrame]:
         "persons": pl.DataFrame(
             {"person_id": [1, 2, 3], "hh_id": [1, 1, 1], "person_weight": [10.0, 6.0, 0.0]}
         ),
-        "days": pl.DataFrame(
-            {"day_id": [10, 11, 20], "person_id": [1, 1, 2], "day_weight": day_weights}
+        "person_days": pl.DataFrame(
+            {
+                "person_day_id": [10, 11, 20],
+                "person_id": [1, 1, 2],
+                "person_day_weight": person_day_weights,
+            }
         ),
     }
 
@@ -143,7 +147,7 @@ class TestDaysCarryTheirPerson:
             name: df.rename({c: f"{c}_p" for c in df.columns if c.endswith("_weight")})
             for name, df in _people_and_days([4.0, 4.0, 6.0]).items()
         }
-        with pytest.raises(ValueError, match=r"day_weight_p"):
+        with pytest.raises(ValueError, match=r"person_day_weight_p"):
             check_days_carry_their_person(tables, profile="p")
 
 

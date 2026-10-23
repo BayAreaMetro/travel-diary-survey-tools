@@ -122,7 +122,7 @@ def _open_end_facts(
             ]
         )
 
-    # Neighbouring trips in person order, deliberately ignoring day_id: the
+    # Neighbouring trips in person order, deliberately ignoring person_day_id: the
     # diary day boundary is the thing being measured, not a barrier to it.
     seq = linked_trips.sort(["person_id", "depart_time", "arrive_time"]).with_columns(
         [

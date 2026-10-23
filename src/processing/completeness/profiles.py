@@ -54,9 +54,9 @@ class JointTours(StrEnum):
 NO_ZONE_COVERAGE = "none"  # no geographic requirement
 
 # A profile is a name -- `ctramp`, `analysis` -- and every column belonging to it
-# is that name suffixed onto a family: `usable_ctramp` for the verdict,
-# `hh_day_ctramp` for the household-date reduction, `hh_weight_ctramp` for the
-# weight fitted over it. One profile, one suffix, one rule per family.
+# is that name suffixed onto a family: `usable_ctramp` for the verdict (on
+# household_days too, for the household-date reduction), `hh_weight_ctramp` for
+# the weight fitted over it. One profile, one suffix, one rule per family.
 USABLE_FAMILY = "usable"
 
 # Survey reporting completeness, from the vendor. Deliberately not a profile: it
@@ -132,10 +132,10 @@ class UsabilityProfile:
     with *missing data* (a missing leg, an activity that never happened), as
     opposed to one that merely ends somewhere unexpected.
 
-    Two columns come out of a pass. ``flag`` is the per-record verdict consumers
-    read. ``household_day`` records, per date, whether *all* surveyable members'
-    days passed. It is computed for every profile even where that profile does
-    not gate on it, so the column means the same thing everywhere and can still
+    A pass writes ``flag``, the verdict consumers read, on every table. On
+    ``household_days`` it records whether *all* surveyable members' days passed
+    that date. It is computed for every profile even where that profile does not
+    gate on it, so the column means the same thing everywhere and can still
     answer "which dates cost this household its usability".
     """
 
@@ -159,11 +159,6 @@ class UsabilityProfile:
     def requires_zones(self) -> bool:
         """Whether this profile asks that a record's locations have a zone."""
         return self.zone_coverage != NO_ZONE_COVERAGE
-
-    @property
-    def household_day(self) -> str:
-        """All-surveyable-members-that-date column."""
-        return f"hh_day_{self.name}"
 
     @property
     def joint_tour_id(self) -> str:
@@ -204,7 +199,7 @@ _ZONE_AXIS = "zone_coverage"
 
 # Columns the reporting cascade owns. A profile taking one of these names would
 # overwrite a survey fact with a modelling judgement.
-_RESERVED_NAMES = ("survey_complete", "hh_day_survey_complete")
+_RESERVED_NAMES = ("survey_complete",)
 
 
 def parse_usability_profiles(spec: dict[str, dict[str, str]]) -> list[UsabilityProfile]:

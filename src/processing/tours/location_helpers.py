@@ -31,7 +31,7 @@ def classify_trip_locations(
     linked_trips: pl.DataFrame,
     habitual_locations: pl.DataFrame,
     config: MatchConfig,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
 ) -> pl.DataFrame:
     """Classify trip origins and destinations against a person's habitual locations.
 
@@ -45,7 +45,7 @@ def classify_trip_locations(
         linked_trips: Trip data with o/d coordinates and purpose codes.
         habitual_locations: Habitual locations.
         config: Matching rules.
-        days: Days with ``begin_day``/``end_day``.
+        person_days: Days with ``begin_day``/``end_day``.
 
     Returns:
         Trips with added columns:
@@ -54,7 +54,7 @@ def classify_trip_locations(
         - the private match columns from ``match_trip_ends``
     """
     logger.info("Classifying trip locations against habitual locations...")
-    linked_trips = match_trip_ends(linked_trips, habitual_locations, config, days)
+    linked_trips = match_trip_ends(linked_trips, habitual_locations, config, person_days)
     linked_trips = linked_trips.with_columns(
         pl.col(f"_{end}_{match}").is_not_null().alias(f"_{end}_is_{name}")
         for name, match in _LOCATION_KINDS.items()
@@ -78,7 +78,7 @@ def add_anchor_flags(linked_trips: pl.DataFrame) -> pl.DataFrame:
     Args:
         linked_trips: Trips from ``classify_trip_locations``, carrying the
             ``_{o,d}_{reported,observed}_{work,school}_id`` matches,
-            ``person_id`` and ``day_id``.
+            ``person_id`` and ``person_day_id``.
 
     Returns:
         Trips with ``_{o,d}_{work,school}_anchor_id`` (which location, for
@@ -93,7 +93,7 @@ def add_anchor_flags(linked_trips: pl.DataFrame) -> pl.DataFrame:
                 | pl.col(f"_d_reported_{name}_id").is_not_null()
             )
             .any()
-            .over(["person_id", "day_id"])
+            .over(["person_id", "person_day_id"])
         )
         linked_trips = linked_trips.with_columns(
             pl.when(pl.col(f"_{end}_reported_{name}_id").is_not_null())

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 GATED_TABLES = (
     "households",
     "persons",
-    "days",
+    "person_days",
     "tours",
     "linked_trips",
     "unlinked_trips",
@@ -62,7 +62,7 @@ _GROUPINGS = (
 _PROFILE_COLUMNS: dict[str, tuple[str, ...]] = {
     "households": ("hh_weight",),
     "persons": ("person_weight",),
-    "days": ("day_weight",),
+    "person_days": ("person_day_weight",),
     "tours": ("tour_weight", "joint_tour_id"),
     "linked_trips": ("linked_trip_weight", "joint_tour_id", "joint_trip_id"),
     "unlinked_trips": ("unlinked_trip_weight", "joint_tour_id"),

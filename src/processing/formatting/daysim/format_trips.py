@@ -448,7 +448,7 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
             pl.col("depart_time")
             .rank(method="ordinal")
             .over(
-                ["hh_id", "person_id", "day_id", "tour_id", "tour_direction"],
+                ["hh_id", "person_id", "person_day_id", "tour_id", "tour_direction"],
                 order_by=["depart_time", "arrive_time"],
             )
             .alias("tseg")
@@ -456,7 +456,7 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
             else pl.col("depart_time")
             .rank(method="ordinal")
             .over(
-                ["hh_id", "person_id", "day_id"],
+                ["hh_id", "person_id", "person_day_id"],
                 order_by=["depart_time", "arrive_time"],
             )
             .alias("tseg"),
@@ -465,7 +465,7 @@ def _prepare_basic_fields(linked_trips: pl.DataFrame, persons: pl.DataFrame) -> 
             # Bonus: sequential trip number per person-day
             pl.col("depart_time")
             .rank("ordinal")
-            .over(["hh_id", "person_id", "day_id"])
+            .over(["hh_id", "person_id", "person_day_id"])
             .alias("tripno"),
             # Add default address types (3 = other)
             pl.lit(3).alias("oadtyp"),

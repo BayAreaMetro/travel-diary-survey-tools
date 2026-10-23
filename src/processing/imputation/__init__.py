@@ -46,8 +46,8 @@ These parent → child relationships are supported for ``join_tables``
 |----------------|-----------------------------|----------------------------|
 | persons        | households                  | hh_id                      |
 | days           | persons / households        | person_id / hh_id          |
-| unlinked_trips | days / persons / households | day_id / person_id / hh_id |
-| linked_trips   | days / persons / households | day_id / person_id / hh_id |
+| unlinked_trips | days / persons / households | person_day_id / person_id / hh_id |
+| linked_trips   | days / persons / households | person_day_id / person_id / hh_id |
 | tours          | persons / households        | person_id / hh_id          |
 
 # Missing-data assumptions

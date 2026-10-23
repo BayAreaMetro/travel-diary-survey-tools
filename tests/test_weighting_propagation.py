@@ -67,11 +67,11 @@ def _make_tables():
     """Build a minimal set of canonical tables for propagation tests."""
     households = pl.DataFrame({"hh_id": [1, 2], "hh_weight": [10.0, 20.0]})
     persons = pl.DataFrame({"person_id": [1, 2, 3], "hh_id": [1, 1, 2]})
-    days = pl.DataFrame({"day_id": [10, 20, 30], "person_id": [1, 2, 3]})
+    person_days = pl.DataFrame({"person_day_id": [10, 20, 30], "person_id": [1, 2, 3]})
     unlinked_trips = pl.DataFrame(
         {
             "unlinked_trip_id": [100, 200, 300, 400],
-            "day_id": [10, 10, 20, 30],
+            "person_day_id": [10, 10, 20, 30],
             "linked_trip_id": [1, 1, 2, 2],
         }
     )
@@ -85,7 +85,7 @@ def _make_tables():
     return {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "joint_trips": None,
@@ -112,14 +112,14 @@ class TestPropagateCarryForward:
         ]
 
         # days get person_weight via person_id
-        assert "day_weight" in tables["days"].columns
-        assert tables["days"].sort("day_id")["day_weight"].to_list() == [
+        assert "person_day_weight" in tables["person_days"].columns
+        assert tables["person_days"].sort("person_day_id")["person_day_weight"].to_list() == [
             10.0,
             10.0,
             20.0,
         ]
 
-        # unlinked_trips get day_weight via day_id
+        # unlinked_trips get person_day_weight via person_day_id
         assert "unlinked_trip_weight" in tables["unlinked_trips"].columns
         assert tables["unlinked_trips"].sort("unlinked_trip_id")[
             "unlinked_trip_weight"
@@ -129,7 +129,7 @@ class TestPropagateCarryForward:
         assert has_weight == {
             "households": "hh_weight",
             "persons": "person_weight",
-            "days": "day_weight",
+            "person_days": "person_day_weight",
             "unlinked_trips": "unlinked_trip_weight",
             "linked_trips": "linked_trip_weight",
             "tours": "tour_weight",
@@ -175,7 +175,7 @@ class TestPropagateCarryForward:
         propagate_weights(
             tables,
             has_weight,
-            skip={"persons", "days", "unlinked_trips", "linked_trips", "tours"},
+            skip={"persons", "person_days", "unlinked_trips", "linked_trips", "tours"},
             usability_flag_col="usable",
         )
 
@@ -188,7 +188,7 @@ class TestPropagateCarryForward:
         """If a child table is None, propagation skips it."""
         tables = _make_tables()
         tables["persons"] = None
-        tables["days"] = None
+        tables["person_days"] = None
         tables["unlinked_trips"] = None
         tables["linked_trips"] = None
         tables["tours"] = None
@@ -229,7 +229,7 @@ class TestPropagateAggregate:
         tables["unlinked_trips"] = pl.DataFrame(
             {
                 "unlinked_trip_id": [100, 200, 300, 400],
-                "day_id": [10, 10, 20, 30],
+                "person_day_id": [10, 10, 20, 30],
                 "linked_trip_id": [1, 1, 2, 2],
                 "unlinked_trip_weight": [5.0, 0.0, None, 3.0],
             }
@@ -237,14 +237,14 @@ class TestPropagateAggregate:
         has_weight: dict[str, str] = {
             "households": "hh_weight",
             "persons": "person_weight",
-            "days": "day_weight",
+            "person_days": "person_day_weight",
             "unlinked_trips": "unlinked_trip_weight",
         }
 
         propagate_weights(
             tables,
             has_weight,
-            skip={"persons", "days", "unlinked_trips"},
+            skip={"persons", "person_days", "unlinked_trips"},
             usability_flag_col="usable",
         )
 
@@ -263,7 +263,7 @@ class TestPropagateAggregate:
                         "unlinked_trips": pl.DataFrame(
                             {
                                 "unlinked_trip_id": [100, 200],
-                                "day_id": [10, 10],
+                                "person_day_id": [10, 10],
                                 "unlinked_trip_weight": [5.0, 3.0],
                             }
                         )
@@ -293,7 +293,7 @@ class TestPropagateAggregate:
         has_weight: dict[str, str] = {
             "households": "hh_weight",
             "persons": "person_weight",
-            "days": "day_weight",
+            "person_days": "person_day_weight",
             "unlinked_trips": "unlinked_trip_weight",
         }
         if drop_source_weight:
@@ -303,7 +303,7 @@ class TestPropagateAggregate:
             propagate_weights(
                 tables,
                 has_weight,
-                skip={"persons", "days", "unlinked_trips"},
+                skip={"persons", "person_days", "unlinked_trips"},
                 usability_flag_col="usable",
             )
 
@@ -329,9 +329,9 @@ def _make_tables_with_complete():
             "survey_complete": [True, True, False],
         }
     )
-    days = pl.DataFrame(
+    person_days = pl.DataFrame(
         {
-            "day_id": [10, 20, 30],
+            "person_day_id": [10, 20, 30],
             "person_id": [1, 2, 3],
             "hh_id": [1, 1, 2],
             "survey_complete": [True, False, False],
@@ -340,7 +340,7 @@ def _make_tables_with_complete():
     unlinked_trips = pl.DataFrame(
         {
             "unlinked_trip_id": [100, 200, 300, 400],
-            "day_id": [10, 10, 20, 30],
+            "person_day_id": [10, 10, 20, 30],
             "linked_trip_id": [1, 1, 2, 2],
             "survey_complete": [True, True, False, False],
         }
@@ -355,7 +355,7 @@ def _make_tables_with_complete():
     return {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "joint_trips": None,
@@ -372,9 +372,9 @@ def _make_tables_partial_usability():
     """
     households = pl.DataFrame({"hh_id": [1], "hh_weight": [10.0], "survey_complete": [True]})
     persons = pl.DataFrame({"person_id": [1], "hh_id": [1], "survey_complete": [True]})
-    days = pl.DataFrame(
+    person_days = pl.DataFrame(
         {
-            "day_id": [10, 20, 30, 40],
+            "person_day_id": [10, 20, 30, 40],
             "person_id": [1, 1, 1, 1],
             "hh_id": [1, 1, 1, 1],
             "survey_complete": [True, True, False, False],
@@ -383,7 +383,7 @@ def _make_tables_partial_usability():
     unlinked_trips = pl.DataFrame(
         {
             "unlinked_trip_id": [100, 200, 300, 400],
-            "day_id": [10, 10, 10, 10],
+            "person_day_id": [10, 10, 10, 10],
             "linked_trip_id": [1, 1, 2, 2],
             "survey_complete": [True, False, False, False],
         }
@@ -391,7 +391,7 @@ def _make_tables_partial_usability():
     return {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": pl.DataFrame({"linked_trip_id": [1, 2], "tour_id": [1, 1]}),
         "joint_trips": None,
@@ -421,10 +421,10 @@ class TestPropagateUsableColumn:
 
         assert tables["persons"].sort("person_id")["person_weight"].to_list() == [10.0, 10.0, 0.0]
 
-        days = tables["days"].sort("day_id")
-        assert days["day_weight"].to_list() == [10.0, 0.0, 0.0]
+        person_days = tables["person_days"].sort("person_day_id")
+        assert person_days["person_day_weight"].to_list() == [10.0, 0.0, 0.0]
         # person 1's days sum to person 1's weight; person 2's 10 is a shortfall
-        assert days["day_weight"].sum() == pytest.approx(10.0)
+        assert person_days["person_day_weight"].sum() == pytest.approx(10.0)
 
         # day 10 carries 10.0 and both its trips are usable, so each keeps 10.0
         ut = tables["unlinked_trips"].sort("unlinked_trip_id")
@@ -444,8 +444,8 @@ class TestPropagateUsableColumn:
         # Person 3 (survey_complete=False, in HH 2 with weight 20) keeps 20 instead of 0
         persons = tables["persons"].sort("person_id")
         assert persons["person_weight"].to_list() == [10.0, 10.0, 20.0]
-        days = tables["days"].sort("day_id")
-        assert days["day_weight"].to_list() == [10.0, 10.0, 20.0]
+        person_days = tables["person_days"].sort("person_day_id")
+        assert person_days["person_day_weight"].to_list() == [10.0, 10.0, 20.0]
 
     def test_missing_usable_column_propagates_normally(self):
         """Without the usability column present, weights propagate as before."""
@@ -478,7 +478,7 @@ class TestPropagateRedistribution:
     def test_usable_days_split_the_person_weight(self):
         """A person keeping 2 of 4 days puts half their weight on each survivor.
 
-        The average-day rule: day_weight = person_weight / n_usable_days, so the
+        The average-day rule: person_day_weight = person_weight / n_usable_days, so the
         person's usable days sum to exactly their person weight.
         """
         tables = _make_tables_partial_usability()
@@ -486,8 +486,8 @@ class TestPropagateRedistribution:
 
         propagate_weights(tables, has_weight, usability_flag_col="survey_complete")
 
-        days = tables["days"].sort("day_id")
-        assert days["day_weight"].to_list() == [5.0, 5.0, 0.0, 0.0]
+        person_days = tables["person_days"].sort("person_day_id")
+        assert person_days["person_day_weight"].to_list() == [5.0, 5.0, 0.0, 0.0]
 
     def test_usable_trips_absorb_the_unusable_ones(self):
         """A day keeping 1 of 4 trips gives that trip four times the day weight."""
@@ -545,9 +545,9 @@ class TestPropagateRedistribution:
             "persons": pl.DataFrame(
                 {"person_id": [1, 2], "hh_id": [1, 1], "survey_complete": [True, True]}
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [10, 20, 30, 40],
+                    "person_day_id": [10, 20, 30, 40],
                     "person_id": [1, 1, 2, 2],
                     "hh_id": [1, 1, 1, 1],
                     "survey_complete": usable_days,
@@ -565,12 +565,15 @@ class TestPropagateRedistribution:
         # both persons keep their weight -- each is still a real person
         assert tables["persons"]["person_weight"].to_list() == [hh_weight, hh_weight]
 
-        days = tables["days"].sort("day_id")
-        assert days["day_weight"].to_list() == expected_day_weights
+        person_days = tables["person_days"].sort("person_day_id")
+        assert person_days["person_day_weight"].to_list() == expected_day_weights
         per_person = (
-            tables["days"].group_by("person_id").agg(pl.col("day_weight").sum()).sort("person_id")
+            tables["person_days"]
+            .group_by("person_id")
+            .agg(pl.col("person_day_weight").sum())
+            .sort("person_id")
         )
-        assert per_person["day_weight"].to_list() == pytest.approx(expected_per_person)
+        assert per_person["person_day_weight"].to_list() == pytest.approx(expected_per_person)
 
 
 # ---------------------------------------------------------------------------
@@ -587,9 +590,9 @@ def _make_tables_with_joints():
     """
     households = pl.DataFrame({"hh_id": [1], "hh_weight": [10.0], "usable": [True]})
     persons = pl.DataFrame({"person_id": [1, 2], "hh_id": [1, 1], "usable": [True, True]})
-    days = pl.DataFrame(
+    person_days = pl.DataFrame(
         {
-            "day_id": [10, 20],
+            "person_day_id": [10, 20],
             "person_id": [1, 2],
             "hh_id": [1, 1],
             "usable": [True, True],
@@ -598,7 +601,7 @@ def _make_tables_with_joints():
     unlinked_trips = pl.DataFrame(
         {
             "unlinked_trip_id": [100, 200],
-            "day_id": [10, 20],
+            "person_day_id": [10, 20],
             "linked_trip_id": [1, 2],
             "usable": [True, False],
         }
@@ -606,7 +609,7 @@ def _make_tables_with_joints():
     linked_trips = pl.DataFrame(
         {
             "linked_trip_id": [1, 2],
-            "day_id": [10, 20],
+            "person_day_id": [10, 20],
             "tour_id": [1, 2],
             "joint_trip_id": [500, 500],
             "usable": [True, False],
@@ -615,7 +618,7 @@ def _make_tables_with_joints():
     tours = pl.DataFrame(
         {
             "tour_id": [1, 2],
-            "day_id": [10, 20],
+            "person_day_id": [10, 20],
             "joint_tour_id": [900, 900],
             "usable": [True, False],
         }
@@ -623,7 +626,7 @@ def _make_tables_with_joints():
     return {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "joint_trips": pl.DataFrame({"joint_trip_id": [500], "usable": [True]}),
@@ -642,9 +645,9 @@ def _make_tables_with_unequal_joint_members():
     """
     households = pl.DataFrame({"hh_id": [1], "hh_weight": [30.0], "usable": [True]})
     persons = pl.DataFrame({"person_id": [1, 2], "hh_id": [1, 1], "usable": [True, True]})
-    days = pl.DataFrame(
+    person_days = pl.DataFrame(
         {
-            "day_id": [10, 11, 20],
+            "person_day_id": [10, 11, 20],
             "person_id": [1, 1, 2],
             "hh_id": [1, 1, 1],
             "usable": [True, True, True],
@@ -653,7 +656,7 @@ def _make_tables_with_unequal_joint_members():
     unlinked_trips = pl.DataFrame(
         {
             "unlinked_trip_id": [100, 200],
-            "day_id": [10, 20],
+            "person_day_id": [10, 20],
             "linked_trip_id": [1, 2],
             "usable": [True, True],
         }
@@ -661,7 +664,7 @@ def _make_tables_with_unequal_joint_members():
     linked_trips = pl.DataFrame(
         {
             "linked_trip_id": [1, 2],
-            "day_id": [10, 20],
+            "person_day_id": [10, 20],
             "tour_id": [1, 2],
             "joint_trip_id": [500, 500],
             "usable": [True, True],
@@ -670,7 +673,7 @@ def _make_tables_with_unequal_joint_members():
     tours = pl.DataFrame(
         {
             "tour_id": [1, 2],
-            "day_id": [10, 20],
+            "person_day_id": [10, 20],
             "joint_tour_id": [900, 900],
             "usable": [True, True],
         }
@@ -678,7 +681,7 @@ def _make_tables_with_unequal_joint_members():
     return {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "joint_trips": pl.DataFrame({"joint_trip_id": [500], "usable": [True]}),
@@ -740,13 +743,13 @@ def _make_tables_with_a_tour_off_its_joint_tour():
     return {
         "households": pl.DataFrame({"hh_id": [1], "hh_weight": [10.0], flag: [True]}),
         "persons": pl.DataFrame({"person_id": [1, 2, 3], "hh_id": [1, 1, 1], flag: three}),
-        "days": pl.DataFrame(
-            {"day_id": [10, 20, 30], "person_id": [1, 2, 3], "hh_id": [1, 1, 1], flag: three}
+        "person_days": pl.DataFrame(
+            {"person_day_id": [10, 20, 30], "person_id": [1, 2, 3], "hh_id": [1, 1, 1], flag: three}
         ),
         "unlinked_trips": pl.DataFrame(
             {
                 "unlinked_trip_id": [100, 200, 300],
-                "day_id": [10, 20, 30],
+                "person_day_id": [10, 20, 30],
                 "linked_trip_id": [1, 2, 3],
                 flag: three,
             }
@@ -754,7 +757,7 @@ def _make_tables_with_a_tour_off_its_joint_tour():
         "linked_trips": pl.DataFrame(
             {
                 "linked_trip_id": [1, 2, 3],
-                "day_id": [10, 20, 30],
+                "person_day_id": [10, 20, 30],
                 "tour_id": [1, 2, 3],
                 "joint_trip_id": [500, 500, 500],
                 "joint_trip_id_p": [500, 500, None],
@@ -764,7 +767,7 @@ def _make_tables_with_a_tour_off_its_joint_tour():
         "tours": pl.DataFrame(
             {
                 "tour_id": [1, 2, 3],
-                "day_id": [10, 20, 30],
+                "person_day_id": [10, 20, 30],
                 "joint_tour_id": [900, 900, 900],
                 "joint_tour_id_p": [900, 900, None],
                 flag: three,
@@ -823,7 +826,7 @@ class TestJointEdgeCases:
         propagate_weights(tables, {"households": "hh_weight"}, usability_flag_col="usable")
 
         members = tables["linked_trips"]
-        assert members["day_id"].n_unique() == 2
+        assert members["person_day_id"].n_unique() == 2
         assert tables["joint_trips"]["joint_trip_weight"][0] == pytest.approx(
             members["linked_trip_weight"].sum()
         )
@@ -966,11 +969,11 @@ def _nothing_usable() -> dict[str, pl.DataFrame]:
         "persons": pl.DataFrame(
             {"person_id": [1], "hh_id": [1], "person_weight": [100.0], FLAG: [True]}
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1, 2],
+                "person_day_id": [1, 2],
                 "person_id": [1, 1],
-                "day_weight": [0.0, 0.0],
+                "person_day_weight": [0.0, 0.0],
                 FLAG: [False, False],
             }
         ),
@@ -997,11 +1000,11 @@ def _coherent_tables(*, usable: list[bool] | None = None) -> dict[str, pl.DataFr
                 FLAG: [True, True],
             }
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1, 2],
+                "person_day_id": [1, 2],
                 "person_id": [1, 1],
-                "day_weight": [100.0 / n_usable if u else 0.0 for u in usable],
+                "person_day_weight": [100.0 / n_usable if u else 0.0 for u in usable],
                 FLAG: usable,
             }
         ),
@@ -1187,9 +1190,9 @@ class TestTheComputedPathHoldsItsTargets:
                     "usable_p": [True, True, False, False],
                 }
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [110, 120, 130, 210],
+                    "person_day_id": [110, 120, 130, 210],
                     "person_id": [11, 12, 13, 21],
                     "hh_id": [1, 1, 1, 2],
                     "usable_p": [True, True, False, False],

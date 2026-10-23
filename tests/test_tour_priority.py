@@ -98,7 +98,7 @@ class TestAddActivityDurationColumn:
         df = pl.DataFrame(
             {
                 "person_id": [1, 1, 1],
-                "day_id": [1, 1, 1],
+                "person_day_id": [1, 1, 1],
                 "arrive_time": [
                     datetime.datetime(2023, 1, 1, 8, 0),
                     datetime.datetime(2023, 1, 1, 12, 0),

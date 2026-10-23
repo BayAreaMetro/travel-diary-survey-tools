@@ -1,212 +1,4 @@
 {
- "days": {
-  "columns": {
-   "begin_day": {
-    "counts": {
-     "None": 54
-    },
-    "distinct": 1,
-    "dtype": "Int64",
-    "hash": "5c3e409f7cc0d551",
-    "nulls": 54
-   },
-   "day_id": {
-    "distinct": 54,
-    "dtype": "Int64",
-    "hash": "76a853a74c01dc8f",
-    "max": 320101.0,
-    "min": 10101.0,
-    "nulls": 0,
-    "sum": 9757660.0
-   },
-   "day_num": {
-    "counts": {
-     "1": 48,
-     "2": 6
-    },
-    "distinct": 2,
-    "dtype": "Int64",
-    "hash": "1bf2e64cc17e40db",
-    "max": 2.0,
-    "min": 1.0,
-    "nulls": 0,
-    "sum": 60.0
-   },
-   "day_weight_analysis": {
-    "distinct": 31,
-    "dtype": "Float64",
-    "hash": "5a057335aa02914c",
-    "max": 388.619107,
-    "min": 0.0,
-    "nulls": 0,
-    "sum": 10582.0
-   },
-   "day_weight_ctramp": {
-    "distinct": 24,
-    "dtype": "Float64",
-    "hash": "7ac892e01e9ee652",
-    "max": 612.668949,
-    "min": 0.0,
-    "nulls": 0,
-    "sum": 10582.0
-   },
-   "day_weight_daysim": {
-    "distinct": 24,
-    "dtype": "Float64",
-    "hash": "7ac892e01e9ee652",
-    "max": 612.668949,
-    "min": 0.0,
-    "nulls": 0,
-    "sum": 10582.0
-   },
-   "end_day": {
-    "counts": {
-     "None": 54
-    },
-    "distinct": 1,
-    "dtype": "Int64",
-    "hash": "5c3e409f7cc0d551",
-    "nulls": 54
-   },
-   "hh_day_analysis": {
-    "counts": {
-     "False": 5,
-     "True": 49
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "dc62228d4d3ddc2a",
-    "nulls": 0
-   },
-   "hh_day_ctramp": {
-    "counts": {
-     "False": 17,
-     "True": 37
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "5065bf0e5375ca6e",
-    "nulls": 0
-   },
-   "hh_day_daysim": {
-    "counts": {
-     "False": 17,
-     "True": 37
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "5065bf0e5375ca6e",
-    "nulls": 0
-   },
-   "hh_day_survey_complete": {
-    "counts": {
-     "False": 1,
-     "True": 53
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "91164991f7e3a1c9",
-    "nulls": 0
-   },
-   "hh_id": {
-    "distinct": 32,
-    "dtype": "Int64",
-    "hash": "8d0c030d13cf34e5",
-    "max": 32.0,
-    "min": 1.0,
-    "nulls": 0,
-    "sum": 975.0
-   },
-   "person_id": {
-    "distinct": 48,
-    "dtype": "Int64",
-    "hash": "d0ece047cdddbf5f",
-    "max": 3201.0,
-    "min": 101.0,
-    "nulls": 0,
-    "sum": 97576.0
-   },
-   "person_num": {
-    "counts": {
-     "1": 36,
-     "2": 15,
-     "3": 2,
-     "4": 1
-    },
-    "distinct": 4,
-    "dtype": "Int64",
-    "hash": "b5edbf50c4cd73bc",
-    "max": 4.0,
-    "min": 1.0,
-    "nulls": 0,
-    "sum": 76.0
-   },
-   "survey_complete": {
-    "counts": {
-     "False": 1,
-     "True": 53
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "91164991f7e3a1c9",
-    "nulls": 0
-   },
-   "travel_date": {
-    "distinct": 3,
-    "dtype": "Datetime(time_unit='us', time_zone=None)",
-    "hash": "c15603ab86edbde0",
-    "nulls": 0
-   },
-   "travel_dow": {
-    "counts": {
-     "1": 43,
-     "2": 6,
-     "6": 5
-    },
-    "distinct": 3,
-    "dtype": "Int64",
-    "hash": "2693495798f98447",
-    "max": 6.0,
-    "min": 1.0,
-    "nulls": 0,
-    "sum": 85.0
-   },
-   "usable_analysis": {
-    "counts": {
-     "False": 4,
-     "True": 50
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "53d9eabd84db3b3d",
-    "nulls": 0
-   },
-   "usable_ctramp": {
-    "counts": {
-     "False": 16,
-     "True": 38
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "6c3ec694d9f508d5",
-    "nulls": 0
-   },
-   "usable_daysim": {
-    "counts": {
-     "False": 16,
-     "True": 38
-    },
-    "distinct": 2,
-    "dtype": "Boolean",
-    "hash": "6c3ec694d9f508d5",
-    "nulls": 0
-   }
-  },
-  "rows": 54,
-  "sorted_by": [
-   "day_id"
-  ]
- },
  "days_daysim": {
   "columns": {
    "beghom": {
@@ -559,15 +351,6 @@
  },
  "habitual_location_days": {
   "columns": {
-   "day_id": {
-    "distinct": 53,
-    "dtype": "Int64",
-    "hash": "fb78d73723bbf970",
-    "max": 320101.0,
-    "min": 10101.0,
-    "nulls": 0,
-    "sum": 16582803.0
-   },
    "dwell_minutes": {
     "distinct": 19,
     "dtype": "Float64",
@@ -634,6 +417,15 @@
     "nulls": 0,
     "sum": 139.0
    },
+   "person_day_id": {
+    "distinct": 53,
+    "dtype": "Int64",
+    "hash": "fb78d73723bbf970",
+    "max": 320101.0,
+    "min": 10101.0,
+    "nulls": 0,
+    "sum": 16582803.0
+   },
    "person_id": {
     "distinct": 47,
     "dtype": "Int64",
@@ -647,7 +439,7 @@
   "rows": 91,
   "sorted_by": [
    "habitual_location_id",
-   "day_id"
+   "person_day_id"
   ]
  },
  "habitual_locations": {
@@ -769,6 +561,78 @@
   "rows": 84,
   "sorted_by": [
    "habitual_location_id"
+  ]
+ },
+ "household_days": {
+  "columns": {
+   "hh_day_id": {
+    "distinct": 36,
+    "dtype": "Int64",
+    "hash": "c8c7a09f1d47f86a",
+    "max": 3201.0,
+    "min": 101.0,
+    "nulls": 0,
+    "sum": 62240.0
+   },
+   "hh_id": {
+    "distinct": 32,
+    "dtype": "Int64",
+    "hash": "948d350936f5e04f",
+    "max": 32.0,
+    "min": 1.0,
+    "nulls": 0,
+    "sum": 622.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 1,
+     "True": 35
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "b8774d180dc647cc",
+    "nulls": 0
+   },
+   "travel_date": {
+    "distinct": 3,
+    "dtype": "Datetime(time_unit='us', time_zone=None)",
+    "hash": "a452e94e772a2b2e",
+    "nulls": 0
+   },
+   "usable_analysis": {
+    "counts": {
+     "False": 4,
+     "True": 32
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "882313c0c46de09a",
+    "nulls": 0
+   },
+   "usable_ctramp": {
+    "counts": {
+     "False": 13,
+     "True": 23
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "64585519530b3eb4",
+    "nulls": 0
+   },
+   "usable_daysim": {
+    "counts": {
+     "False": 13,
+     "True": 23
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "64585519530b3eb4",
+    "nulls": 0
+   }
+  },
+  "rows": 36,
+  "sorted_by": [
+   "hh_day_id"
   ]
  },
  "households": {
@@ -1878,6 +1742,15 @@
  },
  "joint_tours": {
   "columns": {
+   "hh_day_id": {
+    "distinct": 5,
+    "dtype": "Int64",
+    "hash": "de7ce145e52ca34f",
+    "max": 2601.0,
+    "min": 301.0,
+    "nulls": 0,
+    "sum": 10806.0
+   },
    "hh_id": {
     "distinct": 5,
     "dtype": "Int64",
@@ -2157,6 +2030,15 @@
  },
  "joint_trips": {
   "columns": {
+   "hh_day_id": {
+    "distinct": 8,
+    "dtype": "Int64",
+    "hash": "e8ff9fa3f27c7684",
+    "max": 3001.0,
+    "min": 301.0,
+    "nulls": 0,
+    "sum": 28517.0
+   },
    "hh_id": {
     "distinct": 7,
     "dtype": "Int64",
@@ -2573,15 +2455,6 @@
     "nulls": 3,
     "sum": 111.0
    },
-   "day_id": {
-    "distinct": 53,
-    "dtype": "Int64",
-    "hash": "b7e75a056045e38d",
-    "max": 320101.0,
-    "min": 10101.0,
-    "nulls": 0,
-    "sum": 19555824.0
-   },
    "depart_time": {
     "distinct": 35,
     "dtype": "Datetime(time_unit='us', time_zone=None)",
@@ -2974,6 +2847,15 @@
     "min": 101011000.0,
     "nulls": 0,
     "sum": 195558358000.0
+   },
+   "person_day_id": {
+    "distinct": 53,
+    "dtype": "Int64",
+    "hash": "b7e75a056045e38d",
+    "max": 320101.0,
+    "min": 10101.0,
+    "nulls": 0,
+    "sum": 19555824.0
    },
    "person_id": {
     "distinct": 47,
@@ -3650,6 +3532,183 @@
   "sorted_by": [
    "HHID",
    "PersonID"
+  ]
+ },
+ "person_days": {
+  "columns": {
+   "begin_day": {
+    "counts": {
+     "None": 54
+    },
+    "distinct": 1,
+    "dtype": "Int64",
+    "hash": "5c3e409f7cc0d551",
+    "nulls": 54
+   },
+   "day_num": {
+    "counts": {
+     "1": 48,
+     "2": 6
+    },
+    "distinct": 2,
+    "dtype": "Int64",
+    "hash": "1bf2e64cc17e40db",
+    "max": 2.0,
+    "min": 1.0,
+    "nulls": 0,
+    "sum": 60.0
+   },
+   "end_day": {
+    "counts": {
+     "None": 54
+    },
+    "distinct": 1,
+    "dtype": "Int64",
+    "hash": "5c3e409f7cc0d551",
+    "nulls": 54
+   },
+   "hh_day_id": {
+    "distinct": 36,
+    "dtype": "Int64",
+    "hash": "75a8fd648b344e79",
+    "max": 3201.0,
+    "min": 101.0,
+    "nulls": 0,
+    "sum": 97560.0
+   },
+   "hh_id": {
+    "distinct": 32,
+    "dtype": "Int64",
+    "hash": "8d0c030d13cf34e5",
+    "max": 32.0,
+    "min": 1.0,
+    "nulls": 0,
+    "sum": 975.0
+   },
+   "person_day_id": {
+    "distinct": 54,
+    "dtype": "Int64",
+    "hash": "76a853a74c01dc8f",
+    "max": 320101.0,
+    "min": 10101.0,
+    "nulls": 0,
+    "sum": 9757660.0
+   },
+   "person_day_weight_analysis": {
+    "distinct": 31,
+    "dtype": "Float64",
+    "hash": "5a057335aa02914c",
+    "max": 388.619107,
+    "min": 0.0,
+    "nulls": 0,
+    "sum": 10582.0
+   },
+   "person_day_weight_ctramp": {
+    "distinct": 24,
+    "dtype": "Float64",
+    "hash": "7ac892e01e9ee652",
+    "max": 612.668949,
+    "min": 0.0,
+    "nulls": 0,
+    "sum": 10582.0
+   },
+   "person_day_weight_daysim": {
+    "distinct": 24,
+    "dtype": "Float64",
+    "hash": "7ac892e01e9ee652",
+    "max": 612.668949,
+    "min": 0.0,
+    "nulls": 0,
+    "sum": 10582.0
+   },
+   "person_id": {
+    "distinct": 48,
+    "dtype": "Int64",
+    "hash": "d0ece047cdddbf5f",
+    "max": 3201.0,
+    "min": 101.0,
+    "nulls": 0,
+    "sum": 97576.0
+   },
+   "person_num": {
+    "counts": {
+     "1": 36,
+     "2": 15,
+     "3": 2,
+     "4": 1
+    },
+    "distinct": 4,
+    "dtype": "Int64",
+    "hash": "b5edbf50c4cd73bc",
+    "max": 4.0,
+    "min": 1.0,
+    "nulls": 0,
+    "sum": 76.0
+   },
+   "survey_complete": {
+    "counts": {
+     "False": 1,
+     "True": 53
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "91164991f7e3a1c9",
+    "nulls": 0
+   },
+   "travel_date": {
+    "distinct": 3,
+    "dtype": "Datetime(time_unit='us', time_zone=None)",
+    "hash": "c15603ab86edbde0",
+    "nulls": 0
+   },
+   "travel_dow": {
+    "counts": {
+     "1": 43,
+     "2": 6,
+     "6": 5
+    },
+    "distinct": 3,
+    "dtype": "Int64",
+    "hash": "2693495798f98447",
+    "max": 6.0,
+    "min": 1.0,
+    "nulls": 0,
+    "sum": 85.0
+   },
+   "usable_analysis": {
+    "counts": {
+     "False": 4,
+     "True": 50
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "53d9eabd84db3b3d",
+    "nulls": 0
+   },
+   "usable_ctramp": {
+    "counts": {
+     "False": 16,
+     "True": 38
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "6c3ec694d9f508d5",
+    "nulls": 0
+   },
+   "usable_daysim": {
+    "counts": {
+     "False": 16,
+     "True": 38
+    },
+    "distinct": 2,
+    "dtype": "Boolean",
+    "hash": "6c3ec694d9f508d5",
+    "nulls": 0
+   }
+  },
+  "rows": 54,
+  "sorted_by": [
+   "person_day_id"
   ]
  },
  "persons": {
@@ -4655,15 +4714,6 @@
     "nulls": 2,
     "sum": 54.0
    },
-   "day_id": {
-    "distinct": 53,
-    "dtype": "Int64",
-    "hash": "842d3696ec930869",
-    "max": 320101.0,
-    "min": 10101.0,
-    "nulls": 0,
-    "sum": 10137862.0
-   },
    "dest_arrive_time": {
     "distinct": 31,
     "dtype": "Datetime(time_unit='us', time_zone=None)",
@@ -4876,6 +4926,15 @@
     "min": 101011000.0,
     "nulls": 0,
     "sum": 101378678000.0
+   },
+   "person_day_id": {
+    "distinct": 53,
+    "dtype": "Int64",
+    "hash": "842d3696ec930869",
+    "max": 320101.0,
+    "min": 10101.0,
+    "nulls": 0,
+    "sum": 10137862.0
    },
    "person_id": {
     "distinct": 47,
@@ -5573,15 +5632,6 @@
     "nulls": 3,
     "sum": 113.0
    },
-   "day_id": {
-    "distinct": 53,
-    "dtype": "Int64",
-    "hash": "5695886af88bf2ef",
-    "max": 320101.0,
-    "min": 10101.0,
-    "nulls": 0,
-    "sum": 19596026.0
-   },
    "depart_time": {
     "distinct": 35,
     "dtype": "Datetime(time_unit='us', time_zone=None)",
@@ -5857,6 +5907,15 @@
     "min": 1.0,
     "nulls": 3,
     "sum": 113.0
+   },
+   "person_day_id": {
+    "distinct": 53,
+    "dtype": "Int64",
+    "hash": "5695886af88bf2ef",
+    "max": 320101.0,
+    "min": 10101.0,
+    "nulls": 0,
+    "sum": 19596026.0
    },
    "person_id": {
     "distinct": 47,

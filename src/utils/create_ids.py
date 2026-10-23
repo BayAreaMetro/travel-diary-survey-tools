@@ -2,7 +2,7 @@
 
 This module provides utilities for creating composite IDs from hierarchical
 identifier columns. IDs follow a hierarchical concatenation structure:
-    hh_id (8 digits) -> person_id (+ 2 digits) -> day_id (+ 2 digits) ->
+    hh_id (8 digits) -> person_id (+ 2 digits) -> person_day_id (+ 2 digits) ->
     linked_trip_id (+ 2 digits) -> etc.
 
 Each level is created by appending zero-padded digits to the parent level,
@@ -10,7 +10,7 @@ forming a character string that uniquely identifies entities at each level
 of the hierarchy.
 
 ID vs Num Columns:
-    - ID columns (e.g., day_id, person_id): Pre-concatenated hierarchical
+    - ID columns (e.g., person_day_id, person_id): Pre-concatenated hierarchical
       identifiers that contain the full path from root (hh_id) to current level.
       Multiple rows may share the same parent ID (e.g., multiple trips per day).
     - Num columns (e.g., day_num, person_num): Sequence numbers within a parent
@@ -38,13 +38,13 @@ def create_concatenated_id(
     level is formed by appending zero-padded sequence numbers to the parent:
         - hh_id: "23000075" [Can variable length, typically 8 digits]
         - person_id: "2300007501" [10-digits] (hh_id + 2-digit person_num)
-        - day_id: "230000750101" [12-digits] (person_id + 2-digit day_num)
+        - person_day_id: "230000750101" [12-digits] (person_id + 2-digit day_num)
         - unlinked_trip_id: "23000075010101" [14-digits]
-            (day_id + 2-digit trip_num)
+            (person_day_id + 2-digit trip_num)
         - linked_trip_id: "23000075010102" [14-digits]
-            (day_id + 2-digit trip_num)
+            (person_day_id + 2-digit trip_num)
         - tour_id : "23000075010101" [16-digits]
-            (day_id + 2-digit parent tour_num + 2-digit sub-tour_num)
+            (person_day_id + 2-digit parent tour_num + 2-digit sub-tour_num)
 
     The parent_id_col may already contain the full hierarchical path
     (pre-concatenated), making this a simple append operation.
@@ -70,20 +70,20 @@ def create_concatenated_id(
         ...     sequence_padding=2
         ... )
 
-        # Create day_id from person_id + day_num
+        # Create person_day_id from person_id + day_num
         >>> df = create_concatenated_id(
         ...     df,
-        ...     output_col="day_id",
+        ...     output_col="person_day_id",
         ...     parent_id_col="person_id",
         ...     sequence_col="day_num",
         ...     sequence_padding=2
         ... )
 
-        # Create linked_trip_id from day_id + linked_trip_num
+        # Create linked_trip_id from person_day_id + linked_trip_num
         >>> df = create_concatenated_id(
         ...     df,
         ...     output_col="linked_trip_id",
-        ...     parent_id_col="day_id",
+        ...     parent_id_col="person_day_id",
         ...     sequence_col="linked_trip_num",
         ...     sequence_padding=2
         ... )
@@ -120,19 +120,19 @@ def create_concatenated_id(
 
 def create_linked_trip_id(
     linked_trips: pl.DataFrame,
-    day_id_col: str = "day_id",
+    day_id_col: str = "person_day_id",
     sequence_col: str = "linked_trip_num",
     sequence_padding: int = 2,
 ) -> pl.DataFrame:
-    """Create linked_trip_id by appending sequence to day_id.
+    """Create linked_trip_id by appending sequence to person_day_id.
 
     Convenience wrapper for create_concatenated_id() specifically for
-    linked trip IDs. Assumes day_id is already pre-concatenated with
+    linked trip IDs. Assumes person_day_id is already pre-concatenated with
     the full hierarchy (hh_id + person_num + day_num).
 
     Args:
-        linked_trips: Input DataFrame containing day_id and sequence columns
-        day_id_col: Column name for day ID (default: "day_id")
+        linked_trips: Input DataFrame containing person_day_id and sequence columns
+        day_id_col: Column name for day ID (default: "person_day_id")
         sequence_col: Column name for sequence number
             (default: "linked_trip_num")
         sequence_padding: Number of digits for padding (default: 2)
@@ -160,20 +160,20 @@ def create_linked_trip_id(
 
 def create_tour_ids(
     linked_trips: pl.DataFrame,
-    day_id_col: str = "day_id",
+    day_id_col: str = "person_day_id",
     tour_num_col: str = "tour_num",
     subtour_num_col: str = "subtour_num",
 ) -> pl.DataFrame:
-    """Create tour_id and parent_tour_id from day_id and tour numbers.
+    """Create tour_id and parent_tour_id from person_day_id and tour numbers.
 
-    Creates hierarchical tour identifiers by combining day_id with tour_num
+    Creates hierarchical tour identifiers by combining person_day_id with tour_num
     and subtour_num. The tour_id includes both tour and subtour information,
     while parent_tour_id only includes the tour number (for linking subtours
     to their parent tour).
 
     Args:
-        linked_trips: Input DataFrame containing day_id and tour number columns
-        day_id_col: Column name for day ID (default: "day_id")
+        linked_trips: Input DataFrame containing person_day_id and tour number columns
+        day_id_col: Column name for day ID (default: "person_day_id")
         tour_num_col: Column name for tour number (default: "tour_num")
         subtour_num_col: Column name for subtour number
             (default: "subtour_num")
@@ -213,3 +213,39 @@ def create_tour_ids(
     linked_trips = linked_trips.drop("_tour_id_suffix", "_parent_tour_id_suffix")
 
     return linked_trips
+
+
+def create_household_days(person_days: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Build the household-day table from person-days, and put ``hh_day_id`` on each.
+
+    A household-day is one household's travel date: every member's day on it.
+    Its id is ``hh_id * 100 + day_num``, the household-level twin of the
+    person-day id (``person_id * 100 + day_num``), so a household's day numbers
+    must name its dates one to one. A survey whose members number the same date
+    differently, or reuse a number for two dates, would have its household-days
+    merged or split by the encoding, so that raises rather than guessing.
+
+    Args:
+        person_days: Person-days with ``hh_id``, ``day_num`` and ``travel_date``.
+
+    Returns:
+        The person-days with ``hh_day_id`` added, and one row per household-day
+        holding ``hh_day_id``, ``hh_id`` and ``travel_date``.
+
+    Raises:
+        ValueError: If a household's day numbers and dates are not one to one.
+    """
+    pairs = person_days.select("hh_id", "day_num", "travel_date").unique()
+    for key, other in (("day_num", "travel_date"), ("travel_date", "day_num")):
+        clashes = pairs.group_by("hh_id", key).agg(pl.len().alias("_n")).filter(pl.col("_n") > 1)
+        if not clashes.is_empty():
+            msg = (
+                f"{clashes.height} household {key}(s) map to more than one {other}, so "
+                f"hh_id * 100 + day_num cannot name household-days. First: "
+                f"{clashes.head(3).select('hh_id', key).to_dicts()}"
+            )
+            raise ValueError(msg)
+
+    hh_day_id = (pl.col("hh_id") * 100 + pl.col("day_num")).cast(pl.Int64).alias("hh_day_id")
+    household_days = pairs.select(hh_day_id, "hh_id", "travel_date").sort("hh_day_id")
+    return person_days.with_columns(hh_day_id), household_days

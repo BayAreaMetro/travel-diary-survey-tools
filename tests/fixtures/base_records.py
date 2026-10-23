@@ -130,7 +130,7 @@ def create_person(
     work_mode: Mode | None = None,
     is_proxy: bool | None = None,
     num_complete_days: int = 0,
-    days: list[dict] | None = None,
+    person_days: list[dict] | None = None,
     usable: bool = True,
     **overrides,
 ) -> dict:
@@ -171,7 +171,7 @@ def create_person(
         work_mode: Usual work mode enum (optional, for Daysim)
         is_proxy: Is proxy interview (optional, for Daysim)
         num_complete_days: Number of complete days (default 0, for Daysim)
-        days: Day records to compute num_complete_days from (optional)
+        person_days: Day records to compute num_complete_days from (optional)
         usable: The usability verdict cascade_completeness stamps. Formatters
             read it rather than deriving a criterion of their own.
         **overrides: Override any default values
@@ -224,8 +224,8 @@ def create_person(
     record["school_maz"] = school_maz
 
     # Compute num_days_complete from days if provided
-    if days is not None:
-        num_complete_days = sum(1 for day in days if day.get("survey_complete", False))
+    if person_days is not None:
+        num_complete_days = sum(1 for day in person_days if day.get("survey_complete", False))
 
     # Always include DaySim-specific fields with sensible defaults
 
@@ -267,7 +267,7 @@ def create_person(
 
 
 def create_day(
-    day_id: int = 1,
+    person_day_id: int = 1,
     person_id: int = 101,
     hh_id: int = 1,
     person_num: int = 1,
@@ -276,7 +276,7 @@ def create_day(
     travel_dow: TravelDow = TravelDow.MONDAY,
     survey_complete: bool = True,
     num_trips: int = 0,
-    day_weight: float = 1.0,
+    person_day_weight: float = 1.0,
     usable: bool = True,
     **overrides,
 ) -> dict:
@@ -287,7 +287,7 @@ def create_day(
     DaySim formatting which requires day-level data.
 
     Args:
-        day_id: Day ID
+        person_day_id: Day ID
         person_id: Person ID
         hh_id: Household ID
         person_num: Person number within household (for DaySim)
@@ -296,7 +296,7 @@ def create_day(
         travel_dow: Day of week enum
         survey_complete: Day complete (person at home at start/end)
         num_trips: Number of trips on this day
-        day_weight: Day expansion factor (for DaySim)
+        person_day_weight: Day expansion factor (for DaySim)
         usable: The usability verdict cascade_completeness stamps. Formatters
             read it rather than deriving a criterion of their own.
         **overrides: Override any default values
@@ -308,16 +308,17 @@ def create_day(
         travel_date = datetime.now(tz=UTC).date()
 
     record = {
-        "day_id": day_id,
+        "person_day_id": person_day_id,
         "person_id": person_id,
         "hh_id": hh_id,
+        "hh_day_id": hh_id * 100 + day_num,
         "person_num": person_num,
         "day_num": day_num,
         "travel_date": travel_date,
         "travel_dow": travel_dow.value,
         "survey_complete": survey_complete,
         "num_trips": num_trips,
-        "day_weight": day_weight,
+        "person_day_weight": person_day_weight,
     }
 
     record["usable_test"] = usable

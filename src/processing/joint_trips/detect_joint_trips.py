@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 def _create_empty_results(
     linked_trips: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
 ) -> dict[str, pl.DataFrame]:
     """Create empty result structure when no joint trips are detected."""
     linked_trips_with_joints = linked_trips.with_columns(
@@ -38,7 +38,7 @@ def _create_empty_results(
         schema={
             "joint_trip_id": pl.Int64,
             "hh_id": pl.Int64,
-            "travel_date": days.schema["travel_date"],
+            "travel_date": person_days.schema["travel_date"],
             "num_joint_travelers": pl.Int64,
         }
     )
@@ -184,7 +184,7 @@ def _assign_joint_trip_ids(
 @step(
     requires={
         "linked_trips": {
-            "day_id",
+            "person_day_id",
             "o_lat",
             "o_lon",
             "d_lat",
@@ -192,17 +192,17 @@ def _assign_joint_trip_ids(
             "depart_time",
             "arrive_time",
         },
-        "days": {"day_id", "travel_date"},
+        "person_days": {"person_day_id", "hh_day_id", "travel_date"},
     },
     produces={
         "linked_trips": {"joint_trip_id"},
-        "joint_trips": {"joint_trip_id", "hh_id", "travel_date"},
+        "joint_trips": {"joint_trip_id", "hh_id", "hh_day_id", "travel_date"},
     },
 )
 def detect_joint_trips(
     linked_trips: pl.DataFrame,
     households: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     matching: JointTripConfig,
 ) -> dict[str, pl.DataFrame]:
     """Detect joint trips among household members using similarity matching.
@@ -215,7 +215,7 @@ def detect_joint_trips(
         linked_trips: Journey records with coordinates and timing. Required columns:
             linked_trip_id, hh_id, person_id, o/d coordinates, depart/arrive times.
         households: Household table for pre-filtering.
-        days: Days with ``travel_date``; trips are paired only within one
+        person_days: Days with ``travel_date``; trips are paired only within one
             household date, and each joint trip records it.
         matching: How trips are matched: the method and its thresholds, from
             the config's ``matching:`` block. See ``JointTripConfig``.
@@ -300,14 +300,14 @@ def detect_joint_trips(
 
     # Pre-filter to household with 2+ persons, each trip on its travel date
     candidate_trips = _filter_multi_person_households(linked_trips).join(
-        days.select("day_id", "travel_date"), on="day_id", how="left"
+        person_days.select("person_day_id", "travel_date"), on="person_day_id", how="left"
     )
 
     if len(candidate_trips) == 0:
         logger.warning(
             "No multi-person households found. No joint trips possible, returning empty results."
         )
-        return _create_empty_results(linked_trips, days)
+        return _create_empty_results(linked_trips, person_days)
 
     # Create trip pairs and apply filters
     trip_pairs = _create_and_filter_trip_pairs(candidate_trips)
@@ -317,7 +317,7 @@ def detect_joint_trips(
             "No temporally overlapping trip pairs found. "
             "No joint trips detected, consider checking data quality."
         )
-        return _create_empty_results(linked_trips, days)
+        return _create_empty_results(linked_trips, person_days)
 
     # Compute pairwise distances
     trip_pairs = compute_pairwise_distances(trip_pairs)
@@ -341,7 +341,7 @@ def detect_joint_trips(
             "No joint trips detected. Consider relaxing thresholds or "
             "checking data quality (GPS accuracy, time synchronization)."
         )
-        return _create_empty_results(linked_trips, days)
+        return _create_empty_results(linked_trips, person_days)
 
     # Detect joint trips using clique detection
     clique_assignments, flagged_conflicts = detect_disjoint_cliques(
@@ -370,7 +370,7 @@ def detect_joint_trips(
 
     # Build joint_trips aggregation table
     joint_trips_table = build_joint_trips_table(
-        linked_trips_with_joints, joint_trip_assignments, days
+        linked_trips_with_joints, joint_trip_assignments, person_days
     )
 
     # Validate against num_travelers (optional logging)

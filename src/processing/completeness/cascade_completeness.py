@@ -13,13 +13,15 @@ from .usable_cascade import stamp_usable
 
 @step(
     requires={
-        "days": {"day_id", "hh_id", "travel_date", "survey_complete"},
-        "tours": {"tour_id", "day_id", "survey_complete"},
+        "household_days": {"hh_day_id", "hh_id"},
+        "person_days": {"person_day_id", "hh_id", "hh_day_id", "survey_complete"},
+        "tours": {"tour_id", "person_day_id", "survey_complete"},
     },
     produces={
         "households": {"survey_complete", "usable_<profile>"},
         "persons": {"survey_complete", "usable_<profile>"},
-        "days": {"hh_day_survey_complete", "usable_<profile>", "hh_day_<profile>"},
+        "household_days": {"survey_complete", "usable_<profile>"},
+        "person_days": {"usable_<profile>"},
         "unlinked_trips": {"survey_complete", "usable_<profile>", "joint_tour_id_<profile>"},
         "linked_trips": {
             "survey_complete",
@@ -35,7 +37,8 @@ from .usable_cascade import stamp_usable
 def cascade_completeness(
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
-    days: pl.DataFrame | None = None,
+    household_days: pl.DataFrame | None = None,
+    person_days: pl.DataFrame | None = None,
     unlinked_trips: pl.DataFrame | None = None,
     linked_trips: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
@@ -52,7 +55,7 @@ def cascade_completeness(
     tour extraction):
 
     * ``survey_complete`` -- survey reporting completeness, cascaded hh <-> person <->
-      day <-> trip/tour. Never narrowed by model criteria, and never
+      day <-> trip/tour, and over household-days. Never narrowed by model criteria, and never
       configurable: if it is wrong the fix belongs upstream in the cleaner.
     * one column per usability profile -- the subset of ``survey_complete`` that
       profile admits.
@@ -93,7 +96,8 @@ def cascade_completeness(
     Args:
         households: Canonical households.
         persons: Canonical persons.
-        days: Canonical person-days.
+        household_days: Canonical household-days, built by the project cleaner.
+        person_days: Canonical person-days.
         unlinked_trips: Canonical unlinked trips.
         linked_trips: Canonical linked trips.
         joint_trips: Aggregated joint trips.
@@ -129,7 +133,8 @@ def cascade_completeness(
     tables: dict[str, pl.DataFrame | None] = {
         "households": households,
         "persons": persons,
-        "days": days,
+        "household_days": household_days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "joint_trips": joint_trips,

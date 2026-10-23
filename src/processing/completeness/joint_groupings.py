@@ -292,7 +292,7 @@ def _join_parent_verdicts(
 ) -> tuple[pl.DataFrame, pl.Expr]:
     """Join the usable flag of *df*'s household as ``_parent_usable``.
 
-    The household is the only record a grouping belongs to. The ``day_id`` a
+    The household is the only record a grouping belongs to. The ``person_day_id`` a
     joint table carries is one traveller's day, picked as a representative when
     the grouping was built, so it is not inherited: the members already carry
     their own days' verdicts, and the count of usable members is what decides.

@@ -93,8 +93,8 @@ logger = logging.getLogger(__name__)
     requires={
         "households": {"hh_id", "usable_<profile>"},
         "persons": {"person_id", "hh_id"},
-        "days": {"day_id", "person_id"},
-        "unlinked_trips": {"unlinked_trip_id", "day_id", "linked_trip_id"},
+        "person_days": {"person_day_id", "person_id"},
+        "unlinked_trips": {"unlinked_trip_id", "person_day_id", "linked_trip_id"},
         "linked_trips": {"linked_trip_id", "tour_id", "joint_trip_id"},
         "tours": {"tour_id", "joint_tour_id"},
         "joint_trips": {"joint_trip_id"},
@@ -103,7 +103,7 @@ logger = logging.getLogger(__name__)
     produces={
         "households": {"hh_weight_<profile>"},
         "persons": {"person_weight_<profile>"},
-        "days": {"day_weight_<profile>"},
+        "person_days": {"person_day_weight_<profile>"},
         "unlinked_trips": {"unlinked_trip_weight_<profile>"},
         "linked_trips": {"linked_trip_weight_<profile>"},
         "tours": {"tour_weight_<profile>"},
@@ -117,7 +117,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     canonical_data: CanonicalData | None = None,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
-    days: pl.DataFrame | None = None,
+    person_days: pl.DataFrame | None = None,
     unlinked_trips: pl.DataFrame | None = None,
     linked_trips: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
@@ -143,8 +143,8 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
         hh_weight
           └─ person_weight        (carry forward via hh_id)
-              └─ day_weight        (split: person_weight / n_usable_days)
-                  └─ unlinked_trip_weight  (carry forward via day_id)
+              └─ person_day_weight        (split: person_weight / n_usable_days)
+                  └─ unlinked_trip_weight  (carry forward via person_day_id)
                       ├─ linked_trip_weight   (mean agg via linked_trip_id)
                       │   └─ joint_trip_weight (SUM agg via joint_trip_id)
                       └─ tour_weight          (mean agg via tour_id)
@@ -180,7 +180,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         weights: A dict mapping config keys to weight file paths.
             Each entry specifies a weight CSV to load.  Supported config
             keys: ``hh_weight``, ``person_weight``,
-            ``day_weight``, ``unlinked_trip_weight``,
+            ``person_day_weight``, ``unlinked_trip_weight``,
             ``linked_trip_weight``, ``joint_trip_weight``,
             ``tour_weight``, ``joint_tour_weight``.
 
@@ -199,7 +199,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
             config cannot be model fields.
         households: Households DataFrame.
         persons: Persons DataFrame.
-        days: Days DataFrame.
+        person_days: Days DataFrame.
         unlinked_trips: Unlinked trips DataFrame.
         linked_trips: Linked trips DataFrame.
         tours: Tours DataFrame.
@@ -234,7 +234,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     tables = collect_tables(
         households=households,
         persons=persons,
-        days=days,
+        person_days=person_days,
         unlinked_trips=unlinked_trips,
         linked_trips=linked_trips,
         joint_trips=joint_trips,
@@ -343,7 +343,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
             and households_df is not None
             and flag in households_df.columns
         )
-        days_follow = "days" in population and "persons" in population
+        days_follow = "person_days" in population and "persons" in population
         if by_size or days_follow:
             mark_persons_who_can_carry(tables, has_weight, supplied.keys(), usability_flag_col=flag)
         if by_size:
@@ -360,7 +360,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         if days_follow:
             # Held person by person below, which holds the day total to the
             # person total rather than to the supplier's day total.
-            population.pop("days")
+            population.pop("person_days")
             if "persons" in population:
                 # Persons supplied without households: the older rule, within the
                 # household then region-wide.
@@ -372,7 +372,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         if persons_df is not None and CARRIES in persons_df.columns:
             tables["persons"] = persons_df.drop(CARRIES)
         if days_follow:
-            follow_parent(tables, has_weight, "days", usability_flag_col=flag)
+            follow_parent(tables, has_weight, "person_days", usability_flag_col=flag)
 
         if existing.derive_missing_weights:
             propagate_weights(
@@ -383,14 +383,14 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
                 profile=profile,
             )
 
-        if {"unlinked_trips", "days"} <= supplied.keys():
+        if {"unlinked_trips", "person_days"} <= supplied.keys():
             # Unlinked trips move with their day. Their total is not a target: a
             # dropped day's weight lands on the person's other days, whose trip
             # counts differ, so it is not held.
             trips_follow_their_day(
                 tables,
                 has_weight,
-                supplied["days"],
+                supplied["person_days"],
                 usability_flag_col=flag,
                 preserve_travel_totals=existing.preserve_travel_totals,
             )

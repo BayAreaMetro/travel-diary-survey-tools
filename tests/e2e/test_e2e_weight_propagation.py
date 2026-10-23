@@ -56,7 +56,7 @@ def _weight(table: str, profile: str) -> str:
     bases = {
         "households": "hh_weight",
         "persons": "person_weight",
-        "days": "day_weight",
+        "person_days": "person_day_weight",
     }
     return weight_col_for(bases[table], profile)
 
@@ -83,7 +83,7 @@ class TestNothingIsLost:
 class TestTheWeightsAreActuallyThere:
     """A conservation check over an empty column would pass and mean nothing."""
 
-    @pytest.mark.parametrize("table", ["households", "persons", "days"])
+    @pytest.mark.parametrize("table", ["households", "persons", "person_days"])
     def test_every_record_carries_a_weight(self, weighted, table, profile):
         """The profile's own column exists and is populated on every row."""
         column = _weight(table, profile)
@@ -108,29 +108,35 @@ class TestTheProfilesDoNotCollide:
 
     def test_the_relaxed_profile_keeps_more_records(self, weighted):
         """Otherwise the two column sets describe the same universe and prove nothing."""
-        days = weighted["days"]
-        strict_kept = days.filter(pl.col(usable_col_for(STRICT)).fill_null(value=False)).height
-        relaxed_kept = days.filter(pl.col(usable_col_for(RELAXED)).fill_null(value=False)).height
+        person_days = weighted["person_days"]
+        strict_kept = person_days.filter(
+            pl.col(usable_col_for(STRICT)).fill_null(value=False)
+        ).height
+        relaxed_kept = person_days.filter(
+            pl.col(usable_col_for(RELAXED)).fill_null(value=False)
+        ).height
         assert relaxed_kept > strict_kept
 
     def test_a_record_the_strict_gate_drops_is_weighted_by_the_relaxed_one(self, weighted):
         """The zero belongs to the profile that excluded it, not to the record."""
-        days = weighted["days"]
-        gated_out = days.filter(
+        person_days = weighted["person_days"]
+        gated_out = person_days.filter(
             ~pl.col(usable_col_for(STRICT)).fill_null(value=False)
             & pl.col(usable_col_for(RELAXED)).fill_null(value=False)
         )
         if gated_out.is_empty():
             pytest.skip("no day separates the two profiles in this run")
 
-        assert gated_out.filter(pl.col(_weight("days", STRICT)) > 0).height == 0
-        assert gated_out.filter(pl.col(_weight("days", RELAXED)) > 0).height == gated_out.height
+        assert gated_out.filter(pl.col(_weight("person_days", STRICT)) > 0).height == 0
+        assert (
+            gated_out.filter(pl.col(_weight("person_days", RELAXED)) > 0).height == gated_out.height
+        )
 
 
 def test_the_fixture_has_someone_with_several_days(weighted):
     """Guards the guard: without this the split tests below are vacuous."""
-    days = weighted["days"]
-    counts = days.group_by("person_id").agg(pl.len().alias("n_days"))
+    person_days = weighted["person_days"]
+    counts = person_days.group_by("person_id").agg(pl.len().alias("n_days"))
     assert counts.filter(pl.col("n_days") > 1).height >= 1
 
 
@@ -144,13 +150,13 @@ class TestTheSplitDividesAmongUsableDays:
     """
 
     def _multi_day(self, weighted: dict[str, pl.DataFrame]) -> pl.DataFrame:
-        days = weighted["days"]
-        counts = days.group_by("person_id").agg(pl.len().alias("n_days"))
-        return days.join(counts.filter(pl.col("n_days") > 1), on="person_id", how="inner")
+        person_days = weighted["person_days"]
+        counts = person_days.group_by("person_id").agg(pl.len().alias("n_days"))
+        return person_days.join(counts.filter(pl.col("n_days") > 1), on="person_id", how="inner")
 
     def test_a_persons_days_sum_to_their_own_weight(self, weighted, profile):
         """The split identity, stated per person rather than in aggregate."""
-        day_wt, person_wt = _weight("days", profile), _weight("persons", profile)
+        day_wt, person_wt = _weight("person_days", profile), _weight("persons", profile)
         multi = self._multi_day(weighted)
         summed = multi.group_by("person_id").agg(pl.col(day_wt).sum().alias("days_total"))
         joined = summed.join(weighted["persons"].select("person_id", person_wt), on="person_id")
@@ -161,18 +167,20 @@ class TestTheSplitDividesAmongUsableDays:
 
     def test_a_dropped_day_carries_no_weight(self, weighted, profile):
         """Its share moves to the days that survived, rather than disappearing."""
-        unusable = weighted["days"].filter(~pl.col(usable_col_for(profile)).fill_null(value=False))
+        unusable = weighted["person_days"].filter(
+            ~pl.col(usable_col_for(profile)).fill_null(value=False)
+        )
         if unusable.is_empty():
             pytest.skip(f"no day was gated out by {profile} in this run")
 
-        assert unusable.filter(pl.col(_weight("days", profile)) > 0).height == 0
+        assert unusable.filter(pl.col(_weight("person_days", profile)) > 0).height == 0
 
 
 @pytest.mark.parametrize("profile", PROFILES)
 class TestTheGateDecidesWhoCarriesWeight:
     """Weight follows the usability flag the run was given, not completeness."""
 
-    @pytest.mark.parametrize("table", ["persons", "days"])
+    @pytest.mark.parametrize("table", ["persons", "person_days"])
     def test_no_unusable_record_carries_weight(self, weighted, table, profile):
         """Each profile's zeros line up with that profile's own verdict."""
         unusable = weighted[table].filter(~pl.col(usable_col_for(profile)).fill_null(value=False))
@@ -186,7 +194,7 @@ class TestTheGateDecidesWhoCarriesWeight:
 _ALL_WEIGHTS = {
     "households": "hh_weight",
     "persons": "person_weight",
-    "days": "day_weight",
+    "person_days": "person_day_weight",
     "unlinked_trips": "unlinked_trip_weight",
     "linked_trips": "linked_trip_weight",
     "tours": "tour_weight",

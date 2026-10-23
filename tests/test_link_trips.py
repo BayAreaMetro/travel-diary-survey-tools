@@ -48,12 +48,12 @@ def _leg(
     o: tuple[float, float] = HOME_COORD,
     d: tuple[float, float] = STOP_COORD,
     person_id: int = 100,
-    day_id: int = 10001,
+    person_day_id: int = 10001,
     num_travelers: int | None = 1,
 ) -> dict:
     """One unlinked trip, carrying only the columns ``link_trip_ids`` reads."""
     return {
-        "day_id": day_id,
+        "person_day_id": person_day_id,
         "person_id": person_id,
         "depart_time": depart,
         "arrive_time": arrive,
@@ -138,8 +138,8 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 30), CHANGE_MODE, person_id=100, day_id=10001),
-                _leg(_at(8, 5), _at(8, 35), CHANGE_MODE, person_id=200, day_id=20001),
+                _leg(_at(8, 0), _at(8, 30), CHANGE_MODE, person_id=100, person_day_id=10001),
+                _leg(_at(8, 5), _at(8, 35), CHANGE_MODE, person_id=200, person_day_id=20001),
             ],
             100,
             2,
@@ -175,10 +175,10 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 30), WORK, day_id=10001, o=HOME_COORD, d=WORK_COORD),
-                _leg(_at(9, 0), _at(9, 30), SHOP, day_id=10001, o=WORK_COORD, d=STOP_COORD),
-                _leg(_at(8, 0, day=2), _at(8, 30, day=2), WORK, day_id=10002, d=WORK_COORD),
-                _leg(_at(9, 0, day=2), _at(9, 30, day=2), SHOP, day_id=10002, o=WORK_COORD),
+                _leg(_at(8, 0), _at(8, 30), WORK, person_day_id=10001, o=HOME_COORD, d=WORK_COORD),
+                _leg(_at(9, 0), _at(9, 30), SHOP, person_day_id=10001, o=WORK_COORD, d=STOP_COORD),
+                _leg(_at(8, 0, day=2), _at(8, 30, day=2), WORK, person_day_id=10002, d=WORK_COORD),
+                _leg(_at(9, 0, day=2), _at(9, 30, day=2), SHOP, person_day_id=10002, o=WORK_COORD),
             ],
             100,
             4,
@@ -208,7 +208,7 @@ def test_empty_dataframe():
     # Create empty dataframe with explicit dtypes to avoid null dtype issues
     trips = pl.DataFrame(
         schema={
-            "day_id": pl.Int64,
+            "person_day_id": pl.Int64,
             "person_id": pl.Int64,
             "depart_time": pl.Datetime,
             "arrive_time": pl.Datetime,
@@ -338,7 +338,7 @@ def _segments(
             "linked_trip_num": [1] * n,
             "person_id": [100] * n,
             "hh_id": [10] * n,
-            "day_id": [10001] * n,
+            "person_day_id": [10001] * n,
             "depart_time": [depart for depart, _ in times],
             "arrive_time": [arrive for _, arrive in times],
             "travel_dow": [1] * n,
@@ -496,7 +496,7 @@ def test_end_to_end_linking():
     trips = pl.DataFrame(
         {
             "unlinked_trip_id": [1, 2, 3],
-            "day_id": [10001, 10001, 10001],
+            "person_day_id": [10001, 10001, 10001],
             "person_id": [100, 100, 100],
             "hh_id": [10, 10, 10],
             "depart_time": [_at(8, 0), _at(8, 15), _at(17, 0)],
@@ -572,13 +572,13 @@ def test_end_to_end_linking():
 
 
 def test_multiple_trips_same_day():
-    """Should handle multiple trips with same day_id correctly."""
-    # Multiple trips sharing the same day_id is normal in trip table
-    trips = pl.DataFrame({"day_id": [10001, 10001, 10001], "linked_trip_num": [1, 2, 3]})
+    """Should handle multiple trips with same person_day_id correctly."""
+    # Multiple trips sharing the same person_day_id is normal in trip table
+    trips = pl.DataFrame({"person_day_id": [10001, 10001, 10001], "linked_trip_num": [1, 2, 3]})
 
     result = create_linked_trip_id(trips)
 
-    # Unique ids come from combining day_id with the sequence number
+    # Unique ids come from combining person_day_id with the sequence number
     assert result["linked_trip_id"].to_list() == [1000101, 1000102, 1000103]
 
 
@@ -586,7 +586,7 @@ def test_tour_id_with_duplicate_day_id():
     """A subtour shares its day and tour number, and differs in the suffix."""
     trips = pl.DataFrame(
         {
-            "day_id": [10001, 10001, 10001],
+            "person_day_id": [10001, 10001, 10001],
             "linked_trip_id": [1, 2, 3],
             "tour_num": [1, 1, 1],
             "subtour_num": [0, 1, 0],

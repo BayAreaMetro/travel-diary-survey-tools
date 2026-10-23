@@ -13,8 +13,8 @@ groupings; both directions are edges of one tree.
 |-----------|------------------------|-----------------------------------------
 |households |``hh_weight``           |Anchor -- from the balancer, or supplied
 |persons    |``person_weight``       |Down from ``hh_weight`` via ``hh_id``
-|days       |``day_weight``          |Split: ``person_weight / n_usable_days``
-|unlinked   |``unlinked_trip_weight``|Down from ``day_weight`` via ``day_id``
+|days       |``person_day_weight``          |Split: ``person_weight / n_usable_days``
+|unlinked   |``unlinked_trip_weight``|Down from ``person_day_weight`` via ``person_day_id``
 |linked     |``linked_trip_weight``  |Up: mean of member ``unlinked_trip_weight``
 |tours      |``tour_weight``         |Up: mean of member ``linked_trip_weight``
 |joint trips|``joint_trip_weight``   |Up: **sum** of member ``linked_trip_weight``
@@ -210,8 +210,8 @@ HIERARCHY: tuple[Level, ...] = (
         scope="hh_id",
     ),
     Level(
-        table="days",
-        weight_col="day_weight",
+        table="person_days",
+        weight_col="person_day_weight",
         means=(
             "Person-days represented by this record. A person's usable days sum to "
             "their person weight, the average-day convention, so a day is a share of "
@@ -228,9 +228,9 @@ HIERARCHY: tuple[Level, ...] = (
         table="unlinked_trips",
         weight_col="unlinked_trip_weight",
         means="Unlinked trips (single vehicle or mode segments) represented.",
-        parent="days",
+        parent="person_days",
         flow=Flow.DOWN,
-        scope="day_id",
+        scope="person_day_id",
     ),
     Level(
         table="linked_trips",
@@ -238,7 +238,7 @@ HIERARCHY: tuple[Level, ...] = (
         means="Linked trips (whole origin-to-destination journeys) represented.",
         parent="unlinked_trips",
         flow=Flow.UP,
-        scope="day_id",
+        scope="person_day_id",
     ),
     Level(
         table="joint_trips",
@@ -259,7 +259,7 @@ HIERARCHY: tuple[Level, ...] = (
         means="Tours represented by this record.",
         parent="linked_trips",
         flow=Flow.UP,
-        scope="day_id",
+        scope="person_day_id",
     ),
     Level(
         table="joint_tours",

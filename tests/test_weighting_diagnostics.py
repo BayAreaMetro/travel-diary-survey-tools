@@ -383,26 +383,28 @@ class TestAllPairs:
 class TestInheritance:
     """How a level's weight descends from its parent, and by what mechanism."""
 
-    def _tables(self, *, trips, days, day_of_trip=None):
+    def _tables(self, *, trips, person_days, day_of_trip=None):
         """A days table and a trips table, trips mapped to days by *day_of_trip*."""
         ids = day_of_trip if day_of_trip is not None else list(range(len(trips)))
         return {
-            "days": pl.DataFrame({"day_id": list(range(len(days))), "dw": days}),
-            "unlinked_trips": pl.DataFrame({"day_id": ids, "tw": trips}),
+            "person_days": pl.DataFrame(
+                {"person_day_id": list(range(len(person_days))), "dw": person_days}
+            ),
+            "unlinked_trips": pl.DataFrame({"person_day_id": ids, "tw": trips}),
         }
 
     def _set(self):
         return WeightSet(
-            name="v", label="v", columns={"days": "dw", "unlinked_trips": "tw"}, fitted=False
+            name="v", label="v", columns={"person_days": "dw", "unlinked_trips": "tw"}, fitted=False
         )
 
     def test_a_pure_copy_adds_nothing(self):
         """Every child carries its parent's weight, so the level restates its parent."""
         weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
-        (row,) = inheritance(self._tables(trips=weights, days=list(weights)), [self._set()])
+        (row,) = inheritance(self._tables(trips=weights, person_days=list(weights)), [self._set()])
 
         assert row.level == "unlinked_trips"
-        assert row.parent == "days"
+        assert row.parent == "person_days"
         assert row.share == pytest.approx(100.0)
         assert row.mode == "copied"
 
@@ -412,14 +414,15 @@ class TestInheritance:
         Two trips share each day; both are scaled together, so the level is still
         a faithful expansion of the level above.
         """
-        days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
+        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
         day_of_trip, trips = [], []
-        for i, dw in enumerate(days):
+        for i, dw in enumerate(person_days):
             factor = 1.5 if i % 3 == 0 else 1.0
             day_of_trip += [i, i]
             trips += [dw * factor, dw * factor]
         (row,) = inheritance(
-            self._tables(trips=trips, days=days, day_of_trip=day_of_trip), [self._set()]
+            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
+            [self._set()],
         )
 
         assert row.n_scopes_varying == 0
@@ -435,13 +438,14 @@ class TestInheritance:
         none. A summary that only counts departures from the parent cannot tell
         the two apart.
         """
-        days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
+        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
         day_of_trip, trips = [], []
-        for i, dw in enumerate(days):
+        for i, dw in enumerate(person_days):
             day_of_trip += [i, i]
             trips += [dw, dw * 2 if i % 5 == 0 else dw]
         (row,) = inheritance(
-            self._tables(trips=trips, days=days, day_of_trip=day_of_trip), [self._set()]
+            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
+            [self._set()],
         )
 
         assert row.n_scopes_varying == 12
@@ -450,13 +454,14 @@ class TestInheritance:
 
     def test_float_noise_is_not_an_adjustment(self):
         """Division noise must not be read as siblings on different factors."""
-        days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
+        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
         day_of_trip, trips = [], []
-        for i, dw in enumerate(days):
+        for i, dw in enumerate(person_days):
             day_of_trip += [i, i]
             trips += [dw, dw * (1 + 1e-15)]
         (row,) = inheritance(
-            self._tables(trips=trips, days=days, day_of_trip=day_of_trip), [self._set()]
+            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
+            [self._set()],
         )
 
         assert row.n_scopes_varying == 0
@@ -467,9 +472,9 @@ class TestInheritance:
         weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
         tables = {
             "persons": pl.DataFrame({"person_id": list(range(100)), "pw": weights}),
-            "days": pl.DataFrame({"person_id": list(range(100)), "dw": list(weights)}),
+            "person_days": pl.DataFrame({"person_id": list(range(100)), "dw": list(weights)}),
         }
-        weight_set = WeightSet("v", "v", {"persons": "pw", "days": "dw"}, fitted=False)
+        weight_set = WeightSet("v", "v", {"persons": "pw", "person_days": "dw"}, fitted=False)
 
         assert inheritance(tables, [weight_set]) == []
 
@@ -478,7 +483,9 @@ class TestInheritance:
         weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
         weight_set = WeightSet("v", "v", {"unlinked_trips": "tw"}, fitted=False)
 
-        assert inheritance(self._tables(trips=weights, days=list(weights)), [weight_set]) == []
+        assert (
+            inheritance(self._tables(trips=weights, person_days=list(weights)), [weight_set]) == []
+        )
 
 
 # ===========================================================================
@@ -648,7 +655,9 @@ class TestSplitIdentity:
     """Days divide their person's weight; they must sum back to it."""
 
     @staticmethod
-    def _with_days(day_weight: list[float], day_person: list[int]) -> dict[str, pl.DataFrame]:
+    def _with_days(
+        person_day_weight: list[float], day_person: list[int]
+    ) -> dict[str, pl.DataFrame]:
         tables = _tables(
             hh_usable=[True],
             hh_weight=[10.0],
@@ -656,12 +665,12 @@ class TestSplitIdentity:
             per_weight=[10.0, 10.0],
             per_hh=[1, 1],
         )
-        tables["days"] = pl.DataFrame(
+        tables["person_days"] = pl.DataFrame(
             {
-                "day_id": list(range(1, len(day_weight) + 1)),
+                "person_day_id": list(range(1, len(person_day_weight) + 1)),
                 "person_id": day_person,
-                FLAG: [True] * len(day_weight),
-                f"day_weight_{PROFILE}": day_weight,
+                FLAG: [True] * len(person_day_weight),
+                f"person_day_weight_{PROFILE}": person_day_weight,
             }
         )
         return tables

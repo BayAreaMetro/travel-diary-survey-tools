@@ -89,7 +89,7 @@ def test_format_ctramp_requires_nothing_it_does_not_read(full_result):
             "tours",
             "joint_trips",
             "joint_tours",
-            "days",
+            "person_days",
         )
     }
 

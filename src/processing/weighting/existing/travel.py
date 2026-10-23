@@ -176,26 +176,28 @@ def trips_follow_their_day(
     trips = tables["unlinked_trips"]
     if trips is None:
         return
-    trip_col, day_col = has_weight["unlinked_trips"], has_weight["days"]
+    trip_col, day_col = has_weight["unlinked_trips"], has_weight["person_days"]
     usable = is_usable(usability_flag_col)
     claim = pl.col(trip_col).fill_null(0.0)
 
     factors = (
-        tables["days"]  # type: ignore[union-attr]
-        .select("day_id", pl.col(day_col).fill_null(0.0).alias("_day_final"))
+        tables["person_days"]  # type: ignore[union-attr]
+        .select("person_day_id", pl.col(day_col).fill_null(0.0).alias("_day_final"))
         .join(
-            supplied_days.select("day_id", pl.col("day_weight").alias("_day_supplied")),
-            on="day_id",
+            supplied_days.select(
+                "person_day_id", pl.col("person_day_weight").alias("_day_supplied")
+            ),
+            on="person_day_id",
             how="left",
         )
     )
-    trips = trips.join(factors, on="day_id", how="left")
+    trips = trips.join(factors, on="person_day_id", how="left")
 
     orphaned = trips.filter((claim > 0) & (pl.col("_day_supplied").fill_null(0.0) <= 0))
     if orphaned.height:
         msg = (
             f"{orphaned.height} unlinked_trips record(s) carry a supplied {trip_col} but "
-            f"their day has a supplied day_weight of 0 or none, so there is no day factor "
+            f"their day has a supplied person_day_weight of 0 or none, so there is no day factor "
             f"to scale them by. Sample unlinked_trip_id: "
             f"{orphaned['unlinked_trip_id'].head(10).to_list()}."
         )
@@ -204,10 +206,10 @@ def trips_follow_their_day(
 
     move = pl.lit(1.0)
     if preserve_travel_totals:
-        within_day = trips.group_by("day_id").agg(
+        within_day = trips.group_by("person_day_id").agg(
             claim.sum().alias("_claim"), claim.filter(usable).sum().alias("_usable_claim")
         )
-        trips = trips.join(within_day, on="day_id", how="left")
+        trips = trips.join(within_day, on="person_day_id", how="left")
         move = pl.col("_claim") / pl.col("_usable_claim")
 
     trips = trips.with_columns(
