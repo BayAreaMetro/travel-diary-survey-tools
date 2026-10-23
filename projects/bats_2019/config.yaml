@@ -426,6 +426,7 @@ steps:
         # Standard Survey Formats
         households: "{{ output_dir }}/survey/households_2019.csv"
         persons: "{{ output_dir }}/survey/persons_2019.csv"
+        household_days: "{{ output_dir }}/survey/household_days_2019.csv"
         person_days: "{{ output_dir }}/survey/person_days_2019.csv"
         unlinked_trips: "{{ output_dir }}/survey/unlinked_trips_2019.csv"
         linked_trips: "{{ output_dir }}/survey/linked_trips_2019.csv"
