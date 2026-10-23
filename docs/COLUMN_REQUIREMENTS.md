@@ -76,22 +76,31 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `usable_<profile>` | named by config |  |  |  |  | + |  |  |  |  |
     | `work_<zone>` | named by config |  |  |  | + |  |  |  |  |  |
 
-=== "days"
+=== "household_days"
+
+    | Field | Type | Constraints | cascade_completeness |
+    | --- | --- | --- | --- |
+    | `hh_day_id` | int | ≥ 1, UNIQUE | ✓ |
+    | `hh_id` | int | ≥ 1, FK → `households.hh_id` | ✓ |
+    | `travel_date` | datetime |  |  |
+    | `survey_complete` | bool or None |  | + |
+    | `usable_<profile>` | named by config |  | + |
+
+=== "person_days"
 
     | Field | Type | Constraints | imputation | detect_habitual_locations | detect_joint_trips | extract_tours | cascade_completeness | compute_weights | format_ctramp | format_daysim | add_existing_weights |
     | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
     | `person_id` | int | ≥ 1, FK → `persons.person_id`, REQ_CHILD |  |  |  |  |  | ✓ | ✓ |  | ✓ |
-    | `day_id` | int | ≥ 1, UNIQUE |  | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |
+    | `person_day_id` | int | ≥ 1, UNIQUE |  | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  | ✓ |
     | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  | ✓ |  | ✓ |  |  |
-    | `travel_date` | datetime |  |  |  | ✓ | ✓ | ✓ |  | ✓ |  |  |
+    | `hh_day_id` | int | ≥ 1, FK → `household_days.hh_day_id` |  |  | ✓ | ✓ | ✓ |  | ✓ |  |  |
+    | `travel_date` | datetime |  |  |  | ✓ | ✓ |  |  |  |  |  |
     | `travel_dow` | TravelDow |  |  |  |  |  |  |  |  | ✓ |  |
     | `begin_day` | BeginEndDay or None |  |  | ✓ |  | ✓ |  |  |  |  |  |
     | `end_day` | BeginEndDay or None |  |  | ✓ |  | ✓ |  |  |  |  |  |
     | `survey_complete` | bool or None |  |  |  |  |  | ✓ |  |  |  |  |
-    | `hh_day_survey_complete` | bool or None |  |  |  |  |  | + |  |  |  |  |
     | `<column>_preimputed` | named by config |  | + |  |  |  |  |  |  |  |  |
-    | `day_weight_<profile>` | named by config |  |  |  |  |  |  | + |  |  | + |
-    | `hh_day_<profile>` | named by config |  |  |  |  |  | + |  |  |  |  |
+    | `person_day_weight_<profile>` | named by config |  |  |  |  |  |  | + |  |  | + |
     | `usable_<profile>` | named by config |  |  |  |  |  | + |  |  |  |  |
 
 === "unlinked_trips"
@@ -99,7 +108,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | Field | Type | Constraints | imputation | link_trips | extract_tours | add_zone_ids | cascade_completeness | compute_weights | format_daysim | add_existing_weights |
     | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
     | `unlinked_trip_id` | int | ≥ 1, UNIQUE |  |  |  | ✓ |  | ✓ |  | ✓ |
-    | `day_id` | int | ≥ 1, FK → `days.day_id` |  | ✓ | ✓ |  |  | ✓ |  | ✓ |
+    | `person_day_id` | int | ≥ 1, FK → `person_days.person_day_id` |  | ✓ | ✓ |  |  | ✓ |  | ✓ |
     | `person_id` | int | ≥ 1, FK → `persons.person_id` |  |  |  |  |  |  |  |  |
     | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  |  |  |  |
     | `linked_trip_id` | int | ≥ 1, FK → `linked_trips.linked_trip_id` |  | + | ✓ |  |  | ✓ |  | ✓ |
@@ -137,9 +146,9 @@ Each tab shows the fields for one canonical table. Only steps that reference the
 
     | Field | Type | Constraints | imputation | link_trips | detect_habitual_locations | detect_joint_trips | extract_tours | add_zone_ids | cascade_completeness | compute_weights | format_ctramp | format_daysim | add_existing_weights |
     | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-    | `day_id` | int | ≥ 1, FK → `days.day_id` |  | + | ✓ | ✓ | ✓ |  |  |  |  |  |  |
+    | `person_day_id` | int | ≥ 1, FK → `person_days.person_day_id` |  | + | ✓ | ✓ | ✓ |  |  |  |  |  |  |
     | `person_id` | int | ≥ 1, FK → `persons.person_id` |  | + | ✓ |  |  |  |  |  |  |  |  |
-    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  | + |  |  |  |  |  |  | ✓ |  |  |
+    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  | + |  |  |  |  |  |  |  |  |  |
     | `linked_trip_id` | int | ≥ 1, UNIQUE |  | + | ✓ |  |  | ✓ |  | ✓ | ✓ |  | ✓ |
     | `joint_trip_id` | int or None | ≥ 1, FK → `joint_trips.joint_trip_id` |  |  |  | + | ✓ |  |  | ✓ |  |  | ✓ |
     | `tour_id` | int | ≥ 1, FK → `tours.tour_id` |  |  |  |  | + |  |  | ✓ | ✓ | ✓ | ✓ |
@@ -188,9 +197,9 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | Field | Type | Constraints | imputation | extract_tours | add_zone_ids | cascade_completeness | compute_weights | format_ctramp | format_daysim | add_existing_weights |
     | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
     | `tour_id` | int | ≥ 1, UNIQUE |  | + | ✓ | ✓ | ✓ | ✓ |  | ✓ |
-    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  | ✓ |  |  |
+    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |  |  |  |  |
     | `person_id` | int | ≥ 1, FK → `persons.person_id` |  |  |  |  |  |  |  |  |
-    | `day_id` | int | ≥ 1, FK → `days.day_id` |  |  |  | ✓ |  |  |  |  |
+    | `person_day_id` | int | ≥ 1, FK → `person_days.person_day_id` |  |  |  | ✓ |  |  |  |  |
     | `tour_num` | int | ≥ 1 |  |  |  |  |  |  |  |  |
     | `subtour_num` | int | ≥ 0 |  |  |  |  |  | ✓ |  |  |
     | `parent_tour_id` | int | ≥ 1, FK → `tours.tour_id` |  |  |  |  |  | ✓ |  |  |
@@ -229,7 +238,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | Field | Type | Constraints | detect_joint_trips | cascade_completeness | compute_weights | format_ctramp | add_existing_weights |
     | --- | --- | --- | --- | --- | --- | --- | --- |
     | `joint_trip_id` | int | ≥ 1, UNIQUE | + |  | ✓ | ✓ | ✓ |
-    | `hh_id` | int | ≥ 1, FK → `households.hh_id` | + |  |  | ✓ |  |
+    | `hh_id` | int | ≥ 1, FK → `households.hh_id` | + |  |  |  |  |
+    | `hh_day_id` | int | ≥ 1, FK → `household_days.hh_day_id` | + |  |  | ✓ |  |
     | `travel_date` | datetime |  | + |  |  |  |  |
     | `num_joint_travelers` | int | ≥ 2 |  |  |  |  |  |
     | `survey_complete` | bool or None |  |  |  |  |  |  |
@@ -241,8 +251,9 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | Field | Type | Constraints | extract_tours | cascade_completeness | compute_weights | add_existing_weights |
     | --- | --- | --- | --- | --- | --- | --- |
     | `joint_tour_id` | int | ≥ 1, UNIQUE | + |  | ✓ | ✓ |
-    | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  |
-    | `travel_date` | datetime |  |  |  |  |  |
+    | `hh_id` | int | ≥ 1, FK → `households.hh_id` | + |  |  |  |
+    | `hh_day_id` | int | ≥ 1, FK → `household_days.hh_day_id` | + |  |  |  |
+    | `travel_date` | datetime |  | + |  |  |  |
     | `num_participants` | int | ≥ 2 |  |  |  |  |
     | `survey_complete` | bool or None |  |  |  |  |  |
     | `joint_tour_weight_<profile>` | named by config |  |  |  | + | + |
@@ -268,7 +279,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | --- | --- | --- | --- |
     | `habitual_location_id` | int | ≥ 1, FK → `habitual_locations.habitual_location_id` | + |
     | `person_id` | int | ≥ 1, FK → `persons.person_id` |  |
-    | `day_id` | int | ≥ 1, FK → `days.day_id` |  |
+    | `person_day_id` | int | ≥ 1, FK → `person_days.person_day_id` |  |
     | `location_type` | LocationType |  |  |
     | `dwell_minutes` | float or None | ≥ 0 |  |
     | `n_visits` | int | ≥ 1 |  |

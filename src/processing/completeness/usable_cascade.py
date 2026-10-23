@@ -196,7 +196,7 @@ def _flag_households(
     the profile would look like it worked, and the household would still be
     dropped and its weight zeroed.
 
-    Requires the counted table (household-days, or days) to carry the flag; one
+    Requires the counted table (household-days, or person-days) to carry the flag; one
     present but unflagged raises rather than silently passing every household.
 
     Raises:
@@ -207,13 +207,13 @@ def _flag_households(
         return
 
     base = pl.col("survey_complete").fill_null(value=False)
-    # The date-level reduction is only the rule while coherence is required.
-    counted = "household_days" if cols.needs_whole_household_day else "person_days"
-    rows = tables.get(counted)
+    # The profile's household_day_needs axis: whole household-days, or any member's day.
+    counted_over = "household_days" if cols.needs_whole_household_day else "person_days"
+    rows = tables.get(counted_over)
     if rows is not None and cols.flag not in rows.columns:
         msg = (
-            f"Cannot flag households: {counted} has no {cols.flag} column yet. Flag "
-            f"{counted} first, otherwise every household silently passes."
+            f"Cannot flag households: {counted_over} has no {cols.flag} column yet. Flag "
+            f"{counted_over} first, otherwise every household silently passes."
         )
         raise ValueError(msg)
     if rows is None or "hh_id" not in rows.columns:
