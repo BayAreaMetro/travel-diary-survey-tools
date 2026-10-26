@@ -78,7 +78,7 @@ def _flag_days(
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
 ) -> None:
-    """Stamp the usable flag on days, in place: a coherent household-date and a usable tour.
+    """Stamp the usable flag on days, in place: day of week, household-date, usable tour.
 
     A day is usable only within a complete household-day: even a genuine
     no-travel day is only a clean observation when the whole household was
@@ -86,6 +86,10 @@ def _flag_days(
     the day's own (it is an ALL over the members, which includes this one), so
     a profile admitting incomplete household-days falls back to that own
     reporting rather than dropping the term entirely.
+
+    A day of the week the profile does not take is unusable, no-travel day or
+    not; its tours and trips follow it on the way down, and a household-date
+    falling on it cannot be usable either.
 
     Requires the flag on tours; a tours table present but unflagged raises
     rather than silently passing every day.
@@ -118,6 +122,18 @@ def _flag_days(
         base = base & pl.col("_home_zone_ok").fill_null(value=False)
     else:
         home = None
+
+    # A day the profile does not take is unusable whatever was reported on it,
+    # and so is one whose day of the week is unknown.
+    if cols.limits_travel_days:
+        if "travel_dow" not in person_days.columns:
+            msg = (
+                f"usability_profile '{cols.name}' takes only some days of the week, "
+                "but person_days carries no travel_dow to tell them apart."
+            )
+            raise ValueError(msg)
+        taken = [day.value for day in cols.travel_days]
+        base = base & pl.col("travel_dow").is_in(taken).fill_null(value=False)
 
     if tours is not None and "person_day_id" in tours.columns:
         day_has_usable = tours.group_by("person_day_id").agg(

@@ -1,14 +1,16 @@
 """What a usability profile is, and how config states one.
 
-A profile answers four axes explicitly -- which home has to close a tour, what
+A profile answers five axes explicitly -- which home has to close a tour, what
 the household-date has to show, which zone system has to hold every one of the
-record's locations, and what a joint tour has to be. Nothing here touches a
+record's locations, what a joint tour has to be, and which days of the week it
+takes. Nothing here touches a
 table; it is the vocabulary the rest of the package is written against.
 """
 
 from dataclasses import dataclass
 from enum import StrEnum
 
+from data_canon.codebook.days import TravelDow
 from data_canon.codebook.tours import TourDataQuality
 
 # --- Profile axes ------------------------------------------------------------
@@ -47,6 +49,14 @@ class JointTours(StrEnum):
     FULLY_JOINT = "fully_joint"  # everyone shares every leg; work/school/escort never joint
     PARTIAL = "partial"  # the groups the survey detected, as they are
 
+
+# Which days of the week a profile takes, written in config as day names
+# (``[tuesday, wednesday, thursday]``) and listed out rather than named as a set,
+# so the config says which days without the reader knowing what a set means.
+TRAVEL_DAYS_AXIS = "travel_days"
+ALL_DAYS: tuple[TravelDow, ...] = tuple(TravelDow)
+# The words config writes for each day: the codebook's names, in lower case.
+_DAY_NAMES: dict[str, TravelDow] = {day.name.lower(): day for day in TravelDow}
 
 # Which zone system has to be able to address the record. Unlike the other
 # axes this vocabulary is open: the value names a zone geography the zone step
@@ -118,9 +128,9 @@ class UsabilityProfile:
     """One usability standard, stated on every axis, and the columns it writes.
 
     A profile says which home has to close a tour, what the household-date has
-    to show, which zone system has to be able to address the record, and what a
-    joint tour has to be. Config gives all four explicitly; none may be left
-    implicit there.
+    to show, which zone system has to be able to address the record, what a
+    joint tour has to be, and which days of the week it takes. Config gives all
+    five explicitly; none may be left implicit there.
 
     Coverage is an axis rather than a universal because the zone systems differ:
     a trip outside one model's area may sit comfortably inside another's, so
@@ -149,6 +159,9 @@ class UsabilityProfile:
     # Same standing as zone_coverage: config must say it, in-process callers may
     # leave it, and leaving it asks nothing of the survey's joint groups.
     joint_tours: JointTours = JointTours.PARTIAL
+    # Same standing again: config must list the days, in-process callers may
+    # leave it, and leaving it takes every day.
+    travel_days: tuple[TravelDow, ...] = ALL_DAYS
 
     @property
     def flag(self) -> str:
@@ -184,6 +197,11 @@ class UsabilityProfile:
     def requires_fully_joint(self) -> bool:
         """Whether everyone on a joint tour must share every leg of it."""
         return self.joint_tours == JointTours.FULLY_JOINT
+
+    @property
+    def limits_travel_days(self) -> bool:
+        """Whether this profile leaves out any day of the week."""
+        return set(self.travel_days) != set(ALL_DAYS)
 
 
 # The closed axes, by the key config writes them under.
@@ -227,7 +245,8 @@ def parse_usability_profiles(spec: dict[str, dict[str, str]]) -> list[UsabilityP
             "every downstream consumer would have nothing to read. Name at least one "
             "profile, giving every axis: "
             + ", ".join(f"{axis} ({'|'.join(values)})" for axis, values in _AXES.items())
-            + f", {_ZONE_AXIS} (a zone_name add_zone_ids builds|{NO_ZONE_COVERAGE})."
+            + f", {_ZONE_AXIS} (a zone_name add_zone_ids builds|{NO_ZONE_COVERAGE})"
+            + f", {TRAVEL_DAYS_AXIS} (a list of day names: {', '.join(_DAY_NAMES)})."
         )
         raise ValueError(msg)
 
@@ -293,11 +312,14 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
         )
         raise ValueError(msg)
 
-    unknown = sorted(set(axes) - set(_AXES) - {_ZONE_AXIS})
+    travel_days = _travel_days(name, axes)
+
+    unknown = sorted(set(axes) - set(_AXES) - {_ZONE_AXIS, TRAVEL_DAYS_AXIS})
     if unknown:
         msg = (
             f"usability_profile '{name}' names unknown axis/axes: "
-            f"{', '.join(unknown)}. Known axes: {', '.join([*_AXES, _ZONE_AXIS])}."
+            f"{', '.join(unknown)}. Known axes: "
+            f"{', '.join([*_AXES, _ZONE_AXIS, TRAVEL_DAYS_AXIS])}."
         )
         raise ValueError(msg)
 
@@ -307,4 +329,40 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
         household_day_needs=HouseholdDayNeeds(chosen["household_day_needs"]),
         zone_coverage=coverage,
         joint_tours=JointTours(chosen["joint_tours"]),
+        travel_days=travel_days,
     )
+
+
+def _travel_days(name: str, axes: dict) -> tuple[TravelDow, ...]:
+    """The days a profile's config lists, in week order, or say why they cannot be read.
+
+    Raises:
+        ValueError: If the list is missing, empty, not a list, names a day that
+            does not exist, or names one twice.
+    """
+    legal = ", ".join(_DAY_NAMES)
+    if TRAVEL_DAYS_AXIS not in axes:
+        msg = (
+            f"usability_profile '{name}' does not say '{TRAVEL_DAYS_AXIS}'. Every "
+            f"profile answers every axis. List the days it takes, from: {legal}."
+        )
+        raise ValueError(msg)
+    days = axes[TRAVEL_DAYS_AXIS]
+    if not isinstance(days, list) or not days:
+        msg = (
+            f"usability_profile '{name}' sets {TRAVEL_DAYS_AXIS}: {days!r}. Give a "
+            f"list of at least one day, from: {legal}."
+        )
+        raise ValueError(msg)
+    unknown = [d for d in days if d not in _DAY_NAMES]
+    if unknown:
+        msg = (
+            f"usability_profile '{name}' lists {unknown} in {TRAVEL_DAYS_AXIS}, "
+            f"which are not days. Legal values: {legal}."
+        )
+        raise ValueError(msg)
+    repeated = sorted({d for d in days if days.count(d) > 1})
+    if repeated:
+        msg = f"usability_profile '{name}' lists {repeated} twice in {TRAVEL_DAYS_AXIS}."
+        raise ValueError(msg)
+    return tuple(sorted((_DAY_NAMES[d] for d in days), key=lambda day: day.value))
