@@ -43,7 +43,7 @@ and temporal patterns.
 
     # 5. Tour IDs and Attribute Aggregation
 
-    - ``tour_id`` is the ``day_id`` followed by four digits,
+    - ``tour_id`` is the ``person_day_id`` followed by four digits,
       ``tour_num * 1000 + subtour_num * 10``; a subtour's ``parent_tour_id`` is
       its tour's id with ``subtour_num`` 0
     - Computes tour-level attributes from constituent trips:
@@ -116,9 +116,9 @@ logger = logging.getLogger(__name__)
 @step(
     requires={
         "persons": {"person_id", "age", "employment", "student", "school_type"},
-        "unlinked_trips": {"day_id", "linked_trip_id", "depart_time", "arrive_time"},
+        "unlinked_trips": {"person_day_id", "linked_trip_id", "depart_time", "arrive_time"},
         "linked_trips": {
-            "day_id",
+            "person_day_id",
             "joint_trip_id",
             "o_purpose",
             "o_purpose_category",
@@ -136,13 +136,13 @@ logger = logging.getLogger(__name__)
             "lon",
             "source",
         },
-        "days": {"day_id", "travel_date", "begin_day", "end_day"},
+        "person_days": {"person_day_id", "hh_day_id", "travel_date", "begin_day", "end_day"},
     },
     produces={
         "unlinked_trips": {"tour_id", "joint_tour_id"},
         "linked_trips": {"tour_id", "joint_tour_id"},
         "tours": {"tour_id", "joint_tour_id"},
-        "joint_tours": {"joint_tour_id"},
+        "joint_tours": {"joint_tour_id", "hh_id", "hh_day_id", "travel_date"},
     },
 )
 def extract_tours(
@@ -150,7 +150,7 @@ def extract_tours(
     unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
     habitual_locations: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     extraction: TourConfig,
     habitual_match: MatchConfig,
     joint_trips: pl.DataFrame | None = None,
@@ -165,10 +165,10 @@ def extract_tours(
             ranked by.
         unlinked_trips: Individual trip segments. Will receive tour_id assignment.
         linked_trips: Journey records with coordinates and timing. Required columns:
-            person_id, day_id, o_lon, o_lat, d_lon, d_lat, depart_time, arrive_time.
+            person_id, person_day_id, o_lon, o_lat, d_lon, d_lat, depart_time, arrive_time.
         habitual_locations: The person's habitual locations, from
             ``detect_habitual_locations``. Read only.
-        days: Days with ``begin_day``/``end_day``. A day stated to begin or end
+        person_days: Days with ``begin_day``/``end_day``. A day stated to begin or end
             at home counts beside the trip purpose at its first origin or last
             destination.
         extraction: Tour-building rules. See ``TourConfig``.
@@ -200,7 +200,7 @@ def extract_tours(
         linked_trips,
         habitual_locations,
         habitual_match,
-        days,
+        person_days,
     ).join(person_categories, on="person_id", how="left")
 
     # Anchor flags from the habitual locations (reported + observed work/school,
@@ -277,7 +277,7 @@ def extract_tours(
 
     # Step 9: Collapse the member tours into the canonical joint_tours table, so
     # the group is a record in its own right rather than a grouping key.
-    joint_tours = build_joint_tours_table(tours, days)
+    joint_tours = build_joint_tours_table(tours, person_days)
 
     return {
         "unlinked_trips": unlinked_trips_with_tour_ids,

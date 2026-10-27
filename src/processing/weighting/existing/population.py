@@ -26,7 +26,7 @@ SCALE_TOL = 1e-9
 
 
 # Known populations: always gated and held to their supplied totals.
-POPULATION_TABLES = frozenset({"households", "persons", "days"})
+POPULATION_TABLES = frozenset({"households", "persons", "person_days"})
 
 
 def apply_usability(
@@ -137,7 +137,7 @@ def mark_persons_who_can_carry(
             Household size is the number of persons, so there is no size
             without them.
     """
-    persons, days = tables.get("persons"), tables.get("days")
+    persons, person_days = tables.get("persons"), tables.get("person_days")
     if persons is None or usability_flag_col not in persons.columns:
         msg = (
             f"Household weights are scaled by household size, which is the number of "
@@ -149,9 +149,9 @@ def mark_persons_who_can_carry(
     persons_supplied = "persons" in supplied
     if persons_supplied:
         can = can & (pl.col(has_weight["persons"]).fill_null(0.0) > 0)
-    if persons_supplied and "days" in supplied and days is not None:
-        weighted = days.filter(
-            is_usable(usability_flag_col) & (pl.col(has_weight["days"]).fill_null(0.0) > 0)
+    if persons_supplied and "person_days" in supplied and person_days is not None:
+        weighted = person_days.filter(
+            is_usable(usability_flag_col) & (pl.col(has_weight["person_days"]).fill_null(0.0) > 0)
         )
         can = can & pl.col("person_id").is_in(weighted["person_id"].unique().implode())
     persons = persons.with_columns(can.alias(CARRIES))

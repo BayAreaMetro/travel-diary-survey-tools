@@ -17,7 +17,7 @@
     input_paths:
       households: data/hh.csv
       persons: data/person.csv
-      days: data/day.csv
+      person_days: data/day.csv
       unlinked_trips: data/trip.csv
 ```
 
@@ -43,7 +43,7 @@
     output_paths:
       households: output/households.csv
       persons: output/persons.csv
-      days: output/days.csv
+      person_days: output/person_days.csv
       linked_trips: output/linked_trips.csv
       tours: output/tours.csv
 ```

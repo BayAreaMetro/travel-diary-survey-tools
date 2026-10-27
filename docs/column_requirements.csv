@@ -47,21 +47,25 @@ persons,person_weight_<profile>,named by config,,,,,,,,,+,,,+
 persons,school_<zone>,named by config,,,,,,,+,,,,,
 persons,usable_<profile>,named by config,,,,,,,,+,,,,
 persons,work_<zone>,named by config,,,,,,,+,,,,,
-days,person_id,int,≥ 1, FK → `persons.person_id`, REQ_CHILD,,,,,,,,x,x,,x
-days,day_id,int,≥ 1, UNIQUE,,,x,x,x,,x,x,x,,x
-days,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,,,x,,x,,
-days,travel_date,datetime,,,,,x,x,,x,,x,,
-days,travel_dow,TravelDow,,,,,,,,,,,x,
-days,begin_day,BeginEndDay or None,,,,x,,x,,,,,,
-days,end_day,BeginEndDay or None,,,,x,,x,,,,,,
-days,survey_complete,bool or None,,,,,,,,x,,,,
-days,hh_day_survey_complete,bool or None,,,,,,,,+,,,,
-days,<column>_preimputed,named by config,,+,,,,,,,,,,
-days,day_weight_<profile>,named by config,,,,,,,,,+,,,+
-days,hh_day_<profile>,named by config,,,,,,,,+,,,,
-days,usable_<profile>,named by config,,,,,,,,+,,,,
+household_days,hh_day_id,int,≥ 1, UNIQUE,,,,,,,x,,,,
+household_days,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,,,x,,,,
+household_days,travel_date,datetime,,,,,,,,,,,,
+household_days,survey_complete,bool or None,,,,,,,,+,,,,
+household_days,usable_<profile>,named by config,,,,,,,,+,,,,
+person_days,person_id,int,≥ 1, FK → `persons.person_id`, REQ_CHILD,,,,,,,,x,x,,x
+person_days,person_day_id,int,≥ 1, UNIQUE,,,x,x,x,,x,x,x,,x
+person_days,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,,,x,,x,,
+person_days,hh_day_id,int,≥ 1, FK → `household_days.hh_day_id`,,,,x,x,,x,,x,,
+person_days,travel_date,datetime,,,,,x,x,,,,,,
+person_days,travel_dow,TravelDow,,,,,,,,,,,x,
+person_days,begin_day,BeginEndDay or None,,,,x,,x,,,,,,
+person_days,end_day,BeginEndDay or None,,,,x,,x,,,,,,
+person_days,survey_complete,bool or None,,,,,,,,x,,,,
+person_days,<column>_preimputed,named by config,,+,,,,,,,,,,
+person_days,person_day_weight_<profile>,named by config,,,,,,,,,+,,,+
+person_days,usable_<profile>,named by config,,,,,,,,+,,,,
 unlinked_trips,unlinked_trip_id,int,≥ 1, UNIQUE,,,,,,x,,x,,,x
-unlinked_trips,day_id,int,≥ 1, FK → `days.day_id`,,x,,,x,,,x,,,x
+unlinked_trips,person_day_id,int,≥ 1, FK → `person_days.person_day_id`,,x,,,x,,,x,,,x
 unlinked_trips,person_id,int,≥ 1, FK → `persons.person_id`,,,,,,,,,,,
 unlinked_trips,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,,,,,,,
 unlinked_trips,linked_trip_id,int,≥ 1, FK → `linked_trips.linked_trip_id`,,+,,,x,,,x,,,x
@@ -94,9 +98,9 @@ unlinked_trips,joint_tour_id_<profile>,named by config,,,,,,,,+,,,,
 unlinked_trips,o_<zone>,named by config,,,,,,,+,,,,,
 unlinked_trips,unlinked_trip_weight_<profile>,named by config,,,,,,,,,+,,,+
 unlinked_trips,usable_<profile>,named by config,,,,,,,,+,,,,
-linked_trips,day_id,int,≥ 1, FK → `days.day_id`,,+,x,x,x,,,,,,
+linked_trips,person_day_id,int,≥ 1, FK → `person_days.person_day_id`,,+,x,x,x,,,,,,
 linked_trips,person_id,int,≥ 1, FK → `persons.person_id`,,+,x,,,,,,,,
-linked_trips,hh_id,int,≥ 1, FK → `households.hh_id`,,+,,,,,,,x,,
+linked_trips,hh_id,int,≥ 1, FK → `households.hh_id`,,+,,,,,,,,,
 linked_trips,linked_trip_id,int,≥ 1, UNIQUE,,+,x,,,x,,x,x,,x
 linked_trips,joint_trip_id,int or None,≥ 1, FK → `joint_trips.joint_trip_id`,,,,+,x,,,x,,,x
 linked_trips,tour_id,int,≥ 1, FK → `tours.tour_id`,,,,,+,,,x,x,x,x
@@ -140,9 +144,9 @@ linked_trips,linked_trip_weight_<profile>,named by config,,,,,,,,,+,,,+
 linked_trips,o_<zone>,named by config,,,,,,,+,,,,,
 linked_trips,usable_<profile>,named by config,,,,,,,,+,,,,
 tours,tour_id,int,≥ 1, UNIQUE,,,,,+,x,x,x,x,,x
-tours,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,,,,,x,,
+tours,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,,,,,,,
 tours,person_id,int,≥ 1, FK → `persons.person_id`,,,,,,,,,,,
-tours,day_id,int,≥ 1, FK → `days.day_id`,,,,,,,x,,,,
+tours,person_day_id,int,≥ 1, FK → `person_days.person_day_id`,,,,,,,x,,,,
 tours,tour_num,int,≥ 1,,,,,,,,,,,
 tours,subtour_num,int,≥ 0,,,,,,,,,x,,
 tours,parent_tour_id,int,≥ 1, FK → `tours.tour_id`,,,,,,,,,x,,
@@ -176,15 +180,17 @@ tours,o_<zone>,named by config,,,,,,,+,,,,,
 tours,tour_weight_<profile>,named by config,,,,,,,,,+,,,+
 tours,usable_<profile>,named by config,,,,,,,,+,,,,
 joint_trips,joint_trip_id,int,≥ 1, UNIQUE,,,,+,,,,x,x,,x
-joint_trips,hh_id,int,≥ 1, FK → `households.hh_id`,,,,+,,,,,x,,
+joint_trips,hh_id,int,≥ 1, FK → `households.hh_id`,,,,+,,,,,,,
+joint_trips,hh_day_id,int,≥ 1, FK → `household_days.hh_day_id`,,,,+,,,,,x,,
 joint_trips,travel_date,datetime,,,,,+,,,,,,,
 joint_trips,num_joint_travelers,int,≥ 2,,,,,,,,,,,
 joint_trips,survey_complete,bool or None,,,,,,,,,,,,
 joint_trips,joint_trip_weight_<profile>,named by config,,,,,,,,,+,,,+
 joint_trips,usable_<profile>,named by config,,,,,,,,+,,,,
 joint_tours,joint_tour_id,int,≥ 1, UNIQUE,,,,,+,,,x,,,x
-joint_tours,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,,,,,,,
-joint_tours,travel_date,datetime,,,,,,,,,,,,
+joint_tours,hh_id,int,≥ 1, FK → `households.hh_id`,,,,,+,,,,,,
+joint_tours,hh_day_id,int,≥ 1, FK → `household_days.hh_day_id`,,,,,+,,,,,,
+joint_tours,travel_date,datetime,,,,,,+,,,,,,
 joint_tours,num_participants,int,≥ 2,,,,,,,,,,,
 joint_tours,survey_complete,bool or None,,,,,,,,,,,,
 joint_tours,joint_tour_weight_<profile>,named by config,,,,,,,,,+,,,+
@@ -200,7 +206,7 @@ habitual_locations,source,LocationSource,,,,x,,x,,,,,,
 habitual_locations,<zone>,named by config,,,,,,,+,,,,,
 habitual_location_days,habitual_location_id,int,≥ 1, FK → `habitual_locations.habitual_location_id`,,,+,,,,,,,,
 habitual_location_days,person_id,int,≥ 1, FK → `persons.person_id`,,,,,,,,,,,
-habitual_location_days,day_id,int,≥ 1, FK → `days.day_id`,,,,,,,,,,,
+habitual_location_days,person_day_id,int,≥ 1, FK → `person_days.person_day_id`,,,,,,,,,,,
 habitual_location_days,location_type,LocationType,,,,,,,,,,,,
 habitual_location_days,dwell_minutes,float or None,≥ 0,,,,,,,,,,,
 habitual_location_days,n_visits,int,≥ 1,,,,,,,,,,,

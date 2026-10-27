@@ -64,7 +64,7 @@ class TestTheFixtureActuallyHasRecordsWithoutZones:
 class TestAHouseholdWithNoHomeZoneTakesItsTravelWithIt:
     """The household term, which the upward cascade cannot deliver on its own."""
 
-    @pytest.mark.parametrize("table", ["households", "persons", "days", "tours"])
+    @pytest.mark.parametrize("table", ["households", "persons", "person_days", "tours"])
     def test_nothing_it_owns_is_usable(self, tables, table):
         rows = _for_hh(tables[table], OUT_OF_REGION_HH)
         assert rows.height > 0, f"{table} has no rows for household 27"
@@ -88,12 +88,12 @@ class TestTravellingOutOfRegionGatesTheDayNotThePerson:
         assert household[GATED].all(), "household 28's home should keep its zone"
 
     def test_the_out_of_region_day_is_gated(self, tables):
-        days = _for_hh(tables["days"], COMMUTES_OUT_HH)
-        assert days.height == 2, "household 28 should have two diary dates"
+        person_days = _for_hh(tables["person_days"], COMMUTES_OUT_HH)
+        assert person_days.height == 2, "household 28 should have two diary dates"
 
-        assert days[GATED].sum() == 1, (
+        assert person_days[GATED].sum() == 1, (
             f"expected exactly one of household 28's days to survive {GATED}, "
-            f"got {days[GATED].to_list()}"
+            f"got {person_days[GATED].to_list()}"
         )
 
     def test_the_person_survives_on_their_other_day(self, tables):
@@ -112,11 +112,11 @@ class TestCoverageIsPerProfile:
 
     @pytest.mark.parametrize("hh_id", [OUT_OF_REGION_HH, COMMUTES_OUT_HH])
     def test_a_profile_asking_nothing_of_geography_admits_them(self, tables, hh_id):
-        days = _for_hh(tables["days"], hh_id)
-        if UNGATED not in days.columns:
+        person_days = _for_hh(tables["person_days"], hh_id)
+        if UNGATED not in person_days.columns:
             pytest.skip(f"{UNGATED} is not stamped in this run")
 
-        assert days[UNGATED].any(), (
+        assert person_days[UNGATED].any(), (
             f"{UNGATED} sets zone_coverage: none, so geography must not exclude "
             f"household {hh_id} from it"
         )

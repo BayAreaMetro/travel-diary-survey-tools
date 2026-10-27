@@ -19,7 +19,7 @@ Every weight is written once per profile, suffixed with its name
 
     hh_weight
       └─ person_weight        (household's weight, shared among its usable persons)
-          └─ day_weight        (split: a person's usable days sum to their weight)
+          └─ person_day_weight        (split: a person's usable days sum to their weight)
               └─ unlinked_trip_weight  (day's weight, shared within the day)
                   ├─ linked_trip_weight   (mean agg via linked_trip_id)
                   │   └─ joint_trip_weight (SUM agg via joint_trip_id)

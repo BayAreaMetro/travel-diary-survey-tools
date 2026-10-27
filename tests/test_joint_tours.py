@@ -101,7 +101,7 @@ def link_and_detect_joint_trips(
     # Detect joint trips
     joint_result = detect_joint_trips(
         linked_trips=linked_trips,
-        days=days_not_asked(linked_trips),
+        person_days=days_not_asked(linked_trips),
         households=households,
         matching=JointTripConfig(
             method="buffer",
@@ -148,7 +148,7 @@ def _out_and_back(n_people: int, stagger_hours: int = 0) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "unlinked_trip_id": list(range(1, 2 * n + 1)),
-            "day_id": [day for day in DAY_IDS[:n] for _ in range(2)],
+            "person_day_id": [day for day in DAY_IDS[:n] for _ in range(2)],
             "person_id": [person for person in PERSON_IDS[:n] for _ in range(2)],
             "hh_id": [HH_ID] * (2 * n),
             "travel_dow": [TravelDow.SATURDAY.value] * (2 * n),
@@ -230,7 +230,7 @@ class TestPartialDropoff:
         unlinked_trips = pl.DataFrame(
             {
                 "unlinked_trip_id": list(range(1, 10)),
-                "day_id": [DAY_IDS[0]] * 3 + [DAY_IDS[1]] * 3 + [DAY_IDS[2]] * 3,
+                "person_day_id": [DAY_IDS[0]] * 3 + [DAY_IDS[1]] * 3 + [DAY_IDS[2]] * 3,
                 "person_id": [P1] * 3 + [P2] * 3 + [P3] * 3,
                 "hh_id": [HH_ID] * 9,
                 "travel_dow": [TravelDow.MONDAY.value] * 9,

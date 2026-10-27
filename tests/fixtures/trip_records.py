@@ -35,7 +35,7 @@ def create_unlinked_trip(
     _linked_trip_id: int | None = None,
     person_id: int = 101,
     hh_id: int = 1,
-    day_id: int = 1,
+    person_day_id: int = 1,
     person_num: int = 1,
     day_num: int = 1,
     o_lat: float | None = None,
@@ -80,7 +80,7 @@ def create_unlinked_trip(
         unlinked_trip_id: Trip ID
         person_id: Person ID
         hh_id: Household ID
-        day_id: Day ID (links trip to a specific day)
+        person_day_id: Day ID (links trip to a specific day)
         person_num: Person number within household
         day_num: Day number in survey period
         o_lat: Origin latitude (optional)
@@ -132,7 +132,7 @@ def create_unlinked_trip(
         "unlinked_trip_id": unlinked_trip_id,
         "person_id": person_id,
         "hh_id": hh_id,
-        "day_id": day_id,
+        "person_day_id": person_day_id,
         "person_num": person_num,
         "day_num": day_num,
         "depart_time": depart_time,
@@ -200,7 +200,7 @@ def create_linked_trip(
     person_id: int = 101,
     hh_id: int = 1,
     person_num: int = 1,
-    day_id: int = 1,
+    person_day_id: int = 1,
     day_num: int = 1,
     travel_dow: TravelDow = TravelDow.MONDAY,
     linked_trip_num: int = 1,
@@ -239,7 +239,7 @@ def create_linked_trip(
         person_id: Person ID
         hh_id: Household ID
         person_num: Person number
-        day_id: Day ID (optional)
+        person_day_id: Day ID (optional)
         day_num: Day number
         travel_dow: Day of week enum
         linked_trip_num: Linked trip number
@@ -326,7 +326,7 @@ def create_linked_trip(
     }
 
     # Add optional fields
-    add_optional_fields_batch(record, day_id=day_id)
+    add_optional_fields_batch(record, person_day_id=person_day_id)
 
     record["usable_test"] = usable
 

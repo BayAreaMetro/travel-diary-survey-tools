@@ -33,6 +33,7 @@ from data_canon.codebook.persons import (
 )
 from data_canon.codebook.trips import Driver, Mode, ModeType, Purpose, PurposeCategory
 from processing.habitual_locations import reported_habitual_locations
+from utils.create_ids import create_household_days
 
 # ---------------------------------------------------------------------------
 # Coordinates (synthetic SF Bay Area -- no real addresses)
@@ -168,11 +169,11 @@ def _dt(d, hm):
 
 
 class _Day:
-    """Trip context bound to a single person-day (day_id, person, hh, date)."""
+    """Trip context bound to a single person-day (person_day_id, person, hh, date)."""
 
-    def __init__(self, survey, day_id, pid, hid, dd):
+    def __init__(self, survey, person_day_id, pid, hid, dd):
         self._s = survey
-        self.day_id = day_id
+        self.person_day_id = person_day_id
         self.pid = pid
         self.hid = hid
         self.dd = dd
@@ -188,7 +189,7 @@ class _Day:
         self._s.trips.append(
             {
                 "unlinked_trip_id": self._s._tc,
-                "day_id": self.day_id,
+                "person_day_id": self.person_day_id,
                 "person_id": self.pid,
                 "hh_id": self.hid,
                 "linked_trip_id": self._s._tc,
@@ -234,7 +235,7 @@ class _Survey:
     """Accumulates households, persons, days, and trips as lists of dicts."""
 
     def __init__(self):
-        self.hhs, self.pers, self.days, self.trips = [], [], [], []
+        self.hhs, self.pers, self.person_days, self.trips = [], [], [], []
         self._tc = 0
 
     def household(
@@ -325,11 +326,11 @@ class _Survey:
         )
 
     def day(self, pid, hid, dd, dow, *, pnum=1, dnum=1, comp=True) -> _Day:
-        """Append a person-day (day_id = pid*100 + dnum) and return its trip context."""
-        day_id = pid * 100 + dnum
-        self.days.append(
+        """Append a person-day (person_day_id = pid*100 + dnum) and return its trip context."""
+        person_day_id = pid * 100 + dnum
+        self.person_days.append(
             {
-                "day_id": day_id,
+                "person_day_id": person_day_id,
                 "person_id": pid,
                 "hh_id": hid,
                 "travel_date": datetime(dd.year, dd.month, dd.day),
@@ -340,10 +341,10 @@ class _Survey:
                 # Not asked in the toy survey.
                 "begin_day": None,
                 "end_day": None,
-                "day_weight": None,
+                "person_day_weight": None,
             }
         )
-        return _Day(self, day_id, pid, hid, dd)
+        return _Day(self, person_day_id, pid, hid, dd)
 
 
 # ---------------------------------------------------------------------------
@@ -1278,13 +1279,13 @@ def _build_records():
         ((10, 5), (10, 25)),
     )
 
-    return s.hhs, s.pers, s.days, s.trips
+    return s.hhs, s.pers, s.person_days, s.trips
 
 
 def build_survey_dataframes():
     """Return canonical survey data as a dict of Polars DataFrames.
 
-    Keys: households, persons, days, unlinked_trips
+    Keys: households, persons, household_days, days, unlinked_trips, habitual_locations
     """
     hh, per, day, trip = _build_records()
     households = pl.DataFrame(hh)
@@ -1315,10 +1316,15 @@ def build_survey_dataframes():
     )
 
     persons = pl.DataFrame(per)
+    # The household-days a project cleaner would build.
+    person_days, household_days = create_household_days(
+        pl.DataFrame(day, schema_overrides={"begin_day": pl.Int64, "end_day": pl.Int64})
+    )
     tables = {
         "households": households,
         "persons": persons,
-        "days": pl.DataFrame(day, schema_overrides={"begin_day": pl.Int64, "end_day": pl.Int64}),
+        "household_days": household_days,
+        "person_days": person_days,
         "unlinked_trips": pl.DataFrame(trip),
         # Delivered with the survey: the reported home, work and school only.
         "habitual_locations": reported_habitual_locations(households, persons),
@@ -1331,7 +1337,7 @@ def build_survey_dataframes():
     for tbl, wcol in (
         ("households", "hh_weight"),
         ("persons", "person_weight"),
-        ("days", "day_weight"),
+        ("person_days", "person_day_weight"),
         ("unlinked_trips", "unlinked_trip_weight"),
     ):
         tables[tbl] = tables[tbl].with_columns(pl.lit(1.0).alias(wcol))

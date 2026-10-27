@@ -41,7 +41,7 @@ steps:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
         persons: "{{ survey_dir }}/person.csv"
-        days: "{{ survey_dir }}/day.csv"
+        person_days: "{{ survey_dir }}/day.csv"
         unlinked_trips: "{{ survey_dir }}/trip.csv"
 
   - name: clean_2023_bats
@@ -460,14 +460,14 @@ steps:
             columns:
               households: hh_weight
               persons: person_weight
-              days: day_weight
+              person_days: day_weight
               unlinked_trips: trip_weight
           vendor_rmove:
             label: vendor rMove
             columns:
               households: hh_weight_rmove_only
               persons: person_weight_rmove_only
-              days: day_weight_rmove_only
+              person_days: day_weight_rmove_only
               unlinked_trips: trip_weight_rmove_only
 
 
@@ -496,7 +496,7 @@ steps:
   #         weight_path: "{{ weights_dir }}/hh_weights.csv"
   #       person_weight:
   #         weight_path: "{{ weights_dir }}/person_weights.csv"
-  #       day_weight:
+  #       person_day_weight:
   #         weight_path: "{{ weights_dir }}/day_weights.csv"
   #       unlinked_trip_weight:
   #         weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
@@ -558,7 +558,8 @@ steps:
         # Standard Survey Formats
         households: "{{ output_dir }}/survey/households_2023.csv"
         persons: "{{ output_dir }}/survey/persons_2023.csv"
-        days: "{{ output_dir }}/survey/days_2023.csv"
+        household_days: "{{ output_dir }}/survey/household_days_2023.csv"
+        person_days: "{{ output_dir }}/survey/person_days_2023.csv"
         unlinked_trips: "{{ output_dir }}/survey/unlinked_trips_2023.csv"
         linked_trips: "{{ output_dir }}/survey/linked_trips_2023.csv"
         tours: "{{ output_dir }}/survey/tours_2023.csv"

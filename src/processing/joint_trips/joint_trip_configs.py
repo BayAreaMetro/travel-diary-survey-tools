@@ -226,7 +226,7 @@ def _validate_covariance_inputs(joint_trips: pl.DataFrame, linked_trips: pl.Data
     required_trip_cols = {
         "linked_trip_id",
         "hh_id",
-        "day_id",
+        "person_day_id",
         "person_id",
         "o_lat",
         "o_lon",

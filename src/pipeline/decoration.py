@@ -105,7 +105,7 @@ def step(
 
     Example:
         >>> @step(
-        ...     requires={"unlinked_trips": {"day_id", "depart_time"}},
+        ...     requires={"unlinked_trips": {"person_day_id", "depart_time"}},
         ...     produces={"linked_trips": {"linked_trip_id"}},
         ... )
         ... def link_trips(

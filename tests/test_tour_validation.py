@@ -54,7 +54,7 @@ def _frames(
         {
             "tour_id": ["tour_1"],
             "person_id": [1],
-            "day_id": [1],
+            "person_day_id": [1],
             "trip_count": [trips],
             "subtour_num": [subtour_num],
             "tour_num": [1],
@@ -67,7 +67,7 @@ def _frames(
             "tour_id": ["tour_1"] * trips,
             "person_id": [1] * trips,
             "hh_id": [1] * trips,
-            "day_id": [1] * trips,
+            "person_day_id": [1] * trips,
             "tour_num": [1] * trips,
             "o_lat": [o[0] for o, _ in legs],
             "o_lon": [o[1] for o, _ in legs],
@@ -88,7 +88,7 @@ def _two_day_frames(second_day_origin):
         {
             "tour_id": ["tour_1", "tour_2"],
             "person_id": [1, 1],
-            "day_id": [1, 2],
+            "person_day_id": [1, 2],
             "trip_count": [1, 1],
             "subtour_num": [0, 0],
             "tour_num": [1, 1],
@@ -104,7 +104,7 @@ def _two_day_frames(second_day_origin):
             "tour_id": ["tour_1", "tour_2"],
             "person_id": [1, 1],
             "hh_id": [1, 1],
-            "day_id": [1, 2],
+            "person_day_id": [1, 2],
             "tour_num": [1, 1],
             "o_lat": [37.0, second_day_origin[0]],
             "o_lon": [-122.0, second_day_origin[1]],
@@ -130,7 +130,7 @@ class TestValidateAndCorrectTours:
             {
                 "tour_id": ["tour_1"],
                 "person_id": [1],
-                "day_id": [1],
+                "person_day_id": [1],
                 "trip_count": [1],
                 "subtour_num": [0],
                 "tour_num": [0],
@@ -143,7 +143,7 @@ class TestValidateAndCorrectTours:
                 "tour_id": ["tour_1"],
                 "person_id": [1],
                 "hh_id": [1],
-                "day_id": [1],
+                "person_day_id": [1],
                 "tour_num": [0],
             }
         )
@@ -300,7 +300,7 @@ class TestTourValidationIntegration:
             {
                 "tour_id": ["tour_1", "tour_2", "tour_3", "tour_4"],
                 "person_id": [1, 1, 2, 2],
-                "day_id": [1, 1, 1, 1],
+                "person_day_id": [1, 1, 1, 1],
                 "trip_count": [2, 1, 3, 2],
                 "subtour_num": [0, 0, 0, 0],
                 "tour_num": [1, 2, 1, 2],
@@ -325,7 +325,7 @@ class TestTourValidationIntegration:
                 "tour_id": ["tour_1"] * 2 + ["tour_2"] + ["tour_3"] * 3 + ["tour_4"] * 2,
                 "person_id": [1, 1, 1, 2, 2, 2, 2, 2],
                 "hh_id": [1, 1, 1, 2, 2, 2, 2, 2],
-                "day_id": [1] * 8,
+                "person_day_id": [1] * 8,
                 "tour_num": [1, 1, 2, 1, 1, 1, 2, 2],
             }
         )

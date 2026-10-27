@@ -19,7 +19,7 @@ def basic_trip_data() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "unlinked_trip_id": [1, 2, 3],
-            "day_id": [101, 101, 101],
+            "person_day_id": [101, 101, 101],
             "person_id": [1, 1, 1],
             "hh_id": [1, 1, 1],
             "depart_date": ["2023-01-01", "2023-01-01", "2023-01-01"],

@@ -143,8 +143,8 @@ def _split_weighting_columns(
             "telework_freq",  # p_commute_mode
             "commute_freq",  # p_commute_mode
         },
-        "days": {"day_id", "person_id"},
-        "unlinked_trips": {"unlinked_trip_id", "day_id", "linked_trip_id"},
+        "person_days": {"person_day_id", "person_id"},
+        "unlinked_trips": {"unlinked_trip_id", "person_day_id", "linked_trip_id"},
         "linked_trips": {"linked_trip_id", "tour_id", "joint_trip_id"},
         "tours": {"tour_id", "joint_tour_id"},
         "joint_trips": {"joint_trip_id"},
@@ -153,7 +153,7 @@ def _split_weighting_columns(
     produces={
         "households": {"hh_weight_<profile>"},
         "persons": {"person_weight_<profile>"},
-        "days": {"day_weight_<profile>"},
+        "person_days": {"person_day_weight_<profile>"},
         "unlinked_trips": {"unlinked_trip_weight_<profile>"},
         "linked_trips": {"linked_trip_weight_<profile>"},
         "tours": {"tour_weight_<profile>"},
@@ -187,7 +187,7 @@ def compute_weights(  # noqa: PLR0913
     canonical_data: CanonicalData | None = None,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
-    days: pl.DataFrame | None = None,
+    person_days: pl.DataFrame | None = None,
     unlinked_trips: pl.DataFrame | None = None,
     linked_trips: pl.DataFrame | None = None,
     joint_trips: pl.DataFrame | None = None,
@@ -219,7 +219,7 @@ def compute_weights(  # noqa: PLR0913
         canonical_data: Supplied by the pipeline.
         households: Households.
         persons: Persons.
-        days: Days.
+        person_days: Days.
         unlinked_trips: Unlinked trips.
         linked_trips: Linked trips.
         joint_trips: Joint trips.
@@ -235,7 +235,7 @@ def compute_weights(  # noqa: PLR0913
     data = CanonicalData(
         households=households,
         persons=persons,
-        days=days,
+        person_days=person_days,
         unlinked_trips=unlinked_trips,
         linked_trips=linked_trips,
         tours=tours,

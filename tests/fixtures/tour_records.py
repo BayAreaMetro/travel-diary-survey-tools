@@ -21,7 +21,7 @@ def create_tour(
     person_id: int = 101,
     hh_id: int = 1,
     person_num: int = 1,
-    day_id: int = 1,
+    person_day_id: int = 1,
     day_num: int = 1,
     tour_num: int = 1,
     tour_purpose: PurposeCategory = PurposeCategory.WORK,
@@ -61,7 +61,7 @@ def create_tour(
         person_id: Person ID
         hh_id: Household ID
         person_num: Person number
-        day_id: Day ID
+        person_day_id: Day ID
         day_num: Day number
         tour_num: Tour number within the day
         tour_purpose: Tour purpose enum
@@ -129,7 +129,7 @@ def create_tour(
         "person_id": person_id,
         "hh_id": hh_id,
         "person_num": person_num,
-        "day_id": day_id,
+        "person_day_id": person_day_id,
         "day_num": day_num,
         "tour_num": tour_num,
         "tour_purpose": tour_purpose.value,

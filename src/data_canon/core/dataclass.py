@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 CANONICAL_MODELS: dict[str, type[BaseModel]] = {
     "households": survey_models.HouseholdModel,
     "persons": survey_models.PersonModel,
-    "days": survey_models.PersonDayModel,
+    "household_days": survey_models.HouseholdDayModel,
+    "person_days": survey_models.PersonDayModel,
     "unlinked_trips": survey_models.UnlinkedTripModel,
     "linked_trips": survey_models.LinkedTripModel,
     "tours": survey_models.TourModel,
@@ -55,7 +56,8 @@ class CanonicalData:
 
     households: pl.DataFrame | None = None
     persons: pl.DataFrame | None = None
-    days: pl.DataFrame | None = None
+    household_days: pl.DataFrame | None = None
+    person_days: pl.DataFrame | None = None
     unlinked_trips: pl.DataFrame | None = None
     linked_trips: pl.DataFrame | None = None
     tours: pl.DataFrame | None = None
@@ -93,7 +95,8 @@ class CanonicalData:
         default_factory=lambda: [
             "households",
             "persons",
-            "days",
+            "household_days",
+            "person_days",
             "unlinked_trips",
             "linked_trips",
             "joint_trips",

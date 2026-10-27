@@ -71,6 +71,8 @@ Core data models used in the processing pipeline for households, persons, days, 
 
 ::: data_canon.models.survey.PersonModel
 
+::: data_canon.models.survey.HouseholdDayModel
+
 ::: data_canon.models.survey.PersonDayModel
 
 ::: data_canon.models.survey.UnlinkedTripModel

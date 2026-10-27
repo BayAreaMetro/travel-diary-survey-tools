@@ -24,13 +24,13 @@ def assert_tables_non_empty(data: CanonicalData, table_names: list[str]):
 
 _FK_CHAINS = [
     ("persons", "hh_id", "households", "hh_id"),
-    ("days", "person_id", "persons", "person_id"),
-    ("unlinked_trips", "day_id", "days", "day_id"),
-    ("linked_trips", "day_id", "days", "day_id"),
+    ("person_days", "person_id", "persons", "person_id"),
+    ("unlinked_trips", "person_day_id", "person_days", "person_day_id"),
+    ("linked_trips", "person_day_id", "person_days", "person_day_id"),
     ("linked_trips", "person_id", "persons", "person_id"),
     ("tours", "person_id", "persons", "person_id"),
     ("tours", "hh_id", "households", "hh_id"),
-    ("tours", "day_id", "days", "day_id"),
+    ("tours", "person_day_id", "person_days", "person_day_id"),
 ]
 
 

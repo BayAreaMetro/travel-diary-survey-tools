@@ -52,7 +52,7 @@ def profile_comparison_table(rows: list[ProfileSummary]) -> str:
                 f"{r.seed_households:,}",
                 f"{r.weight_sums.get('households', 0.0):,.0f}",
                 f"{r.weight_sums.get('persons', 0.0):,.0f}",
-                f"{r.weight_sums.get('days', 0.0):,.0f}",
+                f"{r.weight_sums.get('person_days', 0.0):,.0f}",
                 f"{r.ess_pct:.1f}%",
                 f"{r.cv:.3f}",
                 f"{r.max_over_median:.1f}",

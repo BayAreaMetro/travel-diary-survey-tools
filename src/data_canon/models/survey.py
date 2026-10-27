@@ -167,8 +167,9 @@ class PersonDayModel(BaseModel):
         # a genuine no-travel day.
         required_child_when="surveyable",
     )
-    day_id: int = schema_field(ge=1, unique=True)
+    person_day_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
+    hh_day_id: int = schema_field(ge=1, fk_to="household_days.hh_day_id")
     travel_date: datetime = schema_field()
     travel_dow: TravelDow = schema_field()
     begin_day: BeginEndDay | None = schema_field(
@@ -188,26 +189,43 @@ class PersonDayModel(BaseModel):
         ),
     )
     survey_complete: bool | None = schema_field(default=False)
-    hh_day_survey_complete: bool | None = schema_field(
+
+
+class HouseholdDayModel(BaseModel):
+    """One household's travel date: every member's person-day on it, together.
+
+    The vendor sends no household-day file, so each project's cleaner builds
+    this table from the person-days (``utils.create_ids.create_household_days``).
+    Joint trips and joint tours belong to a household-day rather than to any one
+    member's day.
+    """
+
+    hh_day_id: int = schema_field(
+        ge=1,
+        unique=True,
+        description="hh_id * 100 + day_num: the household's day, as person_day_id is the person's.",
+    )
+    hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
+    travel_date: datetime = schema_field()
+    survey_complete: bool | None = schema_field(
         default=None,
         description=(
-            "Household-day coherence: every member of the household reported a "
-            "complete day on this travel_date. Stamped by the cascade_completeness "
-            "step as an ALL reduction over member-days. Under a profile that "
-            "asks for whole household-days, a day is only usable within one."
+            "Every surveyable member's day on this date is complete, as the vendor "
+            "judged each one; False where no surveyable member has a day on it. "
+            "Stamped by the cascade_completeness step. Under a profile that asks "
+            "for whole household-days, a person-day is only usable within one."
         ),
     )
-    # The usable-side mirror of hh_day_survey_complete is now stamped once per
-    # usability profile, as hh_day_{profile}. Those names come from config, so
-    # they cannot be model fields; cascade_completeness registers them as
-    # generated columns with a description of what each one gated.
+    # The usable-side mirror is stamped once per usability profile, as
+    # usable_{profile}. Those names come from config, so they cannot be model
+    # fields; cascade_completeness registers them as generated columns.
 
 
 class UnlinkedTripModel(BaseModel):
     """Trip data model for validation."""
 
     unlinked_trip_id: int = schema_field(ge=1, unique=True)
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     linked_trip_id: int = schema_field(ge=1, fk_to="linked_trips.linked_trip_id")
@@ -271,7 +289,7 @@ class UnlinkedTripModel(BaseModel):
 class LinkedTripModel(BaseModel):
     """Linked Trip data model for validation."""
 
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
 
@@ -390,7 +408,7 @@ class TourModel(BaseModel):
     tour_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     tour_num: int = schema_field(ge=1)
     subtour_num: int = schema_field(ge=0)
     parent_tour_id: int = schema_field(ge=1, fk_to="tours.tour_id")
@@ -525,13 +543,17 @@ class JointTripModel(BaseModel):
 
     joint_trip_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
-    travel_date: datetime = schema_field(
+    hh_day_id: int = schema_field(
+        ge=1,
+        fk_to="household_days.hh_day_id",
         description=(
-            "The household date this grouping happened on, shared by every "
-            "member's day. Not any one member's day_id: a grouping belongs to "
-            "the household's date, and a member's own day can be unusable while "
-            "the others' are not."
+            "The household-day this grouping happened on, shared by every member's "
+            "day. Not any one member's person_day_id: a grouping belongs to the household's "
+            "day, and a member's own day can be unusable while the others' are not."
         ),
+    )
+    travel_date: datetime = schema_field(
+        description="The household-day's date, repeated here so it reads without a lookup.",
     )
     num_joint_travelers: int = schema_field(
         ge=2,
@@ -561,13 +583,17 @@ class JointTourModel(BaseModel):
 
     joint_tour_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
-    travel_date: datetime = schema_field(
+    hh_day_id: int = schema_field(
+        ge=1,
+        fk_to="household_days.hh_day_id",
         description=(
-            "The household date this grouping happened on, shared by every "
-            "member's day. Not any one member's day_id: a grouping belongs to "
-            "the household's date, and a member's own day can be unusable while "
-            "the others' are not."
+            "The household-day this grouping happened on, shared by every member's "
+            "day. Not any one member's person_day_id: a grouping belongs to the household's "
+            "day, and a member's own day can be unusable while the others' are not."
         ),
+    )
+    travel_date: datetime = schema_field(
+        description="The household-day's date, repeated here so it reads without a lookup.",
     )
     num_participants: int = schema_field(
         ge=2,
@@ -674,7 +700,7 @@ class HabitualLocationDayModel(BaseModel):
         fk_to="habitual_locations.habitual_location_id",
     )
     person_id: int = schema_field(ge=1, fk_to="persons.person_id")
-    day_id: int = schema_field(ge=1, fk_to="days.day_id")
+    person_day_id: int = schema_field(ge=1, fk_to="person_days.person_day_id")
     location_type: LocationType = schema_field(
         description="Kind of location, denormalized from the parent row for filtering."
     )

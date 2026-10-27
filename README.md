@@ -181,7 +181,7 @@ steps:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
         persons: "{{ survey_dir }}/person.csv"
-        days: "{{ survey_dir }}/day.csv"
+        person_days: "{{ survey_dir }}/day.csv"
         unlinked_trips: "{{ survey_dir }}/trip.csv"
 
   - name: clean_2023_bats  # the project's own cleaning step

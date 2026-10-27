@@ -92,7 +92,7 @@ def _unlinked(legs) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "unlinked_trip_id": list(range(1, n + 1)),
-            "day_id": [leg[0] for leg in legs],
+            "person_day_id": [leg[0] for leg in legs],
             "person_id": [1] * n,
             "hh_id": [1] * n,
             "travel_dow": [TravelDow.SATURDAY.value] * n,
@@ -120,13 +120,15 @@ def _days(end_day_1: BeginEndDay | None = None) -> pl.DataFrame:
     """The two diary days, with day 1's stated end."""
     return pl.DataFrame(
         {
-            "day_id": [1, 2],
+            "person_day_id": [1, 2],
+            "hh_day_id": [101, 102],
             "travel_date": [_at(1, 0).date(), _at(2, 0).date()],
             "begin_day": [None, None],
             "end_day": [end_day_1.value if end_day_1 else None, None],
         },
         schema={
-            "day_id": pl.Int64,
+            "person_day_id": pl.Int64,
+            "hh_day_id": pl.Int64,
             "travel_date": pl.Date,
             "begin_day": pl.Int64,
             "end_day": pl.Int64,
@@ -146,7 +148,7 @@ def _vendor_second_home() -> pl.DataFrame:
     )
 
 
-def _extract(persons, households, *, days, second_home=None) -> dict:
+def _extract(persons, households, *, person_days, second_home=None) -> dict:
     link_result = link_trips(
         unlinked_trips=_unlinked(WEEKEND),
         change_mode_enum=PurposeCategory.CHANGE_MODE.value,
@@ -161,7 +163,7 @@ def _extract(persons, households, *, days, second_home=None) -> dict:
         households,
         link_result["unlinked_trips"],
         linked,
-        days=days,
+        person_days=person_days,
         extra=second_home,
     )
 
@@ -171,15 +173,15 @@ def _quality(tours: pl.DataFrame) -> list[int]:
 
 
 @pytest.mark.parametrize(
-    ("days", "supplied"),
+    ("person_days", "supplied"),
     [
         (_days(), _vendor_second_home()),  # the vendor's second-home address
         (_days(BeginEndDay.OTHER_HOME), None),  # "the day ended at my other home"
     ],
 )
-def test_second_home_bounds_tours(person_and_household, days, supplied):
+def test_second_home_bounds_tours(person_and_household, person_days, supplied):
     """Shop from home; drive to the second home; shop from there."""
-    result = _extract(*person_and_household, days=days, second_home=supplied)
+    result = _extract(*person_and_household, person_days=person_days, second_home=supplied)
     tours = result["tours"]
 
     assert tours["tour_category"].to_list() == [TourCategory.COMPLETE.value] * 3
@@ -212,7 +214,7 @@ def test_validation_still_rejects_a_closed_tour_without_a_purpose_otherwise():
 
 def test_without_a_report_the_second_home_is_just_a_place(person_and_household):
     """Nights at "another residence" do not make a home on their own."""
-    result = _extract(*person_and_household, days=_days())
+    result = _extract(*person_and_household, person_days=_days())
     tours = result["tours"].sort("origin_depart_time")
 
     homes = result["habitual_locations"].filter(pl.col("location_type") == LocationType.HOME.value)
