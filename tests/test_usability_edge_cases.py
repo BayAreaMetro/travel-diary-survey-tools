@@ -469,6 +469,104 @@ class TestTravelDays:
             _stamp(tables, self.TUE_THU)
 
 
+class TestExcludedPersons:
+    """A person the cleaner excluded has no usable day, under any profile."""
+
+    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+
+    def _two_members(self, reasons: list[str | None]) -> dict:
+        """Two members on one date, each with one complete tour and trip."""
+        return {
+            "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
+            "persons": pl.DataFrame(
+                {
+                    "person_id": [1, 2],
+                    "hh_id": [1, 1],
+                    "survey_complete": [True, True],
+                    "surveyable": [True, True],
+                    "exclusion_reason": reasons,
+                },
+                schema_overrides={"exclusion_reason": pl.String},
+            ),
+            "person_days": pl.DataFrame(
+                {
+                    "person_day_id": [1, 2],
+                    "person_id": [1, 2],
+                    "hh_id": [1, 1],
+                    "travel_date": [DATE, DATE],
+                    "survey_complete": [True, True],
+                }
+            ),
+            "tours": pl.DataFrame(
+                {
+                    "tour_id": [10, 20],
+                    "person_day_id": [1, 2],
+                    "person_id": [1, 2],
+                    "survey_complete": [True, True],
+                    "parent_tour_id": [10, 20],
+                    "tour_data_quality": [TourDataQuality.VALID.value] * 2,
+                    "tour_category": [TourCategory.COMPLETE.value] * 2,
+                }
+            ),
+            "linked_trips": pl.DataFrame(
+                {
+                    "linked_trip_id": [100, 200],
+                    "tour_id": [10, 20],
+                    "person_day_id": [1, 2],
+                    "survey_complete": [True, True],
+                }
+            ),
+        }
+
+    def test_the_excluded_persons_day_tour_and_trip_are_unusable(self):
+        """Everything of the excluded member goes; the other member keeps theirs."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        for table, key in (
+            ("person_days", "person_day_id"),
+            ("tours", "tour_id"),
+            ("linked_trips", "linked_trip_id"),
+        ):
+            assert stamped[table].sort(key)["usable_test"].to_list() == [True, False], table
+        assert stamped["persons"].sort("person_id")["usable_test"].to_list() == [True, False]
+
+    def test_survey_complete_is_untouched(self):
+        """The vendor's verdict stays the vendor's; only usability narrows."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        assert stamped["person_days"]["survey_complete"].to_list() == [True, True]
+
+    def test_a_household_needing_every_member_loses_the_date(self):
+        """An excluded member is an unusable member, so the whole date fails."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), STRICT)
+
+        assert stamped["household_days"]["usable_test"].to_list() == [False]
+        assert stamped["households"]["usable_test"].to_list() == [False]
+        assert stamped["persons"]["usable_test"].to_list() == [False, False]
+
+    def test_a_household_needing_no_whole_date_keeps_its_other_member(self):
+        """With no whole-date rule, the household stands on the member it kept."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+    def test_a_household_whose_members_are_all_excluded_is_unusable(self):
+        """No household reason is needed: with no usable day, the household falls."""
+        reason = "survey_tech excluded: form"
+        stamped = _stamp(self._two_members([reason, reason]), self.LOOSE)
+
+        assert stamped["households"]["usable_test"].to_list() == [False]
+
+    def test_without_the_column_no_one_is_excluded(self):
+        """The field defaults to null, so a table without it excludes no one."""
+        tables = self._two_members([None, None])
+        tables["persons"] = tables["persons"].drop("exclusion_reason")
+
+        stamped = _stamp(tables, STRICT)
+
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+
 class TestJointQuorum:
     """A grouping is joint only while enough members survive."""
 

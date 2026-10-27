@@ -13,7 +13,7 @@ from data_canon.codebook.households import (
     ResidenceRentOwn,
     ResidenceType,
 )
-from data_canon.codebook.persons import Ethnicity, Race
+from data_canon.codebook.persons import Ethnicity, Race, SurveyTech
 from data_canon.core.labeled_enum import LabeledEnum
 from pipeline.decoration import step
 from processing.habitual_locations import reported_habitual_locations
@@ -56,6 +56,61 @@ def second_homes(persons: pl.DataFrame) -> pl.DataFrame:
         pl.lit(LocationType.HOME.value, dtype=pl.Int64).alias("location_type"),
         pl.col("second_home_lat").alias("lat"),
         pl.col("second_home_lon").alias("lon"),
+    )
+
+
+# The vendor's diary_platform, as the technology that collected each person's travel.
+_DIARY_PLATFORM_TECH = {
+    "rmove": SurveyTech.GPS,
+    "browser": SurveyTech.FORM,
+    "call": SurveyTech.CALL_CENTER,
+}
+
+
+def survey_tech(persons: pl.DataFrame) -> pl.DataFrame:
+    """Add ``survey_tech`` from the vendor's ``diary_platform``.
+
+    A proxied person carries the platform their travel was reported through,
+    which the vendor gives every member of the household. A null platform is
+    MISSING; a platform not in the mapping stops the run rather than guess.
+
+    Raises:
+        ValueError: If ``diary_platform`` holds a value the mapping does not know.
+    """
+    unknown = sorted(
+        set(persons["diary_platform"].drop_nulls().unique()) - set(_DIARY_PLATFORM_TECH)
+    )
+    if unknown:
+        msg = f"diary_platform has values with no survey_tech: {unknown}"
+        raise ValueError(msg)
+    codes = {platform: tech.value for platform, tech in _DIARY_PLATFORM_TECH.items()}
+    return persons.with_columns(
+        pl.col("diary_platform")
+        .replace_strict(codes, default=None, return_dtype=pl.Int64)
+        .fill_null(SurveyTech.MISSING.value)
+        .alias("survey_tech")
+    )
+
+
+def exclude_by_survey_tech(persons: pl.DataFrame, excluded: list[str]) -> pl.DataFrame:
+    """Give every person collected by an excluded technology an ``exclusion_reason``.
+
+    *excluded* names technologies as config writes them (``call_center``,
+    ``form``, ``gps``, ``missing``). Every other person keeps a null reason.
+
+    Raises:
+        ValueError: If *excluded* names a technology that does not exist.
+    """
+    names = {tech.name.lower(): tech for tech in SurveyTech}
+    unknown = sorted(set(excluded) - set(names))
+    if unknown:
+        msg = f"exclude_survey_tech names {unknown}, which are not one of {sorted(names)}"
+        raise ValueError(msg)
+    reasons = {names[n].value: f"survey_tech excluded: {n}" for n in excluded}
+    return persons.with_columns(
+        pl.col("survey_tech")
+        .replace_strict(reasons, default=None, return_dtype=pl.String)
+        .alias("exclusion_reason")
     )
 
 
@@ -134,6 +189,7 @@ def clean_2023_bats(
     person_days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     child_day_complete: Literal["vendor", "observed_trips"],
+    exclude_survey_tech: list[str],
 ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline.
 
@@ -144,6 +200,9 @@ def clean_2023_bats(
         unlinked_trips: Vendor trips.
         child_day_complete: How a child's day is judged complete; see
             :func:`day_survey_complete`. Required, so every config says which.
+        exclude_survey_tech: Technologies whose persons are dropped from every
+            usability profile; see :func:`exclude_by_survey_tech`. Required, so
+            every config says which (an empty list drops no one).
     """
     # CLEANUP UNLINKED TRIPS =================================
     # Much wow...
@@ -421,6 +480,11 @@ def clean_2023_bats(
             "commute_subsidy_use_4": "commute_subsidy_use_discounted_parking",
         }
     )
+
+    # SURVEY TECHNOLOGY AND EXCLUSIONS ==================================
+    persons = exclude_by_survey_tech(survey_tech(persons), exclude_survey_tech)
+    n_excluded = persons["exclusion_reason"].is_not_null().sum()
+    logger.info("Excluded %d of %d persons by survey_tech", n_excluded, persons.height)
 
     # ASSIGN COMPLETION STATUS =========================================
     # Person and household completeness are rolled up later by cascade_completeness,

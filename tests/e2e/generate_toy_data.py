@@ -28,6 +28,7 @@ from data_canon.codebook.persons import (
     Race,
     SchoolType,
     Student,
+    SurveyTech,
     WorkParking,
 )
 from data_canon.codebook.trips import Driver, Mode, ModeType, Purpose, PurposeCategory
@@ -133,6 +134,7 @@ MODE_WALK, MODE_BIKE_RENTED, MODE_BART = Mode.WALK.value, Mode.BIKE_RENTED.value
 WP_FREE, WP_NOT_APPLICABLE = WorkParking.FREE.value, WorkParking.NOT_APPLICABLE.value
 WP_MISSING = WorkParking.MISSING.value
 YES, NO = 1, 0
+TECH_GPS, TECH_FORM = SurveyTech.GPS.value, SurveyTech.FORM.value
 DRV_DRIVER, DRV_PASSENGER = Driver.DRIVER.value, Driver.PASSENGER.value
 DRV_MISSING = Driver.MISSING.value
 JOB_FIXED, JOB_VARIES = JobType.FIXED.value, JobType.VARIES.value
@@ -311,6 +313,8 @@ class _Survey:
         proxy=NO,
         ndays=1,
         comp=True,
+        tech=TECH_GPS,
+        excl=None,
     ):
         self.pers.append(
             {
@@ -340,6 +344,8 @@ class _Survey:
                 "commute_subsidy_use_discounted_parking": NO,
                 "transit_pass": tp,
                 "is_proxy": proxy,
+                "survey_tech": tech,
+                "exclusion_reason": excl,
                 "num_days_complete": ndays,
                 "survey_complete": comp,
                 "person_weight": None,
@@ -1307,6 +1313,30 @@ def _build_records():
         MT_CAR,
         ((9, 0), (9, 20)),
         ((10, 5), (10, 25)),
+    )
+
+    # HH 33 - reported by form and excluded by the cleaner for it, so it is
+    # unusable under every profile though the survey calls it complete.
+    s.household(33, "home_l", income=INC_75_100K, npeople=1, veh=1, nworkers=0)
+    s.person(
+        3301,
+        33,
+        1,
+        AGE_35_TO_44,
+        FEMALE,
+        EMP_NOT_LOOKING,
+        STU_NONSTUDENT,
+        tech=TECH_FORM,
+        excl="survey_tech excluded: form",
+    )
+    s.week(3301, 33).round_trip(
+        "home_l",
+        "shop_1",
+        PC_HOME,
+        PC_SHOP,
+        MT_CAR,
+        ((10, 0), (10, 15)),
+        ((11, 0), (11, 15)),
     )
 
     return s.hhs, s.pers, s.person_days, s.trips

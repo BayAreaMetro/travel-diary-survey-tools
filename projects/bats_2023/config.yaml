@@ -52,6 +52,11 @@ steps:
       # report, as the vendor decides. "observed_trips": also from the trips copied
       # from an adult they travelled with (see day_survey_complete).
       child_day_complete: vendor
+      # Survey technologies whose persons are dropped from every usability
+      # profile: call_center, form (browser, tablet or paper), gps (phone app),
+      # missing. Recall-based reports are not used until their reporting bias
+      # against GPS-tracked travel is corrected for.
+      exclude_survey_tech: [call_center, form]
 
   - name: imputation
     validate_input: false
