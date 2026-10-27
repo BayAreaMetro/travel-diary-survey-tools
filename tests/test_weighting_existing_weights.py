@@ -927,10 +927,9 @@ class TestAUsableRecordWithoutASuppliedWeightStopsTheRun:
         )
 
     def test_the_run_stops_and_names_the_table(self, tmp_path):
-        """Household 2 is usable, but none of its records can be weighted."""
-        with pytest.raises(
-            ValueError, match=r"1 households record\(s\) admitted by usable_p carry no hh_weight_p"
-        ):
+        """Days 111 and 211 are usable but were supplied 0: the step names them."""
+        message = r"person_days: 2 of 4 record\(s\) admitted by usable_p were supplied no"
+        with pytest.raises(ValueError, match=message):
             self._run(tmp_path)
 
     def test_it_runs_once_the_unweighted_records_are_unusable(self, tmp_path):

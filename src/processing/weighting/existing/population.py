@@ -6,7 +6,6 @@ exactly that person's weight.
 """
 
 import logging
-from collections.abc import Collection
 
 import polars as pl
 
@@ -110,72 +109,6 @@ def apply_usability(
     return supplied_totals
 
 
-# A verdict that lives only for the household and person passes: a person who
-# can pass weight down -- usable, and, where persons and days are supplied,
-# carrying a supplied weight onto a usable day the supplier weighted.
-CARRIES = "_can_carry_weight"
-
-
-def mark_persons_who_can_carry(
-    tables: dict[str, pl.DataFrame | None],
-    has_weight: dict[str, str],
-    supplied: Collection[str],
-    *,
-    usability_flag_col: str,
-) -> None:
-    """Add the ``CARRIES`` verdict to persons, in place.
-
-    Days take weight in proportion to the supplier's, so a day weighted 0 stays
-    0. A usable person whose supplier-weighted days were all dropped has no day
-    to put their weight on, so they count as a dropped person: their weight goes
-    to the household's other persons. A household with no person who can carry
-    weight counts as a dropped household. Their own verdicts are untouched --
-    they stay usable, with weight 0.
-
-    Raises:
-        ValueError: If there is no persons table, or it carries no verdict.
-            Household size is the number of persons, so there is no size
-            without them.
-    """
-    persons, person_days = tables.get("persons"), tables.get("person_days")
-    if persons is None or usability_flag_col not in persons.columns:
-        msg = (
-            f"Household weights are scaled by household size, which is the number of "
-            f"persons, so the persons table is needed, carrying {usability_flag_col}."
-        )
-        raise ValueError(msg)
-
-    can = is_usable(usability_flag_col)
-    persons_supplied = "persons" in supplied
-    if persons_supplied:
-        can = can & (pl.col(has_weight["persons"]).fill_null(0.0) > 0)
-    if persons_supplied and "person_days" in supplied and person_days is not None:
-        weighted = person_days.filter(
-            is_usable(usability_flag_col) & (pl.col(has_weight["person_days"]).fill_null(0.0) > 0)
-        )
-        can = can & pl.col("person_id").is_in(weighted["person_id"].unique().implode())
-    persons = persons.with_columns(can.alias(CARRIES))
-
-    if persons_supplied:
-        stranded = persons.filter(
-            is_usable(usability_flag_col)
-            & ~pl.col(CARRIES)
-            & (pl.col(has_weight["persons"]).fill_null(0.0) > 0)
-        )
-        if stranded.height:
-            logger.info(
-                "persons: %d usable person(s) carrying %.1f of %s have no usable day the "
-                "supplier weighted; their weight goes to their household's other "
-                "persons, and a household with no one left to carry it counts as "
-                "dropped (sample person_id: %s)",
-                stranded.height,
-                float(stranded[has_weight["persons"]].sum()),
-                has_weight["persons"],
-                stranded["person_id"].sort().head(10).to_list(),
-            )
-    tables["persons"] = persons
-
-
 def _size_label(group: int, top_group: int) -> str:
     """A size group as a reader would say it: ``3``, or ``6+`` for the top group."""
     return f"{group}+" if group == top_group else str(group)
@@ -198,31 +131,35 @@ def gate_households_by_size(
     Because every household in a group has the same size, this holds the
     group's person total as well as its household total -- one factor for all
     sizes would not, when the dropped households are larger or smaller than the
-    kept ones. A household is kept when it is usable and has a person who can
-    carry weight.
+    kept ones. A household is kept when it is usable.
 
     Returns:
         The supplied household total, for the placement check to hold.
 
     Raises:
-        ValueError: If a size group carries supplied weight but has no kept
+        ValueError: If there is no persons table (household size is the number
+            of persons), or a size group carries supplied weight but has no kept
             household to put it on.
     """
-    households, persons = tables["households"], tables["persons"]
-    if households is None or persons is None:  # pragma: no cover - checked by the caller
+    households, persons = tables["households"], tables.get("persons")
+    if households is None:  # pragma: no cover - checked by the caller
         return 0.0
+    if persons is None:
+        msg = (
+            "Household weights are scaled by household size, which is the number of "
+            "persons, so the persons table is needed."
+        )
+        raise ValueError(msg)
     if top_group < 1:
         msg = f"household_size_top_group must be at least 1, got {top_group}"
         raise ValueError(msg)
     col = has_weight["households"]
     weight = pl.col(col).fill_null(0.0)
 
-    sizes = persons.group_by("hh_id").agg(
-        pl.len().alias("_size"), pl.col(CARRIES).any().alias("_carried")
-    )
+    sizes = persons.group_by("hh_id").agg(pl.len().alias("_size"))
     hh = households.join(sizes, on="hh_id", how="left").with_columns(
         pl.min_horizontal(pl.col("_size").fill_null(0), pl.lit(top_group)).alias("_group"),
-        (is_usable(usability_flag_col) & pl.col("_carried").fill_null(value=False)).alias("_kept"),
+        is_usable(usability_flag_col).alias("_kept"),
     )
     groups = (
         hh.group_by("_group")
@@ -272,7 +209,7 @@ def gate_households_by_size(
             .otherwise(pl.col(col) * 0.0)
             .alias(col)
         )
-        .drop("_size", "_carried", "_group", "_kept", "_factor")
+        .drop("_size", "_group", "_kept", "_factor")
     )
     return float(households.select(weight.sum()).item())
 
@@ -280,14 +217,16 @@ def gate_households_by_size(
 def persons_follow_household(
     tables: dict[str, pl.DataFrame | None],
     has_weight: dict[str, str],
+    *,
+    usability_flag_col: str,
 ) -> None:
-    """Give each household's weight to its persons who can carry it, in place.
+    """Give each household's weight to its usable persons, in place.
 
     A household stands for all its persons, so its persons together carry its
-    weight times its number of persons. Those who can carry share it in
-    proportion to their supplied weights::
+    weight times its number of persons. The usable ones share it in proportion
+    to their supplied weights::
 
-        person = household x n_persons x supplied / sum(supplied of those who can carry)
+        person = household x n_persons x supplied / sum(supplied of the usable persons)
 
     so a dropped person's share stays in the household, and household weight x
     number of persons = the sum of its persons' weights.
@@ -300,13 +239,13 @@ def persons_follow_household(
     supplied_total = float(persons.select(claim.sum()).item())
 
     per_hh = persons.group_by("hh_id").agg(
-        pl.len().alias("_n"), claim.filter(pl.col(CARRIES)).sum().alias("_carried")
+        pl.len().alias("_n"), claim.filter(is_usable(usability_flag_col)).sum().alias("_carried")
     )
     persons = (
         persons.join(per_hh, on="hh_id", how="left")
         .join(households.select("hh_id", pl.col(hh_col).alias("_hh")), on="hh_id", how="left")
         .with_columns(
-            pl.when(pl.col(CARRIES) & (pl.col("_carried") > 0))
+            pl.when(is_usable(usability_flag_col) & (pl.col("_carried") > 0))
             .then(pl.col("_hh") * pl.col("_n") * claim / pl.col("_carried"))
             .otherwise(pl.col(person_col) * 0.0)
             .alias(person_col)

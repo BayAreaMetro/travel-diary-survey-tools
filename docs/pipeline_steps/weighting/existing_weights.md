@@ -37,17 +37,15 @@ Where a dropped record's weight goes:
 | Linked trip, tour | Nowhere. Each is the mean of its final trips |
 | Joint trip, joint tour | Nowhere. Each is the sum of its kept members |
 
-Weight never leaves its household below the household level. A household with
-no person able to carry weight counts as a dropped household.
+Weight never leaves its household below the household level. Every usable record
+must end up carrying weight: the step stops the run on one left with 0 or none.
 
 Two terms used throughout:
 
 - **Supplied weight.** The number in the weight file, before anything moves.
-- **Kept.** Admitted by the profile, `usable_<profile>` is true. For weighting,
-  a person also needs a supplied weight above 0 and a kept day the supplier
-  weighted above 0, and a household needs at least one such person. A record
-  that fails only this extra test stays usable, with weight 0. See
-  [a stranded person](#4-a-stranded-person).
+- **Kept.** Admitted by the profile, `usable_<profile>` is true. A kept record
+  the supplier weighted 0 stops the run; see
+  [a usable record the supplier weighted 0](#4-a-usable-record-the-supplier-weighted-0).
 
 Weight moves in proportion to supplied weights, so a record the supplier
 weighted 0 always stays 0. The supplier decides which records represent the
@@ -93,12 +91,11 @@ person total as well as its household total. One factor for all sizes would
 not: when a profile drops more large households than small ones, the person
 total falls.
 
-**Persons.** A household stands for all its persons. Its persons who can carry
-weight share household weight × number of persons, in proportion to their
-supplied weights:
+**Persons.** A household stands for all its persons. Its usable persons share
+household weight × number of persons, in proportion to their supplied weights:
 
 ```text
-person = household × number of persons × supplied / supplied total of the household's persons who can carry
+person = household × number of persons × supplied / supplied total of the household's usable persons
 ```
 
 When everyone in the household is kept, each person is their supplied weight ×
@@ -211,38 +208,31 @@ Every supplied household and person weight is 10. Household 3 is dropped.
 
 Households total 30 and persons 40, both as supplied.
 
-### 4. A stranded person
+### 4. A usable record the supplier weighted 0
 
-`TestAStrandedPersonIsTreatedAsDropped`
+`TestAUsableRecordWithoutASuppliedWeightStopsTheRun`
 
-A kept person whose supplier-weighted days were all dropped has no day to put
-weight on. Their other days were supplied 0 and stay 0. So they count as a
-dropped person, and a household with no one else counts as a dropped household.
 Every supplied household and person weight is 10.
 
-| Person | Household | Size | Can carry weight |
-|---|---|---|---|
-| 11 | 1 | 2 | no |
-| 12 | 1 | 2 | yes |
-| 21 | 2 | 1 | no |
-| 31 | 3 | 1 | yes |
+| Day | Person | Household | Supplied | Usable |
+|---|---|---|---|---|
+| 110 | 11 | 1 | 10 | no |
+| 111 | 11 | 1 | 0 | yes |
+| 120 | 12 | 1 | 10 | yes |
+| 210 | 21 | 2 | 10 | no |
+| 211 | 21 | 2 | 0 | yes |
+| 310 | 31 | 3 | 10 | yes |
 
-| Day | Person | Supplied | Kept |
-|---|---|---|---|
-| 110 | 11 | 10 | no |
-| 111 | 11 | 0 | yes |
-| 120 | 12 | 10 | yes |
-| 210 | 21 | 10 | no |
-| 211 | 21 | 0 | yes |
-| 310 | 31 | 10 | yes |
+Days 111 and 211 are usable but were supplied 0, so nothing can put weight on
+them, and they would reach the model counting for nothing. The run stops.
 
-1. **Households.** Household 2 has no one who can carry weight, so it counts
-   as dropped. Size 1 was supplied 20 and kept 10: household 3 is 20, and
+With those records unusable upstream (days 111 and 211, persons 11 and 21,
+household 2), as the supplier's weights say they should be:
+
+1. **Households.** Size 1 was supplied 20 and kept 10: household 3 is 20, and
    household 2 is 0. Household 1 stays 10.
 2. **Persons.** Household 1 stands for 20, all on person 12. Person 31 is 20.
 3. **Days.** Day 120 is 20, and day 310 is 20.
-
-All records stay usable. Household 2 and persons 11 and 21 carry 0.
 
 ### 5. A dropped day and its trips
 

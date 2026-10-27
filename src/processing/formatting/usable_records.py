@@ -160,13 +160,10 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
     Zero and null are different findings and have different fixes, so they are
     reported apart:
 
-    * **zero** -- the record has nothing to expand by. This step cannot tell
-      which weighting step ran, so the message names the causes rather than one:
-      supplied weights of 0, which ``add_existing_weights`` keeps as given (a
-      vendor's weekend days, say); a person with no weighted day, or a household
-      no member can carry, whose weight went to others; or, under
-      ``compute_weights``, a household, person or day that kept nothing usable to
-      share its weight among. The weighting step's log counts each case.
+    * **zero** -- the record has nothing to expand by. Both weighting steps stop
+      the run on a usable record without a weight, so a zero here means the
+      weights did not come from either step: supplied some other way, or edited
+      after it.
     * **null** -- no weight was ever estimated. Either the control geography could
       not place the household, so it belonged to no balancing zone, or no
       weighting step ran at all.
@@ -185,11 +182,8 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
         if n_zero:
             logger.warning(
                 "%d %s admitted by %s carry a zero %s. They stay in the output with "
-                "nothing to expand by. Either the supplied weights gave them 0, which "
-                "is kept as given, or the weighting had no weight to pass them: a "
-                "person with no weighted day, a household no member can carry, or a "
-                "household, person or day that kept nothing usable to share its weight "
-                "among. The weighting step's log counts each case.",
+                "nothing to expand by. Both weighting steps stop the run on a usable "
+                "record without a weight, so these weights came from neither.",
                 n_zero,
                 name,
                 usability_flag_col,

@@ -62,20 +62,18 @@ from processing.weighting.existing.config import (
     attach_supplied,
 )
 from processing.weighting.existing.population import (
-    CARRIES,
     POPULATION_TABLES,
     apply_usability,
     follow_parent,
     gate_households_by_size,
-    mark_persons_who_can_carry,
     persons_follow_household,
 )
 from processing.weighting.existing.travel import (
     JOINT_TABLES,
     TRAVEL_TABLES,
+    check_usable_were_supplied,
     check_weight_factors,
     gate_travel,
-    log_usable_supplied_zero,
     trips_follow_their_day,
     warn_null_weights,
 )
@@ -330,7 +328,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         flag = usable_col_for(profile)
 
         has_weight = attach_supplied(tables, supplied, validated_weights, profile)
-        log_usable_supplied_zero(tables, has_weight, usability_flag_col=flag)
+        check_usable_were_supplied(tables, has_weight, usability_flag_col=flag)
 
         # Populations first. Usability is stamped upstream by
         # ``cascade_completeness``. Households scale by size; persons copy their
@@ -344,8 +342,6 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
             and flag in households_df.columns
         )
         days_follow = "person_days" in population and "persons" in population
-        if by_size or days_follow:
-            mark_persons_who_can_carry(tables, has_weight, supplied.keys(), usability_flag_col=flag)
         if by_size:
             population.pop("households")
             supplied_totals["households"] = gate_households_by_size(
@@ -356,7 +352,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
             )
             if "persons" in population:
                 population.pop("persons")
-                persons_follow_household(tables, has_weight)
+                persons_follow_household(tables, has_weight, usability_flag_col=flag)
         if days_follow:
             # Held person by person below, which holds the day total to the
             # person total rather than to the supplier's day total.
@@ -365,12 +361,9 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
                 # Persons supplied without households: the older rule, within the
                 # household then region-wide.
                 supplied_totals |= apply_usability(
-                    tables, {"persons": population.pop("persons")}, usability_flag_col=CARRIES
+                    tables, {"persons": population.pop("persons")}, usability_flag_col=flag
                 )
         supplied_totals |= apply_usability(tables, population, usability_flag_col=flag)
-        persons_df = tables.get("persons")
-        if persons_df is not None and CARRIES in persons_df.columns:
-            tables["persons"] = persons_df.drop(CARRIES)
         if days_follow:
             follow_parent(tables, has_weight, "person_days", usability_flag_col=flag)
 
