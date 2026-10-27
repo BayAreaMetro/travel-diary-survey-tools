@@ -42,7 +42,7 @@ as access or egress modes for transit journeys.
 @step(
     requires={
         "unlinked_trips": {
-            "day_id",
+            "person_day_id",
             "o_lon",
             "o_lat",
             "d_lon",
@@ -56,7 +56,7 @@ as access or egress modes for transit journeys.
     },
     produces={
         "unlinked_trips": {"linked_trip_id"},
-        "linked_trips": {"linked_trip_id", "day_id", "person_id", "hh_id", "driver"},
+        "linked_trips": {"linked_trip_id", "person_day_id", "person_id", "hh_id", "driver"},
     },
 )
 def link_trips(
@@ -74,7 +74,7 @@ def link_trips(
     temporal continuity across consecutive trips.
 
     Args:
-        unlinked_trips: Individual trip records with person_id, day_id,
+        unlinked_trips: Individual trip records with person_id, person_day_id,
             depart_time, arrive_time, o/d locations, o/d purposes, mode_type.
         change_mode_enum: Enum label indicating a mode change purpose.
         transit_mode_enums: List of enum labels that count as transit modes.
@@ -108,7 +108,7 @@ def link_trips(
                   ≤ dwell_buffer_distance meters
                 - With split_on_occupancy, the reported party size is unchanged
             - Otherwise, start a new linked trip
-        3. Assign globally unique linked_trip_id: the day_id followed by a
+        3. Assign globally unique linked_trip_id: the person_day_id followed by a
            two-digit sequence number
 
         # Phase 2: Aggregate Linked Trips
@@ -174,7 +174,7 @@ def link_trip_ids(
      - If previous trip's destination purpose is 'change_mode',
        continue the linked trip; else start a new linked trip.
      - Assign linked trip IDs accordingly.
-     Linked trip IDs are made globally unique by combining day_id and
+     Linked trip IDs are made globally unique by combining person_day_id and
      local linked trip index.
 
     Args:
@@ -207,7 +207,9 @@ def link_trip_ids(
         unlinked_trips = unlinked_trips.drop("linked_trip_id")
 
     # Step 1: Sort trips by person, day, and departure time
-    unlinked_trips = unlinked_trips.sort(["person_id", "day_id", "depart_time", "arrive_time"])
+    unlinked_trips = unlinked_trips.sort(
+        ["person_id", "person_day_id", "depart_time", "arrive_time"]
+    )
 
     if split_on_occupancy and "num_travelers" not in unlinked_trips.columns:
         msg = (
@@ -522,9 +524,9 @@ def aggregate_linked_trips(
         )
     )
 
-    # Join day_id back for reference
+    # Join person_day_id back for reference
     linked_trips = linked_trips.join(
-        unlinked_trips.select(["linked_trip_id", "day_id"]).unique(),
+        unlinked_trips.select(["linked_trip_id", "person_day_id"]).unique(),
         on="linked_trip_id",
         how="left",
     )
@@ -534,9 +536,12 @@ def aggregate_linked_trips(
     # within each person-day. Sentinels: -1 when the destination is home; -2 for
     # the last trip of a person-day (no subsequent departure).
     linked_trips = (
-        linked_trips.sort(["person_id", "day_id", "depart_time", "arrive_time"])
+        linked_trips.sort(["person_id", "person_day_id", "depart_time", "arrive_time"])
         .with_columns(
-            pl.col("depart_time").shift(-1).over(["person_id", "day_id"]).alias("_next_depart_time")
+            pl.col("depart_time")
+            .shift(-1)
+            .over(["person_id", "person_day_id"])
+            .alias("_next_depart_time")
         )
         .with_columns(
             pl.when(pl.col("d_purpose_category") == PurposeCategory.HOME.value)

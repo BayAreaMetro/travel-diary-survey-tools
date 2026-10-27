@@ -16,7 +16,7 @@ Two kinds of flag, computed side by side:
   admits. A project names its profiles in config, so several standards can
   coexist in one run and a column's meaning reads off the config.
 
-A profile answers four axes, all explicitly, none with a default:
+A profile answers five axes, all explicitly, none with a default:
 
 | axis | values | meaning |
 |------|--------|---------|
@@ -29,6 +29,7 @@ A profile answers four axes, all explicitly, none with a default:
 | | `none` | no geographic requirement |
 | `joint_tours` | `fully_joint` | everyone on a joint tour shares every leg, as activity-based models draw it; work, school and escort tours are never joint |
 | | `partial` | the joint groups the survey detected, as they are |
+| `travel_days` | a list of day names, `monday` to `sunday` | only days on these days of the week; a day on any other is unusable, with its tours and trips |
 
 No setting admits a tour with *missing data* (`NO_DESTINATION`, `SPATIAL_GAP`):
 those are not open ends, and no tolerance makes a missing leg present.
@@ -42,11 +43,13 @@ those are not open ends, and no tolerance makes a missing leg present.
         household_day_needs: all_members
         zone_coverage: TAZ1454
         joint_tours: fully_joint
+        travel_days: [tuesday, wednesday, thursday]
       analysis:
         tour_closes_at: anywhere
         household_day_needs: nothing
         zone_coverage: none
         joint_tours: partial
+        travel_days: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
 ```
 
 ## One profile, several column families
@@ -57,19 +60,38 @@ whose:
 
 | family | column | written by |
 |---|---|---|
-| `usable_` | `usable_ctramp` | the per-record verdict on every table, joint tables included, from this step |
-| `hh_day_` | `hh_day_ctramp` | whether every surveyable member's day passed, that date |
+| `usable_` | `usable_ctramp` | the per-record verdict on every table, joint tables included, from this step. On `household_days` it says whether every surveyable member's day passed that date. |
 | `joint_tour_id_`, `joint_trip_id_` | `joint_tour_id_ctramp` | the joint group a record is on for that profile, null where the profile splits it off |
-| `hh_weight_`, `day_weight_`, … | `hh_weight_ctramp` | the weight fitted over that profile's universe |
+| `hh_weight_`, `person_day_weight_`, … | `hh_weight_ctramp` | the weight fitted over that profile's universe |
 | `base_weight_` | `base_weight_ctramp` | the seed weight its fit started from |
 
 Two profiles can therefore never write the same column, whatever they are
 called: the families have disjoint prefixes, and a name is unique within one.
 
-`survey reporting completeness` sits outside all of it. `survey_complete` and
-`hh_day_survey_complete` record what the survey collected rather than what a model will
-take, so they carry no family prefix and are reserved — a profile may not take
-either name.
+`survey reporting completeness` sits outside all of it. `survey_complete` records
+what the survey collected rather than what a model will take, so it carries no
+family prefix and is reserved — a profile may not take the name.
+
+## Household-days
+
+A household-day is one household's travel date: every member's person-day on it.
+The vendor sends no household-day file, so each project's cleaner builds the
+`household_days` table from the person-days, with
+`utils.create_ids.create_household_days`. Its id, `hh_day_id`, is
+`hh_id * 100 + day_num`, the household's counterpart of `person_day_id`. Every
+person-day, joint trip and joint tour carries the `hh_day_id` it belongs to.
+
+This step writes two kinds of column onto it:
+
+| column | meaning |
+|---|---|
+| `survey_complete` | every surveyable member's day on that date is complete, as the vendor judged each one. False when no surveyable member has a day on it. |
+| `usable_<profile>` | every surveyable member's day on that date is usable under the profile |
+
+A profile with `household_day_needs: all_members` reads them: a person-day is
+usable only on a complete household-day, and a household only with a usable one.
+An unsurveyable member's own day takes no part in the household-day and keeps its
+own verdict. The table carries no weight.
 
 Downstream consumers name the profiles they honour: the weighting takes
 `weight_profiles`, one weight set per profile, and the CT-RAMP and DaySim

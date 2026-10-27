@@ -62,7 +62,7 @@ def _build(trips: list[dict]) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "unlinked_trip_id": list(range(1, len(trips) + 1)),
-            "day_id": [t.get("day", 1) for t in trips],
+            "person_day_id": [t.get("day", 1) for t in trips],
             "person_id": [1] * len(trips),
             "hh_id": [1] * len(trips),
             "travel_dow": [TravelDow.WEDNESDAY.value] * len(trips),
@@ -277,12 +277,12 @@ def test_anchor_switches_per_day_between_reported_and_observed(person_and_househ
     assert observed.select("lat", "lon").rows() == [ALT_WORK]
 
     # Day 1: the commute tour plus one work-based subtour for the errand
-    day1 = tours.filter(pl.col("day_id") == 1).sort("subtour_num")
+    day1 = tours.filter(pl.col("person_day_id") == 1).sort("subtour_num")
     assert day1.select("subtour_num", "tour_type", "tour_purpose").rows() == [
         (0, TourType.HOME_BASED.value, PurposeCategory.WORK.value),
         (1, TourType.WORK_BASED.value, PurposeCategory.WORK_RELATED.value),
     ]
 
     # Day 2: one work tour, anchored at the observed site
-    day2 = tours.filter(pl.col("day_id") == 2)
+    day2 = tours.filter(pl.col("person_day_id") == 2)
     assert day2.select("subtour_num", "tour_purpose").rows() == [(0, PurposeCategory.WORK.value)]

@@ -25,6 +25,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
+from data_canon.codebook.days import TravelDow
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
     NO_ZONE_COVERAGE,
@@ -36,6 +37,7 @@ from processing.completeness import (
     parse_usability_profiles,
     stamp_usable,
 )
+from tests.fixtures.schema_utils import add_household_days
 
 STRICT = UsabilityProfile("strict", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
 SECOND_HOMES = UsabilityProfile(
@@ -56,6 +58,15 @@ def _axes(closes_at: str, household: str, zones: str = NO_ZONE_COVERAGE) -> dict
         "household_day_needs": household,
         "zone_coverage": zones,
         "joint_tours": JointTours.PARTIAL,
+        "travel_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ],
     }
 
 
@@ -85,9 +96,9 @@ def _one_household(quality: TourDataQuality, category: TourCategory) -> dict:
                 "surveyable": [True, True],
             }
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1, 2],
+                "person_day_id": [1, 2],
                 "person_id": [1, 2],
                 "hh_id": [1, 1],
                 "travel_date": [datetime(2023, 5, 1)] * 2,
@@ -97,7 +108,7 @@ def _one_household(quality: TourDataQuality, category: TourCategory) -> dict:
         "tours": pl.DataFrame(
             {
                 "tour_id": [10, 20],
-                "day_id": [1, 2],
+                "person_day_id": [1, 2],
                 "person_id": [1, 2],
                 "survey_complete": [True, True],
                 "parent_tour_id": [10, 20],
@@ -111,7 +122,7 @@ def _one_household(quality: TourDataQuality, category: TourCategory) -> dict:
 def _stamp(profiles: list[UsabilityProfile], tables: dict) -> dict[str, pl.DataFrame]:
     """Run the reporting cascade once, then every profile over it."""
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(working)
+    cascade_complete(add_household_days(working))
     for profile in profiles:
         stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
@@ -166,7 +177,7 @@ class TestEveryProfileAnswersEveryAxis:
         with pytest.raises(ValueError, match="empty"):
             parse_usability_profiles({})
 
-    @pytest.mark.parametrize("reserved", ["survey_complete", "hh_day_survey_complete"])
+    @pytest.mark.parametrize("reserved", ["survey_complete"])
     def test_a_profile_cannot_take_a_reporting_column_name(self, reserved):
         """Reporting flags are survey facts; a profile must not overwrite one."""
         with pytest.raises(ValueError, match="collides"):
@@ -181,6 +192,52 @@ class TestEveryProfileAnswersEveryAxis:
             for name in ("a", "b", "c")
         }
         assert [p.name for p in parse_usability_profiles(spec)] == ["a", "b", "c"]
+
+
+class TestTravelDays:
+    """The days a profile takes are listed out, and a bad list stops the run."""
+
+    def _days(self, days) -> dict:
+        return {
+            "p": {
+                **_axes(TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+                "travel_days": days,
+            }
+        }
+
+    def test_a_missing_list_is_rejected(self):
+        """Saying nothing must not quietly take every day."""
+        spec = self._days(None)
+        del spec["p"]["travel_days"]
+        with pytest.raises(ValueError, match="does not say 'travel_days'") as excinfo:
+            parse_usability_profiles(spec)
+        assert "tuesday" in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        ("days", "match"),
+        [
+            pytest.param([], "at least one day", id="empty"),
+            pytest.param("tuesday", "at least one day", id="not-a-list"),
+            pytest.param(["tuesday", "tusday"], "not days", id="misspelled"),
+            pytest.param(["Tuesday"], "not days", id="capitalised"),
+            pytest.param(["tuesday", "tuesday"], "twice", id="repeated"),
+        ],
+    )
+    def test_a_bad_list_is_rejected(self, days, match: str):
+        """A typo or an empty list must stop the run, not quietly take some days."""
+        with pytest.raises(ValueError, match=match):
+            parse_usability_profiles(self._days(days))
+
+    def test_the_days_are_kept_in_week_order(self):
+        """Whatever order config lists them in, the profile reads Tue, Wed, Thu."""
+        (profile,) = parse_usability_profiles(self._days(["thursday", "tuesday", "wednesday"]))
+        assert profile.travel_days == (TravelDow.TUESDAY, TravelDow.WEDNESDAY, TravelDow.THURSDAY)
+        assert profile.limits_travel_days
+
+    def test_all_seven_days_limit_nothing(self):
+        """Listing every day is the same as asking nothing of the day of the week."""
+        (profile,) = parse_usability_profiles(self._days([d.name.lower() for d in TravelDow]))
+        assert not profile.limits_travel_days
 
 
 class TestTourClosesAt:
@@ -256,7 +313,7 @@ class TestHouseholdDayNeeds:
         """
         tables = _one_household(TourDataQuality.SPATIAL_GAP, TourCategory.PARTIAL_END)
         out = _stamp([LOOSE_DAYS], tables)
-        assert out["days"][LOOSE_DAYS.household_day].to_list() == [False, False]
+        assert out["household_days"][LOOSE_DAYS.flag].to_list() == [False]
 
 
 ALL_PROFILES = (STRICT, SECOND_HOMES, OPEN_ENDS, LOOSE_DAYS, WIDEST)
@@ -340,7 +397,7 @@ def _household_with_joint_records() -> dict[str, pl.DataFrame]:
         {
             "linked_trip_id": [1000, 2000],
             "tour_id": [10, 20],
-            "day_id": [1, 2],
+            "person_day_id": [1, 2],
             "joint_trip_id": [500, 500],
             "survey_complete": [True, True],
         }
@@ -349,15 +406,15 @@ def _household_with_joint_records() -> dict[str, pl.DataFrame]:
         {
             "unlinked_trip_id": [1, 2],
             "tour_id": [10, 20],
-            "day_id": [1, 2],
+            "person_day_id": [1, 2],
             "survey_complete": [True, True],
         }
     )
     tables["joint_tours"] = pl.DataFrame(
-        {"joint_tour_id": [100], "day_id": [1], "survey_complete": [True]}
+        {"joint_tour_id": [100], "person_day_id": [1], "survey_complete": [True]}
     )
     tables["joint_trips"] = pl.DataFrame(
-        {"joint_trip_id": [500], "day_id": [1], "survey_complete": [True]}
+        {"joint_trip_id": [500], "person_day_id": [1], "survey_complete": [True]}
     )
     return tables
 
@@ -387,10 +444,6 @@ class TestParameterisationIsTotal:
             f"pass read the first pass's verdict: {disagreed}"
         )
 
-        # The days table carries a second derived column, not just the flag.
-        days = stamped["days"]
-        assert days[FIRST.household_day].to_list() == days[ALIAS.household_day].to_list()
-
 
 class TestTheCascadeStillDiscriminates:
     """An equivalence test passes trivially if everything is True.
@@ -416,7 +469,7 @@ class TestTheCascadeStillDiscriminates:
         assert stamped["joint_trips"][FIRST.flag].to_list() == [False]
 
         # One member's day being unusable takes the whole date down.
-        assert stamped["days"][FIRST.household_day].to_list() == [False, False]
+        assert stamped["household_days"][FIRST.flag].to_list() == [False]
 
 
 class TestCompleteIsUntouched:
@@ -425,7 +478,7 @@ class TestCompleteIsUntouched:
     def test_a_second_usable_pass_does_not_rewrite_complete(self):
         """Only ``cascade_complete`` writes ``survey_complete``."""
         tables: dict[str, pl.DataFrame | None] = dict(_household_with_joint_records())
-        cascade_complete(tables)
+        cascade_complete(add_household_days(tables))
         before = {
             name: df["survey_complete"].to_list() for name, df in tables.items() if df is not None
         }

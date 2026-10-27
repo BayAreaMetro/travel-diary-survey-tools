@@ -79,14 +79,14 @@ feature (e.g. `gender=1` + `gender=2` → `gender`).
 The returned `feature_importance` dict maps feature names to their normalised
 importance score.  Example:
 
-| Feature            | Importance |
-|--------------------|-----------|
-| employment         | 0.312     |
-| education          | 0.241     |
-| age                | 0.189     |
-| occupation         | 0.127     |
-| hh_mode_income_bin | 0.065     |
-| …                  | …         |
+| Feature         | Importance |
+|-----------------|-----------|
+| employment      | 0.312     |
+| education       | 0.241     |
+| age             | 0.189     |
+| occupation      | 0.127     |
+| n_hh_income_bin | 0.065     |
+| …               | …         |
 
 An importance of 0.31 means ~31% of the model's total impurity reduction came
 from splits on that feature.  Higher values indicate features the model relies

@@ -28,14 +28,14 @@ logger = logging.getLogger(__name__)
 MODE_TO_MODE_TYPE_MAP = {k.value: v.value for k, v in ModeType.from_mode().items()}
 
 
-def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
+def compute_day_completeness(person_days: pl.DataFrame) -> pl.DataFrame:
     """Compute day completeness indicators for survey weighting.
 
     Creates person-level completeness indicators by day of week and calculates
     total complete days for different weekday periods (3-day, 4-day, 5-day).
 
     Args:
-        days: DataFrame with columns [person_id, survey_complete, travel_dow]
+        person_days: DataFrame with columns [person_id, survey_complete, travel_dow]
 
     Returns:
         DataFrame with columns:
@@ -49,7 +49,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
 
     # Pivot days by person and day of week
     pivoted = (
-        days.select(["person_id", "survey_complete", "travel_dow"])
+        person_days.select(["person_id", "survey_complete", "travel_dow"])
         .pivot(index="person_id", on="travel_dow", values="survey_complete")
         .fill_null(0)
     )
@@ -107,7 +107,7 @@ def compute_day_completeness(days: pl.DataFrame) -> pl.DataFrame:
     return result.sort(by=["hhno", "pno"])
 
 
-def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
+def format_persons(persons: pl.DataFrame, person_days: pl.DataFrame) -> pl.DataFrame:
     """Format person data to DaySim specification.
 
     Applies mapping dictionaries and derives person type (`pptyp`) and worker
@@ -137,7 +137,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
 
     Args:
         persons: DataFrame with canonical person fields
-        days: DataFrame with day completeness indicators
+        person_days: DataFrame with day completeness indicators
 
     Returns:
         DataFrame with DaySim person fields
@@ -145,7 +145,7 @@ def format_persons(persons: pl.DataFrame, days: pl.DataFrame) -> pl.DataFrame:
     logger.info("Formatting person data")
 
     # Compute day completeness if days data provided
-    day_completeness = compute_day_completeness(days)
+    day_completeness = compute_day_completeness(person_days)
 
     # Rename columns to DaySim naming convention
     persons_daysim = persons.rename(

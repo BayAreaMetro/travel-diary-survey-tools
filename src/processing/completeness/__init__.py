@@ -1,8 +1,8 @@
 """Canonical completeness and model-usability logic.
 
 Two kinds of flag roll **up** from two atomic facts -- whether each **day** was
-surveyed (``days.survey_complete``, which the project cleaner sets from the day's
-surveyed trips or a declared no-travel day), and each tour's structural validity:
+surveyed (``person_days.survey_complete``, which the project cleaner takes from the
+survey vendor's own day verdict), and each tour's structural validity:
 
 * ``survey_complete`` -- was it reported? Rolls up from complete days. One answer per
   run, never narrowed by model criteria and never configurable: if it is wrong,
@@ -10,9 +10,10 @@ surveyed trips or a declared no-travel day), and each tour's structural validity
 * one column per **usability profile** -- can the model consume it? Fuses each
   tour's structure with its household-day coherence, then gates the rest.
 
-A profile states a standard on four axes -- which home has to close a tour,
+A profile states a standard on five axes -- which home has to close a tour,
 what the household-date has to show, which zone system has to be able to
-address the record, and what a joint tour has to be -- and a run may stamp
+address the record, what a joint tour has to be, and which days of the week
+it takes -- and a run may stamp
 several, so different consumers can hold different standards. A joint-tour
 model needs whole households and fully joint tours; a trip-level estimation
 does not, and needs no model geography at all.
@@ -42,9 +43,10 @@ The flow, and the rule on each line:
 ```text
 COMPLETE -- rolls up from complete days     op        rule
 ------------------------------------------------------------------------
-person-day ...........................   direct    days.survey_complete, from the cleaner
-                                                    (all trips surveyed, or no-travel)
- ├ trip / tour .......................   inherit   its own value AND its day's
+person-day ...........................   direct    person_days.survey_complete, from the cleaner
+                                                    (the vendor's day verdict, as given)
+ ├ trip / tour .......................   inherit   its own value AND its day's (no own
+                                                    value: the day's alone)
  ├ person ............................   >=1       has >=1 complete day
  └ household-day .....................   ALL       all surveyable members complete that date
     └ household ......................   >=1       has >=1 complete household-day
@@ -54,15 +56,19 @@ USABLE, UP (_cascade_up) -- counts from the tour fuse   op   rule
 household ...........................   >=1       has >=1 usable household-day
  ├ household-day ....................   ALL       all surveyable members' days usable that date
  └ person ...........................   >=1       has >=1 usable day
-    └ day ...........................   >=1       >=1 usable tour (or a no-travel day)
+    └ day ...........................   >=1       on a day of the week it takes, its
+                                                  person not excluded by the cleaner,
+                                                  and >=1 usable tour (or a no-travel day)
        └ tour .......................   fuse      complete AND admitted-quality AND
                                                      hh-day complete AND has a zone
-                                                     (the last three are the axes)
+                                                     (those three are the axes)
+                                                     AND every trip on it usable
+          └ linked trip / unlinked trip   direct    its own survey_complete
 
 USABLE, DOWN (_cascade_down) -- inherits from the household   op   rule
 ------------------------------------------------------------------------
 household -> person -> day -> tour ..   inherit   unusable if the one it belongs to is
- └ linked trip / unlinked trip ......   inherit   takes its tour's verdict
+ └ linked trip / unlinked trip ......   inherit   unusable if its tour is
 
 JOINT (flag_joint) -- judged beside the chain, after it     op   rule
 ------------------------------------------------------------------------
@@ -86,8 +92,8 @@ fully_joint .........................   class     usable, not work/school/escort
                                                   people and one purpose, or everyone
                                                   on it travels alone
 
-declared no-travel: num_reasons_no_travel >= 1, OR proxy_complete (a proxy filled the day in --
-  this is how children, who file no trips themselves, still get a complete day).
+no-travel day: a complete day with no trips. Whether it is complete is the vendor's call
+  (a no-travel reason given, or, for a child, a proxy report), never re-judged here.
 surveyable: persons whose travel the survey could collect at all. Unsurveyable persons
   (unrelated members, e.g. roommates) have no day rows in the vendor data; where a source
   carries any, they neither veto the household-day ALL reductions nor inherit their verdict.

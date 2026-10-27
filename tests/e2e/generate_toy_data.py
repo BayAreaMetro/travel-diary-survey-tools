@@ -13,11 +13,10 @@ for the scenario -> edge-case map. The record fields are produced through a smal
 """
 
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import polars as pl
 
-from data_canon.codebook.days import TravelDow
 from data_canon.codebook.households import IncomeBroad, ResidenceRentOwn, ResidenceType
 from data_canon.codebook.persons import (
     AgeCategory,
@@ -29,10 +28,12 @@ from data_canon.codebook.persons import (
     Race,
     SchoolType,
     Student,
+    SurveyTech,
     WorkParking,
 )
 from data_canon.codebook.trips import Driver, Mode, ModeType, Purpose, PurposeCategory
 from processing.habitual_locations import reported_habitual_locations
+from utils.create_ids import create_household_days
 
 # ---------------------------------------------------------------------------
 # Coordinates (synthetic SF Bay Area -- no real addresses)
@@ -80,9 +81,14 @@ COORDS = {
     "home_t": (37.7390, -122.4380),
 }
 
-DAY_DATE_1 = date(2024, 3, 11)  # Monday
-DAY_DATE_2 = date(2024, 3, 12)  # Tuesday
-DAY_DATE_SAT = date(2024, 3, 16)  # Saturday
+# A week diary runs Monday to Sunday, as rMove households report, so every
+# household type is on every day and a profile limiting the days of the week
+# drops some of each household's days rather than whole households.
+WEEK = [date(2024, 3, 11) + timedelta(days=n) for n in range(7)]
+# The few households that test two particular dates use these, both inside the
+# Tuesday-Thursday window the strict profiles take.
+DAY_DATE_1 = date(2024, 3, 12)  # Tuesday
+DAY_DATE_2 = date(2024, 3, 13)  # Wednesday
 
 # ---------------------------------------------------------------------------
 # Canonical enum values, read from the codebook rather than typed out.
@@ -128,8 +134,7 @@ MODE_WALK, MODE_BIKE_RENTED, MODE_BART = Mode.WALK.value, Mode.BIKE_RENTED.value
 WP_FREE, WP_NOT_APPLICABLE = WorkParking.FREE.value, WorkParking.NOT_APPLICABLE.value
 WP_MISSING = WorkParking.MISSING.value
 YES, NO = 1, 0
-DOW_MONDAY, DOW_TUESDAY = TravelDow.MONDAY.value, TravelDow.TUESDAY.value
-DOW_SATURDAY = TravelDow.SATURDAY.value
+TECH_GPS, TECH_FORM = SurveyTech.GPS.value, SurveyTech.FORM.value
 DRV_DRIVER, DRV_PASSENGER = Driver.DRIVER.value, Driver.PASSENGER.value
 DRV_MISSING = Driver.MISSING.value
 JOB_FIXED, JOB_VARIES = JobType.FIXED.value, JobType.VARIES.value
@@ -168,11 +173,11 @@ def _dt(d, hm):
 
 
 class _Day:
-    """Trip context bound to a single person-day (day_id, person, hh, date)."""
+    """Trip context bound to a single person-day (person_day_id, person, hh, date)."""
 
-    def __init__(self, survey, day_id, pid, hid, dd):
+    def __init__(self, survey, person_day_id, pid, hid, dd):
         self._s = survey
-        self.day_id = day_id
+        self.person_day_id = person_day_id
         self.pid = pid
         self.hid = hid
         self.dd = dd
@@ -188,7 +193,7 @@ class _Day:
         self._s.trips.append(
             {
                 "unlinked_trip_id": self._s._tc,
-                "day_id": self.day_id,
+                "person_day_id": self.person_day_id,
                 "person_id": self.pid,
                 "hh_id": self.hid,
                 "linked_trip_id": self._s._tc,
@@ -230,11 +235,30 @@ class _Day:
         return self
 
 
+class _Week:
+    """Trip context for a week diary: each trip goes on every day of it."""
+
+    def __init__(self, days):
+        self.days = days
+
+    def trip(self, *args, **kw):
+        """Append the same unlinked trip on each day."""
+        for day in self.days:
+            day.trip(*args, **kw)
+        return self
+
+    def round_trip(self, *args, **kw):
+        """Append the same pair of mirror trips on each day."""
+        for day in self.days:
+            day.round_trip(*args, **kw)
+        return self
+
+
 class _Survey:
     """Accumulates households, persons, days, and trips as lists of dicts."""
 
     def __init__(self):
-        self.hhs, self.pers, self.days, self.trips = [], [], [], []
+        self.hhs, self.pers, self.person_days, self.trips = [], [], [], []
         self._tc = 0
 
     def household(
@@ -289,6 +313,8 @@ class _Survey:
         proxy=NO,
         ndays=1,
         comp=True,
+        tech=TECH_GPS,
+        excl=None,
     ):
         self.pers.append(
             {
@@ -318,32 +344,45 @@ class _Survey:
                 "commute_subsidy_use_discounted_parking": NO,
                 "transit_pass": tp,
                 "is_proxy": proxy,
+                "survey_tech": tech,
+                "exclusion_reason": excl,
                 "num_days_complete": ndays,
                 "survey_complete": comp,
                 "person_weight": None,
             }
         )
 
-    def day(self, pid, hid, dd, dow, *, pnum=1, dnum=1, comp=True) -> _Day:
-        """Append a person-day (day_id = pid*100 + dnum) and return its trip context."""
-        day_id = pid * 100 + dnum
-        self.days.append(
+    def day(self, pid, hid, dd, *, pnum=1, dnum=1, comp=True) -> _Day:
+        """Append a person-day (person_day_id = pid*100 + dnum) and return its trip context."""
+        person_day_id = pid * 100 + dnum
+        self.person_days.append(
             {
-                "day_id": day_id,
+                "person_day_id": person_day_id,
                 "person_id": pid,
                 "hh_id": hid,
                 "travel_date": datetime(dd.year, dd.month, dd.day),
-                "travel_dow": dow,
+                "travel_dow": dd.isoweekday(),  # 1=Mon … 7=Sun
                 "person_num": pnum,
                 "day_num": dnum,
                 "survey_complete": comp,
                 # Not asked in the toy survey.
                 "begin_day": None,
                 "end_day": None,
-                "day_weight": None,
+                "person_day_weight": None,
             }
         )
-        return _Day(self, day_id, pid, hid, dd)
+        return _Day(self, person_day_id, pid, hid, dd)
+
+    def week(self, pid, hid, *, pnum=1, comp=True) -> _Week:
+        """Append a person-day on each day of ``WEEK`` and return them as one trip context."""
+        days = [
+            self.day(pid, hid, dd, pnum=pnum, dnum=dnum, comp=comp)
+            for dnum, dd in enumerate(WEEK, start=1)
+        ]
+        if comp:
+            person = next(p for p in self.pers if p["person_id"] == pid)
+            person["num_days_complete"] = len(days)
+        return _Week(days)
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +410,7 @@ def _build_records():
         wm=MT_CAR,
         cf=CF_5_DAYS,
     )
-    s.day(101, 1, DAY_DATE_1, DOW_MONDAY).round_trip(
+    s.week(101, 1).round_trip(
         "home_a", "work_1", PC_HOME, PC_WORK, MT_CAR, ((8, 0), (8, 30)), ((17, 0), (17, 30))
     )
 
@@ -392,7 +431,7 @@ def _build_records():
         cf=CF_5_DAYS,
         tp=YES,
     )
-    d = s.day(201, 2, DAY_DATE_1, DOW_MONDAY)
+    d = s.week(201, 2)
     d.trip(
         "home_b", "bart_station", PC_HOME, PC_CHANGE_MODE, MT_WALK, (7, 30), (7, 45), m1=MODE_WALK
     )
@@ -439,7 +478,7 @@ def _build_records():
             wm=MT_CAR,
             cf=CF_5_DAYS,
         )
-        s.day(pid, 3, DAY_DATE_1, DOW_MONDAY, pnum=pn).round_trip(
+        s.week(pid, 3, pnum=pn).round_trip(
             "home_c",
             "work_2",
             PC_HOME,
@@ -464,7 +503,7 @@ def _build_records():
         eth=ETH_MEXICAN,
         cf=CF_NEVER,
     )
-    d = s.day(401, 4, DAY_DATE_1, DOW_MONDAY)
+    d = s.week(401, 4)
     d.trip("home_d", "shop_1", PC_HOME, PC_SHOP, MT_CAR, (9, 0), (9, 15))
     d.trip("shop_1", "meal_1", PC_SHOP, PC_MEAL, MT_CAR, (9, 45), (10, 0))
     d.trip("meal_1", "errand_1", PC_MEAL, PC_ERRAND, MT_CAR, (10, 45), (11, 0))
@@ -501,11 +540,11 @@ def _build_records():
         race=RACE_AFAM,
         proxy=YES,
     )
-    d = s.day(501, 5, DAY_DATE_1, DOW_MONDAY, pnum=1)
+    d = s.week(501, 5, pnum=1)
     d.trip("home_e", "school_1", PC_HOME, PC_ESCORT, MT_CAR, (7, 30), (7, 45))
     d.trip("school_1", "work_3", PC_ESCORT, PC_WORK, MT_CAR, (7, 45), (8, 10))
     d.trip("work_3", "home_e", PC_WORK, PC_HOME, MT_CAR, (17, 0), (17, 25))
-    s.day(502, 5, DAY_DATE_1, DOW_MONDAY, pnum=2).round_trip(
+    s.week(502, 5, pnum=2).round_trip(
         "home_e",
         "school_1",
         PC_HOME,
@@ -531,7 +570,7 @@ def _build_records():
         wm=MT_WALK,
         cf=CF_5_DAYS,
     )
-    d = s.day(601, 6, DAY_DATE_1, DOW_MONDAY)
+    d = s.week(601, 6)
     d.trip("home_f", "work_1", PC_HOME, PC_WORK, MT_WALK, (8, 0), (8, 20))
     d.trip("work_1", "lunch_1", PC_WORK, PC_MEAL, MT_WALK, (12, 0), (12, 10))
     d.trip("lunch_1", "work_1", PC_MEAL, PC_WORK, MT_WALK, (12, 45), (12, 55))
@@ -540,17 +579,15 @@ def _build_records():
     # HH 7 - single-trip tour (didn't return home)
     s.household(7, "home_g", res=RES_MULTIFAMILY, income=INC_UNDER_25K, nworkers=0)
     s.person(701, 7, 1, AGE_18_TO_24, MALE, EMP_NOT_LOOKING, STU_NONSTUDENT, cf=CF_NEVER)
-    s.day(701, 7, DAY_DATE_1, DOW_MONDAY).trip(
-        "home_g", "social_1", PC_HOME, PC_SOCIALREC, MT_CAR, (19, 0), (19, 20)
-    )
+    s.week(701, 7).trip("home_g", "social_1", PC_HOME, PC_SOCIALREC, MT_CAR, (19, 0), (19, 20))
 
-    # HH 8 - weekend recreation (2 retirees, potential joint trips)
+    # HH 8 - recreation (2 retirees, potential joint trips)
     s.household(
         8, "home_h", rent=OWN, res=RES_SFH, income=INC_200_PLUS, veh=2, npeople=2, nworkers=0
     )
     for pn, pid, gen, age in [(1, 801, MALE, AGE_55_TO_64), (2, 802, FEMALE, AGE_45_TO_54)]:
         s.person(pid, 8, pn, age, gen, EMP_NOT_LOOKING, STU_NONSTUDENT, cf=CF_NEVER)
-        d = s.day(pid, 8, DAY_DATE_SAT, DOW_SATURDAY, pnum=pn)
+        d = s.week(pid, 8, pnum=pn)
         d.trip("home_h", "shop_1", PC_HOME, PC_SHOP, MT_CAR, (10, 0), (10, 15))
         d.trip("shop_1", "meal_1", PC_SHOP, PC_MEAL, MT_CAR, (11, 0), (11, 10))
         d.trip("meal_1", "home_h", PC_MEAL, PC_HOME, MT_CAR, (12, 30), (12, 45))
@@ -571,7 +608,7 @@ def _build_records():
         wm=MT_TNC,
         cf=CF_5_DAYS,
     )
-    s.day(901, 9, DAY_DATE_1, DOW_MONDAY).round_trip(
+    s.week(901, 9).round_trip(
         "home_i", "work_2", PC_HOME, PC_WORK, MT_TNC, ((8, 30), (8, 50)), ((18, 0), (18, 20))
     )
 
@@ -595,7 +632,7 @@ def _build_records():
         cf=CF_5_DAYS,
         tp=YES,
     )
-    s.day(1001, 10, DAY_DATE_1, DOW_MONDAY).round_trip(
+    s.week(1001, 10).round_trip(
         "home_j",
         "work_3",
         PC_HOME,
@@ -623,10 +660,10 @@ def _build_records():
         cf=CF_5_DAYS,
         ndays=2,
     )
-    s.day(1101, 11, DAY_DATE_1, DOW_MONDAY, dnum=1).round_trip(
+    s.day(1101, 11, DAY_DATE_1, dnum=1).round_trip(
         "home_k", "work_1", PC_HOME, PC_WORK, MT_CAR, ((8, 0), (8, 20)), ((17, 0), (17, 20))
     )
-    s.day(1101, 11, DAY_DATE_2, DOW_TUESDAY, dnum=2).round_trip(
+    s.day(1101, 11, DAY_DATE_2, dnum=2).round_trip(
         "home_k", "work_1", PC_HOME, PC_WORK, MT_CAR, ((8, 15), (8, 35)), ((17, 30), (17, 50))
     )
 
@@ -656,7 +693,7 @@ def _build_records():
         cf=CF_5_DAYS,
         comp=False,
     )
-    s.day(1201, 12, DAY_DATE_1, DOW_MONDAY, comp=False).round_trip(
+    s.week(1201, 12, comp=False).round_trip(
         "home_l", "work_2", PC_HOME, PC_WORK, MT_CAR, ((8, 0), (8, 25)), ((17, 0), (17, 25))
     )
 
@@ -665,7 +702,7 @@ def _build_records():
     s.household(13, "home_m", rent=OWN, res=RES_SFH, income=INC_UNDER_25K, npeople=2, nworkers=0)
     s.person(1301, 13, 1, AGE_65_TO_74, MALE, EMP_NOT_LOOKING, STU_NONSTUDENT, cf=CF_NEVER)
     s.person(1302, 13, 2, AGE_75_TO_84, FEMALE, EMP_NOT_LOOKING, STU_NONSTUDENT, cf=CF_NEVER)
-    s.day(1301, 13, DAY_DATE_1, DOW_MONDAY, pnum=1).round_trip(
+    s.week(1301, 13, pnum=1).round_trip(
         "home_m",
         "shop_2",
         PC_HOME,
@@ -675,7 +712,7 @@ def _build_records():
         ((11, 0), (11, 20)),
         m1=MODE_WALK,
     )
-    s.day(1302, 13, DAY_DATE_1, DOW_MONDAY, pnum=2).round_trip(
+    s.week(1302, 13, pnum=2).round_trip(
         "home_m", "meal_1", PC_HOME, PC_MEAL, MT_TAXI, ((12, 0), (12, 20)), ((13, 30), (13, 50))
     )
 
@@ -740,13 +777,13 @@ def _build_records():
         race=RACE_ASIAN,
         proxy=YES,
     )
-    s.day(1401, 14, DAY_DATE_1, DOW_MONDAY, pnum=1).round_trip(
+    s.week(1401, 14, pnum=1).round_trip(
         "home_n", "work_1", PC_HOME, PC_WORK, MT_CAR, ((8, 0), (8, 25)), ((17, 0), (17, 25))
     )
-    s.day(1402, 14, DAY_DATE_1, DOW_MONDAY, pnum=2).round_trip(
+    s.week(1402, 14, pnum=2).round_trip(
         "home_n", "work_2", PC_HOME, PC_WORK, MT_CAR, ((9, 0), (9, 20)), ((16, 0), (16, 20))
     )
-    s.day(1403, 14, DAY_DATE_1, DOW_MONDAY, pnum=3).round_trip(
+    s.week(1403, 14, pnum=3).round_trip(
         "home_n",
         "school_1",
         PC_HOME,
@@ -756,7 +793,7 @@ def _build_records():
         ((15, 0), (15, 20)),
         drv=DRV_PASSENGER,
     )
-    s.day(1404, 14, DAY_DATE_1, DOW_MONDAY, pnum=4).round_trip(
+    s.week(1404, 14, pnum=4).round_trip(
         "home_n",
         "school_1",
         PC_HOME,
@@ -783,7 +820,7 @@ def _build_records():
         race=RACE_OTHER,
         cf=CF_5_DAYS,
     )
-    s.day(1501, 15, DAY_DATE_1, DOW_MONDAY).round_trip(
+    s.week(1501, 15).round_trip(
         "home_o", "work_3", PC_HOME, PC_WORK, MT_BIKE, ((8, 30), (8, 50)), ((17, 30), (17, 50))
     )
 
@@ -804,10 +841,10 @@ def _build_records():
         race=RACE_ASIAN,
     )
     s.person(1602, 16, 2, AGE_55_TO_64, MALE, EMP_NOT_LOOKING, STU_NONSTUDENT, race=RACE_ASIAN)
-    s.day(1601, 16, DAY_DATE_1, DOW_MONDAY, pnum=1).round_trip(
+    s.week(1601, 16, pnum=1).round_trip(
         "home_p", "univ_1", PC_HOME, PC_SCHOOL, MT_TRANSIT, ((9, 0), (9, 30)), ((15, 0), (15, 30))
     )
-    s.day(1602, 16, DAY_DATE_1, DOW_MONDAY, pnum=2)  # no trips -> "H" pattern
+    s.week(1602, 16, pnum=2)  # no trips -> "H" pattern
 
     # HH 17 - part-time worker with an OUTBOUND stop (coffee before work) and an
     # INBOUND stop (grocery after work). tour_purpose stays WORK (higher priority).
@@ -826,7 +863,7 @@ def _build_records():
         wm=MT_CAR,
         cf=CF_5_DAYS,
     )
-    d = s.day(1701, 17, DAY_DATE_1, DOW_MONDAY)
+    d = s.week(1701, 17)
     d.trip("home_q", "coffee_1", PC_HOME, PC_SHOP, MT_CAR, (8, 0), (8, 10))
     d.trip("coffee_1", "work_1", PC_SHOP, PC_WORK, MT_CAR, (8, 20), (9, 0))
     d.trip("work_1", "shop_1", PC_WORK, PC_SHOP, MT_CAR, (17, 0), (17, 15))
@@ -835,7 +872,7 @@ def _build_records():
     # HH 18 - loop trip (home -> home single trip) -> tour_data_quality LOOP_TRIP.
     s.household(18, "home_r", income=INC_UNDER_25K, veh=0, nworkers=0)
     s.person(1801, 18, 1, AGE_25_TO_34, FEMALE, EMP_NOT_LOOKING, STU_NONSTUDENT, cf=CF_NEVER)
-    s.day(1801, 18, DAY_DATE_1, DOW_MONDAY).trip(
+    s.week(1801, 18).trip(
         "home_r", "home_r", PC_HOME, PC_HOME, MT_WALK, (10, 0), (10, 30), m1=MODE_WALK
     )
 
@@ -857,7 +894,7 @@ def _build_records():
         wm=MT_CAR,
         cf=CF_5_DAYS,
     )
-    s.day(1901, 19, DAY_DATE_1, DOW_MONDAY).round_trip(
+    s.week(1901, 19).round_trip(
         "home_a", "pr_1", PC_HOME, PC_CHANGE_MODE, MT_CAR, ((8, 0), (8, 20)), ((12, 0), (12, 20))
     )
 
@@ -878,7 +915,7 @@ def _build_records():
         wm=MT_CAR,
         cf=CF_5_DAYS,
     )
-    d = s.day(2001, 20, DAY_DATE_1, DOW_MONDAY)
+    d = s.week(2001, 20)
     d.trip("work_1", "meal_1", PC_WORK, PC_MEAL, MT_CAR, (12, 0), (12, 20))
     d.trip("meal_1", "gym_1", PC_MEAL, PC_SOCIALREC, MT_CAR, (13, 30), (13, 50))
 
@@ -900,7 +937,7 @@ def _build_records():
         wm=MT_CAR,
         cf=CF_5_DAYS,
     )
-    d = s.day(2101, 21, DAY_DATE_1, DOW_MONDAY)
+    d = s.week(2101, 21)
     d.trip("work_2", "errand_1", PC_WORK, PC_ERRAND, MT_CAR, (0, 30), (0, 50))
     d.trip("errand_1", "home_c", PC_ERRAND, PC_HOME, MT_CAR, (1, 0), (1, 20))
 
@@ -921,7 +958,7 @@ def _build_records():
         wm=MT_CAR,
         cf=CF_5_DAYS,
     )
-    d = s.day(2201, 22, DAY_DATE_1, DOW_MONDAY)
+    d = s.week(2201, 22)
     d.trip("home_d", "work_1", PC_HOME, PC_WORK, MT_CAR, (8, 0), (8, 30))
     d.trip("work_1", "social_1", PC_WORK, PC_SOCIALREC, MT_CAR, (17, 0), (17, 30))
 
@@ -942,7 +979,7 @@ def _build_records():
             proxy=YES if child else NO,
             race=RACE_AFAM,
         )
-        s.day(pid, 23, DAY_DATE_SAT, DOW_SATURDAY, pnum=pn).round_trip(
+        s.week(pid, 23, pnum=pn).round_trip(
             "home_e",
             "shop_1",
             PC_HOME,
@@ -972,7 +1009,7 @@ def _build_records():
             st=SCH_ELEMENTARY,
             proxy=YES,
         )
-        s.day(pid, 24, DAY_DATE_1, DOW_MONDAY, pnum=pn).round_trip(
+        s.week(pid, 24, pnum=pn).round_trip(
             "home_f",
             "school_1",
             PC_HOME,
@@ -1008,7 +1045,7 @@ def _build_records():
             STU_NONSTUDENT,
             cf=CF_NEVER,
         )
-        s.day(pid, 25, DAY_DATE_1, DOW_MONDAY, pnum=pn).round_trip(
+        s.week(pid, 25, pnum=pn).round_trip(
             "home_g",
             "shop_2",
             PC_HOME,
@@ -1048,7 +1085,7 @@ def _build_records():
 
     # Day one: both members commute home -> work -> home. Clean, closed tours.
     for pid in (2601, 2602):
-        s.day(pid, 26, DAY_DATE_1, DOW_MONDAY, pnum=1 if pid == 2601 else 2, dnum=1).round_trip(
+        s.day(pid, 26, DAY_DATE_1, pnum=1 if pid == 2601 else 2, dnum=1).round_trip(
             "home_a",
             "work_1",
             PC_HOME,
@@ -1062,7 +1099,7 @@ def _build_records():
     # Day two: 2602 commutes again, closed. 2601 leaves home and the diary stops
     # there -- an open tour, so a primary_home profile drops that day and its
     # weight must land entirely on day one rather than vanishing.
-    s.day(2602, 26, DAY_DATE_2, DOW_TUESDAY, pnum=2, dnum=2).round_trip(
+    s.day(2602, 26, DAY_DATE_2, pnum=2, dnum=2).round_trip(
         "home_a",
         "work_1",
         PC_HOME,
@@ -1072,7 +1109,7 @@ def _build_records():
         ((17, 0), (17, 30)),
         drv=1,
     )
-    s.day(2601, 26, DAY_DATE_2, DOW_TUESDAY, pnum=1, dnum=2).trip(
+    s.day(2601, 26, DAY_DATE_2, pnum=1, dnum=2).trip(
         "home_a",
         "work_1",
         PC_HOME,
@@ -1095,7 +1132,7 @@ def _build_records():
     # reaches its descendants only because it is joined into their verdicts.
     s.household(27, "home_remote", income=INC_100_200K)
     s.person(2701, 27, 1, AGE_35_TO_44, FEMALE, EMP_FULLTIME, STU_NONSTUDENT, cf=CF_NEVER)
-    s.day(2701, 27, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+    s.week(2701, 27, pnum=1).round_trip(
         "home_remote",
         "work_remote",
         PC_HOME,
@@ -1115,7 +1152,7 @@ def _build_records():
     s.person(
         2801, 28, 1, AGE_35_TO_44, MALE, EMP_FULLTIME, STU_NONSTUDENT, wloc="work_1", cf=CF_NEVER
     )
-    s.day(2801, 28, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+    s.day(2801, 28, DAY_DATE_1, pnum=1, dnum=1).round_trip(
         "home_b",
         "work_1",
         PC_HOME,
@@ -1125,7 +1162,7 @@ def _build_records():
         ((17, 0), (17, 30)),
         drv=1,
     )
-    s.day(2801, 28, DAY_DATE_2, DOW_TUESDAY, pnum=1, dnum=2).round_trip(
+    s.day(2801, 28, DAY_DATE_2, pnum=1, dnum=2).round_trip(
         "home_b",
         "work_remote",
         PC_HOME,
@@ -1137,8 +1174,8 @@ def _build_records():
     )
 
     # HH 29 - the household its own members outlive. Two people, two dates, and
-    # each is usable on the date the other is not: 2901 travels cleanly on Monday
-    # and leaves an open tour on Tuesday, 2902 the reverse.
+    # each is usable on the date the other is not: 2901 travels cleanly on Tuesday
+    # and leaves an open tour on Wednesday, 2902 the reverse.
     #
     # Under household_day_needs: all_members, neither date has every member
     # usable, so the household is usable on no date at all -- while each person
@@ -1164,8 +1201,8 @@ def _build_records():
             cf=CF_NEVER,
         )
 
-    # Monday: 2901 closes its tour, 2902 does not.
-    s.day(2901, 29, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+    # Tuesday: 2901 closes its tour, 2902 does not.
+    s.day(2901, 29, DAY_DATE_1, pnum=1, dnum=1).round_trip(
         "home_c",
         "work_2",
         PC_HOME,
@@ -1175,15 +1212,15 @@ def _build_records():
         ((17, 0), (17, 25)),
         drv=1,
     )
-    s.day(2902, 29, DAY_DATE_1, DOW_MONDAY, pnum=2, dnum=1).trip(
+    s.day(2902, 29, DAY_DATE_1, pnum=2, dnum=1).trip(
         "home_c", "work_2", PC_HOME, PC_WORK, MT_CAR, (9, 0), (9, 25), drv=1
     )
 
-    # Tuesday: the other way round.
-    s.day(2901, 29, DAY_DATE_2, DOW_TUESDAY, pnum=1, dnum=2).trip(
+    # Wednesday: the other way round.
+    s.day(2901, 29, DAY_DATE_2, pnum=1, dnum=2).trip(
         "home_c", "work_2", PC_HOME, PC_WORK, MT_CAR, (9, 0), (9, 25), drv=1
     )
-    s.day(2902, 29, DAY_DATE_2, DOW_TUESDAY, pnum=2, dnum=2).round_trip(
+    s.day(2902, 29, DAY_DATE_2, pnum=2, dnum=2).round_trip(
         "home_c",
         "work_2",
         PC_HOME,
@@ -1220,7 +1257,7 @@ def _build_records():
             cf=CF_NEVER,
         )
 
-    s.day(3001, 30, DAY_DATE_1, DOW_MONDAY, pnum=1, dnum=1).round_trip(
+    s.week(3001, 30, pnum=1).round_trip(
         "home_d",
         "work_3",
         PC_HOME,
@@ -1231,7 +1268,7 @@ def _build_records():
         drv=1,
         ntrav=2,
     )
-    s.day(3002, 30, DAY_DATE_1, DOW_MONDAY, pnum=2, dnum=1).trip(
+    s.week(3002, 30, pnum=2).trip(
         "home_d", "work_3", PC_HOME, PC_WORK, MT_CAR, (7, 30), (8, 0), drv=2, ntrav=2
     )
 
@@ -1244,7 +1281,7 @@ def _build_records():
     s.household(31, "home_s", income=INC_75_100K, npeople=2, veh=1, nworkers=1)
     s.person(3101, 31, 1, AGE_35_TO_44, FEMALE, EMP_FULLTIME, STU_NONSTUDENT, jt=JOB_VARIES)
     s.person(3102, 31, 2, AGE_65_TO_74, MALE, EMP_NOT_LOOKING, STU_NONSTUDENT)
-    s.day(3101, 31, DAY_DATE_1, DOW_MONDAY, pnum=1).round_trip(
+    s.week(3101, 31, pnum=1).round_trip(
         "home_s",
         "work_2",
         PC_HOME,
@@ -1253,7 +1290,7 @@ def _build_records():
         ((8, 0), (8, 30)),
         ((17, 0), (17, 30)),
     )
-    s.day(3102, 31, DAY_DATE_1, DOW_MONDAY, pnum=2).round_trip(
+    s.week(3102, 31, pnum=2).round_trip(
         "home_s",
         "social_1",
         PC_HOME,
@@ -1268,7 +1305,7 @@ def _build_records():
     # so the tour is work but the model has no usual workplace to send it to.
     s.household(32, "home_t", income=INC_100_200K, npeople=1, veh=1, nworkers=1)
     s.person(3201, 32, 1, AGE_45_TO_54, MALE, EMP_PARTTIME, STU_NONSTUDENT, jt=JOB_VARIES)
-    s.day(3201, 32, DAY_DATE_1, DOW_MONDAY).round_trip(
+    s.week(3201, 32).round_trip(
         "home_t",
         "errand_1",
         PC_HOME,
@@ -1278,13 +1315,37 @@ def _build_records():
         ((10, 5), (10, 25)),
     )
 
-    return s.hhs, s.pers, s.days, s.trips
+    # HH 33 - reported by form and excluded by the cleaner for it, so it is
+    # unusable under every profile though the survey calls it complete.
+    s.household(33, "home_l", income=INC_75_100K, npeople=1, veh=1, nworkers=0)
+    s.person(
+        3301,
+        33,
+        1,
+        AGE_35_TO_44,
+        FEMALE,
+        EMP_NOT_LOOKING,
+        STU_NONSTUDENT,
+        tech=TECH_FORM,
+        excl="survey_tech excluded: form",
+    )
+    s.week(3301, 33).round_trip(
+        "home_l",
+        "shop_1",
+        PC_HOME,
+        PC_SHOP,
+        MT_CAR,
+        ((10, 0), (10, 15)),
+        ((11, 0), (11, 15)),
+    )
+
+    return s.hhs, s.pers, s.person_days, s.trips
 
 
 def build_survey_dataframes():
     """Return canonical survey data as a dict of Polars DataFrames.
 
-    Keys: households, persons, days, unlinked_trips
+    Keys: households, persons, household_days, days, unlinked_trips, habitual_locations
     """
     hh, per, day, trip = _build_records()
     households = pl.DataFrame(hh)
@@ -1315,10 +1376,15 @@ def build_survey_dataframes():
     )
 
     persons = pl.DataFrame(per)
+    # The household-days a project cleaner would build.
+    person_days, household_days = create_household_days(
+        pl.DataFrame(day, schema_overrides={"begin_day": pl.Int64, "end_day": pl.Int64})
+    )
     tables = {
         "households": households,
         "persons": persons,
-        "days": pl.DataFrame(day, schema_overrides={"begin_day": pl.Int64, "end_day": pl.Int64}),
+        "household_days": household_days,
+        "person_days": person_days,
         "unlinked_trips": pl.DataFrame(trip),
         # Delivered with the survey: the reported home, work and school only.
         "habitual_locations": reported_habitual_locations(households, persons),
@@ -1331,7 +1397,7 @@ def build_survey_dataframes():
     for tbl, wcol in (
         ("households", "hh_weight"),
         ("persons", "person_weight"),
-        ("days", "day_weight"),
+        ("person_days", "person_day_weight"),
         ("unlinked_trips", "unlinked_trip_weight"),
     ):
         tables[tbl] = tables[tbl].with_columns(pl.lit(1.0).alias(wcol))

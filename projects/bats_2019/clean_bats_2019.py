@@ -8,12 +8,13 @@ from typing import get_args
 import polars as pl
 
 from data_canon.codebook.households import IncomeBroad
-from data_canon.codebook.persons import Employment, Ethnicity, Gender, Race, Student
+from data_canon.codebook.persons import Employment, Ethnicity, Gender, Race, Student, SurveyTech
 from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory, TNCType
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
 from pipeline.decoration import step
 from pipeline.step_registry import get_all_required_fields
 from processing.habitual_locations import reported_habitual_locations
+from utils.create_ids import create_household_days
 from utils.helpers import expr_haversine
 
 logger = logging.getLogger(__name__)
@@ -369,6 +370,15 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
     # neither veto a household-date nor inherit its verdict.
     persons = persons.with_columns((pl.col("is_active_participant") == 1).alias("surveyable"))
 
+    # 2019 collected every diary through rMove, the phone app. A non-participant
+    # kept no diary, so no technology collected their travel.
+    persons = persons.with_columns(
+        pl.when(pl.col("is_active_participant") == 1)
+        .then(pl.lit(SurveyTech.GPS.value))
+        .otherwise(pl.lit(SurveyTech.MISSING.value))
+        .alias("survey_tech")
+    )
+
     # Derive ethnicity from ethnicity_hisp flag
     # 2019 does not distinguish Hispanic subtypes, so map to OTHER (Hispanic or Latino)
     persons = persons.with_columns(
@@ -389,18 +399,26 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
 
 def clean_days(
     unlinked_trips: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     persons: pl.DataFrame,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Clean day_num issues in days and unlinked trips."""
     logger.info("Cleaning 2019 day data")
-    days = days.with_columns(
+
+    # The vendor puts a trip that departs before 3 a.m. on the day before, and
+    # gives day_num 0 to one whose day before is outside the diary: no surveyed
+    # day holds it, so it is dropped rather than attached to a day it is not on.
+    outside = unlinked_trips.filter(pl.col("day_num") == 0)
+    if not outside.is_empty():
+        logger.info("Dropping %d trips on the vendor's day 0, before the diary", outside.height)
+        unlinked_trips = unlinked_trips.filter(pl.col("day_num") != 0)
+    person_days = person_days.with_columns(
         # to datetime
         travel_date=pl.col("travel_date").str.to_datetime("%Y-%m-%d").dt.date(),
         # day of week from travel_date
         travel_dow=pl.col("travel_date_dow"),
-        # Create day_id as (person_id * 100 + day_num)
-        day_id=(pl.col("person_id") * 100 + pl.col("day_num")),
+        # Create person_day_id as (person_id * 100 + day_num)
+        person_day_id=(pl.col("person_id") * 100 + pl.col("day_num")),
         # 2019 did not ask where the day began or ended.
         begin_day=pl.lit(None, dtype=pl.Int64),
         end_day=pl.lit(None, dtype=pl.Int64),
@@ -420,31 +438,31 @@ def clean_days(
     # thing: that is missing data from someone who was meant to report, and it
     # should count against the household.
     persons_without_days = persons.filter(
-        ~pl.col("person_id").is_in(days["person_id"].unique().implode())
+        ~pl.col("person_id").is_in(person_days["person_id"].unique().implode())
         & (pl.col("is_active_participant") == 1)
     )
 
     # Get travel_dow from other household members' days
     days_for_dow = (
-        days.select(["hh_id", "travel_dow", "travel_date", "day_num"])
+        person_days.select(["hh_id", "travel_dow", "travel_date", "day_num"])
         .filter(pl.col("hh_id").is_in(persons_without_days["hh_id"].unique().implode()))
         .unique()
     )
 
     # Which day columns to include
-    day_cols = ["hh_id", "person_id", "day_id", "travel_dow", "travel_date", "day_num"]
+    day_cols = ["hh_id", "person_id", "person_day_id", "travel_dow", "travel_date", "day_num"]
 
     # Create a default day for each person without days
     dummy_days = (
         persons_without_days.join(days_for_dow, on="hh_id", how="left")
         .with_columns(
-            # Construct default day_id (person_id * 100 + day_num)
-            (pl.col("person_id") * 100 + pl.col("day_num")).alias("day_id")
+            # Construct default person_day_id (person_id * 100 + day_num)
+            (pl.col("person_id") * 100 + pl.col("day_num")).alias("person_day_id")
         )
         .select(day_cols)
     )
     # Add dummy days to days dataframe
-    days = pl.concat([days, dummy_days], how="diagonal")
+    person_days = pl.concat([person_days, dummy_days], how="diagonal")
 
     # Fix day_num --------------------------------------------------------
     # day_num is erroneous for miscelleneous reasons
@@ -466,7 +484,7 @@ def clean_days(
 
     # Recycle the day_num basis for travel dates - day_num mapping
     unique_days = (
-        days.filter(pl.col("travel_date").is_not_null())
+        person_days.filter(pl.col("travel_date").is_not_null())
         .select(["hh_id", "day_num", "travel_date"])
         .unique()
     )
@@ -498,12 +516,10 @@ def clean_days(
         n_missing_before - n_missing_after,
     )
 
-    # Replace the original day_num in the day table to match the new logic
-    days = days.rename({"day_num": "day_num_old"}).join(
-        unique_days,
-        on=["hh_id", "travel_date"],
-        how="left",
-    )
+    # Person-days keep the vendor's day_num: one to one with each household's
+    # dates, and equal to the renumbering wherever that numbers a date. The
+    # renumbering only reaches dates with trips, so it would leave no-travel days
+    # without one.
 
     # Join to unlinked_trips to get the new day_num based on shifted travel_date
     unlinked_trips = unlinked_trips.join(
@@ -534,14 +550,14 @@ def clean_days(
     null_days = unlinked_trips.filter(pl.col("day_num_right").is_null())
     if not null_days.is_empty():
         msg = (
-            f"Found {null_days.height} unlinked trips with null day_id after cleaning. "
+            f"Found {null_days.height} unlinked trips with null person_day_id after cleaning. "
             "Please investigate."
         )
         raise ValueError(msg)
 
-    # Now, finally, make a new day_id based on the corrected day_num
+    # Now, finally, make a new person_day_id based on the corrected day_num
     unlinked_trips = unlinked_trips.with_columns(
-        day_id=(pl.col("person_id") * 100 + pl.col("day_num_right")).alias("day_id")
+        person_day_id=(pl.col("person_id") * 100 + pl.col("day_num_right")).alias("person_day_id")
     ).rename(
         {
             "day_num": "day_num_old",
@@ -551,7 +567,7 @@ def clean_days(
 
     # Ensure no orphaned day_ids from trips
     orphans = unlinked_trips.filter(
-        ~pl.col("day_id").is_in(days["day_id"].unique().implode())
+        ~pl.col("person_day_id").is_in(person_days["person_day_id"].unique().implode())
     ).select("day_num")
 
     if not orphans.is_empty():
@@ -561,7 +577,7 @@ def clean_days(
         )
         raise ValueError(msg)
 
-    return unlinked_trips, days
+    return unlinked_trips, person_days
 
 
 def clean_trips(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
@@ -593,8 +609,8 @@ def clean_trips(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
 
     # Update missing time component columns
     unlinked_trips = unlinked_trips.with_columns(
-        # Add day_id to unlinked trips for joining later
-        # day_id=(pl.col("person_id") * 100 + pl.col("day_num_12am")),
+        # Add person_day_id to unlinked trips for joining later
+        # person_day_id=(pl.col("person_id") * 100 + pl.col("day_num_12am")),
         travel_dow=pl.col("depart_time").dt.weekday().cast(pl.Int8),
         travel_date=pl.col("depart_time").dt.date(),
     )
@@ -780,7 +796,7 @@ def clean_trips(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
 
 
 def flag_measured_completeness(
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Set the two measured leaves: was each trip surveyed, was each day completed.
@@ -803,26 +819,32 @@ def flag_measured_completeness(
     tours with none either and the usability pass has nothing to stand on.
 
     Args:
-        days: Person-days carrying ``survey_complete_day``.
+        person_days: Person-days carrying ``survey_complete_day``.
         unlinked_trips: Trips carrying ``survey_complete_trip``.
 
     Returns:
         Tuple of (days, unlinked_trips), each carrying ``survey_complete``, plus the
         per-day trip counts kept for debugging.
     """
+    # 995 is the vendor's NA, on trips it added without a trip survey: no verdict of
+    # their own (null), so the cascade gives them their day's.
+    trip_flag = pl.col("survey_complete_trip")
     unlinked_trips = unlinked_trips.with_columns(
-        (pl.col("survey_complete_trip") == 1).alias("survey_complete")
+        pl.when(trip_flag == 995)  # noqa: PLR2004
+        .then(None)
+        .otherwise(trip_flag == 1)
+        .alias("survey_complete")
     )
 
     # Add num_complete_trips column to help with debugging and weighting later
-    days = days.join(
-        unlinked_trips.select(["day_id", "survey_complete_trip"])
-        .group_by("day_id")
+    person_days = person_days.join(
+        unlinked_trips.select(["person_day_id", "survey_complete_trip"])
+        .group_by("person_day_id")
         .agg(
             pl.sum("survey_complete_trip").alias("num_complete_trips"),
             pl.count("survey_complete_trip").alias("total_trips"),
         ),
-        on="day_id",
+        on="person_day_id",
         how="left",
     ).with_columns(
         pl.col("num_complete_trips").fill_null(0),
@@ -842,14 +864,37 @@ def flag_measured_completeness(
         .otherwise(pl.col("survey_complete_day") == 1)
         .alias("survey_complete"),
     )
-    return days, unlinked_trips
+    return person_days, unlinked_trips
+
+
+def placeholder_survey_complete(
+    households: pl.DataFrame, persons: pl.DataFrame, person_days: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Give households and persons a placeholder ``survey_complete``.
+
+    The 2019 vendor files carry completeness per day only, and the field check
+    needs the column on households and persons too. cascade_completeness replaces
+    both with its own rollup of the day verdicts, so this only has to exist: a
+    household or person with at least one complete day.
+    """
+    complete = person_days.filter(pl.col("survey_complete"))
+    return (
+        households.with_columns(
+            pl.col("hh_id").is_in(complete["hh_id"].unique().implode()).alias("survey_complete")
+        ),
+        persons.with_columns(
+            pl.col("person_id")
+            .is_in(complete["person_id"].unique().implode())
+            .alias("survey_complete")
+        ),
+    )
 
 
 @step()
 def clean_2019_bats(
     households: pl.DataFrame,
     persons: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     weights_dir: str,
     weight_col_suffix: str | None = None,
@@ -859,7 +904,7 @@ def clean_2019_bats(
     unlinked_trips = clean_trips(unlinked_trips)
 
     # CLEAN DAYS ==================================
-    unlinked_trips, days = clean_days(unlinked_trips, days, persons)
+    unlinked_trips, person_days = clean_days(unlinked_trips, person_days, persons)
 
     # CLEAN PERSONS ==================================
     persons = clean_persons(persons, unlinked_trips)
@@ -869,12 +914,17 @@ def clean_2019_bats(
 
     # FLAG COMPLETE DAYS ==================================
     # Only the measured leaf; cascade_completeness derives the rest.
-    days, unlinked_trips = flag_measured_completeness(days, unlinked_trips)
+    person_days, unlinked_trips = flag_measured_completeness(person_days, unlinked_trips)
+    households, persons = placeholder_survey_complete(households, persons, person_days)
+
+    # HOUSEHOLD DAYS ==================================
+    person_days, household_days = create_household_days(person_days)
 
     results = {
         "households": households,
         "persons": persons,
-        "days": days,
+        "household_days": household_days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
     }
 
@@ -889,13 +939,13 @@ def clean_2019_bats(
     weight_names = {
         "households": ("hh_id", "hh_weight"),
         "persons": ("person_id", "person_weight"),
-        "days": ("day_id", "day_weight"),
+        "person_days": ("person_day_id", "person_day_weight"),
         "unlinked_trips": ("unlinked_trip_id", "unlinked_trip_weight"),
     }
     models = {
         "households": HouseholdModel,
         "persons": PersonModel,
-        "days": PersonDayModel,
+        "person_days": PersonDayModel,
         "unlinked_trips": UnlinkedTripModel,
     }
     for df_name, (id_col, canon_weight_col) in weight_names.items():

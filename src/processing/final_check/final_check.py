@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 def final_check(
     households: pl.DataFrame,
     persons: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
@@ -79,7 +79,7 @@ def final_check(
     Args:
         households: Processed household table with all required fields
         persons: Processed person table with all required fields
-        days: Processed person-day table with all required fields
+        person_days: Processed person-day table with all required fields
         unlinked_trips: Processed unlinked trip records with all required fields
         linked_trips: Processed linked trip records (journey-level) with all
             required fields
@@ -118,7 +118,7 @@ def final_check(
     return {
         "households": households,
         "persons": persons,
-        "days": days,
+        "person_days": person_days,
         "unlinked_trips": unlinked_trips,
         "linked_trips": linked_trips,
         "tours": tours,

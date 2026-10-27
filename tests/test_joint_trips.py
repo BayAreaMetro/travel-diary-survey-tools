@@ -239,7 +239,7 @@ def _household(depart_times: list[datetime]) -> tuple[pl.DataFrame, pl.DataFrame
         {
             "linked_trip_id": list(range(1, n + 1)),
             "hh_id": [1] * n,
-            "day_id": [1] * n,
+            "person_day_id": [1] * n,
             "person_id": list(range(1, n + 1)),
             "travel_dow": [TravelDow.WEDNESDAY.value] * n,
             "o_lat": [37.8] * n,
@@ -280,7 +280,7 @@ def test_detect_matching_trips_buffer():
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
-        days=days_not_asked(linked_trips),
+        person_days=days_not_asked(linked_trips),
         households=households,
         matching=_buffer(time_threshold_minutes=15, space_threshold_meters=100),
     )
@@ -304,7 +304,7 @@ def test_detect_non_matching_trips():
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
-        days=days_not_asked(linked_trips),
+        person_days=days_not_asked(linked_trips),
         households=households,
         matching=_buffer(),
     )
@@ -333,7 +333,7 @@ def test_a_chain_of_departures_is_resolved_into_one_group():
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
-        days=days_not_asked(linked_trips),
+        person_days=days_not_asked(linked_trips),
         households=households,
         matching=_buffer(time_threshold_minutes=15, space_threshold_meters=100),
     )
@@ -353,7 +353,7 @@ def test_single_person_household():
 
     result = detect_joint_trips(
         linked_trips=linked_trips,
-        days=days_not_asked(linked_trips),
+        person_days=days_not_asked(linked_trips),
         households=households,
         matching=_buffer(),
     )
@@ -368,7 +368,7 @@ def test_empty_input():
 
     result = detect_joint_trips(
         linked_trips=linked_trips.clear(),
-        days=days_not_asked(linked_trips.clear()),
+        person_days=days_not_asked(linked_trips.clear()),
         households=households.clear(),
         matching=_buffer(),
     )
@@ -394,7 +394,7 @@ class TestGroupingMembership:
                 "linked_trip_id": list(range(1, n + 1)),
                 "person_id": person_ids,
                 "hh_id": [1] * n,
-                "day_id": [1] * n,
+                "person_day_id": [1] * n,
                 "o_lat": [37.7] * n,
                 "o_lon": [-122.4] * n,
                 "d_lat": [37.8] * n,

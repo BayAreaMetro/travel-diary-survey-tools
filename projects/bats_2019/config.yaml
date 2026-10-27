@@ -40,7 +40,7 @@ steps:
       input_paths:
         households: "{{ survey_dir }}/hh.tsv"
         persons: "{{ survey_dir }}/person.tsv"
-        days: "{{ survey_dir }}/day.tsv"
+        person_days: "{{ survey_dir }}/day.tsv"
         unlinked_trips: "{{ survey_dir }}/trip.tsv"
 
   - name: clean_2019_bats
@@ -176,7 +176,7 @@ steps:
     validate_input: false
     cache: true
     params:
-      # One boolean column per profile, on four axes, all answered explicitly.
+      # One boolean column per profile, on five axes, all answered explicitly.
       # See the bats_2023 config for the full vocabulary; the same three
       # profiles are declared here so the two survey years are gated alike and
       # can be compared without asking which standard each was built under.
@@ -186,16 +186,19 @@ steps:
           household_day_needs: all_members
           zone_coverage: TAZ1454
           joint_tours: fully_joint
+          travel_days: [tuesday, wednesday, thursday]
         daysim:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: taz
           joint_tours: fully_joint
+          travel_days: [tuesday, wednesday, thursday]
         analysis:
           tour_closes_at: anywhere
           household_day_needs: nothing
           zone_coverage: none
           joint_tours: partial
+          travel_days: [tuesday, wednesday, thursday]
 
 
   - name: compute_weights
@@ -408,8 +411,8 @@ steps:
   #         weight_path: "{{ survey_dir }}/weights/households_weights.csv"
   #       person_weight:
   #         weight_path: "{{ survey_dir }}/weights/persons_weights.csv"
-  #       day_weight:
-  #         weight_path: "{{ survey_dir }}/weights/days_weights.csv"
+  #       person_day_weight:
+  #         weight_path: "{{ survey_dir }}/weights/person_days_weights.csv"
   #       unlinked_trip_weight:
   #         weight_path: "{{ survey_dir }}/weights/unlinked_trips_weights.csv"
 
@@ -426,7 +429,8 @@ steps:
         # Standard Survey Formats
         households: "{{ output_dir }}/survey/households_2019.csv"
         persons: "{{ output_dir }}/survey/persons_2019.csv"
-        days: "{{ output_dir }}/survey/days_2019.csv"
+        household_days: "{{ output_dir }}/survey/household_days_2019.csv"
+        person_days: "{{ output_dir }}/survey/person_days_2019.csv"
         unlinked_trips: "{{ output_dir }}/survey/unlinked_trips_2019.csv"
         linked_trips: "{{ output_dir }}/survey/linked_trips_2019.csv"
         tours: "{{ output_dir }}/survey/tours_2019.csv"

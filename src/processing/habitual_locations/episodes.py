@@ -17,25 +17,25 @@ def build_presence_episodes(linked_trips: pl.DataFrame) -> pl.DataFrame:
     Later origins are skipped: they repeat the previous trip's destination.
 
     Args:
-        linked_trips: Linked trips with ``person_id``, ``day_id``, ``o_lat``,
+        linked_trips: Linked trips with ``person_id``, ``person_day_id``, ``o_lat``,
             ``o_lon``, ``d_lat``, ``d_lon``, ``depart_time``, ``arrive_time``,
             purpose columns and ``d_activity_duration``.
 
     Returns:
-        One row per stay with ``person_id``, ``day_id``, ``lat``, ``lon``,
+        One row per stay with ``person_id``, ``person_day_id``, ``lat``, ``lon``,
         ``purpose``, ``purpose_category``, ``dwell_minutes`` (null where the
         duration is a sentinel or the stay is a day's first origin),
         ``seen_at`` (when the person was there), ``is_day_start`` and
         ``is_day_end``.
     """
-    ordered = linked_trips.sort(["person_id", "day_id", "depart_time"]).with_columns(
-        pl.int_range(0, pl.len()).over(["person_id", "day_id"]).alias("_trip_idx"),
-        pl.len().over(["person_id", "day_id"]).alias("_n_trips"),
+    ordered = linked_trips.sort(["person_id", "person_day_id", "depart_time"]).with_columns(
+        pl.int_range(0, pl.len()).over(["person_id", "person_day_id"]).alias("_trip_idx"),
+        pl.len().over(["person_id", "person_day_id"]).alias("_n_trips"),
     )
 
     destinations = ordered.select(
         "person_id",
-        "day_id",
+        "person_day_id",
         pl.col("d_lat").alias("lat"),
         pl.col("d_lon").alias("lon"),
         pl.col("d_purpose").alias("purpose"),
@@ -52,7 +52,7 @@ def build_presence_episodes(linked_trips: pl.DataFrame) -> pl.DataFrame:
 
     first_origins = ordered.filter(pl.col("_trip_idx") == 0).select(
         "person_id",
-        "day_id",
+        "person_day_id",
         pl.col("o_lat").alias("lat"),
         pl.col("o_lon").alias("lon"),
         pl.col("o_purpose").alias("purpose"),

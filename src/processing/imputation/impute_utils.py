@@ -419,12 +419,12 @@ def build_feature_matrix(
 # Maps (child_table, parent_table) -> join_key column name.
 FK_RELATIONSHIPS: dict[tuple[str, str], str] = {
     ("persons", "households"): "hh_id",
-    ("days", "persons"): "person_id",
-    ("days", "households"): "hh_id",
-    ("unlinked_trips", "days"): "day_id",
+    ("person_days", "persons"): "person_id",
+    ("person_days", "households"): "hh_id",
+    ("unlinked_trips", "person_days"): "person_day_id",
     ("unlinked_trips", "persons"): "person_id",
     ("unlinked_trips", "households"): "hh_id",
-    ("linked_trips", "days"): "day_id",
+    ("linked_trips", "person_days"): "person_day_id",
     ("linked_trips", "persons"): "person_id",
     ("linked_trips", "households"): "hh_id",
     ("tours", "persons"): "person_id",
@@ -511,16 +511,21 @@ def add_household_agg_features(
     hh_id_col: str = "hh_id",
     person_id_col: str = "person_id",
 ) -> tuple[pl.DataFrame, list[str]]:
-    """Add household-aggregated features for target columns.
+    """Count the rest of each person's household in each code of each target column.
 
-    For each target column, computes the mode of that column among *other*
-    household members (excluding the current person). This captures
-    within-household correlation (e.g., siblings likely share race/ethnicity).
+    Captures within-household correlation (e.g., siblings likely share
+    race/ethnicity). Column ``gender`` gains ``n_hh_gender=1``,
+    ``n_hh_gender=2``, ...: how many members of the person's household, not
+    counting the person, have that code. A child of a man and a woman counts
+    one of each; a person living alone counts zero. Members with a null value
+    are not counted.
 
-    The new columns are named ``hh_mode_{column}``.
+    The person is left out because their own value is the target: counting it
+    would hand the model the answer on the rows it learns from, and not on the
+    rows it predicts.
 
-    For single-person households or when all other members have null values,
-    the aggregated value will be null.
+    Counts, not the most common value: a tie (one man, one woman) has no single
+    answer, and settling it by row order made imputation differ run to run.
 
     Args:
         df: DataFrame with person-level records (must contain hh_id and person_id)
@@ -545,46 +550,21 @@ def add_household_agg_features(
         if col not in df.columns:
             continue
 
-        agg_col_name = f"hh_mode_{col}"
-
-        # For each person, compute the mode of `col` among other HH members
-        # Step 1: Build a lookup of hh_id + person_id -> value
-        # Step 2: Self-join excluding current person, group by hh_id+person_id, take mode
-
-        # Get all (hh_id, person_id, col_value) with non-null values
-        valid = df.select([hh_id_col, person_id_col, col]).filter(pl.col(col).is_not_null())
-
-        if valid.is_empty():
-            # No valid values to aggregate
-            df = df.with_columns(pl.lit(None).alias(agg_col_name))
-            added_columns.append(agg_col_name)
-            continue
-
-        # Cross-join within household: for each person, get other members' values
-        # Rename to avoid column conflicts
-        others = valid.rename({person_id_col: f"_other_{person_id_col}", col: f"_other_{col}"})
-
-        # Join on hh_id, then filter out self
-        crossed = (
-            df.select([hh_id_col, person_id_col])
-            .join(others, on=hh_id_col, how="left")
-            .filter(pl.col(person_id_col) != pl.col(f"_other_{person_id_col}"))
+        values = df[col].drop_nulls().unique().sort().to_list()
+        names = [f"n_hh_{col}={val}" for val in values]
+        # The household's count of each code, less the person's own.
+        df = df.with_columns(
+            (
+                (pl.col(col) == val).fill_null(value=False).sum().over(hh_id_col)
+                - (pl.col(col) == val).fill_null(value=False)
+            )
+            .cast(pl.Int32)
+            .alias(name)
+            for val, name in zip(values, names, strict=True)
         )
+        added_columns.extend(names)
 
-        # Compute mode per person
-        hh_agg = crossed.group_by([hh_id_col, person_id_col]).agg(
-            pl.col(f"_other_{col}").mode().first().alias(agg_col_name)
-        )
-
-        # Join back
-        df = df.join(hh_agg, on=[hh_id_col, person_id_col], how="left")
-        added_columns.append(agg_col_name)
-
-        logger.info(
-            "Added household aggregate feature '%s' for column '%s'",
-            agg_col_name,
-            col,
-        )
+        logger.info("Added %d household count features for column '%s'", len(names), col)
 
     return df, added_columns
 
@@ -714,15 +694,21 @@ def enrich_dataframe(
     target_columns: list[str],
     categorical_features: list[str] | None,
     aggregate_from_config: dict[str, dict[str, list[str]]] | None = None,
-) -> tuple[pl.DataFrame, list[str], list[str] | None]:
+    numeric_features: list[str] | None = None,
+) -> tuple[pl.DataFrame, list[str], list[str] | None, list[str] | None]:
     """Enrich a DataFrame with parent joins and child aggregations.
 
     Handles both directions:
       - Parent→child joins via ``join_tables`` config
       - Child→parent aggregations via ``aggregate_from`` config
 
+    The added counts (household counts, ``pivot_count``) are numeric features:
+    a count is a number, and as a category it would split into one column per
+    count value.
+
     Returns:
-        Tuple of (enriched_df, added_column_names, updated_categorical_features)
+        Tuple of (enriched_df, added_column_names, categorical_features,
+        numeric_features), the last two with the added counts in place.
     """
     added_columns: list[str] = []
 
@@ -734,13 +720,13 @@ def enrich_dataframe(
         df, agg_cols = add_household_agg_features(df, target_columns)
         added_columns.extend(agg_cols)
         if agg_cols:
-            categorical_features = list(categorical_features or []) + agg_cols
+            numeric_features = list(numeric_features or []) + agg_cols
 
     # Child aggregations (e.g. households aggregating from persons)
     if aggregate_from_config and tables:
         df, child_cols = aggregate_from_children(df, table_name, tables, aggregate_from_config)
         added_columns.extend(child_cols)
         if child_cols:
-            categorical_features = list(categorical_features or []) + child_cols
+            numeric_features = list(numeric_features or []) + child_cols
 
-    return df, added_columns, categorical_features
+    return df, added_columns, categorical_features, numeric_features

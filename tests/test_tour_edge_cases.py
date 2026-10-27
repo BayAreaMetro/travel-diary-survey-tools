@@ -88,7 +88,7 @@ def _leg(
     purpose and a category that disagree.
     """
     return {
-        "day_id": 1,
+        "person_day_id": 1,
         "person_id": 1,
         "hh_id": 1,
         "travel_dow": TravelDow.WEDNESDAY.value,

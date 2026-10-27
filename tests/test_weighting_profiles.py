@@ -102,7 +102,9 @@ class TestColumnNaming:
         [
             # The obvious "tidier" rule would drop the _usable that every
             # profile name in practice ends with.  It must not.
-            pytest.param(weight_col_for, "day_weight", PROFILE, "day_weight_analysis"),
+            pytest.param(
+                weight_col_for, "person_day_weight", PROFILE, "person_day_weight_analysis"
+            ),
             pytest.param(weight_col_for, "hh_weight", "ctramp", "hh_weight_ctramp"),
             # A profile name is a label, not something to normalise.
             pytest.param(
@@ -194,11 +196,13 @@ class TestResolution:
     def test_every_level_is_resolved_not_just_households(self):
         """One rule over the whole hierarchy, not a per-table special case."""
         tables = {
-            "days": pl.DataFrame({"day_id": [1], f"day_weight_{STRICT}": [3.0]}),
+            "person_days": pl.DataFrame(
+                {"person_day_id": [1], f"person_day_weight_{STRICT}": [3.0]}
+            ),
             "tours": pl.DataFrame({"tour_id": [1], f"tour_weight_{STRICT}": [4.0]}),
         }
         out = select_profile_columns(tables, STRICT)
-        assert out["days"]["day_weight"].to_list() == [3.0]
+        assert out["person_days"]["person_day_weight"].to_list() == [3.0]
         assert out["tours"]["tour_weight"].to_list() == [4.0]
 
     def test_the_input_is_not_mutated(self):

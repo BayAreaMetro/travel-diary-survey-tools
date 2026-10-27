@@ -40,7 +40,7 @@ def trip_row(**overrides: Any) -> dict[str, Any]:
         "unlinked_trip_id": 1,
         "person_id": 101,
         "hh_id": 1,
-        "day_id": 10101,
+        "person_day_id": 10101,
         "depart_date": "2024-01-15",
         "depart_hour": 10,
         "depart_minute": 0,

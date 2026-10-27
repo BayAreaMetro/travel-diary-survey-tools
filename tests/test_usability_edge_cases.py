@@ -20,6 +20,7 @@ from typing import ClassVar
 import polars as pl
 import pytest
 
+from data_canon.codebook.days import TravelDow
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
     NO_ZONE_COVERAGE,
@@ -32,6 +33,8 @@ from processing.completeness import (
     stamp_usable,
     suggest_usability_columns,
 )
+from processing.completeness.usable_tours import _flag_tours
+from tests.fixtures.schema_utils import add_household_days
 
 STRICT = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
 WIDEST = UsabilityProfile("widest", TourClosesAt.ANYWHERE, HouseholdDayNeeds.NOTHING)
@@ -41,7 +44,7 @@ DATE = datetime(2023, 5, 1)
 
 def _stamp(tables: dict, profile: UsabilityProfile = STRICT) -> dict[str, pl.DataFrame]:
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(working)
+    cascade_complete(add_household_days(working))
     stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
 
@@ -50,7 +53,7 @@ def _one_person(**tour_overrides) -> dict:
     """One person, one day, one tour -- the smallest frame the cascade accepts."""
     tour = {
         "tour_id": [10],
-        "day_id": [1],
+        "person_day_id": [1],
         "person_id": [1],
         "survey_complete": [True],
         "parent_tour_id": [10],
@@ -63,9 +66,9 @@ def _one_person(**tour_overrides) -> dict:
         "persons": pl.DataFrame(
             {"person_id": [1], "hh_id": [1], "survey_complete": [True], "surveyable": [True]}
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1],
+                "person_day_id": [1],
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": [DATE],
@@ -92,8 +95,6 @@ class TestAVerdictIsAlwaysABoolean:
             pytest.param({"tour_data_quality": [None]}, id="quality"),
             # Same for the equality term, which is only live at ``primary_home``.
             pytest.param({"tour_category": [None]}, id="category"),
-            # An unreported record is not usable, and never was ambiguous.
-            pytest.param({"survey_complete": [None]}, id="complete"),
         ],
     )
     def test_a_null_descriptor_is_rejected_not_propagated(self, override: dict):
@@ -109,10 +110,15 @@ class TestAVerdictIsAlwaysABoolean:
         """The property itself, over every table the cascade touches."""
         tables = _one_person(tour_data_quality=[None], tour_category=[None])
         tables["linked_trips"] = pl.DataFrame(
-            {"linked_trip_id": [100], "tour_id": [10], "day_id": [1], "survey_complete": [None]}
+            {
+                "linked_trip_id": [100],
+                "tour_id": [10],
+                "person_day_id": [1],
+                "survey_complete": [None],
+            }
         )
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1], "day_id": [1], "survey_complete": [None]}
+            {"joint_tour_id": [1], "person_day_id": [1], "survey_complete": [None]}
         )
 
         stamped = _stamp(tables)
@@ -208,8 +214,8 @@ class TestEmptyTables:
             "survey_complete": pl.Boolean,
             "surveyable": pl.Boolean,
         },
-        "days": {
-            "day_id": pl.Int64,
+        "person_days": {
+            "person_day_id": pl.Int64,
             "person_id": pl.Int64,
             "hh_id": pl.Int64,
             "travel_date": pl.Datetime,
@@ -217,7 +223,7 @@ class TestEmptyTables:
         },
         "tours": {
             "tour_id": pl.Int64,
-            "day_id": pl.Int64,
+            "person_day_id": pl.Int64,
             "survey_complete": pl.Boolean,
             "parent_tour_id": pl.Int64,
             "tour_data_quality": pl.Int64,
@@ -237,17 +243,18 @@ class TestEmptyTables:
         # Boolean, not Null-dtype, or the writer's schema check fails downstream.
         assert stamped[table].schema["usable_test"] == pl.Boolean
 
-    def test_the_household_day_column_appears_too(self, stamped):
-        """Both of a profile's columns, not just the verdict."""
-        assert stamped["days"].schema["hh_day_test"] == pl.Boolean
+    def test_household_days_gain_both_columns_too(self, stamped):
+        """The household-day's completeness and the profile's verdict, typed."""
+        assert stamped["household_days"].schema["survey_complete"] == pl.Boolean
+        assert stamped["household_days"].schema["usable_test"] == pl.Boolean
 
 
 class TestSurveyableMembers:
     """The ALL reduction runs over surveyable member-days only.
 
-    ``all()`` over an empty set is True, so a date with no surveyable member has
-    nothing to fail -- and, by the same token, no surveyable day to gain
-    usability from it.
+    A date with no surveyable member's day on it still exists, but nothing the
+    survey meant to observe was observed on it, so it is neither complete nor
+    usable.
     """
 
     def _two_members(self, surveyable: list[bool], survey_complete: list[bool]) -> dict:
@@ -261,9 +268,9 @@ class TestSurveyableMembers:
                     "surveyable": surveyable,
                 }
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [1, 2],
+                    "person_day_id": [1, 2],
                     "person_id": [1, 2],
                     "hh_id": [1, 1],
                     "travel_date": [DATE, DATE],
@@ -273,7 +280,7 @@ class TestSurveyableMembers:
             "tours": pl.DataFrame(
                 {
                     "tour_id": [10, 20],
-                    "day_id": [1, 2],
+                    "person_day_id": [1, 2],
                     "person_id": [1, 2],
                     "survey_complete": [True, True],
                     "parent_tour_id": [10, 20],
@@ -287,17 +294,18 @@ class TestSurveyableMembers:
         """A roommate who files nothing must not cost the household its day."""
         stamped = _stamp(self._two_members([True, False], [True, False]))
 
-        assert stamped["days"]["hh_day_survey_complete"].to_list() == [True, False]
-        assert stamped["days"]["usable_test"].to_list() == [True, False]
+        assert stamped["household_days"]["survey_complete"].to_list() == [True]
+        assert stamped["household_days"]["usable_test"].to_list() == [True]
         assert stamped["households"]["usable_test"].to_list() == [True]
         # Their own row keeps its own verdict rather than borrowing the good one.
-        assert stamped["days"]["hh_day_test"].to_list() == [True, False]
+        assert stamped["person_days"]["usable_test"].to_list() == [True, False]
 
     def test_a_date_with_no_surveyable_member_carries_no_usable_day(self):
-        """Vacuously coherent, but there is no surveyable day to gain from it."""
+        """The household-day exists, but nobody it was meant to observe was observed."""
         stamped = _stamp(self._two_members([False, False], [False, False]))
 
-        assert stamped["days"]["usable_test"].to_list() == [False, False]
+        assert stamped["household_days"]["survey_complete"].to_list() == [False]
+        assert stamped["person_days"]["usable_test"].to_list() == [False, False]
         assert stamped["households"]["usable_test"].to_list() == [False]
 
     def test_a_contradictory_unsurveyable_day_is_believed_not_overruled(self):
@@ -305,11 +313,15 @@ class TestSurveyableMembers:
 
         The survey could not collect their travel, so the row contradicts itself.
         The cascade does not invent a correction: the defect is upstream, and
-        silently flipping it here would hide it from whoever has to fix it.
+        silently flipping it here would hide it from whoever has to fix it. It
+        cannot rescue the household either: the one surveyable member's day is
+        incomplete, so there is no usable household-day.
         """
         stamped = _stamp(self._two_members([True, False], [False, True]))
 
-        assert stamped["days"]["usable_test"].to_list() == [False, True]
+        assert stamped["person_days"]["survey_complete"].to_list() == [False, True]
+        assert stamped["household_days"]["usable_test"].to_list() == [False]
+        assert stamped["households"]["usable_test"].to_list() == [False]
 
 
 class TestSubtoursWhoseParentIsMissing:
@@ -327,7 +339,7 @@ class TestSubtoursWhoseParentIsMissing:
         tables["tours"] = pl.DataFrame(
             {
                 "tour_id": [10, 11],
-                "day_id": [1, 1],
+                "person_day_id": [1, 1],
                 "person_id": [1, 1],
                 "survey_complete": [True, True],
                 "parent_tour_id": [10, 10],
@@ -342,6 +354,276 @@ class TestSubtoursWhoseParentIsMissing:
         stamped = _stamp(tables)
 
         assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [False, False]
+
+
+class TestTravelDays:
+    """A day on a day of the week the profile does not take is unusable, with its travel."""
+
+    TUE_THU = UsabilityProfile(
+        "test",
+        TourClosesAt.PRIMARY_HOME,
+        HouseholdDayNeeds.ALL_MEMBERS,
+        travel_days=(TravelDow.TUESDAY, TravelDow.WEDNESDAY, TravelDow.THURSDAY),
+    )
+
+    def _days_on(self, dows: list[int | None]) -> dict:
+        """One person with one day per given weekday, each day carrying one tour and trip."""
+        n = len(dows)
+        ids = list(range(1, n + 1))
+        tables = _one_person(
+            tour_id=[10 * i for i in ids],
+            person_day_id=ids,
+            person_id=[1] * n,
+            survey_complete=[True] * n,
+            parent_tour_id=[10 * i for i in ids],
+            tour_data_quality=[TourDataQuality.VALID.value] * n,
+            tour_category=[TourCategory.COMPLETE.value] * n,
+        )
+        tables["person_days"] = pl.DataFrame(
+            {
+                "person_day_id": ids,
+                "person_id": [1] * n,
+                "hh_id": [1] * n,
+                "day_num": ids,
+                "travel_date": [datetime(2023, 5, i) for i in ids],
+                "travel_dow": dows,
+                "survey_complete": [True] * n,
+            },
+            schema_overrides={"travel_dow": pl.Int64},
+        )
+        tables["linked_trips"] = pl.DataFrame(
+            {
+                "linked_trip_id": [100 * i for i in ids],
+                "tour_id": [10 * i for i in ids],
+                "person_day_id": ids,
+                "survey_complete": [True] * n,
+            }
+        )
+        return tables
+
+    def test_a_day_the_profile_does_not_take_is_unusable(self):
+        """Tuesday is taken; Saturday is not, though it was reported in full."""
+        stamped = _stamp(
+            self._days_on([TravelDow.TUESDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["person_days"].sort("person_day_id")["usable_test"].to_list() == [
+            True,
+            False,
+        ]
+
+    def test_its_tours_and_trips_go_with_it(self):
+        """Saturday's tour and trip inherit their day's verdict on the way down."""
+        stamped = _stamp(
+            self._days_on([TravelDow.TUESDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [True, False]
+        assert stamped["linked_trips"].sort("linked_trip_id")["usable_test"].to_list() == [
+            True,
+            False,
+        ]
+
+    def test_the_household_survives_on_a_day_it_takes(self):
+        """Only Saturday's household-day fails; Tuesday's keeps the household and person."""
+        stamped = _stamp(
+            self._days_on([TravelDow.TUESDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["household_days"].sort("hh_day_id")["usable_test"].to_list() == [True, False]
+        assert stamped["households"]["usable_test"].to_list() == [True]
+        assert stamped["persons"]["usable_test"].to_list() == [True]
+
+    def test_a_household_with_only_days_it_does_not_take_is_unusable(self):
+        """Monday and Saturday are both outside Tue-Thu, so nothing is left to keep."""
+        stamped = _stamp(
+            self._days_on([TravelDow.MONDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["households"]["usable_test"].to_list() == [False]
+        assert stamped["persons"]["usable_test"].to_list() == [False]
+
+    def test_a_day_whose_weekday_is_unknown_is_unusable(self):
+        """A day that cannot be placed in the week cannot be shown to be one it takes."""
+        stamped = _stamp(self._days_on([TravelDow.TUESDAY.value, None]), self.TUE_THU)
+
+        assert stamped["person_days"].sort("person_day_id")["usable_test"].to_list() == [
+            True,
+            False,
+        ]
+
+    def test_every_day_taken_reads_no_weekday(self):
+        """A profile taking all seven days asks nothing of travel_dow, so it need not be there."""
+        tables = self._days_on([TravelDow.SATURDAY.value])
+        tables["person_days"] = tables["person_days"].drop("travel_dow")
+
+        stamped = _stamp(tables, STRICT)
+
+        assert stamped["person_days"]["usable_test"].to_list() == [True]
+
+    def test_a_limit_without_travel_dow_raises(self):
+        """A limit with nothing to read must stop, not pass every day."""
+        tables = self._days_on([TravelDow.TUESDAY.value])
+        tables["person_days"] = tables["person_days"].drop("travel_dow")
+
+        with pytest.raises(ValueError, match="no travel_dow"):
+            _stamp(tables, self.TUE_THU)
+
+
+class TestExcludedPersons:
+    """A person the cleaner excluded has no usable day, under any profile."""
+
+    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+
+    def _two_members(self, reasons: list[str | None]) -> dict:
+        """Two members on one date, each with one complete tour and trip."""
+        return {
+            "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
+            "persons": pl.DataFrame(
+                {
+                    "person_id": [1, 2],
+                    "hh_id": [1, 1],
+                    "survey_complete": [True, True],
+                    "surveyable": [True, True],
+                    "exclusion_reason": reasons,
+                },
+                schema_overrides={"exclusion_reason": pl.String},
+            ),
+            "person_days": pl.DataFrame(
+                {
+                    "person_day_id": [1, 2],
+                    "person_id": [1, 2],
+                    "hh_id": [1, 1],
+                    "travel_date": [DATE, DATE],
+                    "survey_complete": [True, True],
+                }
+            ),
+            "tours": pl.DataFrame(
+                {
+                    "tour_id": [10, 20],
+                    "person_day_id": [1, 2],
+                    "person_id": [1, 2],
+                    "survey_complete": [True, True],
+                    "parent_tour_id": [10, 20],
+                    "tour_data_quality": [TourDataQuality.VALID.value] * 2,
+                    "tour_category": [TourCategory.COMPLETE.value] * 2,
+                }
+            ),
+            "linked_trips": pl.DataFrame(
+                {
+                    "linked_trip_id": [100, 200],
+                    "tour_id": [10, 20],
+                    "person_day_id": [1, 2],
+                    "survey_complete": [True, True],
+                }
+            ),
+        }
+
+    def test_the_excluded_persons_day_tour_and_trip_are_unusable(self):
+        """Everything of the excluded member goes; the other member keeps theirs."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        for table, key in (
+            ("person_days", "person_day_id"),
+            ("tours", "tour_id"),
+            ("linked_trips", "linked_trip_id"),
+        ):
+            assert stamped[table].sort(key)["usable_test"].to_list() == [True, False], table
+        assert stamped["persons"].sort("person_id")["usable_test"].to_list() == [True, False]
+
+    def test_survey_complete_is_untouched(self):
+        """The vendor's verdict stays the vendor's; only usability narrows."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        assert stamped["person_days"]["survey_complete"].to_list() == [True, True]
+
+    def test_a_household_needing_every_member_loses_the_date(self):
+        """An excluded member is an unusable member, so the whole date fails."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), STRICT)
+
+        assert stamped["household_days"]["usable_test"].to_list() == [False]
+        assert stamped["households"]["usable_test"].to_list() == [False]
+        assert stamped["persons"]["usable_test"].to_list() == [False, False]
+
+    def test_a_household_needing_no_whole_date_keeps_its_other_member(self):
+        """With no whole-date rule, the household stands on the member it kept."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+    def test_a_household_whose_members_are_all_excluded_is_unusable(self):
+        """No household reason is needed: with no usable day, the household falls."""
+        reason = "survey_tech excluded: form"
+        stamped = _stamp(self._two_members([reason, reason]), self.LOOSE)
+
+        assert stamped["households"]["usable_test"].to_list() == [False]
+
+    def test_without_the_column_no_one_is_excluded(self):
+        """The field defaults to null, so a table without it excludes no one."""
+        tables = self._two_members([None, None])
+        tables["persons"] = tables["persons"].drop("exclusion_reason")
+
+        stamped = _stamp(tables, STRICT)
+
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+
+class TestATourNeedsEveryTrip:
+    """One unusable trip fails its tour, which then takes the rest of its trips down."""
+
+    def _two_tours(self, table: str, on_tour_10: list[bool]) -> dict:
+        """Tour 10 carries the given trips; tour 11 carries one complete trip."""
+        tables = _one_person(
+            tour_id=[10, 11],
+            person_day_id=[1, 1],
+            person_id=[1, 1],
+            survey_complete=[True, True],
+            parent_tour_id=[10, 11],
+            tour_data_quality=[TourDataQuality.VALID.value] * 2,
+            tour_category=[TourCategory.COMPLETE.value] * 2,
+        )
+        tables[table] = pl.DataFrame(
+            {
+                "trip_id": list(range(len(on_tour_10) + 1)),
+                "tour_id": [10] * len(on_tour_10) + [11],
+                "person_day_id": [1] * (len(on_tour_10) + 1),
+                "survey_complete": [*on_tour_10, True],
+            }
+        )
+        return tables
+
+    @pytest.mark.parametrize("table", ["linked_trips", "unlinked_trips"])
+    def test_one_unusable_trip_fails_its_tour(self, table: str):
+        """Tour 10 falls; tour 11 beside it, with all its trips usable, does not."""
+        stamped = _stamp(self._two_tours(table, on_tour_10=[True, False]))
+
+        assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [False, True]
+
+    @pytest.mark.parametrize("table", ["linked_trips", "unlinked_trips"])
+    def test_the_failed_tour_takes_its_other_trips_down(self, table: str):
+        """The usable trip on tour 10 inherits its tour's verdict on the way down."""
+        stamped = _stamp(self._two_tours(table, on_tour_10=[True, False]))
+
+        assert stamped[table].sort("trip_id")["usable_test"].to_list() == [False, False, True]
+
+    def test_the_day_survives_on_its_other_tour(self):
+        """A day needs one usable tour, so one failed tour does not take it down."""
+        stamped = _stamp(self._two_tours("linked_trips", on_tour_10=[True, False]))
+
+        assert stamped["person_days"]["usable_test"].to_list() == [True]
+
+    def test_every_trip_usable_leaves_the_tour_alone(self):
+        """The rule changes nothing when every trip is usable."""
+        stamped = _stamp(self._two_tours("linked_trips", on_tour_10=[True, True]))
+
+        assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [True, True]
+
+    def test_unflagged_trips_raise_rather_than_pass_every_tour(self):
+        """Calling the fuse before the trips are flagged must not read as 'all trips fine'."""
+        tables = self._two_tours("linked_trips", on_tour_10=[True, False])
+
+        with pytest.raises(ValueError, match="Flag the trips first"):
+            _flag_tours(tables, STRICT)
 
 
 class TestJointQuorum:
@@ -359,9 +641,9 @@ class TestJointQuorum:
                     "surveyable": [True] * n,
                 }
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": list(range(1, n + 1)),
+                    "person_day_id": list(range(1, n + 1)),
                     "person_id": list(range(1, n + 1)),
                     "hh_id": [1] * n,
                     "travel_date": [DATE] * n,
@@ -371,7 +653,7 @@ class TestJointQuorum:
             "tours": pl.DataFrame(
                 {
                     "tour_id": [10 + i for i in range(n)],
-                    "day_id": list(range(1, n + 1)),
+                    "person_day_id": list(range(1, n + 1)),
                     "person_id": list(range(1, n + 1)),
                     "joint_tour_id": [1] * n,
                     "survey_complete": [True] * n,
@@ -381,7 +663,7 @@ class TestJointQuorum:
                 }
             ),
             "joint_tours": pl.DataFrame(
-                {"joint_tour_id": [1], "day_id": [1], "survey_complete": [True]}
+                {"joint_tour_id": [1], "person_day_id": [1], "survey_complete": [True]}
             ),
         }
 
@@ -406,7 +688,7 @@ class TestJointQuorum:
         """A member table that was never supplied is a legitimate partial call."""
         tables = _one_person()
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1, 2], "day_id": [1, 1], "survey_complete": [True, False]}
+            {"joint_tour_id": [1, 2], "person_day_id": [1, 1], "survey_complete": [True, False]}
         )
 
         stamped = _stamp(tables)
@@ -440,7 +722,7 @@ class TestStampingTwice:
         tables["tours"] = pl.DataFrame(
             {
                 "tour_id": [10, 11],
-                "day_id": [1, 1],
+                "person_day_id": [1, 1],
                 "person_id": [1, 1],
                 "survey_complete": [True, True],
                 "parent_tour_id": [10, 11],
@@ -455,13 +737,14 @@ class TestStampingTwice:
 
 
 class TestTheFamilyPrefixesCannotCollide:
-    """A profile writes two columns, and the families they belong to are disjoint.
+    """Every profile's verdict column is distinct, whatever the profile is called.
 
     This used to be a guarded failure. A profile derived its verdict column from
     its bare name, so one called ``hh_day_ctramp`` wrote into the column
     ``ctramp`` derived for its household-day reduction, and whichever ran second
-    won silently. Prefixing each family removed the overlap rather than policing
-    it, so the guard was retired -- this records why it is safe to be gone.
+    won silently. Prefixing the family removed the overlap, and the household-day
+    reduction now lives on ``household_days`` under the same ``usable_`` name, so
+    there is one family left -- this records why the guard is safe to be gone.
     """
 
     def _axes(
@@ -474,6 +757,15 @@ class TestTheFamilyPrefixesCannotCollide:
             "household_day_needs": household,
             "zone_coverage": NO_ZONE_COVERAGE,
             "joint_tours": JointTours.PARTIAL,
+            "travel_days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ],
         }
 
     # Names chosen to collide under the old scheme, plus the family prefixes
@@ -489,24 +781,16 @@ class TestTheFamilyPrefixesCannotCollide:
     )
 
     def test_no_two_adversarial_names_share_a_column(self):
-        """Every name writes two columns, all distinct, one per family prefix."""
+        """Every name writes its own column, all distinct, all under the prefix."""
         profiles = parse_usability_profiles({n: self._axes() for n in self.ADVERSARIAL})
 
-        written = [c for p in profiles for c in (p.flag, p.household_day)]
-        assert len(set(written)) == len(written) == 2 * len(self.ADVERSARIAL)
-
-        # The reason, stated rather than merely demonstrated: the two families
-        # are prefixed, so neither can reach the other's namespace.
+        written = [p.flag for p in profiles]
+        assert len(set(written)) == len(written) == len(self.ADVERSARIAL)
         assert all(p.flag.startswith("usable_") for p in profiles)
-        assert all(p.household_day.startswith("hh_day_") for p in profiles)
 
         # `a` and `hh_day_a` wrote the same column before the prefix existed.
         by_name = {p.name: p for p in profiles}
-        assert (by_name["a"].flag, by_name["a"].household_day) == ("usable_a", "hh_day_a")
-        assert (by_name["hh_day_a"].flag, by_name["hh_day_a"].household_day) == (
-            "usable_hh_day_a",
-            "hh_day_hh_day_a",
-        )
+        assert (by_name["a"].flag, by_name["hh_day_a"].flag) == ("usable_a", "usable_hh_day_a")
 
 
 class TestTheDidYouMeanLine:

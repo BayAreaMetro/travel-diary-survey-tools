@@ -72,23 +72,17 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
         if profile.requires_fully_joint
         else "; joint tours as the survey detected them"
     )
+    days = (
+        "; on " + ", ".join(day.label for day in profile.travel_days) + " only"
+        if profile.limits_travel_days
+        else "; any day of the week"
+    )
     gate = (
         f"Usable under the '{profile.name}' profile: survey-complete, a tour "
-        f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}{joint}. "
-        "Never admits a tour with a missing leg or no activity to anchor on."
+        f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}{joint}{days}. "
+        "Never admits a tour with a missing leg or no activity to anchor on, "
+        "or a person the cleaner excluded (exclusion_reason)."
     )
-    if profile.needs_whole_household_day:
-        hh_day = (
-            f"Every surveyable member's day is {profile.flag} on this travel_date. "
-            f"A household needs at least one such date to be {profile.flag}."
-        )
-    else:
-        hh_day = (
-            f"Every surveyable member's day is {profile.flag} on this travel_date. "
-            "Not a gate for this profile, which asks nothing of the household-date; "
-            "recorded so a dropped household can still be traced to the dates that "
-            "cost it."
-        )
     joint_tour_id = (
         f"joint_tour_id as the '{profile.name}' profile sees it: the id where this "
         "record is on its joint tour, null where it is not. "
@@ -112,10 +106,24 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
     )
     return {
         profile.flag: gate,
-        profile.household_day: hh_day,
         profile.joint_tour_id: joint_tour_id,
         profile.joint_trip_id: joint_trip_id,
     }
+
+
+def _describe_household_day(profile: UsabilityProfile) -> str:
+    """What ``household_days.<flag>`` means under *profile*."""
+    if profile.needs_whole_household_day:
+        return (
+            f"Every surveyable member's day is {profile.flag} on this travel_date. "
+            f"A household needs at least one such date to be {profile.flag}."
+        )
+    return (
+        f"Every surveyable member's day is {profile.flag} on this travel_date. "
+        "Not a gate for this profile, which asks nothing of the household-date; "
+        "recorded so a dropped household can still be traced to the dates that "
+        "cost it."
+    )
 
 
 def _log_gate_summary(
@@ -156,6 +164,12 @@ def _register_profile_columns(
         described = _describe(profile)
         for name, df in tables.items():
             if df is None:
+                continue
+            if name == "household_days":
+                if profile.flag in df.columns:
+                    canonical_data.register_generated_columns(
+                        name, {profile.flag: _describe_household_day(profile)}
+                    )
                 continue
             present = {col: text for col, text in described.items() if col in df.columns}
             if present:

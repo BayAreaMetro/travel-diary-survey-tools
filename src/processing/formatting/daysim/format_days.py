@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def format_days(
     persons: pl.DataFrame,
-    days: pl.DataFrame,
+    person_days: pl.DataFrame,
     tours: pl.DataFrame,
 ) -> pl.DataFrame:
     """Format person-day data for DaySim PersonDay file.
@@ -33,8 +33,8 @@ def format_days(
 
     Args:
         persons: Canonical person data with person_id, hh_id, work/school coords
-        days: Canonical day data with day_id, person_id, travel_dow, day_weight
-        tours: Canonical tour data with tour_id, day_id, tour_purpose,
+        person_days: Canonical day data with person_day_id, person_id, travel_dow, person_day_weight
+        tours: Canonical tour data with tour_id, person_day_id, tour_purpose,
             tour_type, tour_category
 
     Returns:
@@ -55,9 +55,9 @@ def format_days(
 
     # Get tour counts by purpose for each day
     tour_counts = (
-        tours.group_by(["day_id", "tour_purpose"])
+        tours.group_by(["person_day_id", "tour_purpose"])
         .agg(pl.len().alias("count"))
-        .pivot(index="day_id", on="tour_purpose", values="count")
+        .pivot(index="person_day_id", on="tour_purpose", values="count")
         .fill_null(0)
     )
 
@@ -96,13 +96,15 @@ def format_days(
     is_home_based = pl.col("tour_type") == TourType.HOME_BASED.value
     is_complete = pl.col("tour_category") == TourCategory.COMPLETE.value
     hb_tour_counts = (
-        tours.filter(is_home_based & is_complete).group_by("day_id").agg(pl.len().alias("hbtours"))
+        tours.filter(is_home_based & is_complete)
+        .group_by("person_day_id")
+        .agg(pl.len().alias("hbtours"))
     )
 
     # Count work-based subtours: tours anchored at a workplace rather than home.
     wb_tour_counts = (
         tours.filter(pl.col("tour_type") == TourType.WORK_BASED.value)
-        .group_by("day_id")
+        .group_by("person_day_id")
         .agg(pl.len().alias("wbtours"))
     )
 
@@ -114,7 +116,7 @@ def format_days(
     uw_tour_counts = (
         tours.join(persons.select("person_id", "employment"), on="person_id", how="left")
         .filter(is_work & is_home_based & is_complete)
-        .group_by("day_id")
+        .group_by("person_day_id")
         .agg(pl.len().alias("uwtours"))
     )
 
@@ -125,7 +127,7 @@ def format_days(
         "school_lon",
         "school_lat",
     ]
-    _days = days.drop([x for x in join_cols if x in days.columns])
+    _days = person_days.drop([x for x in join_cols if x in person_days.columns])
 
     # Start with days data and join person identifiers
     days_daysim = _days.join(
@@ -134,22 +136,22 @@ def format_days(
         how="left",
     )
 
-    days.filter(pl.col("person_num").is_null()).select("person_num")
+    person_days.filter(pl.col("person_num").is_null()).select("person_num")
     persons.filter(pl.col("person_num").is_null())
 
     # Join tour count aggregations
     days_daysim = (
-        days_daysim.join(tour_counts, on="day_id", how="left")
-        .join(hb_tour_counts, on="day_id", how="left")
-        .join(wb_tour_counts, on="day_id", how="left")
-        .join(uw_tour_counts, on="day_id", how="left")
+        days_daysim.join(tour_counts, on="person_day_id", how="left")
+        .join(hb_tour_counts, on="person_day_id", how="left")
+        .join(wb_tour_counts, on="person_day_id", how="left")
+        .join(uw_tour_counts, on="person_day_id", how="left")
     )
 
     # Calculate begin/end at home flags
     # Check if first/last tour starts/ends at home
     first_last_tours = (
         tours.sort("origin_depart_time")
-        .group_by("day_id")
+        .group_by("person_day_id")
         .agg(
             [
                 pl.col("o_location_type").first().alias("first_o_location"),
@@ -166,14 +168,14 @@ def format_days(
                 .alias("endhom"),
             ]
         )
-        .select(["day_id", "beghom", "endhom"])
+        .select(["person_day_id", "beghom", "endhom"])
     )
 
-    days_daysim = days_daysim.join(first_last_tours, on="day_id", how="left")
+    days_daysim = days_daysim.join(first_last_tours, on="person_day_id", how="left")
 
-    # If day_weight not in days, set to 1
-    if "day_weight" not in days_daysim.columns:
-        days_daysim = days_daysim.with_columns(pl.lit(1).alias("day_weight"))
+    # If person_day_weight not in days, set to 1
+    if "person_day_weight" not in days_daysim.columns:
+        days_daysim = days_daysim.with_columns(pl.lit(1).alias("person_day_weight"))
 
     # Map to DaySim schema
     days_daysim = days_daysim.select(
@@ -208,7 +210,7 @@ def format_days(
             # Work at home (placeholder)
             pl.lit(0).cast(pl.Int16).alias("wkathome"),
             # Expansion factor
-            pl.col("day_weight").fill_null(0).alias("pdexpfac"),
+            pl.col("person_day_weight").fill_null(0).alias("pdexpfac"),
         ]
     )
 

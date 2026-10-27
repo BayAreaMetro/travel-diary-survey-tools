@@ -31,13 +31,21 @@ def days_not_asked(linked_trips: pl.DataFrame) -> pl.DataFrame:
     """Days for the trips, from a survey that did not ask where days began or ended.
 
     Each day's ``travel_date`` is the date its first trip departs, so members of
-    one household travelling on the same date share it.
+    one household travelling on the same date share it, and so share a
+    household-day, numbered in date order.
     """
     return (
-        linked_trips.group_by(pl.col("day_id").cast(pl.Int64))
-        .agg(pl.col("depart_time").min().dt.date().alias("travel_date"))
-        .sort("day_id")
+        linked_trips.group_by(pl.col("person_day_id").cast(pl.Int64))
+        .agg(
+            pl.col("hh_id").first(),
+            pl.col("depart_time").min().dt.date().alias("travel_date"),
+        )
+        .sort("person_day_id")
         .with_columns(
+            (
+                pl.col("hh_id") * 100
+                + pl.col("travel_date").rank("dense").over("hh_id").cast(pl.Int64)
+            ).alias("hh_day_id"),
             pl.lit(None, dtype=pl.Int64).alias("begin_day"),
             pl.lit(None, dtype=pl.Int64).alias("end_day"),
         )
@@ -51,7 +59,7 @@ def locate_and_extract_tours(
     linked_trips: pl.DataFrame,
     *,
     joint_trips: pl.DataFrame | None = None,
-    days: pl.DataFrame | None = None,
+    person_days: pl.DataFrame | None = None,
     extra: pl.DataFrame | None = None,
     **kwargs: Any,
 ) -> dict[str, pl.DataFrame]:
@@ -63,7 +71,7 @@ def locate_and_extract_tours(
         unlinked_trips: Unlinked trips.
         linked_trips: Linked trips.
         joint_trips: Optional joint trips.
-        days: Days with ``begin_day``/``end_day``; by default, not asked.
+        person_days: Days with ``begin_day``/``end_day``; by default, not asked.
         extra: Further reported locations, as ``reported_habitual_locations``
             takes them (a second home).
         **kwargs: ``TourConfig`` settings over the BATS ones (see ``tour_config``).
@@ -71,11 +79,11 @@ def locate_and_extract_tours(
     Returns:
         The ``extract_tours`` outputs plus both location tables.
     """
-    days = days if days is not None else days_not_asked(linked_trips)
+    person_days = person_days if person_days is not None else days_not_asked(linked_trips)
     located = detect_habitual_locations(
         habitual_locations=reported_habitual_locations(households, persons, extra=extra),
         linked_trips=linked_trips,
-        days=days,
+        person_days=person_days,
         locations=HabitualLocationConfig(buffer_meters=BUFFER_METERS, include_observed_homes=True),
     )
     tours = extract_tours(
@@ -83,7 +91,7 @@ def locate_and_extract_tours(
         unlinked_trips=unlinked_trips,
         linked_trips=linked_trips,
         habitual_locations=located["habitual_locations"],
-        days=days,
+        person_days=person_days,
         joint_trips=joint_trips,
         extraction=tour_config(**kwargs),
         habitual_match=MatchConfig(buffer_meters=BUFFER_METERS),

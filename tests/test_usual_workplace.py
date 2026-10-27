@@ -60,8 +60,10 @@ RETIRED = Employment.UNEMPLOYED_NOT_LOOKING.value
 REPORTED = LocationSource.REPORTED.value
 
 
-def _fill(persons, workplaces, days):
-    return fill_usual_workplace(persons, workplaces, days, zone_names=ZONES).sort("person_id")
+def _fill(persons, workplaces, person_days):
+    return fill_usual_workplace(persons, workplaces, person_days, zone_names=ZONES).sort(
+        "person_id"
+    )
 
 
 class TestUsualWorkplace:
@@ -99,9 +101,9 @@ class TestUsualWorkplace:
             (11, 1, 1, OBSERVED, 37.1, -122.1, 501),
             (12, 1, 2, OBSERVED, 37.2, -122.2, 502),
         )
-        days = _days((11, 300.0), (12, 250.0), (12, 250.0))
+        person_days = _days((11, 300.0), (12, 250.0), (12, 250.0))
 
-        assert _fill(persons, workplaces, days)["work_taz"].to_list() == [502]
+        assert _fill(persons, workplaces, person_days)["work_taz"].to_list() == [502]
 
     def test_a_tie_goes_to_the_lowest_location_number(self):
         """Row order must not decide the answer."""
@@ -110,9 +112,9 @@ class TestUsualWorkplace:
             (12, 1, 2, OBSERVED, 37.2, -122.2, 502),
             (11, 1, 1, OBSERVED, 37.1, -122.1, 501),
         )
-        days = _days((11, 300.0), (12, 300.0))
+        person_days = _days((11, 300.0), (12, 300.0))
 
-        assert _fill(persons, workplaces, days)["work_taz"].to_list() == [501]
+        assert _fill(persons, workplaces, person_days)["work_taz"].to_list() == [501]
 
     def test_someone_not_employed_gets_none(self):
         """A retiree's long volunteering stop is not a usual workplace."""

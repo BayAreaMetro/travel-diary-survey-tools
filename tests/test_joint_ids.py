@@ -25,6 +25,7 @@ from processing.completeness import (
 from processing.completeness.kept_records import keep_records, select_profile_columns
 from processing.joint_trips.aggregation import build_joint_trips_table
 from processing.tours.joint_tour_helpers import build_joint_tours_table
+from tests.fixtures.schema_utils import add_household_days
 
 STRICT = UsabilityProfile(
     "strict",
@@ -57,7 +58,7 @@ def _household(
     tours = pl.DataFrame(
         {
             "tour_id": [p * 10 for p in people],
-            "day_id": people,
+            "person_day_id": people,
             "person_id": people,
             "hh_id": [1] * len(people),
             "joint_tour_id": [100] * len(people),
@@ -73,7 +74,7 @@ def _household(
         {
             "linked_trip_id": [r[0] for r in trip_rows],
             "tour_id": [r[1] for r in trip_rows],
-            "day_id": [r[2] for r in trip_rows],
+            "person_day_id": [r[2] for r in trip_rows],
             "joint_trip_id": [r[3] for r in trip_rows],
             "survey_complete": [True] * len(trip_rows),
         },
@@ -90,9 +91,9 @@ def _household(
                 "surveyable": [True] * len(people),
             }
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": people,
+                "person_day_id": people,
                 "person_id": people,
                 "hh_id": [1] * len(people),
                 "travel_date": [datetime(2023, 5, 1)] * len(people),
@@ -104,19 +105,19 @@ def _household(
         "joint_trips": pl.DataFrame(
             {
                 "joint_trip_id": joint_trip_ids,
-                "day_id": [1] * len(joint_trip_ids),
+                "person_day_id": [1] * len(joint_trip_ids),
                 "survey_complete": [True] * len(joint_trip_ids),
             }
         ),
         "joint_tours": pl.DataFrame(
-            {"joint_tour_id": [100], "day_id": [1], "survey_complete": [True]}
+            {"joint_tour_id": [100], "person_day_id": [1], "survey_complete": [True]}
         ),
     }
 
 
 def _stamp(profile: UsabilityProfile, tables: dict) -> dict[str, pl.DataFrame]:
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(working)
+    cascade_complete(add_household_days(working))
     stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
 
@@ -181,6 +182,61 @@ class TestFullyJoint:
         assert _on_tour(out, STRICT) == {1: False, 2: False}
         assert out["joint_tours"][STRICT.flag].to_list() == [False]
 
+    def test_an_unreported_traveller_is_pruned_not_the_tour(self):
+        """Persons 1 and 2 share both legs; person 3 joins them for the second.
+
+        Person 3's trip on that leg went unreported, so joint trip 501 is
+        incomplete as a whole, and so is person 3's tour (a tour is complete
+        only if all its trips are). Person 3 is pruned from it; persons 1 and 2
+        keep their joint tour and both its joint trips, so no leg of it is left
+        without one. Person 3 also made a complete tour alone that day (31),
+        so their day, and with it the household-day, survives.
+        """
+        tables = _household({1: [500, 501], 2: [500, 501], 3: [501]})
+        solo = tables["tours"].filter(pl.col("tour_id") == 30)
+        tables["tours"] = pl.concat(
+            [
+                tables["tours"].with_columns((pl.col("tour_id") != 30).alias("survey_complete")),
+                solo.with_columns(
+                    pl.lit(31, dtype=pl.Int64).alias("tour_id"),
+                    pl.lit(31, dtype=pl.Int64).alias("parent_tour_id"),
+                    pl.lit(None, dtype=pl.Int64).alias("joint_tour_id"),
+                ),
+            ]
+        )
+        tables["linked_trips"] = pl.concat(
+            [
+                tables["linked_trips"].with_columns(
+                    (pl.col("tour_id") != 30).alias("survey_complete")
+                ),
+                pl.DataFrame(
+                    {
+                        "linked_trip_id": [399],
+                        "tour_id": [31],
+                        "person_day_id": [3],
+                        "joint_trip_id": [None],
+                        "survey_complete": [True],
+                    },
+                    schema=tables["linked_trips"].schema,
+                ),
+            ]
+        )
+        tables["joint_trips"] = tables["joint_trips"].with_columns(
+            (pl.col("joint_trip_id") != 501).alias("survey_complete")
+        )
+        out = _stamp(STRICT, tables)
+        tours = out["tours"].sort("tour_id")
+        on = tours.select("tour_id", pl.col(STRICT.joint_tour_id).is_not_null())
+        assert dict(on.iter_rows()) == {10: True, 20: True, 30: False, 31: False}
+        assert out["households"][STRICT.flag].to_list() == [True]
+        assert out["joint_tours"][STRICT.flag].to_list() == [True]
+        assert out["joint_trips"].sort("joint_trip_id")[STRICT.flag].to_list() == [True, True]
+        trips = out["linked_trips"]
+        stray = trips.filter(
+            pl.col(STRICT.joint_tour_id).is_not_null() & pl.col(STRICT.joint_trip_id).is_null()
+        )
+        assert stray.is_empty()
+
     def test_linked_trips_follow_their_tour(self):
         """A trip is in its joint trip only while its tour is in its joint tour."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
@@ -222,7 +278,7 @@ class TestTheColumnIsPerProfile:
         """Strict drops person 3; partial keeps them; the id itself never moves."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
         working: dict[str, pl.DataFrame | None] = dict(tables)
-        cascade_complete(working)
+        cascade_complete(add_household_days(working))
         stamp_usable(working, STRICT)
         stamp_usable(working, LOOSE)
         tours = working["tours"]
@@ -272,12 +328,12 @@ class TestAJointRecordBelongsToItsHousehold:
             .otherwise(pl.col("tour_data_quality"))
             .alias("tour_data_quality")
         )
-        tables["days"] = pl.concat(
+        tables["person_days"] = pl.concat(
             [
-                tables["days"],
+                tables["person_days"],
                 pl.DataFrame(
                     {
-                        "day_id": [11, 12, 13],
+                        "person_day_id": [11, 12, 13],
                         "person_id": [1, 2, 3],
                         "hh_id": [1, 1, 1],
                         "travel_date": [datetime(2023, 5, 2)] * 3,
@@ -286,7 +342,7 @@ class TestAJointRecordBelongsToItsHousehold:
                 ),
             ]
         )
-        assert tables["joint_trips"]["day_id"].to_list() == [1, 1, 1]
+        assert tables["joint_trips"]["person_day_id"].to_list() == [1, 1, 1]
 
         out = _stamp(STRICT, tables)
 
@@ -316,7 +372,7 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
     tours = pl.DataFrame(
         {
             "tour_id": [p * 10 for p in people],
-            "day_id": people,
+            "person_day_id": people,
             "person_id": people,
             "hh_id": [1] * 3,
             "joint_tour_id": [None, 100, 100],
@@ -338,7 +394,7 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
             "linked_trip_id": [r[0] for r in rows],
             "tour_id": [r[1] for r in rows],
             "person_id": [r[2] for r in rows],
-            "day_id": [r[2] for r in rows],
+            "person_day_id": [r[2] for r in rows],
             "hh_id": [1] * len(rows),
             "joint_trip_id": [r[3] for r in rows],
             "joint_tour_id": [None if r[2] == 1 else 100 for r in rows],
@@ -346,11 +402,12 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
         },
         schema_overrides={"joint_trip_id": pl.Int64, "joint_tour_id": pl.Int64},
     )
-    days = pl.DataFrame(
+    person_days = pl.DataFrame(
         {
-            "day_id": [1, 2, 3, 11, 12, 13],
+            "person_day_id": [1, 2, 3, 11, 12, 13],
             "person_id": [1, 2, 3, 1, 2, 3],
             "hh_id": [1] * 6,
+            "hh_day_id": [101] * 3 + [102] * 3,
             "travel_date": [travel_date] * 3 + [next_date] * 3,
             "survey_complete": [True] * 6,
         }
@@ -366,11 +423,11 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
                 "surveyable": [True] * 3,
             }
         ),
-        "days": days,
+        "person_days": person_days,
         "tours": tours,
         "linked_trips": linked_trips,
-        "joint_trips": build_joint_trips_table(linked_trips, assignments, days),
-        "joint_tours": build_joint_tours_table(tours, days),
+        "joint_trips": build_joint_trips_table(linked_trips, assignments, person_days),
+        "joint_tours": build_joint_tours_table(tours, person_days),
     }
 
 

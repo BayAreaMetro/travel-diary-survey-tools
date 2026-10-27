@@ -19,6 +19,7 @@ import polars as pl
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import UsabilityProfile, compute_usability
+from tests.fixtures.schema_utils import add_household_days
 
 ZONE = "taz"
 VALID, COMPLETE = TourDataQuality.VALID.value, TourCategory.COMPLETE.value
@@ -37,9 +38,9 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
         "persons": pl.DataFrame(
             {"person_id": [1], "hh_id": [1], "survey_complete": [True], "surveyable": [True]}
         ),
-        "days": pl.DataFrame(
+        "person_days": pl.DataFrame(
             {
-                "day_id": [1],
+                "person_day_id": [1],
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": ["2023-01-02"],
@@ -49,7 +50,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
         "tours": pl.DataFrame(
             {
                 "tour_id": [1],
-                "day_id": [1],
+                "person_day_id": [1],
                 "person_id": [1],
                 "hh_id": [1],
                 "survey_complete": [True],
@@ -63,7 +64,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
             {
                 "linked_trip_id": list(range(1, n + 1)),
                 "tour_id": [1] * n,
-                "day_id": [1] * n,
+                "person_day_id": [1] * n,
                 "survey_complete": [True] * n,
                 f"o_{ZONE}": [z[0] for z in trip_zones],
                 f"d_{ZONE}": [z[1] for z in trip_zones],
@@ -76,7 +77,7 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
 def _verdict(trip_zones, *, coverage: str) -> bool:
     tables = _tables(trip_zones)
     profile = UsabilityProfile("u", "primary_home", "all_members", zone_coverage=coverage)
-    compute_usability(tables, profile=profile)
+    compute_usability(add_household_days(tables), profile=profile)
     return bool(tables["tours"]["usable_u"][0])
 
 

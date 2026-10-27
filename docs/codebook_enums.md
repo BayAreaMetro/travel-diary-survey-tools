@@ -699,6 +699,17 @@ Quick lookup of categorical values and labels for codebook enum fields.
 | 4 | Full-time student, ONLY online classes |
 | 995 | Missing Response |
 
+## SurveyTech
+
+**Field name:** `survey_tech`
+
+| Value | Label |
+| --- | --- |
+| 1 | Call center |
+| 2 | Form: browser, tablet or paper |
+| 3 | GPS: phone app |
+| 995 | Missing Response |
+
 ## TNCType
 
 | Value | Label |

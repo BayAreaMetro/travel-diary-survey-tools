@@ -120,16 +120,21 @@ def check_weight_factors(
         raise ValueError(msg)
 
 
-def log_usable_supplied_zero(
+def check_usable_were_supplied(
     tables: dict[str, pl.DataFrame | None],
     has_weight: dict[str, str],
     *,
     usability_flag_col: str,
 ) -> None:
-    """Count the usable records the supplier gave no weight.
+    """Stop on a usable record the supplier gave no weight (0 or none), or pass.
 
-    Supplied weights are used as given, so such a record stays at 0. The count
-    is how far this profile's universe is wider than the supplier's.
+    Supplied weights only move between records, in proportion to what was
+    supplied, so such a record would end at 0 and reach the model counting for
+    nothing. Stopping here names the cause: this profile admits records outside
+    the supplier's universe.
+
+    Raises:
+        ValueError: Naming the table, how many records, and the weight column.
     """
     for table, weight_col in has_weight.items():
         df = tables.get(table)
@@ -138,13 +143,14 @@ def log_usable_supplied_zero(
         usable = df.filter(is_usable(usability_flag_col))
         zero = usable.filter(pl.col(weight_col).fill_null(0.0) <= 0).height
         if zero:
-            logger.info(
-                "%s: %d of %d usable record(s) were supplied a %s of 0; they stay 0",
-                table,
-                zero,
-                usable.height,
-                weight_col,
+            msg = (
+                f"{table}: {zero} of {usable.height} record(s) admitted by "
+                f"{usability_flag_col} were supplied no {weight_col} (0 or none). The "
+                "profile admits records the supplier did not weight; make them unusable "
+                "under it, or supply their weights."
             )
+            logger.error(msg)
+            raise ValueError(msg)
 
 
 def trips_follow_their_day(
@@ -176,26 +182,28 @@ def trips_follow_their_day(
     trips = tables["unlinked_trips"]
     if trips is None:
         return
-    trip_col, day_col = has_weight["unlinked_trips"], has_weight["days"]
+    trip_col, day_col = has_weight["unlinked_trips"], has_weight["person_days"]
     usable = is_usable(usability_flag_col)
     claim = pl.col(trip_col).fill_null(0.0)
 
     factors = (
-        tables["days"]  # type: ignore[union-attr]
-        .select("day_id", pl.col(day_col).fill_null(0.0).alias("_day_final"))
+        tables["person_days"]  # type: ignore[union-attr]
+        .select("person_day_id", pl.col(day_col).fill_null(0.0).alias("_day_final"))
         .join(
-            supplied_days.select("day_id", pl.col("day_weight").alias("_day_supplied")),
-            on="day_id",
+            supplied_days.select(
+                "person_day_id", pl.col("person_day_weight").alias("_day_supplied")
+            ),
+            on="person_day_id",
             how="left",
         )
     )
-    trips = trips.join(factors, on="day_id", how="left")
+    trips = trips.join(factors, on="person_day_id", how="left")
 
     orphaned = trips.filter((claim > 0) & (pl.col("_day_supplied").fill_null(0.0) <= 0))
     if orphaned.height:
         msg = (
             f"{orphaned.height} unlinked_trips record(s) carry a supplied {trip_col} but "
-            f"their day has a supplied day_weight of 0 or none, so there is no day factor "
+            f"their day has a supplied person_day_weight of 0 or none, so there is no day factor "
             f"to scale them by. Sample unlinked_trip_id: "
             f"{orphaned['unlinked_trip_id'].head(10).to_list()}."
         )
@@ -204,10 +212,10 @@ def trips_follow_their_day(
 
     move = pl.lit(1.0)
     if preserve_travel_totals:
-        within_day = trips.group_by("day_id").agg(
+        within_day = trips.group_by("person_day_id").agg(
             claim.sum().alias("_claim"), claim.filter(usable).sum().alias("_usable_claim")
         )
-        trips = trips.join(within_day, on="day_id", how="left")
+        trips = trips.join(within_day, on="person_day_id", how="left")
         move = pl.col("_claim") / pl.col("_usable_claim")
 
     trips = trips.with_columns(

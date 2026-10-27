@@ -228,6 +228,11 @@ def _flag_joint_groupings(
     it under this profile. It also belongs to one household, and the consumer
     reads it through that, so it is no more usable than the household is.
 
+    The grouping's own ``survey_complete`` (every traveller complete) is no veto.
+    A member is on it only while usable, which already needs that member's
+    record complete, so an incomplete traveller is pruned from the grouping
+    rather than rejecting it for everyone else.
+
     A member table that was never supplied is a legitimate partial call and the
     grouping falls back to its own ``survey_complete``. A member table that *is*
     present but carries no verdict column is a caller ordering error and raises:
@@ -272,9 +277,9 @@ def _flag_joint_groupings(
         tables[joint_table] = (
             df.join(usable_members, on=key, how="left")
             .with_columns(
-                (base & (pl.col("_n_usable_members").fill_null(0) >= MIN_JOINT_PARTICIPANTS)).alias(
-                    cols.flag
-                )
+                (
+                    inherited & (pl.col("_n_usable_members").fill_null(0) >= MIN_JOINT_PARTICIPANTS)
+                ).alias(cols.flag)
             )
             .drop("_n_usable_members", "_parent_usable", strict=False)
         )
@@ -287,7 +292,7 @@ def _join_parent_verdicts(
 ) -> tuple[pl.DataFrame, pl.Expr]:
     """Join the usable flag of *df*'s household as ``_parent_usable``.
 
-    The household is the only record a grouping belongs to. The ``day_id`` a
+    The household is the only record a grouping belongs to. The ``person_day_id`` a
     joint table carries is one traveller's day, picked as a representative when
     the grouping was built, so it is not inherited: the members already carry
     their own days' verdicts, and the count of usable members is what decides.

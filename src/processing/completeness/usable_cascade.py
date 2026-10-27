@@ -10,26 +10,23 @@ below are in the order they run.
 
 import polars as pl
 
-from .household_day import flag_household_day_usable
+from .household_day import flag_household_day_usable, with_household_day
 from .joint_groupings import flag_joint
 from .profiles import UsabilityProfile
 from .survey_complete import cascade_complete
-from .usable_tours import _flag_tours
+from .usable_tours import TRIP_TABLES, _flag_tours
 from .zone_coverage import _home_zone_ok
 
 # The down walk, as (table, the table it inherits from, the key joining them),
 # in order: each row's parent has already inherited its own by the time it runs.
 _DOWN_EDGES = (
+    ("household_days", "households", "hh_id"),
     ("persons", "households", "hh_id"),
-    ("days", "persons", "person_id"),
-    ("tours", "days", "day_id"),
+    ("person_days", "persons", "person_id"),
+    ("tours", "person_days", "person_day_id"),
     ("linked_trips", "tours", "tour_id"),
     ("unlinked_trips", "tours", "tour_id"),
 )
-
-# Tables whose verdict begins as their own ``survey_complete`` and is then only
-# ever narrowed by inheriting: the trips have no count of their own to make.
-_INHERIT_ONLY_TABLES = ("linked_trips", "unlinked_trips")
 
 
 def stamp_usable(
@@ -62,10 +59,12 @@ def stamp_usable(
 def _cascade_up(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile) -> None:
     """Count upward from the tour fuse to the household, in place.
 
-    Each level is a count over the one below it: a day needs a usable tour (or
-    is a genuine no-travel day), a person a usable day, a household-day every
-    surveyable member's day, a household a usable household-day.
+    Each level is a count over the one below it: a tour needs every one of its
+    trips, a day a usable tour (or is a genuine no-travel day), a person a
+    usable day, a household-day every surveyable member's day, a household a
+    usable household-day.
     """
+    _flag_trips(tables, cols)
     _flag_tours(tables, cols)
     _flag_days(tables, cols)
     _flag_persons(tables, cols)
@@ -73,18 +72,39 @@ def _cascade_up(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile) 
     _flag_households(tables, cols)
 
 
+def _flag_trips(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile) -> None:
+    """Start each trip's usable flag from its own ``survey_complete``, in place.
+
+    The trips have no count of their own to make, so this is their whole verdict
+    on the way up; the tour fuse then needs every one of them. On the way down
+    they only narrow further, by inheriting their tour's.
+    """
+    for name in TRIP_TABLES:
+        df = tables.get(name)
+        if df is None or "survey_complete" not in df.columns:
+            continue
+        tables[name] = df.with_columns(
+            pl.col("survey_complete").fill_null(value=False).alias(cols.flag)
+        )
+
+
 def _flag_days(
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
 ) -> None:
-    """Stamp the usable flag on days, in place: a coherent household-date and a usable tour.
+    """Stamp the usable flag on days, in place: day of week, household-date, usable tour.
 
     A day is usable only within a complete household-day: even a genuine
     no-travel day is only a clean observation when the whole household was
-    observed that date. ``hh_day_survey_complete`` already implies the day's own
-    ``survey_complete`` (it is an ALL over the members, which includes this one), so
+    observed that date. The household-day's ``survey_complete`` already implies
+    the day's own (it is an ALL over the members, which includes this one), so
     a profile admitting incomplete household-days falls back to that own
     reporting rather than dropping the term entirely.
+
+    A day of the week the profile does not take is unusable, no-travel day or
+    not; its tours and trips follow it on the way down, and a household-date
+    falling on it cannot be usable either. So is every day of a person the
+    cleaner excluded (``persons.exclusion_reason``), under every profile.
 
     Requires the flag on tours; a tours table present but unflagged raises
     rather than silently passing every day.
@@ -92,8 +112,8 @@ def _flag_days(
     Raises:
         ValueError: If tours is present but has not been flagged yet.
     """
-    days = tables.get("days")
-    if days is None or "survey_complete" not in days.columns:
+    person_days = tables.get("person_days")
+    if person_days is None or "survey_complete" not in person_days.columns:
         return
     tours = tables.get("tours")
     if tours is not None and cols.flag not in tours.columns:
@@ -103,34 +123,58 @@ def _flag_days(
         )
         raise ValueError(msg)
 
-    base = (
-        pl.col("hh_day_survey_complete").fill_null(value=False)
-        if cols.needs_whole_household_day
-        else pl.col("survey_complete").fill_null(value=False)
-    )
+    if cols.needs_whole_household_day:
+        person_days = with_household_day(person_days, tables, "survey_complete", "_hh_day_complete")
+        base = pl.col("_hh_day_complete")
+    else:
+        base = pl.col("survey_complete").fill_null(value=False)
 
     # A no-travel day has no tour to carry the household's home zone, so it
     # takes the term directly or it would outlive its own household.
     home = _home_zone_ok(tables, cols)
-    if home is not None and "hh_id" in days.columns:
-        days = days.join(home, on="hh_id", how="left")
+    if home is not None and "hh_id" in person_days.columns:
+        person_days = person_days.join(home, on="hh_id", how="left")
         base = base & pl.col("_home_zone_ok").fill_null(value=False)
     else:
         home = None
 
-    if tours is not None and "day_id" in tours.columns:
-        day_has_usable = tours.group_by("day_id").agg(
+    # A day the profile does not take is unusable whatever was reported on it,
+    # and so is one whose day of the week is unknown.
+    if cols.limits_travel_days:
+        if "travel_dow" not in person_days.columns:
+            msg = (
+                f"usability_profile '{cols.name}' takes only some days of the week, "
+                "but person_days carries no travel_dow to tell them apart."
+            )
+            raise ValueError(msg)
+        taken = [day.value for day in cols.travel_days]
+        base = base & pl.col("travel_dow").is_in(taken).fill_null(value=False)
+
+    # A person the cleaner excluded has no usable day under any profile.
+    persons = tables.get("persons")
+    excluded = persons is not None and "exclusion_reason" in persons.columns
+    if excluded:
+        person_days = person_days.join(
+            persons.select("person_id", pl.col("exclusion_reason").alias("_excluded")),
+            on="person_id",
+            how="left",
+        )
+        base = base & pl.col("_excluded").is_null()
+
+    if tours is not None and "person_day_id" in tours.columns:
+        day_has_usable = tours.group_by("person_day_id").agg(
             pl.col(cols.flag).any().alias("_day_has_usable_tour")
         )
-        days = days.join(day_has_usable, on="day_id", how="left")
+        person_days = person_days.join(day_has_usable, on="person_day_id", how="left")
         # null == the day has no tours at all -> a legitimate no-travel day.
-        flagged = days.with_columns(
+        flagged = person_days.with_columns(
             (base & pl.col("_day_has_usable_tour").fill_null(value=True)).alias(cols.flag)
         ).drop("_day_has_usable_tour")
     else:
-        flagged = days.with_columns(base.alias(cols.flag))
+        flagged = person_days.with_columns(base.alias(cols.flag))
 
-    tables["days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
+    flagged = flagged.drop("_hh_day_complete", "_excluded", strict=False)
+    tables["person_days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
 
 
 def _flag_persons(
@@ -151,20 +195,20 @@ def _flag_persons(
     persons = tables.get("persons")
     if persons is None or "survey_complete" not in persons.columns:
         return
-    days = tables.get("days")
-    if days is not None and cols.flag not in days.columns:
+    person_days = tables.get("person_days")
+    if person_days is not None and cols.flag not in person_days.columns:
         msg = (
             f"Cannot flag persons: days has no {cols.flag} column yet. Flag days first, "
             "otherwise every person silently passes on completeness alone."
         )
         raise ValueError(msg)
-    if days is None or "person_id" not in days.columns:
+    if person_days is None or "person_id" not in person_days.columns:
         tables["persons"] = persons.with_columns(
             pl.col("survey_complete").fill_null(value=False).alias(cols.flag)
         )
         return
     has_usable_day = (
-        days.filter(pl.col(cols.flag).fill_null(value=False))
+        person_days.filter(pl.col(cols.flag).fill_null(value=False))
         .select("person_id")
         .unique()
         .with_columns(pl.lit(value=True).alias("_u"))
@@ -189,37 +233,37 @@ def _flag_households(
     rather than left holding weight it cannot pass down.
 
     A profile whose ``household_day_needs`` is ``nothing`` counts usable *days*
-    instead. Reading the household-day column here regardless would leave the
+    instead. Reading the household-days here regardless would leave the
     household on the strict rule while its tours and days had already relaxed --
     the profile would look like it worked, and the household would still be
     dropped and its weight zeroed.
 
-    Requires days to carry the profile's household-day column; a days table
+    Requires the counted table (household-days, or person-days) to carry the flag; one
     present but unflagged raises rather than silently passing every household.
 
     Raises:
-        ValueError: If days is present but has not been flagged yet.
+        ValueError: If the counted table is present but has not been flagged yet.
     """
     households = tables.get("households")
     if households is None or "survey_complete" not in households.columns:
         return
 
     base = pl.col("survey_complete").fill_null(value=False)
-    # The date-level reduction is only the rule while coherence is required.
-    counts = cols.household_day if cols.needs_whole_household_day else cols.flag
-    days = tables.get("days")
-    if days is not None and counts not in days.columns:
+    # The profile's household_day_needs axis: whole household-days, or any member's day.
+    counted_over = "household_days" if cols.needs_whole_household_day else "person_days"
+    rows = tables.get(counted_over)
+    if rows is not None and cols.flag not in rows.columns:
         msg = (
-            f"Cannot flag households: days has no {counts} column yet. Flag days "
-            "first, otherwise every household silently passes."
+            f"Cannot flag households: {counted_over} has no {cols.flag} column yet. Flag "
+            f"{counted_over} first, otherwise every household silently passes."
         )
         raise ValueError(msg)
-    if days is None or "hh_id" not in days.columns:
+    if rows is None or "hh_id" not in rows.columns:
         tables["households"] = households.with_columns(base.alias(cols.flag))
         return
 
     hh_has_usable_day = (
-        days.filter(pl.col(counts).fill_null(value=False))
+        rows.filter(pl.col(cols.flag).fill_null(value=False))
         .select("hh_id")
         .unique()
         .with_columns(pl.lit(value=True).alias("_hh_has_usable_day"))
@@ -244,18 +288,9 @@ def _cascade_down(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile
     verdict is the ceiling on everything in it. Each level takes its parent's
     verdict in turn -- person from household, day from person, tour from day,
     trips from tour -- and nothing here can change a verdict above it, so one
-    walk is the whole of it.
+    walk is the whole of it. The trips start from the verdict
+    :func:`_flag_trips` gave them on the way up.
     """
-    # The trips have no count of their own; they start from what the survey
-    # collected and then inherit like everything else.
-    for name in _INHERIT_ONLY_TABLES:
-        df = tables.get(name)
-        if df is None or "survey_complete" not in df.columns:
-            continue
-        tables[name] = df.with_columns(
-            pl.col("survey_complete").fill_null(value=False).alias(cols.flag)
-        )
-
     for table, parent, key in _DOWN_EDGES:
         df, parent_df = tables.get(table), tables.get(parent)
         if df is None or parent_df is None or cols.flag not in df.columns:

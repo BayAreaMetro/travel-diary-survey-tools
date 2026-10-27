@@ -79,7 +79,7 @@ class TourDataQuality(LabeledEnum):
     surrounding trips of the same person, so the completeness cascade can read
     it without the derivation ever pointing back at a usability verdict.
     Reporting completeness (``survey_complete``), household-date coherence
-    (``hh_day_survey_complete``) and each usability profile's gate live in their own
+    (``household_days.survey_complete``) and each usability profile's gate live in their own
     columns and never leak in here: a tour can be flawless and still be dropped
     because a housemate skipped that date, which is not a fact about this tour.
     """

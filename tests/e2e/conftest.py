@@ -176,7 +176,8 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
     output_paths = {
         "households": f"{out}/survey/households.csv",
         "persons": f"{out}/survey/persons.csv",
-        "days": f"{out}/survey/days.csv",
+        "household_days": f"{out}/survey/household_days.csv",
+        "person_days": f"{out}/survey/person_days.csv",
         "unlinked_trips": f"{out}/survey/unlinked_trips.csv",
         "linked_trips": f"{out}/survey/linked_trips.csv",
         "tours": f"{out}/survey/tours.csv",
@@ -205,7 +206,8 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                 "input_paths": {
                     "households": f"{survey}/households.parquet",
                     "persons": f"{survey}/persons.parquet",
-                    "days": f"{survey}/days.parquet",
+                    "household_days": f"{survey}/household_days.parquet",
+                    "person_days": f"{survey}/person_days.parquet",
                     "unlinked_trips": f"{survey}/unlinked_trips.parquet",
                     "habitual_locations": f"{survey}/habitual_locations.parquet",
                 }
@@ -284,24 +286,38 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                     # Two strict profiles the formatters name separately, plus a
                     # relaxed one, so the e2e exercises the loop, per-consumer
                     # selection, and a relaxed column reaching the delivered
-                    # output as a registered generated column.
+                    # output as a registered generated column. The strict two
+                    # take Tuesday to Thursday, as the projects' do, so the toy
+                    # data's week diaries lose their other days to the
+                    # day-of-week rule; the relaxed one keeps all seven.
                     "ctramp": {
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
                         "joint_tours": "fully_joint",
+                        "travel_days": ["tuesday", "wednesday", "thursday"],
                     },
                     "daysim": {
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
                         "joint_tours": "fully_joint",
+                        "travel_days": ["tuesday", "wednesday", "thursday"],
                     },
                     "analysis": {
                         "tour_closes_at": "anywhere",
                         "household_day_needs": "nothing",
                         "zone_coverage": "none",
                         "joint_tours": "partial",
+                        "travel_days": [
+                            "monday",
+                            "tuesday",
+                            "wednesday",
+                            "thursday",
+                            "friday",
+                            "saturday",
+                            "sunday",
+                        ],
                     },
                 }
             },

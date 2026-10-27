@@ -34,7 +34,7 @@ from tests.e2e.assertions import assert_referential_integrity, assert_tables_non
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
 
 # Core canonical tables produced regardless of the optional-step toggles.
-CORE_TABLES = ["households", "persons", "days", "unlinked_trips", "linked_trips", "tours"]
+CORE_TABLES = ["households", "persons", "person_days", "unlinked_trips", "linked_trips", "tours"]
 
 _DAYSIM_TABLES = [
     "households_daysim",
@@ -81,11 +81,23 @@ class TestStepToggling:
     def test_core_output_files_written(self, profile_run):
         _name, _enabled, _result, output_dir = profile_run
         survey = Path(output_dir) / "survey"
-        for fname in ["households", "persons", "days", "unlinked_trips", "linked_trips", "tours"]:
+        for fname in [
+            "households",
+            "persons",
+            "person_days",
+            "unlinked_trips",
+            "linked_trips",
+            "tours",
+        ]:
             path = survey / f"{fname}.csv"
             assert path.exists(), f"Missing output file: {path}"
             assert path.stat().st_size > 0, f"Empty output file: {path}"
 
+
+# The toy data's week diaries run Monday (day 1) to Sunday (day 7), and the
+# strict profiles take Tuesday to Thursday, so a test about one household's
+# travel reads its Tuesday.
+TUESDAY = 2
 
 # ── Tour extraction (full profile) ────────────────────────────────────
 
@@ -95,7 +107,7 @@ class TestTourExtraction:
         # HH 6 is home -> work -> lunch -> work -> home. The lunch leg is an
         # at-work subtour: anchored at the workplace, so it never touches home
         # and is only COMPLETE against its own anchor (issue #85).
-        hh6 = full_result.tours.filter(pl.col("hh_id") == 6)
+        hh6 = full_result.tours.filter(pl.col("person_day_id") == 601 * 100 + TUESDAY)
         subtours = hh6.filter(pl.col("tour_type") == TourType.WORK_BASED.value)
         assert subtours.height == 1, f"expected one at-work subtour for HH 6, got {hh6.height}"
         assert subtours["tour_category"].to_list() == [TourCategory.COMPLETE.value]
@@ -107,7 +119,7 @@ class TestTourExtraction:
         # reports it in atWork_freq.
         tours = full_result.individual_tours_ctramp
         # CT-RAMP ids are re-encoded per person-day: hh_id = survey_hh_id * 100 + day_num.
-        hh6 = tours.filter(pl.col("hh_id") // 100 == 6)
+        hh6 = tours.filter(pl.col("hh_id") == 6 * 100 + TUESDAY)
         at_work = hh6.filter(pl.col("tour_category") == CTRAMPTourCategory.AT_WORK.value)
         assert at_work.height == 1, "HH 6's at-work subtour is missing from CT-RAMP output"
         assert hh6["tour_id"].n_unique() == hh6.height, (
@@ -122,9 +134,9 @@ class TestTourExtraction:
         # A subtour is split into halves against its own anchor (the workplace),
         # like any other tour. Stamping both legs with a "subtour" sentinel threw
         # the direction away, which DaySim (half) and CT-RAMP (inbound) require.
-        subtour_trips = full_result.linked_trips.filter(pl.col("subtour_num") > 0).sort(
-            "depart_time"
-        )
+        subtour_trips = full_result.linked_trips.filter(
+            (pl.col("subtour_num") > 0) & (pl.col("person_day_id") == 601 * 100 + TUESDAY)
+        ).sort("depart_time")
         assert subtour_trips.height == 2
         assert subtour_trips["tour_direction"].to_list() == [
             TourDirection.OUTBOUND.value,
@@ -249,10 +261,10 @@ class TestWorkRelatedTours:
 
     3101 is employed with no reported workplace and a full day at one place;
     3102 is retired and volunteers; 3201 is employed with no reported workplace
-    and only a short meeting. CT-RAMP person ids are the survey day_id.
+    and only a short meeting. CT-RAMP person ids are the survey person_day_id.
     """
 
-    OBSERVED_WORKPLACE, RETIREE, NO_WORKPLACE = 310101, 310201, 320101
+    OBSERVED_WORKPLACE, RETIREE, NO_WORKPLACE = (pid * 100 + TUESDAY for pid in (3101, 3102, 3201))
 
     @staticmethod
     def _ctramp(full_result, person_day):
@@ -293,3 +305,59 @@ class TestWorkRelatedTours:
         assert pdpurp(31, 2) == DaysimPurpose.PERSONAL_BUSINESS.value
         assert pdpurp(32, 1) == DaysimPurpose.WORK.value
         assert persons.filter((pl.col("hhno") == 31) & (pl.col("pno") == 1))["pwtaz"][0] == 1
+
+
+# ── Days of the week ──────────────────────────────────────────────────
+
+
+class TestTravelDays:
+    """The strict profiles take Tuesday to Thursday; the relaxed one every day."""
+
+    TAKEN = frozenset({2, 3, 4})
+
+    def _weekdays(self, full_result, flag: str) -> set[int]:
+        days = full_result.person_days.filter(pl.col(flag))
+        return set(days["travel_dow"].to_list())
+
+    def test_the_strict_profiles_keep_only_tuesday_to_thursday(self, full_result):
+        """The week diaries' other days are reported in full, and still left out."""
+        assert self._weekdays(full_result, "usable_ctramp") == self.TAKEN
+        assert self._weekdays(full_result, "usable_daysim") == self.TAKEN
+
+    def test_the_relaxed_profile_keeps_every_day(self, full_result):
+        assert self._weekdays(full_result, "usable_analysis") == set(range(1, 8))
+
+    def test_ctramp_writes_only_the_days_its_profile_takes(self, full_result):
+        """CT-RAMP person ids are the survey person_day_id."""
+        dow = full_result.person_days.select("person_day_id", "travel_dow")
+        written = full_result.persons_ctramp.join(
+            dow, left_on="person_id", right_on="person_day_id", how="left"
+        )
+        assert written["travel_dow"].null_count() == 0
+        assert set(written["travel_dow"].to_list()) == self.TAKEN
+
+
+# ── Persons the cleaner excluded ──────────────────────────────────────
+
+
+class TestExcludedPersons:
+    """HH 33 reported by form, and the cleaner excluded its only member for it."""
+
+    HH = 33
+
+    def test_complete_to_the_survey_but_usable_under_no_profile(self, full_result):
+        household = full_result.households.filter(pl.col("hh_id") == self.HH)
+        assert household["survey_complete"].to_list() == [True]
+        for profile in ("ctramp", "daysim", "analysis"):
+            assert household[f"usable_{profile}"].to_list() == [False], profile
+
+    def test_no_output_carries_it(self, full_result):
+        """CT-RAMP ids are the survey hh_id times 100 plus the day number."""
+        ctramp = full_result.households_ctramp.filter(pl.col("hh_id") // 100 == self.HH)
+        daysim = full_result.households_daysim.filter(pl.col("hhno") == self.HH)
+        assert ctramp.is_empty()
+        assert daysim.is_empty()
+
+    def test_the_reason_reaches_the_delivered_persons(self, full_result):
+        person = full_result.persons.filter(pl.col("hh_id") == self.HH)
+        assert person["exclusion_reason"].to_list() == ["survey_tech excluded: form"]

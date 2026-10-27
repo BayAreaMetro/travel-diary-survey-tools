@@ -497,43 +497,47 @@ class TestSuppliedTotalPreserved:
         household. Person 1's unusable day moves onto their own remaining day;
         person 2's days are untouched even though they share the household.
         """
-        days = pl.DataFrame(
+        person_days = pl.DataFrame(
             {
-                "day_id": [10, 20, 30, 40],
+                "person_day_id": [10, 20, 30, 40],
                 "person_id": [1, 1, 2, 2],
                 "hh_id": [1, 1, 1, 1],
                 "survey_complete": [True, False, True, True],
             }
         )
-        weight_file = tmp_path / "day_weights.csv"
-        pl.DataFrame({"day_id": [10, 20, 30, 40], "day_weight": [10.0, 10.0, 5.0, 5.0]}).write_csv(
-            weight_file
-        )
+        weight_file = tmp_path / "person_day_weights.csv"
+        pl.DataFrame(
+            {"person_day_id": [10, 20, 30, 40], "person_day_weight": [10.0, 10.0, 5.0, 5.0]}
+        ).write_csv(weight_file)
 
         result = _weights_for(
             preserve_travel_totals=True,
             household_size_top_group=6,
-            weights={"day_weight": {"weight_path": str(weight_file)}},
-            days=days,
+            weights={"person_day_weight": {"weight_path": str(weight_file)}},
+            person_days=person_days,
             profile="survey_complete",
         )
-        weights = result["days"].sort("day_id")["day_weight"].to_list()
+        weights = result["person_days"].sort("person_day_id")["person_day_weight"].to_list()
         # Person 1: 20 supplied over one usable day; person 2: unchanged.
         assert weights == pytest.approx([20.0, 0.0, 5.0, 5.0])
         assert sum(weights) == pytest.approx(30.0)
 
     def test_missing_scope_column_raises(self, tmp_path):
         """Days without person_id cannot be conserved as declared, so this fails loudly."""
-        days = pl.DataFrame({"day_id": [10, 20], "hh_id": [1, 1], "survey_complete": [True, False]})
-        weight_file = tmp_path / "day_weights.csv"
-        pl.DataFrame({"day_id": [10, 20], "day_weight": [10.0, 10.0]}).write_csv(weight_file)
+        person_days = pl.DataFrame(
+            {"person_day_id": [10, 20], "hh_id": [1, 1], "survey_complete": [True, False]}
+        )
+        weight_file = tmp_path / "person_day_weights.csv"
+        pl.DataFrame({"person_day_id": [10, 20], "person_day_weight": [10.0, 10.0]}).write_csv(
+            weight_file
+        )
 
         with pytest.raises(ValueError, match="missing its scope column"):
             _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,
-                weights={"day_weight": {"weight_path": str(weight_file)}},
-                days=days,
+                weights={"person_day_weight": {"weight_path": str(weight_file)}},
+                person_days=person_days,
                 profile="survey_complete",
             )
 
@@ -602,9 +606,9 @@ class TestHouseholdsScaleBySize:
             "persons": pl.DataFrame(
                 {"person_id": person_ids, "hh_id": person_hh, "usable_p": kept}
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [p * 10 for p in person_ids],
+                    "person_day_id": [p * 10 for p in person_ids],
                     "person_id": person_ids,
                     "hh_id": person_hh,
                     "usable_p": kept,
@@ -623,12 +627,12 @@ class TestHouseholdsScaleBySize:
                     tmp_path, "person", person_id=person_ids, person_weight=person_weight
                 )
             },
-            "day_weight": {
+            "person_day_weight": {
                 "weight_path": _weight_file(
                     tmp_path,
                     "day",
-                    day_id=[p * 10 for p in person_ids],
-                    day_weight=person_weight,
+                    person_day_id=[p * 10 for p in person_ids],
+                    person_day_weight=person_weight,
                 )
             },
         }
@@ -676,7 +680,7 @@ class TestHouseholdsScaleBySize:
         result = self._run(tmp_path)
         assert result["households"]["hh_weight"].sum() == pytest.approx(70.0)
         assert result["persons"]["person_weight"].sum() == pytest.approx(100.0)
-        assert result["days"]["day_weight"].sum() == pytest.approx(100.0)
+        assert result["person_days"]["person_day_weight"].sum() == pytest.approx(100.0)
 
     def test_sizes_from_the_top_group_up_share_one_factor(self, tmp_path):
         """A top group of 1 puts every size in one group: one factor, 70/50.
@@ -777,9 +781,9 @@ class TestADroppedPersonStaysInTheirHousehold:
                     "usable_p": [True, False, True, False],
                 }
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [110, 111, 120, 210, 310],
+                    "person_day_id": [110, 111, 120, 210, 310],
                     "person_id": [11, 11, 12, 21, 31],
                     "hh_id": [1, 1, 1, 2, 3],
                     "usable_p": [True, False, False, True, False],
@@ -800,12 +804,12 @@ class TestADroppedPersonStaysInTheirHousehold:
                     person_weight=[10.0, 10.0, 10.0, 10.0],
                 )
             },
-            "day_weight": {
+            "person_day_weight": {
                 "weight_path": _weight_file(
                     tmp_path,
                     "day",
-                    day_id=[110, 111, 120, 210, 310],
-                    day_weight=[5.0, 5.0, 10.0, 10.0, 10.0],
+                    person_day_id=[110, 111, 120, 210, 310],
+                    person_day_weight=[5.0, 5.0, 10.0, 10.0, 10.0],
                 )
             },
         }
@@ -824,19 +828,21 @@ class TestADroppedPersonStaysInTheirHousehold:
 
     def test_the_days_carry_their_persons_weight(self, tmp_path):
         """Day 110 is person 11's only kept day; day 210 is person 21's."""
-        days = self._run(tmp_path)["days"].sort("day_id")["day_weight"].to_list()
-        assert days == pytest.approx([20.0, 0.0, 0.0, 20.0, 0.0])
+        person_days = (
+            self._run(tmp_path)["person_days"].sort("person_day_id")["person_day_weight"].to_list()
+        )
+        assert person_days == pytest.approx([20.0, 0.0, 0.0, 20.0, 0.0])
 
     def test_each_persons_days_sum_to_the_person(self, tmp_path):
         """The identity the step checks, person by person."""
         result = self._run(tmp_path)
         per_person = (
-            result["days"]
+            result["person_days"]
             .group_by("person_id")
-            .agg(pl.col("day_weight").sum())
+            .agg(pl.col("person_day_weight").sum())
             .join(result["persons"].select("person_id", "person_weight"), on="person_id")
         )
-        assert per_person["day_weight"].to_list() == pytest.approx(
+        assert per_person["person_day_weight"].to_list() == pytest.approx(
             per_person["person_weight"].to_list()
         )
 
@@ -845,35 +851,30 @@ class TestADroppedPersonStaysInTheirHousehold:
         result = self._run(tmp_path)
         assert result["households"]["hh_weight"].sum() == pytest.approx(30.0)
         assert result["persons"]["person_weight"].sum() == pytest.approx(40.0)
-        assert result["days"]["day_weight"].sum() == pytest.approx(40.0)
+        assert result["person_days"]["person_day_weight"].sum() == pytest.approx(40.0)
 
 
-class TestAStrandedPersonIsTreatedAsDropped:
-    """A usable person with no kept day the supplier weighted cannot carry weight.
-
-    Days take weight in proportion to the supplier's, so a day weighted 0 stays
-    0. A person whose weighted days were all dropped has no day to put weight
-    on, so they count as a dropped person. A household with no person able to
-    carry weight counts as a dropped household. Both records stay usable, with
-    weight 0.
+class TestAUsableRecordWithoutASuppliedWeightStopsTheRun:
+    """A usable record must carry a weight; one the supplier weighted 0 cannot.
 
     Every supplied household and person weight is 10.
 
-    | person | hh | size | days, supplied | can carry |
-    |--------|----|------|----------------|-----------|
-    | 11     | 1  | 2    | 110: 10 dropped, 111: 0 kept | no |
-    | 12     | 1  | 2    | 120: 10 kept | yes |
-    | 21     | 2  | 1    | 210: 10 dropped, 211: 0 kept | no |
-    | 31     | 3  | 1    | 310: 10 kept | yes |
+    | person | hh | days, supplied |
+    |--------|----|----------------|
+    | 11     | 1  | 110: 10 dropped, 111: 0 kept |
+    | 12     | 1  | 120: 10 kept |
+    | 21     | 2  | 210: 10 dropped, 211: 0 kept |
+    | 31     | 3  | 310: 10 kept |
 
-    * Household 2 has no one who can carry weight, so it counts as dropped.
-      Size 1: 20 supplied, 10 kept, factor 2, so household 3 is 20. Size 2:
-      household 1 stays 10.
-    * Persons copy their household: household 1 is 10 x 2 = 20 on person 12
-      alone. Person 31 is 20.
+    Days 111 and 211 are usable but were supplied 0, so persons 11 and 21, and
+    household 2, have nothing to carry weight on. Those records reaching the
+    model at weight 0 would count for nothing; the run stops instead. Making
+    them unusable upstream, as the vendor's universe says, lets it through.
     """
 
-    def _run(self, tmp_path) -> dict[str, pl.DataFrame]:
+    def _run(
+        self, tmp_path, usable: dict[str, list[bool]] | None = None
+    ) -> dict[str, pl.DataFrame]:
         tables = {
             "households": pl.DataFrame({"hh_id": [1, 2, 3], "usable_p": [True, True, True]}),
             "persons": pl.DataFrame(
@@ -883,15 +884,17 @@ class TestAStrandedPersonIsTreatedAsDropped:
                     "usable_p": [True, True, True, True],
                 }
             ),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [110, 111, 120, 210, 211, 310],
+                    "person_day_id": [110, 111, 120, 210, 211, 310],
                     "person_id": [11, 11, 12, 21, 21, 31],
                     "hh_id": [1, 1, 1, 2, 2, 3],
                     "usable_p": [False, True, True, False, True, True],
                 }
             ),
         }
+        for table, flags in (usable or {}).items():
+            tables[table] = tables[table].with_columns(pl.Series("usable_p", flags))
         weights = {
             "hh_weight": {
                 "weight_path": _weight_file(
@@ -906,12 +909,12 @@ class TestAStrandedPersonIsTreatedAsDropped:
                     person_weight=[10.0, 10.0, 10.0, 10.0],
                 )
             },
-            "day_weight": {
+            "person_day_weight": {
                 "weight_path": _weight_file(
                     tmp_path,
                     "day",
-                    day_id=[110, 111, 120, 210, 211, 310],
-                    day_weight=[10.0, 0.0, 10.0, 10.0, 0.0, 10.0],
+                    person_day_id=[110, 111, 120, 210, 211, 310],
+                    person_day_weight=[10.0, 0.0, 10.0, 10.0, 0.0, 10.0],
                 )
             },
         }
@@ -923,32 +926,32 @@ class TestAStrandedPersonIsTreatedAsDropped:
             **tables,
         )
 
-    def test_the_stranded_persons_weight_stays_in_the_household(self, tmp_path):
-        """Person 11's share of household 1 goes to person 12."""
-        persons = self._run(tmp_path)["persons"].sort("person_id")
-        assert persons["person_weight"].to_list() == pytest.approx([0.0, 20.0, 0.0, 20.0])
-
-    def test_a_household_no_one_can_carry_is_dropped(self, tmp_path):
-        """Household 2 goes to 0; household 3, the same size, takes its weight."""
-        households = self._run(tmp_path)["households"].sort("hh_id")
-        assert households["hh_weight"].to_list() == pytest.approx([10.0, 0.0, 20.0])
-
-    def test_it_reaches_the_receivers_days(self, tmp_path):
-        """Day 120 carries person 12's 20; day 310 carries person 31's 20."""
-        days = self._run(tmp_path)["days"].sort("day_id")
-        assert days["day_weight"].to_list() == pytest.approx([0.0, 0.0, 20.0, 0.0, 0.0, 20.0])
-
-    def test_the_records_stay_usable(self, tmp_path):
-        """Only the weight moves; the records and their verdicts are untouched."""
-        result = self._run(tmp_path)
-        assert result["persons"]["usable_p"].to_list() == [True, True, True, True]
-        assert result["households"]["usable_p"].to_list() == [True, True, True]
-
-    def test_usable_records_the_supplier_weighted_0_are_counted(self, tmp_path, caplog):
-        """Days 111 and 211 are usable to us and were supplied 0; the log says so."""
-        with caplog.at_level("INFO"):
+    def test_the_run_stops_and_names_the_table(self, tmp_path):
+        """Days 111 and 211 are usable but were supplied 0: the step names them."""
+        message = r"person_days: 2 of 4 record\(s\) admitted by usable_p were supplied no"
+        with pytest.raises(ValueError, match=message):
             self._run(tmp_path)
-        assert "days: 2 of 4 usable record(s) were supplied a day_weight_p of 0" in caplog.text
+
+    def test_it_runs_once_the_unweighted_records_are_unusable(self, tmp_path):
+        """Days 111 and 211, persons 11 and 21, and household 2 left out upstream.
+
+        Household 2's weight goes to household 3, the other of size 1, and person
+        11's share of household 1 to person 12.
+        """
+        result = self._run(
+            tmp_path,
+            usable={
+                "households": [True, False, True],
+                "persons": [False, True, False, True],
+                "person_days": [False, False, True, False, False, True],
+            },
+        )
+        assert result["households"].sort("hh_id")["hh_weight"].to_list() == pytest.approx(
+            [10.0, 0.0, 20.0]
+        )
+        assert result["persons"].sort("person_id")["person_weight"].to_list() == pytest.approx(
+            [0.0, 20.0, 0.0, 20.0]
+        )
 
 
 class TestTheStepChecksItsOwnHierarchy:
@@ -974,11 +977,11 @@ class TestTheStepChecksItsOwnHierarchy:
             household_size_top_group=6,
             households=pl.DataFrame({"hh_id": [1], "usable_p": [True]}),
             persons=pl.DataFrame({"person_id": [11], "hh_id": [1], "usable_p": [True]}),
-            days=pl.DataFrame(
-                {"day_id": [110], "person_id": [11], "hh_id": [1], "usable_p": [True]}
+            person_days=pl.DataFrame(
+                {"person_day_id": [110], "person_id": [11], "hh_id": [1], "usable_p": [True]}
             ),
         )
-        assert seen == [{"persons", "days"}]
+        assert seen == [{"persons", "person_days"}]
 
 
 class TestTripsFollowTheirDay:
@@ -1003,14 +1006,14 @@ class TestTripsFollowTheirDay:
     """
 
     def _run(
-        self, tmp_path, preserve: bool, day_weights: tuple[float, ...] = (5.0, 5.0)
+        self, tmp_path, preserve: bool, person_day_weights: tuple[float, ...] = (5.0, 5.0)
     ) -> dict[str, pl.DataFrame]:
         tables = {
             "households": pl.DataFrame({"hh_id": [1], "usable_p": [True]}),
             "persons": pl.DataFrame({"person_id": [11], "hh_id": [1], "usable_p": [True]}),
-            "days": pl.DataFrame(
+            "person_days": pl.DataFrame(
                 {
-                    "day_id": [110, 111],
+                    "person_day_id": [110, 111],
                     "person_id": [11, 11],
                     "hh_id": [1, 1],
                     "usable_p": [True, False],
@@ -1021,7 +1024,7 @@ class TestTripsFollowTheirDay:
                     "unlinked_trip_id": [1001, 1002, 1101],
                     "linked_trip_id": [1, 2, 3],
                     "tour_id": [1, 3, 2],
-                    "day_id": [110, 110, 111],
+                    "person_day_id": [110, 110, 111],
                     "person_id": [11, 11, 11],
                     "hh_id": [1, 1, 1],
                     "usable_p": [True, False, False],
@@ -1031,12 +1034,16 @@ class TestTripsFollowTheirDay:
                 {
                     "linked_trip_id": [1, 2, 3],
                     "tour_id": [1, 3, 2],
-                    "day_id": [110, 110, 111],
+                    "person_day_id": [110, 110, 111],
                     "usable_p": [True, False, False],
                 }
             ),
             "tours": pl.DataFrame(
-                {"tour_id": [1, 2, 3], "day_id": [110, 111, 110], "usable_p": [True, False, False]}
+                {
+                    "tour_id": [1, 2, 3],
+                    "person_day_id": [110, 111, 110],
+                    "usable_p": [True, False, False],
+                }
             ),
         }
         weights = {
@@ -1046,9 +1053,12 @@ class TestTripsFollowTheirDay:
                     tmp_path, "person", person_id=[11], person_weight=[10.0]
                 )
             },
-            "day_weight": {
+            "person_day_weight": {
                 "weight_path": _weight_file(
-                    tmp_path, "day", day_id=[110, 111], day_weight=list(day_weights)
+                    tmp_path,
+                    "day",
+                    person_day_id=[110, 111],
+                    person_day_weight=list(person_day_weights),
                 )
             },
             "unlinked_trip_weight": {
@@ -1095,8 +1105,10 @@ class TestTripsFollowTheirDay:
         Day 110 keeps the person's weight, so the person can still carry it and
         the trip check is what fails.
         """
-        with pytest.raises(ValueError, match=r"1 unlinked_trips record\(s\) .* day_weight of 0"):
-            self._run(tmp_path, preserve=False, day_weights=[10.0, 0.0])
+        with pytest.raises(
+            ValueError, match=r"1 unlinked_trips record\(s\) .* person_day_weight of 0"
+        ):
+            self._run(tmp_path, preserve=False, person_day_weights=[10.0, 0.0])
 
 
 class TestPreserveTravelTotals:
@@ -1120,13 +1132,15 @@ class TestPreserveTravelTotals:
         tables = {
             "households": pl.DataFrame({"hh_id": [1], **usable}),
             "persons": pl.DataFrame({"person_id": [11], "hh_id": [1], **usable}),
-            "days": pl.DataFrame({"day_id": [110], "person_id": [11], "hh_id": [1], **usable}),
+            "person_days": pl.DataFrame(
+                {"person_day_id": [110], "person_id": [11], "hh_id": [1], **usable}
+            ),
             "unlinked_trips": pl.DataFrame(
                 {
                     "unlinked_trip_id": [101, 102, 103],
                     "linked_trip_id": [1, 2, 3],
                     "tour_id": [1, 1, 2],
-                    "day_id": [110] * 3,
+                    "person_day_id": [110] * 3,
                     "usable_p": [True, True, False],
                 }
             ),
@@ -1134,12 +1148,12 @@ class TestPreserveTravelTotals:
                 {
                     "linked_trip_id": [1, 2, 3],
                     "tour_id": [1, 1, 2],
-                    "day_id": [110] * 3,
+                    "person_day_id": [110] * 3,
                     "usable_p": [True, True, False],
                 }
             ),
             "tours": pl.DataFrame(
-                {"tour_id": [1, 2], "day_id": [110, 110], "usable_p": [True, False]}
+                {"tour_id": [1, 2], "person_day_id": [110, 110], "usable_p": [True, False]}
             ),
         }
         weights = {
@@ -1149,8 +1163,10 @@ class TestPreserveTravelTotals:
                     tmp_path, "person", person_id=[11], person_weight=[10.0]
                 )
             },
-            "day_weight": {
-                "weight_path": _weight_file(tmp_path, "day", day_id=[110], day_weight=[10.0])
+            "person_day_weight": {
+                "weight_path": _weight_file(
+                    tmp_path, "day", person_day_id=[110], person_day_weight=[10.0]
+                )
             },
             "unlinked_trip_weight": {
                 "weight_path": _weight_file(
@@ -1211,7 +1227,7 @@ class TestPreserveTravelTotals:
         result = self._run(tmp_path, preserve=preserve)
         assert result["households"]["hh_weight"].sum() == pytest.approx(10.0)
         assert result["persons"]["person_weight"].sum() == pytest.approx(10.0)
-        assert result["days"]["day_weight"].sum() == pytest.approx(10.0)
+        assert result["person_days"]["person_day_weight"].sum() == pytest.approx(10.0)
 
     def test_the_option_is_required(self, tmp_path):
         """The config must state the choice; the code does not assume one."""
