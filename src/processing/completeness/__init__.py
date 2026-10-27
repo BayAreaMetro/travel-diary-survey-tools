@@ -10,9 +10,10 @@ survey vendor's own day verdict), and each tour's structural validity:
 * one column per **usability profile** -- can the model consume it? Fuses each
   tour's structure with its household-day coherence, then gates the rest.
 
-A profile states a standard on four axes -- which home has to close a tour,
+A profile states a standard on five axes -- which home has to close a tour,
 what the household-date has to show, which zone system has to be able to
-address the record, and what a joint tour has to be -- and a run may stamp
+address the record, what a joint tour has to be, and which days of the week
+it takes -- and a run may stamp
 several, so different consumers can hold different standards. A joint-tour
 model needs whole households and fully joint tours; a trip-level estimation
 does not, and needs no model geography at all.
@@ -55,7 +56,9 @@ USABLE, UP (_cascade_up) -- counts from the tour fuse   op   rule
 household ...........................   >=1       has >=1 usable household-day
  ├ household-day ....................   ALL       all surveyable members' days usable that date
  └ person ...........................   >=1       has >=1 usable day
-    └ day ...........................   >=1       >=1 usable tour (or a no-travel day)
+    └ day ...........................   >=1       on a day of the week it takes, its
+                                                  person not excluded by the cleaner,
+                                                  and >=1 usable tour (or a no-travel day)
        └ tour .......................   fuse      complete AND admitted-quality AND
                                                      hh-day complete AND has a zone
                                                      (the last three are the axes)

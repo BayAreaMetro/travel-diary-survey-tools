@@ -20,6 +20,7 @@ from typing import ClassVar
 import polars as pl
 import pytest
 
+from data_canon.codebook.days import TravelDow
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
     NO_ZONE_COVERAGE,
@@ -354,6 +355,218 @@ class TestSubtoursWhoseParentIsMissing:
         assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [False, False]
 
 
+class TestTravelDays:
+    """A day on a day of the week the profile does not take is unusable, with its travel."""
+
+    TUE_THU = UsabilityProfile(
+        "test",
+        TourClosesAt.PRIMARY_HOME,
+        HouseholdDayNeeds.ALL_MEMBERS,
+        travel_days=(TravelDow.TUESDAY, TravelDow.WEDNESDAY, TravelDow.THURSDAY),
+    )
+
+    def _days_on(self, dows: list[int | None]) -> dict:
+        """One person with one day per given weekday, each day carrying one tour and trip."""
+        n = len(dows)
+        ids = list(range(1, n + 1))
+        tables = _one_person(
+            tour_id=[10 * i for i in ids],
+            person_day_id=ids,
+            person_id=[1] * n,
+            survey_complete=[True] * n,
+            parent_tour_id=[10 * i for i in ids],
+            tour_data_quality=[TourDataQuality.VALID.value] * n,
+            tour_category=[TourCategory.COMPLETE.value] * n,
+        )
+        tables["person_days"] = pl.DataFrame(
+            {
+                "person_day_id": ids,
+                "person_id": [1] * n,
+                "hh_id": [1] * n,
+                "day_num": ids,
+                "travel_date": [datetime(2023, 5, i) for i in ids],
+                "travel_dow": dows,
+                "survey_complete": [True] * n,
+            },
+            schema_overrides={"travel_dow": pl.Int64},
+        )
+        tables["linked_trips"] = pl.DataFrame(
+            {
+                "linked_trip_id": [100 * i for i in ids],
+                "tour_id": [10 * i for i in ids],
+                "person_day_id": ids,
+                "survey_complete": [True] * n,
+            }
+        )
+        return tables
+
+    def test_a_day_the_profile_does_not_take_is_unusable(self):
+        """Tuesday is taken; Saturday is not, though it was reported in full."""
+        stamped = _stamp(
+            self._days_on([TravelDow.TUESDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["person_days"].sort("person_day_id")["usable_test"].to_list() == [
+            True,
+            False,
+        ]
+
+    def test_its_tours_and_trips_go_with_it(self):
+        """Saturday's tour and trip inherit their day's verdict on the way down."""
+        stamped = _stamp(
+            self._days_on([TravelDow.TUESDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [True, False]
+        assert stamped["linked_trips"].sort("linked_trip_id")["usable_test"].to_list() == [
+            True,
+            False,
+        ]
+
+    def test_the_household_survives_on_a_day_it_takes(self):
+        """Only Saturday's household-day fails; Tuesday's keeps the household and person."""
+        stamped = _stamp(
+            self._days_on([TravelDow.TUESDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["household_days"].sort("hh_day_id")["usable_test"].to_list() == [True, False]
+        assert stamped["households"]["usable_test"].to_list() == [True]
+        assert stamped["persons"]["usable_test"].to_list() == [True]
+
+    def test_a_household_with_only_days_it_does_not_take_is_unusable(self):
+        """Monday and Saturday are both outside Tue-Thu, so nothing is left to keep."""
+        stamped = _stamp(
+            self._days_on([TravelDow.MONDAY.value, TravelDow.SATURDAY.value]), self.TUE_THU
+        )
+
+        assert stamped["households"]["usable_test"].to_list() == [False]
+        assert stamped["persons"]["usable_test"].to_list() == [False]
+
+    def test_a_day_whose_weekday_is_unknown_is_unusable(self):
+        """A day that cannot be placed in the week cannot be shown to be one it takes."""
+        stamped = _stamp(self._days_on([TravelDow.TUESDAY.value, None]), self.TUE_THU)
+
+        assert stamped["person_days"].sort("person_day_id")["usable_test"].to_list() == [
+            True,
+            False,
+        ]
+
+    def test_every_day_taken_reads_no_weekday(self):
+        """A profile taking all seven days asks nothing of travel_dow, so it need not be there."""
+        tables = self._days_on([TravelDow.SATURDAY.value])
+        tables["person_days"] = tables["person_days"].drop("travel_dow")
+
+        stamped = _stamp(tables, STRICT)
+
+        assert stamped["person_days"]["usable_test"].to_list() == [True]
+
+    def test_a_limit_without_travel_dow_raises(self):
+        """A limit with nothing to read must stop, not pass every day."""
+        tables = self._days_on([TravelDow.TUESDAY.value])
+        tables["person_days"] = tables["person_days"].drop("travel_dow")
+
+        with pytest.raises(ValueError, match="no travel_dow"):
+            _stamp(tables, self.TUE_THU)
+
+
+class TestExcludedPersons:
+    """A person the cleaner excluded has no usable day, under any profile."""
+
+    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+
+    def _two_members(self, reasons: list[str | None]) -> dict:
+        """Two members on one date, each with one complete tour and trip."""
+        return {
+            "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
+            "persons": pl.DataFrame(
+                {
+                    "person_id": [1, 2],
+                    "hh_id": [1, 1],
+                    "survey_complete": [True, True],
+                    "surveyable": [True, True],
+                    "exclusion_reason": reasons,
+                },
+                schema_overrides={"exclusion_reason": pl.String},
+            ),
+            "person_days": pl.DataFrame(
+                {
+                    "person_day_id": [1, 2],
+                    "person_id": [1, 2],
+                    "hh_id": [1, 1],
+                    "travel_date": [DATE, DATE],
+                    "survey_complete": [True, True],
+                }
+            ),
+            "tours": pl.DataFrame(
+                {
+                    "tour_id": [10, 20],
+                    "person_day_id": [1, 2],
+                    "person_id": [1, 2],
+                    "survey_complete": [True, True],
+                    "parent_tour_id": [10, 20],
+                    "tour_data_quality": [TourDataQuality.VALID.value] * 2,
+                    "tour_category": [TourCategory.COMPLETE.value] * 2,
+                }
+            ),
+            "linked_trips": pl.DataFrame(
+                {
+                    "linked_trip_id": [100, 200],
+                    "tour_id": [10, 20],
+                    "person_day_id": [1, 2],
+                    "survey_complete": [True, True],
+                }
+            ),
+        }
+
+    def test_the_excluded_persons_day_tour_and_trip_are_unusable(self):
+        """Everything of the excluded member goes; the other member keeps theirs."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        for table, key in (
+            ("person_days", "person_day_id"),
+            ("tours", "tour_id"),
+            ("linked_trips", "linked_trip_id"),
+        ):
+            assert stamped[table].sort(key)["usable_test"].to_list() == [True, False], table
+        assert stamped["persons"].sort("person_id")["usable_test"].to_list() == [True, False]
+
+    def test_survey_complete_is_untouched(self):
+        """The vendor's verdict stays the vendor's; only usability narrows."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        assert stamped["person_days"]["survey_complete"].to_list() == [True, True]
+
+    def test_a_household_needing_every_member_loses_the_date(self):
+        """An excluded member is an unusable member, so the whole date fails."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), STRICT)
+
+        assert stamped["household_days"]["usable_test"].to_list() == [False]
+        assert stamped["households"]["usable_test"].to_list() == [False]
+        assert stamped["persons"]["usable_test"].to_list() == [False, False]
+
+    def test_a_household_needing_no_whole_date_keeps_its_other_member(self):
+        """With no whole-date rule, the household stands on the member it kept."""
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+    def test_a_household_whose_members_are_all_excluded_is_unusable(self):
+        """No household reason is needed: with no usable day, the household falls."""
+        reason = "survey_tech excluded: form"
+        stamped = _stamp(self._two_members([reason, reason]), self.LOOSE)
+
+        assert stamped["households"]["usable_test"].to_list() == [False]
+
+    def test_without_the_column_no_one_is_excluded(self):
+        """The field defaults to null, so a table without it excludes no one."""
+        tables = self._two_members([None, None])
+        tables["persons"] = tables["persons"].drop("exclusion_reason")
+
+        stamped = _stamp(tables, STRICT)
+
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+
 class TestJointQuorum:
     """A grouping is joint only while enough members survive."""
 
@@ -485,6 +698,15 @@ class TestTheFamilyPrefixesCannotCollide:
             "household_day_needs": household,
             "zone_coverage": NO_ZONE_COVERAGE,
             "joint_tours": JointTours.PARTIAL,
+            "travel_days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ],
         }
 
     # Names chosen to collide under the old scheme, plus the family prefixes

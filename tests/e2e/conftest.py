@@ -286,24 +286,38 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
                     # Two strict profiles the formatters name separately, plus a
                     # relaxed one, so the e2e exercises the loop, per-consumer
                     # selection, and a relaxed column reaching the delivered
-                    # output as a registered generated column.
+                    # output as a registered generated column. The strict two
+                    # take Tuesday to Thursday, as the projects' do, so the toy
+                    # data's week diaries lose their other days to the
+                    # day-of-week rule; the relaxed one keeps all seven.
                     "ctramp": {
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
                         "joint_tours": "fully_joint",
+                        "travel_days": ["tuesday", "wednesday", "thursday"],
                     },
                     "daysim": {
                         "tour_closes_at": "primary_home",
                         "household_day_needs": "all_members",
                         "zone_coverage": "taz",
                         "joint_tours": "fully_joint",
+                        "travel_days": ["tuesday", "wednesday", "thursday"],
                     },
                     "analysis": {
                         "tour_closes_at": "anywhere",
                         "household_day_needs": "nothing",
                         "zone_coverage": "none",
                         "joint_tours": "partial",
+                        "travel_days": [
+                            "monday",
+                            "tuesday",
+                            "wednesday",
+                            "thursday",
+                            "friday",
+                            "saturday",
+                            "sunday",
+                        ],
                     },
                 }
             },

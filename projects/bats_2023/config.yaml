@@ -52,6 +52,11 @@ steps:
       # report, as the vendor decides. "observed_trips": also from the trips copied
       # from an adult they travelled with (see day_survey_complete).
       child_day_complete: vendor
+      # Survey technologies whose persons are dropped from every usability
+      # profile: call_center, form (browser, tablet or paper), gps (phone app),
+      # missing. Recall-based reports are not used until their reporting bias
+      # against GPS-tracked travel is corrected for.
+      exclude_survey_tech: [call_center, form]
 
   - name: imputation
     validate_input: false
@@ -198,7 +203,7 @@ steps:
     validate_input: false
     cache: true
     params:
-      # One boolean column per profile. A profile states its standard on four
+      # One boolean column per profile. A profile states its standard on five
       # axes, and every profile answers all of them, so a column's meaning reads off
       # this block without knowing a base rule. Consumers then name the profile
       # they read (usability_profile, below). `survey_complete` -- what the survey
@@ -242,6 +247,12 @@ steps:
       #                        partial       the joint groups the survey detected,
       #                                      as they are
       #
+      #   travel_days:         a list of day names, monday to sunday. A day on
+      #                        any other day of the week is unusable, and its
+      #                        tours and trips with it. Only the weights of the
+      #                        days a profile takes are fitted, so a weekday
+      #                        model's profile says so here
+      #
       # No setting admits a tour with a missing leg or no activity to anchor on.
       # Those are missing data, not an open end.
       usability_profiles:
@@ -250,16 +261,19 @@ steps:
           household_day_needs: all_members
           zone_coverage: TAZ1454
           joint_tours: fully_joint
+          travel_days: [tuesday, wednesday, thursday]
         daysim:
           tour_closes_at: primary_home
           household_day_needs: all_members
           zone_coverage: taz
           joint_tours: fully_joint
+          travel_days: [tuesday, wednesday, thursday]
         analysis:
           tour_closes_at: anywhere
           household_day_needs: nothing
           zone_coverage: none
           joint_tours: partial
+          travel_days: [tuesday, wednesday, thursday]
 
   - name: compute_weights
     validate_input: false

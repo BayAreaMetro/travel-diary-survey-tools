@@ -72,10 +72,16 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
         if profile.requires_fully_joint
         else "; joint tours as the survey detected them"
     )
+    days = (
+        "; on " + ", ".join(day.label for day in profile.travel_days) + " only"
+        if profile.limits_travel_days
+        else "; any day of the week"
+    )
     gate = (
         f"Usable under the '{profile.name}' profile: survey-complete, a tour "
-        f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}{joint}. "
-        "Never admits a tour with a missing leg or no activity to anchor on."
+        f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}{joint}{days}. "
+        "Never admits a tour with a missing leg or no activity to anchor on, "
+        "or a person the cleaner excluded (exclusion_reason)."
     )
     joint_tour_id = (
         f"joint_tour_id as the '{profile.name}' profile sees it: the id where this "

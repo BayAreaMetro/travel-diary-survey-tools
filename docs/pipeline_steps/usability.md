@@ -16,7 +16,7 @@ Two kinds of flag, computed side by side:
   admits. A project names its profiles in config, so several standards can
   coexist in one run and a column's meaning reads off the config.
 
-A profile answers four axes, all explicitly, none with a default:
+A profile answers five axes, all explicitly, none with a default:
 
 | axis | values | meaning |
 |------|--------|---------|
@@ -29,6 +29,7 @@ A profile answers four axes, all explicitly, none with a default:
 | | `none` | no geographic requirement |
 | `joint_tours` | `fully_joint` | everyone on a joint tour shares every leg, as activity-based models draw it; work, school and escort tours are never joint |
 | | `partial` | the joint groups the survey detected, as they are |
+| `travel_days` | a list of day names, `monday` to `sunday` | only days on these days of the week; a day on any other is unusable, with its tours and trips |
 
 No setting admits a tour with *missing data* (`NO_DESTINATION`, `SPATIAL_GAP`):
 those are not open ends, and no tolerance makes a missing leg present.
@@ -42,11 +43,13 @@ those are not open ends, and no tolerance makes a missing leg present.
         household_day_needs: all_members
         zone_coverage: TAZ1454
         joint_tours: fully_joint
+        travel_days: [tuesday, wednesday, thursday]
       analysis:
         tour_closes_at: anywhere
         household_day_needs: nothing
         zone_coverage: none
         joint_tours: partial
+        travel_days: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
 ```
 
 ## One profile, several column families

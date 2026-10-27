@@ -286,6 +286,17 @@ class Student(LabeledEnum):
     MISSING = (995, "Missing Response")
 
 
+class SurveyTech(LabeledEnum):
+    """survey_tech value labels: the technology that collected a person's travel."""
+
+    canonical_field_name = "survey_tech"
+
+    CALL_CENTER = (1, "Call center")
+    FORM = (2, "Form: browser, tablet or paper")
+    GPS = (3, "GPS: phone app")
+    MISSING = (995, "Missing Response")
+
+
 class CommuteFreq(LabeledEnum):
     """commute and telework frequency value labels."""
 

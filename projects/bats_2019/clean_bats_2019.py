@@ -8,7 +8,7 @@ from typing import get_args
 import polars as pl
 
 from data_canon.codebook.households import IncomeBroad
-from data_canon.codebook.persons import Employment, Ethnicity, Gender, Race, Student
+from data_canon.codebook.persons import Employment, Ethnicity, Gender, Race, Student, SurveyTech
 from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory, TNCType
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
 from pipeline.decoration import step
@@ -377,6 +377,15 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
     # no non-participant has any. The cascade reads it so unsurveyable members
     # neither veto a household-date nor inherit its verdict.
     persons = persons.with_columns((pl.col("is_active_participant") == 1).alias("surveyable"))
+
+    # 2019 collected every diary through rMove, the phone app. A non-participant
+    # kept no diary, so no technology collected their travel.
+    persons = persons.with_columns(
+        pl.when(pl.col("is_active_participant") == 1)
+        .then(pl.lit(SurveyTech.GPS.value))
+        .otherwise(pl.lit(SurveyTech.MISSING.value))
+        .alias("survey_tech")
+    )
 
     # Derive ethnicity from ethnicity_hisp flag
     # 2019 does not distinguish Hispanic subtypes, so map to OTHER (Hispanic or Latino)
