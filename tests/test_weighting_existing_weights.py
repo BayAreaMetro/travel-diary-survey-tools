@@ -854,32 +854,27 @@ class TestADroppedPersonStaysInTheirHousehold:
         assert result["person_days"]["person_day_weight"].sum() == pytest.approx(40.0)
 
 
-class TestAStrandedPersonIsTreatedAsDropped:
-    """A usable person with no kept day the supplier weighted cannot carry weight.
-
-    Days take weight in proportion to the supplier's, so a day weighted 0 stays
-    0. A person whose weighted days were all dropped has no day to put weight
-    on, so they count as a dropped person. A household with no person able to
-    carry weight counts as a dropped household. Both records stay usable, with
-    weight 0.
+class TestAUsableRecordWithoutASuppliedWeightStopsTheRun:
+    """A usable record must carry a weight; one the supplier weighted 0 cannot.
 
     Every supplied household and person weight is 10.
 
-    | person | hh | size | days, supplied | can carry |
-    |--------|----|------|----------------|-----------|
-    | 11     | 1  | 2    | 110: 10 dropped, 111: 0 kept | no |
-    | 12     | 1  | 2    | 120: 10 kept | yes |
-    | 21     | 2  | 1    | 210: 10 dropped, 211: 0 kept | no |
-    | 31     | 3  | 1    | 310: 10 kept | yes |
+    | person | hh | days, supplied |
+    |--------|----|----------------|
+    | 11     | 1  | 110: 10 dropped, 111: 0 kept |
+    | 12     | 1  | 120: 10 kept |
+    | 21     | 2  | 210: 10 dropped, 211: 0 kept |
+    | 31     | 3  | 310: 10 kept |
 
-    * Household 2 has no one who can carry weight, so it counts as dropped.
-      Size 1: 20 supplied, 10 kept, factor 2, so household 3 is 20. Size 2:
-      household 1 stays 10.
-    * Persons copy their household: household 1 is 10 x 2 = 20 on person 12
-      alone. Person 31 is 20.
+    Days 111 and 211 are usable but were supplied 0, so persons 11 and 21, and
+    household 2, have nothing to carry weight on. Those records reaching the
+    model at weight 0 would count for nothing; the run stops instead. Making
+    them unusable upstream, as the vendor's universe says, lets it through.
     """
 
-    def _run(self, tmp_path) -> dict[str, pl.DataFrame]:
+    def _run(
+        self, tmp_path, usable: dict[str, list[bool]] | None = None
+    ) -> dict[str, pl.DataFrame]:
         tables = {
             "households": pl.DataFrame({"hh_id": [1, 2, 3], "usable_p": [True, True, True]}),
             "persons": pl.DataFrame(
@@ -898,6 +893,8 @@ class TestAStrandedPersonIsTreatedAsDropped:
                 }
             ),
         }
+        for table, flags in (usable or {}).items():
+            tables[table] = tables[table].with_columns(pl.Series("usable_p", flags))
         weights = {
             "hh_weight": {
                 "weight_path": _weight_file(
@@ -929,35 +926,32 @@ class TestAStrandedPersonIsTreatedAsDropped:
             **tables,
         )
 
-    def test_the_stranded_persons_weight_stays_in_the_household(self, tmp_path):
-        """Person 11's share of household 1 goes to person 12."""
-        persons = self._run(tmp_path)["persons"].sort("person_id")
-        assert persons["person_weight"].to_list() == pytest.approx([0.0, 20.0, 0.0, 20.0])
-
-    def test_a_household_no_one_can_carry_is_dropped(self, tmp_path):
-        """Household 2 goes to 0; household 3, the same size, takes its weight."""
-        households = self._run(tmp_path)["households"].sort("hh_id")
-        assert households["hh_weight"].to_list() == pytest.approx([10.0, 0.0, 20.0])
-
-    def test_it_reaches_the_receivers_days(self, tmp_path):
-        """Day 120 carries person 12's 20; day 310 carries person 31's 20."""
-        person_days = self._run(tmp_path)["person_days"].sort("person_day_id")
-        assert person_days["person_day_weight"].to_list() == pytest.approx(
-            [0.0, 0.0, 20.0, 0.0, 0.0, 20.0]
-        )
-
-    def test_the_records_stay_usable(self, tmp_path):
-        """Only the weight moves; the records and their verdicts are untouched."""
-        result = self._run(tmp_path)
-        assert result["persons"]["usable_p"].to_list() == [True, True, True, True]
-        assert result["households"]["usable_p"].to_list() == [True, True, True]
-
-    def test_usable_records_the_supplier_weighted_0_are_counted(self, tmp_path, caplog):
-        """Days 111 and 211 are usable to us and were supplied 0; the log says so."""
-        with caplog.at_level("INFO"):
+    def test_the_run_stops_and_names_the_table(self, tmp_path):
+        """Household 2 is usable, but none of its records can be weighted."""
+        with pytest.raises(
+            ValueError, match=r"1 households record\(s\) admitted by usable_p carry no hh_weight_p"
+        ):
             self._run(tmp_path)
-        assert (
-            "days: 2 of 4 usable record(s) were supplied a person_day_weight_p of 0" in caplog.text
+
+    def test_it_runs_once_the_unweighted_records_are_unusable(self, tmp_path):
+        """Days 111 and 211, persons 11 and 21, and household 2 left out upstream.
+
+        Household 2's weight goes to household 3, the other of size 1, and person
+        11's share of household 1 to person 12.
+        """
+        result = self._run(
+            tmp_path,
+            usable={
+                "households": [True, False, True],
+                "persons": [False, True, False, True],
+                "person_days": [False, False, True, False, False, True],
+            },
+        )
+        assert result["households"].sort("hh_id")["hh_weight"].to_list() == pytest.approx(
+            [10.0, 0.0, 20.0]
+        )
+        assert result["persons"].sort("person_id")["person_weight"].to_list() == pytest.approx(
+            [0.0, 20.0, 0.0, 20.0]
         )
 
 

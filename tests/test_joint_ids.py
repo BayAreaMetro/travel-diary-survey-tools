@@ -186,19 +186,49 @@ class TestFullyJoint:
         """Persons 1 and 2 share both legs; person 3 joins them for the second.
 
         Person 3's trip on that leg went unreported, so joint trip 501 is
-        incomplete as a whole. Person 3 is pruned from it; persons 1 and 2 keep
-        their joint tour and both its joint trips, so no leg of it is left
-        without one.
+        incomplete as a whole, and so is person 3's tour (a tour is complete
+        only if all its trips are). Person 3 is pruned from it; persons 1 and 2
+        keep their joint tour and both its joint trips, so no leg of it is left
+        without one. Person 3 also made a complete tour alone that day (31),
+        so their day, and with it the household-day, survives.
         """
         tables = _household({1: [500, 501], 2: [500, 501], 3: [501]})
-        tables["linked_trips"] = tables["linked_trips"].with_columns(
-            (pl.col("tour_id") != 30).alias("survey_complete")
+        solo = tables["tours"].filter(pl.col("tour_id") == 30)
+        tables["tours"] = pl.concat(
+            [
+                tables["tours"].with_columns((pl.col("tour_id") != 30).alias("survey_complete")),
+                solo.with_columns(
+                    pl.lit(31, dtype=pl.Int64).alias("tour_id"),
+                    pl.lit(31, dtype=pl.Int64).alias("parent_tour_id"),
+                    pl.lit(None, dtype=pl.Int64).alias("joint_tour_id"),
+                ),
+            ]
+        )
+        tables["linked_trips"] = pl.concat(
+            [
+                tables["linked_trips"].with_columns(
+                    (pl.col("tour_id") != 30).alias("survey_complete")
+                ),
+                pl.DataFrame(
+                    {
+                        "linked_trip_id": [399],
+                        "tour_id": [31],
+                        "person_day_id": [3],
+                        "joint_trip_id": [None],
+                        "survey_complete": [True],
+                    },
+                    schema=tables["linked_trips"].schema,
+                ),
+            ]
         )
         tables["joint_trips"] = tables["joint_trips"].with_columns(
             (pl.col("joint_trip_id") != 501).alias("survey_complete")
         )
         out = _stamp(STRICT, tables)
-        assert _on_tour(out, STRICT) == {1: True, 2: True, 3: False}
+        tours = out["tours"].sort("tour_id")
+        on = tours.select("tour_id", pl.col(STRICT.joint_tour_id).is_not_null())
+        assert dict(on.iter_rows()) == {10: True, 20: True, 30: False, 31: False}
+        assert out["households"][STRICT.flag].to_list() == [True]
         assert out["joint_tours"][STRICT.flag].to_list() == [True]
         assert out["joint_trips"].sort("joint_trip_id")[STRICT.flag].to_list() == [True, True]
         trips = out["linked_trips"]
