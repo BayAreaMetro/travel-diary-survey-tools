@@ -20,7 +20,7 @@
 #   ENVS:
 #     SOME_SHARED_ROOT: "/opt/shared"
 #
-survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/Bay Area Travel Study 2023/Data/Full Weighted 2023 Dataset/WeightedDataset_02212025"
+survey_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_2023/Versioned_Data/PreWeight_PreLink_MonToSun_20250610"
 weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"
 pums_dir: "{{ MTC_DATA }}/Data/Census/PUMS/2023_1yr"
 output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
@@ -274,6 +274,51 @@ steps:
           zone_coverage: none
           joint_tours: partial
           travel_days: [tuesday, wednesday, thursday]
+        # Placeholder profile for vendor weights -- Same profile, just repeated under a different key to receive the pre-computed weights
+        ctramp_rsg:
+          tour_closes_at: primary_home
+          household_day_needs: all_members
+          zone_coverage: TAZ1454
+          joint_tours: fully_joint
+          travel_days: [tuesday, wednesday, thursday]
+        analysis_rsg:
+          tour_closes_at: anywhere
+          household_day_needs: all_members  # the vendor weighted only complete household-days
+          zone_coverage: none
+          joint_tours: partial
+          travel_days: [tuesday, wednesday, thursday]
+
+# -- Existing weights ----------
+  - name: add_existing_weights
+    validate_input: false
+    cache: false
+    params:
+      # Required. true: a kept day's dropped trips hand their weight to its kept
+      # trips. false: kept trips keep their own. Trips always follow their day.
+      preserve_travel_totals: true
+      # Required. Households scale by one factor per size (number of persons);
+      # sizes from this one up share a factor.
+      household_size_top_group: 6
+      # Optional. The most a record may grow past its supplied weight, per table.
+      max_weight_factor:
+        households: 3.0
+      derive_missing_weights: true
+      # Supplied weights are redistributed onto each profile's usable records,
+      # holding the household total and each household's persons.
+      weight_profiles: [ctramp_rsg, analysis_rsg]
+      weights:
+        hh_weight:
+          weight_path: "{{ weights_dir }}/hh_weights.csv"
+        person_weight:
+          weight_path: "{{ weights_dir }}/person_weights.csv"
+        person_day_weight:
+          weight_id_col: "day_id"  # Weight file uses 'day_id' instead of canonical 'person_day_id'
+          weight_col: "day_weight"  # Weight file uses 'day_weight' instead of canonical 'person_day_weight'
+          weight_path: "{{ weights_dir }}/day_weights.csv"
+        unlinked_trip_weight:
+          weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
+          weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
+          weight_path: "{{ weights_dir }}/trip_weights.csv"
 
   - name: compute_weights
     validate_input: false
@@ -458,65 +503,19 @@ steps:
         # add a diagnostic chart showing fit vs weight quality tradeoffs.
         expansion_factor_grid: [2, 3, 4, 5, 7, 10, 15, 20]
 
-        # Weight sets that arrived with the survey, to compare our fits against
-        # in the report's comparer section. Named rather than discovered: a
-        # vendor suffix is indistinguishable from a profile suffix (a scan would
-        # read hh_weight_rmove_only as a profile called 'rmove_only'), and the
-        # vendor's trip column does not share the level's base name. The bare
-        # columns below are read before drop_unsuffixed_weights removes them.
-        #
+        # Compare different weight sets, such as vendor supplied weights,
+        # to compare against our computed weights.
         # Comparing weight sets is not a validation: two methods can both be
         # correct and still disagree on nearly every record. See the caveat the
         # report prints above the plot.
         compare_weights:
-          vendor:
-            label: vendor
-            columns:
-              households: hh_weight
-              persons: person_weight
-              person_days: day_weight
-              unlinked_trips: trip_weight
           vendor_rmove:
             label: vendor rMove
             columns:
-              households: hh_weight_rmove_only
-              persons: person_weight_rmove_only
-              person_days: day_weight_rmove_only
-              unlinked_trips: trip_weight_rmove_only
-
-
-  # -- Existing weights (alternative to computing new weights) ----------
-  # Uncomment this block and comment out the 'compute_weights' step above
-  # to use pre-computed weights from an external source.
-  # - name: add_existing_weights
-  #   validate_input: false
-  #   cache: false
-  #   params:
-  #     # Required. true: a kept day's dropped trips hand their weight to its kept
-  #     # trips. false: kept trips keep their own. Trips always follow their day.
-  #     preserve_travel_totals: true
-  #     # Required. Households scale by one factor per size (number of persons);
-  #     # sizes from this one up share a factor.
-  #     household_size_top_group: 6
-  #     # Optional. The most a record may grow past its supplied weight, per table.
-  #     max_weight_factor:
-  #       households: 2.0
-  #     derive_missing_weights: true
-  #     # Supplied weights are redistributed onto each profile's usable records,
-  #     # holding the household total and each household's persons.
-  #     weight_profiles: [ctramp, daysim, analysis]
-  #     weights:
-  #       hh_weight:
-  #         weight_path: "{{ weights_dir }}/hh_weights.csv"
-  #       person_weight:
-  #         weight_path: "{{ weights_dir }}/person_weights.csv"
-  #       person_day_weight:
-  #         weight_path: "{{ weights_dir }}/day_weights.csv"
-  #       unlinked_trip_weight:
-  #         weight_id_col: "trip_id"  # Weight file uses 'trip_id' instead of canonical 'unlinked_trip_id'
-  #         weight_col: "trip_weight"  # Weight file uses 'trip_weight' instead of canonical 'unlinked_trip_weight'
-  #         weight_path: "{{ weights_dir }}/trip_weights.csv"
-
+              households: hh_weight_ctramp_rsg
+              persons: person_weight_ctramp_rsg
+              person_days: person_day_weight_ctramp_rsg
+              unlinked_trips: unlinked_trip_weight_ctramp_rsg
 
   # - name: final_check
   #   validate_input: true
@@ -525,7 +524,7 @@ steps:
     validate_input: false
     cache: false
     params:
-      usability_profile: ctramp
+      usability_profile: ctramp_rsg
       # Income thresholds (in year 2000 dollars, per CT-RAMP convention).
       # From MTC CT-RAMP INCOME_SEGMENT_DOLLAR_LIMITS = {30000, 60000, 100000, MAX}:
       # https://github.com/BayAreaMetro/travel-model-one/blob/a1c6cfb48ed3397a436170d810db91c5f9474c08/core/projects/mtc/src/java/com/pb/mtc/ctramp/MtcModelStructure.java#L14

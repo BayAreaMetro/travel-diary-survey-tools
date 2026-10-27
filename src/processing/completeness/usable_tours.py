@@ -13,6 +13,10 @@ from .household_day import with_household_day
 from .profiles import _ADMITTED_QUALITY, TourClosesAt, UsabilityProfile
 from .zone_coverage import _home_zone_ok, _trips_with_zones_per_tour, _zone_expr
 
+# The trip tables: each starts from its own ``survey_complete``, the tour fuse
+# needs all of a tour's trips, and they then inherit their tour's verdict.
+TRIP_TABLES = ("linked_trips", "unlinked_trips")
+
 
 def _flag_tours(
     tables: dict[str, pl.DataFrame | None],
@@ -21,8 +25,9 @@ def _flag_tours(
     """Stamp the usable flag on tours, in place.
 
     A tour is usable when its structure is admissible, it sits on a coherent
-    household-date, and -- where the profile names a geography -- every one of its
-    trips can be addressed in it, not merely its own endpoints. Without the coherence term
+    household-date, every trip on it is usable, and -- where the profile names a
+    geography -- every one of its trips can be addressed in it, not merely its
+    own endpoints. Without the coherence term
     CT-RAMP (which reads the tour's flag) would keep a tour the weighting has
     zeroed. ``household_days.survey_complete`` is available because the reverse cascade runs
     before this.
@@ -51,6 +56,15 @@ def _flag_tours(
         usable = usable & pl.col("_trip_has_zone").fill_null(value=True)
     else:
         per_tour = None
+
+    # ...and every trip on it, so a trip dropped on its own takes its tour with it.
+    trips_ok = _trips_usable_per_tour(tables, cols)
+    if trips_ok is not None and "tour_id" in tours.columns:
+        tours = tours.join(trips_ok, on="tour_id", how="left")
+        # A tour with no trips has no trip that could fail it.
+        usable = usable & pl.col("_trips_usable").fill_null(value=True)
+    else:
+        trips_ok = None
 
     # The household's own home has to have a zone too, or the tour belongs to
     # a household the consumer cannot write. See _home_zone_ok on why this is
@@ -85,7 +99,44 @@ def _flag_tours(
         flagged = flagged.drop("_home_zone_ok")
     if per_tour is not None:
         flagged = flagged.drop("_trip_has_zone")
+    if trips_ok is not None:
+        flagged = flagged.drop("_trips_usable")
     tables["tours"] = _flag_subtours_from_parent(flagged, cols)
+
+
+def _trips_usable_per_tour(
+    tables: dict[str, pl.DataFrame | None],
+    cols: UsabilityProfile,
+) -> pl.DataFrame | None:
+    """Per tour, whether every trip on it is usable so far, or None when no trips carry one.
+
+    Reads both trip tables: a linked trip and the unlinked trips it was built
+    from can be narrowed separately (each carries its own weight), and either
+    failing fails the tour.
+
+    Raises:
+        ValueError: If a trip table carries ``survey_complete`` but has not been
+            flagged yet, which would pass every tour silently.
+    """
+    per_table = []
+    for name in TRIP_TABLES:
+        trips = tables.get(name)
+        if trips is None or "tour_id" not in trips.columns:
+            continue
+        if cols.flag not in trips.columns:
+            if "survey_complete" not in trips.columns:
+                continue
+            msg = (
+                f"Cannot flag tours: {name} has no {cols.flag} column yet. Flag the "
+                "trips first, otherwise every tour silently passes on its trips."
+            )
+            raise ValueError(msg)
+        per_table.append(
+            trips.select("tour_id", pl.col(cols.flag).fill_null(value=False).alias("_trips_usable"))
+        )
+    if not per_table:
+        return None
+    return pl.concat(per_table).group_by("tour_id").agg(pl.all("_trips_usable"))
 
 
 def _flag_subtours_from_parent(
