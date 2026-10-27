@@ -120,14 +120,18 @@ def check_weight_placement(
 ) -> None:
     """Verify every weight sits on a record its consumer will receive, or raise.
 
-    Three things, each a way weight has gone missing before:
+    Four things, each a way weight has gone missing before:
 
     1. No weight on a record the profile does not admit. The propagation zeroes
        those, so a non-zero here means a table the usability pass never reached.
-    2. Each supplied table still sums to what was joined, so redistributing
+    2. A weight above 0 on every record the profile does admit. A usable record
+       with none (0 or null) would reach the model counting for nothing: a
+       supplied weight file that does not cover the profile's universe, or a
+       weighting that skipped part of it.
+    3. Each supplied table still sums to what was joined, so redistributing
        onto the usable records moved the vendor's total rather than shrinking
        it. Checked only where the caller supplies totals (the vendor path).
-    3. What the formatter will keep carries the whole total. [`keep_records`]
+    4. What the formatter will keep carries the whole total. [`keep_records`]
        [processing.completeness.kept_records.keep_records] is the formatter's
        own answer, so running it here and comparing totals proves the weighting
        and the formatter agree before any file is written. Skipped only when a
@@ -143,7 +147,7 @@ def check_weight_placement(
             for the tables that had one.
 
     Raises:
-        ValueError: On the first table that fails any of the three.
+        ValueError: On the first table that fails any of the four.
     """
     weights = {
         table: col
@@ -164,6 +168,17 @@ def check_weight_placement(
                 f"{misplaced.height} {table} record(s) not admitted by {usability_flag_col} "
                 f"carry a non-zero {col} (total {misplaced[col].sum():.4f}). Weight on a "
                 "record the consumer never receives is weight the output loses."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        weightless = tables[table].filter(
+            pl.col(usability_flag_col).fill_null(value=False) & ~(pl.col(col).fill_null(0) > 0)
+        )
+        if weightless.height:
+            msg = (
+                f"{weightless.height} {table} record(s) admitted by {usability_flag_col} "
+                f"carry no {col} (0 or null). A usable record without a weight counts for "
+                "nothing in the model; it should be unusable, or be weighted."
             )
             logger.error(msg)
             raise ValueError(msg)
