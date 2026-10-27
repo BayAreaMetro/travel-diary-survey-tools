@@ -1,6 +1,7 @@
 """Custom cleaning steps for the  Bay Area Travel Study (BATS) 2023 pipeline."""
 
 import logging
+from typing import Literal
 
 import polars as pl
 
@@ -57,14 +58,92 @@ def second_homes(persons: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def trip_survey_verdict(col: str) -> pl.Expr:
+    """A trip's own ``survey_complete`` from the vendor's trip-survey flag.
+
+    1 is surveyed and 0 is not. 995 is the vendor's NA: it marks the trips the
+    vendor added itself (numbered after the person's other trips, with a mode and
+    purpose, and almost all on days the vendor calls complete). They had no trip
+    survey to answer, so they get no verdict of their own (null), and the
+    cascade gives them their day's.
+    """
+    flag = pl.col(col)
+    return pl.when(flag == 995).then(None).otherwise(flag == 1).alias(col)  # noqa: PLR2004
+
+
+def day_survey_complete(
+    days: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
+    child_day_complete: Literal["vendor", "observed_trips"],
+) -> pl.DataFrame:
+    """Set ``days.survey_complete``: the vendor's day verdict, with a choice for children.
+
+    The vendor decides what a complete survey day is, and an adult's day always
+    takes its ``is_complete``. Children (``is_participant`` 0) do not take the
+    survey. An adult files one proxy report covering a child's whole day, on one
+    weekday; on the other days the child has only the trips they made with an
+    adult, copied from that adult's (``copied_from_proxy``). The vendor counts a
+    child's day only with the proxy report.
+
+    ``child_day_complete`` chooses the rule for children, and is the one place this
+    project departs from the vendor's verdict:
+
+    * ``"vendor"``: the vendor's verdict, as for adults.
+    * ``"observed_trips"``: complete when an adult filed the proxy report, when the
+      day has trips and every one with a trip-survey verdict is surveyed, or when
+      it has none and a no-travel reason was given. This counts the days seen only
+      through copied trips, which show the child's travel with that adult and
+      nothing else.
+
+    Expects ``unlinked_trips.survey_complete`` from :func:`trip_survey_verdict`.
+    """
+    vendor = pl.col("is_complete") == 1
+    if child_day_complete == "vendor":
+        return days.with_columns(vendor.fill_null(value=False).alias("survey_complete"))
+    if child_day_complete != "observed_trips":
+        msg = f"child_day_complete must be 'vendor' or 'observed_trips', got {child_day_complete!r}"
+        raise ValueError(msg)
+
+    # all() skips nulls: a trip with no verdict of its own does not decide the day.
+    all_surveyed = unlinked_trips.group_by("day_id").agg(
+        pl.col("survey_complete").all().alias("_all_surveyed")
+    )
+    observed = (pl.col("proxy_complete") == 1) | (
+        pl.when(pl.col("num_trips") > 0)
+        .then(pl.col("_all_surveyed").fill_null(value=False))
+        .otherwise(pl.col("num_reasons_no_travel") >= 1)
+    )
+    return (
+        days.join(all_surveyed, on="day_id", how="left")
+        .with_columns(
+            pl.when(pl.col("is_participant") == 0)
+            .then(observed)
+            .otherwise(vendor)
+            .fill_null(value=False)
+            .alias("survey_complete")
+        )
+        .drop("_all_surveyed")
+    )
+
+
 @step()
 def clean_2023_bats(
     households: pl.DataFrame,
     persons: pl.DataFrame,
     days: pl.DataFrame,
     unlinked_trips: pl.DataFrame,
+    child_day_complete: Literal["vendor", "observed_trips"],
 ) -> dict[str, pl.DataFrame]:
-    """Custom cleaning steps go here, not in the main pipeline."""
+    """Custom cleaning steps go here, not in the main pipeline.
+
+    Args:
+        households: Vendor households.
+        persons: Vendor persons.
+        days: Vendor person-days.
+        unlinked_trips: Vendor trips.
+        child_day_complete: How a child's day is judged complete; see
+            :func:`day_survey_complete`. Required, so every config says which.
+    """
     # CLEANUP UNLINKED TRIPS =================================
     # Much wow...
     logger.info("Cleaning 2023 trip data")
@@ -341,33 +420,12 @@ def clean_2023_bats(
     )
 
     # ASSIGN COMPLETION STATUS =========================================
-    # Completeness rolls up from the surveyed trip (see processing.completeness).
-    # This project measures two leaf facts directly; person and household
-    # completeness are derived *upward* later by the cascade_completeness step, so
-    # the vendor's person/household is_complete here is only a placeholder the
-    # rollup overwrites.
-    #
-    #   trip.complete = trip_survey_complete            (the measured leaf)
-    #   day.complete  = every trip surveyed, else a *declared* no-travel day
-    #                   (a no-travel reason given, or a proxy filled the day in)
+    # Person and household completeness are rolled up later by cascade_completeness,
+    # so their is_complete here is only a placeholder.
     unlinked_trips = unlinked_trips.rename(
         {"trip_survey_complete": "survey_complete"}
-    ).with_columns(pl.col("survey_complete").cast(pl.Boolean))
-
-    all_trips_surveyed = unlinked_trips.group_by("day_id").agg(
-        pl.col("survey_complete").all().alias("_all_surveyed")
-    )
-    days = (
-        days.join(all_trips_surveyed, on="day_id", how="left")
-        .with_columns(
-            pl.when(pl.col("num_trips") > 0)
-            .then(pl.col("_all_surveyed").fill_null(value=False))
-            .otherwise((pl.col("num_reasons_no_travel") >= 1) | (pl.col("proxy_complete") == 1))
-            .fill_null(value=False)
-            .alias("survey_complete")
-        )
-        .drop("_all_surveyed")
-    )
+    ).with_columns(trip_survey_verdict("survey_complete"))
+    days = day_survey_complete(days, unlinked_trips, child_day_complete)
 
     households = households.rename({"is_complete": "survey_complete"}).with_columns(
         pl.col("survey_complete").cast(pl.Boolean)
