@@ -173,6 +173,12 @@ class PersonCTRAMPModel(BaseModel):
         default=None, ge=0, description="Survey weight for the person (not part of CT-RAMP spec)"
     )
 
+    telecommute_time : int | None = Field(
+        default=None,
+        ge=0,
+        description= "Survey-reported telecommute time in minutes"
+    )
+
     # For some reason the person type in this model is string not int unlike the other CT-RAMP models
     @field_validator("type", mode="before")
     @classmethod
@@ -615,6 +621,10 @@ class AllTourCTRAMPModel(IndividualTourCTRAMPModel):
     individual and joint files are unchanged, for backwards compatibility.
     """
 
+    num_participants: int = Field(
+        ge=1,
+        description="Number of surveyed participants in the joint tour; 1 for individual tours.",
+    )
     joint_tour_id: int | None = Field(
         default=None,
         description=(
@@ -634,6 +644,10 @@ class AllTripCTRAMPModel(IndividualTripCTRAMPModel):
     reconciliation between the two CT-RAMP trip files.
     """
 
+    num_participants: int = Field(
+        ge=1,
+        description="Number of surveyed participants in the joint trip; 1 for unshared trips.",
+    )
     joint_trip_id: int | None = Field(
         default=None,
         description=(
