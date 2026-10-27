@@ -510,6 +510,15 @@ class TestCascadeCompletenessStep:
                     "household_day_needs": "all_members",
                     "zone_coverage": "none",
                     "joint_tours": "partial",
+                    "travel_days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ],
                 }
             },
         )

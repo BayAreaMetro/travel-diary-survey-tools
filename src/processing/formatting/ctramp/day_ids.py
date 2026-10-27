@@ -109,11 +109,12 @@ def incorporate_day_into_ids(
         len(persons),
     )
 
-    # The `person_days` table has already been filtered to valid (non-zero-weight) days
-    # (e.g. Mon-Thu only).  Tours, trips, and joint trips must also be restricted
-    # to those days so that every tour/trip record can be joined back to a person
-    # record. The inner joins drop the rest and bring each record its household-day,
-    # keeping the records in order as the semi-joins they replace did.
+    # The `person_days` table has already been filtered to the profile's usable days,
+    # which fall only on the days of the week it takes (its travel_days). Tours,
+    # trips, and joint trips must also be restricted to those days so that every
+    # tour/trip record can be joined back to a person record. The inner joins drop
+    # the rest and bring each record its household-day, keeping the records in
+    # order as the semi-joins they replace did.
     valid_days = person_days.select("person_day_id", "hh_day_id")
 
     # Update tours: drop non-target days, then encode CTRAMP IDs

@@ -19,8 +19,18 @@ how a signature change to `_check_hierarchy` reached two projects before the sui
 
 Household 26 exists for this. Both members travel on both diary dates, and one member's
 second day never closes its tour, so a strict profile drops it and the split's divisor
-changes. Everywhere else a person has a single day and weight passes through untouched,
-where a split dividing by *all* days rather than the usable ones would look correct.
+changes. The other households report a week, Monday to Sunday, and the strict profiles
+take Tuesday to Thursday, so there too a split dividing by *all* days rather than the
+usable ones would come out wrong.
+
+## Days of the week
+
+Every household except 11, 26, 28 and 29 reports a diary on all seven days, the same
+trips each day, as rMove households do, so every household type is on every day. The
+strict profiles (`ctramp`, `daysim`) take Tuesday to Thursday, as the projects' do, and
+the relaxed one (`analysis`) every day: the day-of-week rule drops four days of each
+week, and no household or category depends on a day it drops. The four exceptions test
+two particular dates, so they keep exactly two, a Tuesday and a Wednesday.
 
 The rest of the weighting is covered by `tests/test_weighting_*.py`. That deferral only holds
 while those tests reach the *entry points* the pipeline actually calls. They did not once:
@@ -111,7 +121,7 @@ Feature-specific behaviours (imputation stash, edge-case coverage below) are ass
 | 5 | Escort + school child (proxy) | ESCORT, child non-driving, proxy respondent |
 | 6 | Work subtour (lunch) | at-work subtour: tour_type WORK_BASED, COMPLETE against its work anchor, emitted AT_WORK in CT-RAMP |
 | 7 | Single-trip tour (no return) | tour_data_quality PARTIAL_DIARY_EDGE, SOCIALREC |
-| 8 | Weekend 2 retirees | weekend day, joint, Retired person type |
+| 8 | 2 retirees, recreation | joint, Retired person type |
 | 9 | TNC user | TNC mode, zero-vehicle household |
 | 10 | Bikeshare + part-time student | BIKESHARE mode, PT student |
 | 11 | Multi-day traveler | 2 travel days for one person |

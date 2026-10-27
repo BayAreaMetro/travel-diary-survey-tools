@@ -14,7 +14,7 @@ from .usable_cascade import stamp_usable
 @step(
     requires={
         "household_days": {"hh_day_id", "hh_id"},
-        "person_days": {"person_day_id", "hh_id", "hh_day_id", "survey_complete"},
+        "person_days": {"person_day_id", "hh_id", "hh_day_id", "survey_complete", "travel_dow"},
         "tours": {"tour_id", "person_day_id", "survey_complete"},
     },
     produces={

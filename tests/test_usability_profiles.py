@@ -25,6 +25,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
+from data_canon.codebook.days import TravelDow
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
     NO_ZONE_COVERAGE,
@@ -57,6 +58,15 @@ def _axes(closes_at: str, household: str, zones: str = NO_ZONE_COVERAGE) -> dict
         "household_day_needs": household,
         "zone_coverage": zones,
         "joint_tours": JointTours.PARTIAL,
+        "travel_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ],
     }
 
 
@@ -182,6 +192,52 @@ class TestEveryProfileAnswersEveryAxis:
             for name in ("a", "b", "c")
         }
         assert [p.name for p in parse_usability_profiles(spec)] == ["a", "b", "c"]
+
+
+class TestTravelDays:
+    """The days a profile takes are listed out, and a bad list stops the run."""
+
+    def _days(self, days) -> dict:
+        return {
+            "p": {
+                **_axes(TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+                "travel_days": days,
+            }
+        }
+
+    def test_a_missing_list_is_rejected(self):
+        """Saying nothing must not quietly take every day."""
+        spec = self._days(None)
+        del spec["p"]["travel_days"]
+        with pytest.raises(ValueError, match="does not say 'travel_days'") as excinfo:
+            parse_usability_profiles(spec)
+        assert "tuesday" in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        ("days", "match"),
+        [
+            pytest.param([], "at least one day", id="empty"),
+            pytest.param("tuesday", "at least one day", id="not-a-list"),
+            pytest.param(["tuesday", "tusday"], "not days", id="misspelled"),
+            pytest.param(["Tuesday"], "not days", id="capitalised"),
+            pytest.param(["tuesday", "tuesday"], "twice", id="repeated"),
+        ],
+    )
+    def test_a_bad_list_is_rejected(self, days, match: str):
+        """A typo or an empty list must stop the run, not quietly take some days."""
+        with pytest.raises(ValueError, match=match):
+            parse_usability_profiles(self._days(days))
+
+    def test_the_days_are_kept_in_week_order(self):
+        """Whatever order config lists them in, the profile reads Tue, Wed, Thu."""
+        (profile,) = parse_usability_profiles(self._days(["thursday", "tuesday", "wednesday"]))
+        assert profile.travel_days == (TravelDow.TUESDAY, TravelDow.WEDNESDAY, TravelDow.THURSDAY)
+        assert profile.limits_travel_days
+
+    def test_all_seven_days_limit_nothing(self):
+        """Listing every day is the same as asking nothing of the day of the week."""
+        (profile,) = parse_usability_profiles(self._days([d.name.lower() for d in TravelDow]))
+        assert not profile.limits_travel_days
 
 
 class TestTourClosesAt:
