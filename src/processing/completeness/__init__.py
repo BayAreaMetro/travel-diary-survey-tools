@@ -61,12 +61,14 @@ household ...........................   >=1       has >=1 usable household-day
                                                   and >=1 usable tour (or a no-travel day)
        └ tour .......................   fuse      complete AND admitted-quality AND
                                                      hh-day complete AND has a zone
-                                                     (the last three are the axes)
+                                                     (those three are the axes)
+                                                     AND every trip on it usable
+          └ linked trip / unlinked trip   direct    its own survey_complete
 
 USABLE, DOWN (_cascade_down) -- inherits from the household   op   rule
 ------------------------------------------------------------------------
 household -> person -> day -> tour ..   inherit   unusable if the one it belongs to is
- └ linked trip / unlinked trip ......   inherit   takes its tour's verdict
+ └ linked trip / unlinked trip ......   inherit   unusable if its tour is
 
 JOINT (flag_joint) -- judged beside the chain, after it     op   rule
 ------------------------------------------------------------------------

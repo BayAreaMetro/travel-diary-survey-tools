@@ -14,7 +14,7 @@ from .household_day import flag_household_day_usable, with_household_day
 from .joint_groupings import flag_joint
 from .profiles import UsabilityProfile
 from .survey_complete import cascade_complete
-from .usable_tours import _flag_tours
+from .usable_tours import TRIP_TABLES, _flag_tours
 from .zone_coverage import _home_zone_ok
 
 # The down walk, as (table, the table it inherits from, the key joining them),
@@ -27,10 +27,6 @@ _DOWN_EDGES = (
     ("linked_trips", "tours", "tour_id"),
     ("unlinked_trips", "tours", "tour_id"),
 )
-
-# Tables whose verdict begins as their own ``survey_complete`` and is then only
-# ever narrowed by inheriting: the trips have no count of their own to make.
-_INHERIT_ONLY_TABLES = ("linked_trips", "unlinked_trips")
 
 
 def stamp_usable(
@@ -63,15 +59,33 @@ def stamp_usable(
 def _cascade_up(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile) -> None:
     """Count upward from the tour fuse to the household, in place.
 
-    Each level is a count over the one below it: a day needs a usable tour (or
-    is a genuine no-travel day), a person a usable day, a household-day every
-    surveyable member's day, a household a usable household-day.
+    Each level is a count over the one below it: a tour needs every one of its
+    trips, a day a usable tour (or is a genuine no-travel day), a person a
+    usable day, a household-day every surveyable member's day, a household a
+    usable household-day.
     """
+    _flag_trips(tables, cols)
     _flag_tours(tables, cols)
     _flag_days(tables, cols)
     _flag_persons(tables, cols)
     flag_household_day_usable(tables, cols)
     _flag_households(tables, cols)
+
+
+def _flag_trips(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile) -> None:
+    """Start each trip's usable flag from its own ``survey_complete``, in place.
+
+    The trips have no count of their own to make, so this is their whole verdict
+    on the way up; the tour fuse then needs every one of them. On the way down
+    they only narrow further, by inheriting their tour's.
+    """
+    for name in TRIP_TABLES:
+        df = tables.get(name)
+        if df is None or "survey_complete" not in df.columns:
+            continue
+        tables[name] = df.with_columns(
+            pl.col("survey_complete").fill_null(value=False).alias(cols.flag)
+        )
 
 
 def _flag_days(
@@ -274,18 +288,9 @@ def _cascade_down(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile
     verdict is the ceiling on everything in it. Each level takes its parent's
     verdict in turn -- person from household, day from person, tour from day,
     trips from tour -- and nothing here can change a verdict above it, so one
-    walk is the whole of it.
+    walk is the whole of it. The trips start from the verdict
+    :func:`_flag_trips` gave them on the way up.
     """
-    # The trips have no count of their own; they start from what the survey
-    # collected and then inherit like everything else.
-    for name in _INHERIT_ONLY_TABLES:
-        df = tables.get(name)
-        if df is None or "survey_complete" not in df.columns:
-            continue
-        tables[name] = df.with_columns(
-            pl.col("survey_complete").fill_null(value=False).alias(cols.flag)
-        )
-
     for table, parent, key in _DOWN_EDGES:
         df, parent_df = tables.get(table), tables.get(parent)
         if df is None or parent_df is None or cols.flag not in df.columns:

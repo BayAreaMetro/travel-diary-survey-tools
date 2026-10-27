@@ -33,6 +33,7 @@ from processing.completeness import (
     stamp_usable,
     suggest_usability_columns,
 )
+from processing.completeness.usable_tours import _flag_tours
 from tests.fixtures.schema_utils import add_household_days
 
 STRICT = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
@@ -565,6 +566,64 @@ class TestExcludedPersons:
         stamped = _stamp(tables, STRICT)
 
         assert stamped["households"]["usable_test"].to_list() == [True]
+
+
+class TestATourNeedsEveryTrip:
+    """One unusable trip fails its tour, which then takes the rest of its trips down."""
+
+    def _two_tours(self, table: str, on_tour_10: list[bool]) -> dict:
+        """Tour 10 carries the given trips; tour 11 carries one complete trip."""
+        tables = _one_person(
+            tour_id=[10, 11],
+            person_day_id=[1, 1],
+            person_id=[1, 1],
+            survey_complete=[True, True],
+            parent_tour_id=[10, 11],
+            tour_data_quality=[TourDataQuality.VALID.value] * 2,
+            tour_category=[TourCategory.COMPLETE.value] * 2,
+        )
+        tables[table] = pl.DataFrame(
+            {
+                "trip_id": list(range(len(on_tour_10) + 1)),
+                "tour_id": [10] * len(on_tour_10) + [11],
+                "person_day_id": [1] * (len(on_tour_10) + 1),
+                "survey_complete": [*on_tour_10, True],
+            }
+        )
+        return tables
+
+    @pytest.mark.parametrize("table", ["linked_trips", "unlinked_trips"])
+    def test_one_unusable_trip_fails_its_tour(self, table: str):
+        """Tour 10 falls; tour 11 beside it, with all its trips usable, does not."""
+        stamped = _stamp(self._two_tours(table, on_tour_10=[True, False]))
+
+        assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [False, True]
+
+    @pytest.mark.parametrize("table", ["linked_trips", "unlinked_trips"])
+    def test_the_failed_tour_takes_its_other_trips_down(self, table: str):
+        """The usable trip on tour 10 inherits its tour's verdict on the way down."""
+        stamped = _stamp(self._two_tours(table, on_tour_10=[True, False]))
+
+        assert stamped[table].sort("trip_id")["usable_test"].to_list() == [False, False, True]
+
+    def test_the_day_survives_on_its_other_tour(self):
+        """A day needs one usable tour, so one failed tour does not take it down."""
+        stamped = _stamp(self._two_tours("linked_trips", on_tour_10=[True, False]))
+
+        assert stamped["person_days"]["usable_test"].to_list() == [True]
+
+    def test_every_trip_usable_leaves_the_tour_alone(self):
+        """The rule changes nothing when every trip is usable."""
+        stamped = _stamp(self._two_tours("linked_trips", on_tour_10=[True, True]))
+
+        assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [True, True]
+
+    def test_unflagged_trips_raise_rather_than_pass_every_tour(self):
+        """Calling the fuse before the trips are flagged must not read as 'all trips fine'."""
+        tables = self._two_tours("linked_trips", on_tour_10=[True, False])
+
+        with pytest.raises(ValueError, match="Flag the trips first"):
+            _flag_tours(tables, STRICT)
 
 
 class TestJointQuorum:
