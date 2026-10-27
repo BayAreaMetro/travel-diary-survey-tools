@@ -335,3 +335,29 @@ class TestTravelDays:
         )
         assert written["travel_dow"].null_count() == 0
         assert set(written["travel_dow"].to_list()) == self.TAKEN
+
+
+# ── Persons the cleaner excluded ──────────────────────────────────────
+
+
+class TestExcludedPersons:
+    """HH 33 reported by form, and the cleaner excluded its only member for it."""
+
+    HH = 33
+
+    def test_complete_to_the_survey_but_usable_under_no_profile(self, full_result):
+        household = full_result.households.filter(pl.col("hh_id") == self.HH)
+        assert household["survey_complete"].to_list() == [True]
+        for profile in ("ctramp", "daysim", "analysis"):
+            assert household[f"usable_{profile}"].to_list() == [False], profile
+
+    def test_no_output_carries_it(self, full_result):
+        """CT-RAMP ids are the survey hh_id times 100 plus the day number."""
+        ctramp = full_result.households_ctramp.filter(pl.col("hh_id") // 100 == self.HH)
+        daysim = full_result.households_daysim.filter(pl.col("hhno") == self.HH)
+        assert ctramp.is_empty()
+        assert daysim.is_empty()
+
+    def test_the_reason_reaches_the_delivered_persons(self, full_result):
+        person = full_result.persons.filter(pl.col("hh_id") == self.HH)
+        assert person["exclusion_reason"].to_list() == ["survey_tech excluded: form"]

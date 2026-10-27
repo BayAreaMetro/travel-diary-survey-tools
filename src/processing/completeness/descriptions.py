@@ -80,7 +80,8 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
     gate = (
         f"Usable under the '{profile.name}' profile: survey-complete, a tour "
         f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}{joint}{days}. "
-        "Never admits a tour with a missing leg or no activity to anchor on."
+        "Never admits a tour with a missing leg or no activity to anchor on, "
+        "or a person the cleaner excluded (exclusion_reason)."
     )
     joint_tour_id = (
         f"joint_tour_id as the '{profile.name}' profile sees it: the id where this "

@@ -68,6 +68,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `commute_subsidy_use_discounted_parking` | BooleanYesNo or None |  |  |  |  |  |  | ✓ |  |  |
     | `is_proxy` | bool or None |  |  |  |  |  |  |  | ✓ |  |
     | `surveyable` | bool or None |  |  |  |  |  |  |  |  |  |
+    | `survey_tech` | SurveyTech |  |  |  |  |  |  |  |  |  |
+    | `exclusion_reason` | str or None |  |  |  |  |  |  |  |  |  |
     | `num_days_complete` | int | ≥ 0 |  |  |  |  |  |  |  |  |
     | `survey_complete` | bool or None |  |  |  |  | + |  |  |  |  |
     | `<column>_preimputed` | named by config |  | + |  |  |  |  |  |  |  |
@@ -95,7 +97,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `hh_id` | int | ≥ 1, FK → `households.hh_id` |  |  |  |  | ✓ |  | ✓ |  |  |
     | `hh_day_id` | int | ≥ 1, FK → `household_days.hh_day_id` |  |  | ✓ | ✓ | ✓ |  | ✓ |  |  |
     | `travel_date` | datetime |  |  |  | ✓ | ✓ |  |  |  |  |  |
-    | `travel_dow` | TravelDow |  |  |  |  |  |  |  |  | ✓ |  |
+    | `travel_dow` | TravelDow |  |  |  |  |  | ✓ |  |  | ✓ |  |
     | `begin_day` | BeginEndDay or None |  |  | ✓ |  | ✓ |  |  |  |  |  |
     | `end_day` | BeginEndDay or None |  |  | ✓ |  | ✓ |  |  |  |  |  |
     | `survey_complete` | bool or None |  |  |  |  |  | ✓ |  |  |  |  |

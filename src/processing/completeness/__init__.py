@@ -56,8 +56,9 @@ USABLE, UP (_cascade_up) -- counts from the tour fuse   op   rule
 household ...........................   >=1       has >=1 usable household-day
  ├ household-day ....................   ALL       all surveyable members' days usable that date
  └ person ...........................   >=1       has >=1 usable day
-    └ day ...........................   >=1       on a day of the week it takes, and
-                                                  >=1 usable tour (or a no-travel day)
+    └ day ...........................   >=1       on a day of the week it takes, its
+                                                  person not excluded by the cleaner,
+                                                  and >=1 usable tour (or a no-travel day)
        └ tour .......................   fuse      complete AND admitted-quality AND
                                                      hh-day complete AND has a zone
                                                      (the last three are the axes)

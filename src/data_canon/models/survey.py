@@ -60,6 +60,7 @@ from data_canon.codebook.persons import (
     Race,
     SchoolType,
     Student,
+    SurveyTech,
     WorkParking,
 )
 from data_canon.codebook.tours import (
@@ -148,6 +149,22 @@ class PersonModel(BaseModel):
             "cannot veto a date they were never asked about, and by the "
             "persons->days required-child constraint. Null counts as "
             "surveyable."
+        ),
+    )
+    survey_tech: SurveyTech = schema_field(
+        description=(
+            "The technology that collected this person's travel: a call center, a "
+            "form (browser, tablet or paper), or GPS (a phone app). A person whose "
+            "travel was reported by someone else carries the technology it was "
+            "reported through; one whose travel was never collected is MISSING."
+        ),
+    )
+    exclusion_reason: str | None = schema_field(
+        default=None,
+        description=(
+            "Why the project cleaner dropped this person, or null when kept. Any "
+            "reason makes every one of the person's days unusable under every "
+            "usability profile. survey_complete, the vendor's verdict, is untouched."
         ),
     )
     num_days_complete: int = schema_field(ge=0, default=0)

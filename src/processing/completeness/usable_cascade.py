@@ -89,7 +89,8 @@ def _flag_days(
 
     A day of the week the profile does not take is unusable, no-travel day or
     not; its tours and trips follow it on the way down, and a household-date
-    falling on it cannot be usable either.
+    falling on it cannot be usable either. So is every day of a person the
+    cleaner excluded (``persons.exclusion_reason``), under every profile.
 
     Requires the flag on tours; a tours table present but unflagged raises
     rather than silently passing every day.
@@ -135,6 +136,17 @@ def _flag_days(
         taken = [day.value for day in cols.travel_days]
         base = base & pl.col("travel_dow").is_in(taken).fill_null(value=False)
 
+    # A person the cleaner excluded has no usable day under any profile.
+    persons = tables.get("persons")
+    excluded = persons is not None and "exclusion_reason" in persons.columns
+    if excluded:
+        person_days = person_days.join(
+            persons.select("person_id", pl.col("exclusion_reason").alias("_excluded")),
+            on="person_id",
+            how="left",
+        )
+        base = base & pl.col("_excluded").is_null()
+
     if tours is not None and "person_day_id" in tours.columns:
         day_has_usable = tours.group_by("person_day_id").agg(
             pl.col(cols.flag).any().alias("_day_has_usable_tour")
@@ -147,7 +159,7 @@ def _flag_days(
     else:
         flagged = person_days.with_columns(base.alias(cols.flag))
 
-    flagged = flagged.drop("_hh_day_complete", strict=False)
+    flagged = flagged.drop("_hh_day_complete", "_excluded", strict=False)
     tables["person_days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
 
 
