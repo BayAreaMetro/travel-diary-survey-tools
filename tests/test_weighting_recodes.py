@@ -153,6 +153,26 @@ class TestRecodeSurveyHouseholds:
             int(HHWorkersCategory.WORKERS_3),
         ]
 
+    def test_hh_workers_count_employed_on_leave(self):
+        """A person employed but on leave is a worker, as PUMS counts them.
+
+        PUMS ESR counts "with a job but not at work" as employed, so leaving
+        them out would put the survey household one worker short of its target.
+        Unpaid volunteers and interns stay out on both sides.
+        """
+        households = pl.DataFrame({"hh_id": [1, 2]})
+        persons = pl.DataFrame(
+            {
+                # HH1: one on leave.  HH2: an unpaid intern and a full-timer.
+                "hh_id": [1, 1, 2, 2],
+                "person_id": [101, 102, 201, 202],
+                "employment": [8, 5, 7, 1],
+            }
+        )
+        result = recode_survey_households(households, persons, ["h_workers"])
+        workers = result.sort("hh_id")["h_workers"].to_list()
+        assert workers == [int(HHWorkersCategory.WORKERS_1), int(HHWorkersCategory.WORKERS_1)]
+
     def test_hh_children_derived(self, survey_households, survey_persons):
         """Number of children is derived from person-level age."""
         result = recode_survey_households(
