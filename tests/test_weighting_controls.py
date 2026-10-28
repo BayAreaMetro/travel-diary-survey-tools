@@ -3,7 +3,8 @@
 Four things, read together because each consumes the last. Cross-tab targets are
 registered from YAML config and recoded into a composite key, then pivoted into
 an incidence table and collapsed by N-D merges. Control totals are aggregated
-from the recoded PUMS frames and may be pooled across zone groups. Zone-targeted
+from the recoded PUMS frames, households on household weights and persons on
+person weights. Zone-targeted
 1-D merges layer on top of the global ones, and the fit report reads its labels
 off them. The checksums then assert the incidence table against its own
 structural totals.
@@ -23,13 +24,10 @@ from processing.weighting.controls.enums import HHSizeCategory
 from processing.weighting.controls.registry import CONTROLS, register_crosstab
 from processing.weighting.core.specs import (
     ControlRegistryConfig,
-    ControlSpec,
     ControlTotals,
     MergeSpec,
 )
 from processing.weighting.data_prep.control_data import (
-    apply_zone_groups,
-    build_control_totals,
     recode_pums_households,
     recode_pums_persons,
 )
@@ -42,6 +40,9 @@ from processing.weighting.data_prep.seed_data import recode_survey_households
 from processing.weighting.diagnostics.data import apply_fit_merges
 from processing.weighting.validation.checksums import check_incidence_sums, check_recode_nulls
 from processing.weighting.validation.control_validation import warn_crosstab_sparsity
+
+# A person table for tests with household targets only.
+_NO_PERSONS = pl.DataFrame(schema={"SERIALNO": pl.Utf8, "SPORDER": pl.Int64})
 
 # The merge every test in this file uses: income collapsed to three bins
 # (under 100k, 100-200k, 200k+) and size to three (1, 2, 3 or more), so the
@@ -407,9 +408,7 @@ class TestCrosstabAggregation:
             how="left",
         )
 
-        totals = aggregate_control_totals(
-            pums_inc, targets, weight_col="WGTP", geo_col="ctrl_geoid"
-        )
+        totals = aggregate_control_totals(pums_inc, _NO_PERSONS, targets, geo_col="ctrl_geoid")
         xtab_rows = totals.totals.filter(pl.col("control_name") == "h_size_x_income")
         assert len(xtab_rows) > 0
 
@@ -479,154 +478,46 @@ class TestCrosstabSparsity:
 
 
 # ---------------------------------------------------------------------------
-# build_control_totals
+# aggregate_control_totals
 # ---------------------------------------------------------------------------
-class TestBuildControlTotals:
-    """Tests for building control totals from recoded PUMS data."""
-
-    def test_basic_aggregation(self, pums_households, pums_persons):
-        """Basic aggregation should produce totals DataFrame, over the PUMS geographies."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        controls = [ControlSpec(name="h_size")]
-        result = build_control_totals(hh_recoded, per_recoded, controls)
-
-        assert isinstance(result, ControlTotals)
-        assert result.pums_hh_count == 3
-        assert result.pums_person_count == 7
-        assert "target_total" in result.totals.columns
-        assert "control_name" in result.totals.columns
-        assert set(result.geo_ids) == {"00100", "00200"}
-        # without merges the categories stay the granular enum values
-        assert all(isinstance(c, int) for c in result.totals["category"].to_list())
-
-    def test_totals_sum_to_weight(self, pums_households, pums_persons):
-        """Control totals should sum to total WGTP within each PUMA."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        controls = [ControlSpec(name="h_size")]
-        result = build_control_totals(hh_recoded, per_recoded, controls)
-
-        # Sum of totals per geo should equal sum of WGTP for that geo
-        total_by_geo = result.totals.group_by("geo_id").agg(pl.col("target_total").sum())
-        # PUMA 00100: WGTP 100 + 200 = 300
-        # PUMA 00200: WGTP 150
-        puma_100 = total_by_geo.filter(pl.col("geo_id") == "00100")["target_total"][0]
-        puma_200 = total_by_geo.filter(pl.col("geo_id") == "00200")["target_total"][0]
-        assert puma_100 == pytest.approx(300.0)
-        assert puma_200 == pytest.approx(150.0)
-
-    def test_multiple_controls(self, pums_households, pums_persons):
-        """Household and person controls land side by side, each on its own weights."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        controls = [ControlSpec(name="h_size"), ControlSpec(name="p_gender")]
-        result = build_control_totals(hh_recoded, per_recoded, controls)
-
-        control_names = result.totals["control_name"].unique().sort().to_list()
-        assert control_names == ["h_size", "p_gender"]
-        # person controls are expanded on PWGTP: 100+100 + 200*4 + 150 = 1150
-        person_total = result.totals.filter(pl.col("control_name") == "p_gender")[
-            "target_total"
-        ].sum()
-        assert person_total == pytest.approx(1150.0)
-
-    @pytest.mark.parametrize(
-        ("controls", "match"),
-        [
-            pytest.param([ControlSpec(name="bogus")], "Unknown control name", id="unknown_name"),
-            pytest.param([], "No controls specified", id="no_controls"),
-        ],
-    )
-    def test_bad_control_list_raises(self, pums_households, pums_persons, controls, match):
-        """A name the registry does not know, and an empty list, are both refused."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        with pytest.raises(ValueError, match=match):
-            build_control_totals(hh_recoded, per_recoded, controls)
-
-
-# ---------------------------------------------------------------------------
-# Zone grouping
-# ---------------------------------------------------------------------------
-class TestApplyZoneGroups:
-    """Tests for apply_zone_groups."""
+class TestAggregateControlTotals:
+    """Household targets sum household weights; person targets sum person weights."""
 
     @pytest.fixture
-    def control_totals(self) -> ControlTotals:
-        """Minimal ControlTotals fixture with 3 zones and 2 categories each."""
-        totals = pl.DataFrame(
-            {
-                "geo_id": ["A", "A", "B", "B", "C", "C"],
-                "control_name": ["ctrl"] * 6,
-                "category": [1, 2, 1, 2, 1, 2],
-                "target_total": [100.0, 200.0, 30.0, 40.0, 50.0, 60.0],
-            }
+    def totals(self, pums_households, pums_persons) -> ControlTotals:
+        """Totals for one household and one person target, each PUMA its own zone."""
+        targets = ["h_total", "p_total", "h_size", "p_gender"]
+        bundle = build_incidence_table(
+            recode_pums_households(pums_households, pums_persons, targets),
+            recode_pums_persons(pums_persons, targets),
+            targets,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
         )
-        return ControlTotals(
-            totals=totals, pums_hh_count=10, pums_person_count=20, geo_ids=["A", "B", "C"]
+        persons = bundle.person_pivot.join(
+            pums_persons.select("SERIALNO", "SPORDER", "PUMA", "PWGTP"),
+            on=["SERIALNO", "SPORDER"],
         )
+        return aggregate_control_totals(bundle.incidence, persons, targets, geo_col="PUMA")
 
-    @pytest.fixture
-    def seed(self) -> pl.DataFrame:
-        """Minimal seed DataFrame with hh_id and ctrl_geoid matching control_totals."""
-        return pl.DataFrame(
-            {
-                "hh_id": [1, 2, 3],
-                "ctrl_geoid": ["A", "B", "C"],
-            }
-        )
+    @staticmethod
+    def _by_zone(totals: ControlTotals, control: str) -> dict[str, float]:
+        rows = totals.totals.filter(pl.col("control_name") == control)
+        return dict(rows.group_by("geo_id").agg(pl.col("target_total").sum()).iter_rows())
 
-    def test_merges_zones(self, control_totals, seed):
-        """Grouped zones should merge in both totals and seed."""
-        groups = {"AB": ["A", "B"]}
-        new_ct, new_seed = apply_zone_groups(control_totals, seed, groups)
+    @pytest.mark.parametrize("control", ["h_total", "h_size"])
+    def test_household_targets_sum_household_weights(self, totals, control):
+        """PUMA 00100: WGTP 100 + 200; PUMA 00200: WGTP 150."""
+        assert self._by_zone(totals, control) == pytest.approx({"00100": 300.0, "00200": 150.0})
 
-        new_ids = sorted(new_ct.geo_ids)
-        assert new_ids == ["AB", "C"]
+    @pytest.mark.parametrize("control", ["p_total", "p_gender"])
+    def test_person_targets_sum_person_weights(self, totals, control):
+        """PUMA 00100: PWGTP sums to 1040, where WGTP x members would give 1000."""
+        assert self._by_zone(totals, control) == pytest.approx({"00100": 1040.0, "00200": 160.0})
 
-        # Targets should sum
-        ab_cat1 = new_ct.totals.filter((pl.col("geo_id") == "AB") & (pl.col("category") == 1))[
-            "target_total"
-        ].item()
-        assert ab_cat1 == pytest.approx(130.0)  # 100 + 30
-
-        # Seed geo_id remapped
-        assert new_seed.filter(pl.col("hh_id") == 1)["ctrl_geoid"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 2)["ctrl_geoid"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 3)["ctrl_geoid"].item() == "C"
-
-        # Original zone IDs preserved
-        assert "_orig_ctrl_geoid" in new_seed.columns
-        assert new_seed.filter(pl.col("hh_id") == 1)["_orig_ctrl_geoid"].item() == "A"
-        assert new_seed.filter(pl.col("hh_id") == 2)["_orig_ctrl_geoid"].item() == "B"
-        assert new_seed.filter(pl.col("hh_id") == 3)["_orig_ctrl_geoid"].item() == "C"
-
-        # Zone group labels
-        assert "zone_group" in new_seed.columns
-        assert new_seed.filter(pl.col("hh_id") == 1)["zone_group"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 2)["zone_group"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 3)["zone_group"].item() is None
-
-        # Zone C is in no group, so its target is untouched
-        c_total = new_ct.totals.filter((pl.col("geo_id") == "C") & (pl.col("category") == 2))[
-            "target_total"
-        ].item()
-        assert c_total == pytest.approx(60.0)
-
-        # and the PUMS counts are carried forward unchanged
-        assert new_ct.pums_hh_count == 10
-        assert new_ct.pums_person_count == 20
-
-    def test_duplicate_zone_raises(self, control_totals, seed):
-        """A zone in two groups should raise ValueError."""
-        groups = {"AB": ["A", "B"], "AC": ["A", "C"]}
-        with pytest.raises(ValueError, match="multiple groups"):
-            apply_zone_groups(control_totals, seed, groups)
+    def test_pums_counts(self, totals):
+        """Counted once each, whatever the weights."""
+        assert (totals.pums_hh_count, totals.pums_person_count) == (3, 7)
 
 
 # ===========================================================================

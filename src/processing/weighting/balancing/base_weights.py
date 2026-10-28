@@ -89,7 +89,7 @@ def compute_base_weights(
             must also contain ``bg_geo_id`` (assigned via
             [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
         control_totals: PUMS-derived targets from
-            ``build_control_totals``.
+            ``aggregate_control_totals``.
         targets: Control registry names (used to identify the master HH
             control).
         geo_col: Geography column on *seed*.

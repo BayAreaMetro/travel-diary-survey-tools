@@ -5,7 +5,8 @@ Downloads ACS PUMS 1-year microdata from the Census Bureau API (through
 the API's string responses to proper numeric dtypes. Downloads are cached as
 Parquet at ``<cache_dir>/pums/{state}_{year}_{hh|person}.parquet``.
 
-Transformation (recoding, aggregation) lives in ``control_data``.
+Records come back as the Census published them: which ones count is decided by
+``pums_cleaning``, and transformation (recoding, aggregation) lives in ``control_data``.
 """
 
 import difflib
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Infrastructure vars that don't come from any ControlTarget.
 # Names use the **2020+** (canonical) convention; for older vintages the
 # aliases in ``_PRE2020_ALIASES`` are requested instead and then renamed.
-_HH_INFRA = {"SERIALNO", "PUMA", "STATE", "WGTP", "TYPEHUGQ"}
+_HH_INFRA = {"SERIALNO", "PUMA", "STATE", "WGTP", "TYPEHUGQ", "ADJINC"}
 
 
 _PERSON_INFRA = {"SERIALNO", "SPORDER", "PUMA", "STATE", "PWGTP"}
@@ -259,7 +260,7 @@ def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
     * Keys identify rows, or the tables cannot be joined at all.
 
     Args:
-        hh_df: PUMS household records, before group-quarters filtering.
+        hh_df: PUMS household records, before ``clean_pums``.
         person_df: PUMS person records.
 
     Raises:
@@ -319,33 +320,6 @@ def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
             "is in play, delete it and re-fetch."
         )
         raise ValueError(msg)
-
-
-def _drop_gq(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Drop group-quarters households (TYPEHUGQ != 1) and their persons."""
-    if "TYPEHUGQ" not in hh_df.columns:
-        return hh_df, person_df
-    n_before = len(hh_df)
-    hh_df = hh_df.filter(pl.col("TYPEHUGQ") == 1)
-    n_dropped = n_before - len(hh_df)
-    if n_dropped > 0:
-        logger.info(
-            "Dropped %d / %d group-quarters HH records (TYPEHUGQ != 1)", n_dropped, n_before
-        )
-
-    # Always filter persons to surviving HH serials (handles stale caches
-    # where GQ households were already removed but GQ persons were not).
-    hh_serials = hh_df["SERIALNO"]
-    n_per_before = len(person_df)
-    person_df = person_df.filter(pl.col("SERIALNO").is_in(hh_serials))
-    n_per_dropped = n_per_before - len(person_df)
-    if n_per_dropped > 0:
-        logger.info(
-            "Dropped %d / %d group-quarters person records",
-            n_per_dropped,
-            n_per_before,
-        )
-    return hh_df, person_df
 
 
 # ---------------------------------------------------------------------------
@@ -485,7 +459,8 @@ def fetch_pums_data(
 
     Returns:
         Tuple of ``(households, persons)`` Polars DataFrames with PUMS
-        data typed to appropriate dtypes.
+        data typed to appropriate dtypes, every record kept: vacant homes and
+        group quarters are dropped by ``clean_pums``.
     """
     hh_extra = extra_hh_vars or set()
     person_extra = extra_person_vars or set()
@@ -501,7 +476,7 @@ def fetch_pums_data(
     hh_cache, per_cache = _cache_paths(cache_dir, source, hh_vars, person_vars)
     cached = _load_cached_pums(hh_cache, per_cache)
     if cached is not None:
-        return _drop_gq(*cached)
+        return cached
 
     dataset_name = f"ACSPUMS1Y{source.pums_year}"
     base_url = f"{CENSUS_BASE}/{source.pums_year}/acs/acs1/pums"
@@ -561,8 +536,6 @@ def fetch_pums_data(
         person_df.write_parquet(per_cache)
         logger.info("Cached PUMS data to %s", hh_cache.parent)
 
-    hh_df, person_df = _drop_gq(hh_df, person_df)
-
     logger.info(
         "Fetched %d household records, %d person records",
         len(hh_df),
@@ -589,7 +562,8 @@ def load_pums_from_files(
             and ``PWGTP1`` to ``PWGTP80`` replicate weight columns.
 
     Returns:
-        Tuple of ``(households, persons)`` Polars DataFrames.
+        Tuple of ``(households, persons)`` Polars DataFrames, every record kept:
+        vacant homes and group quarters are dropped by ``clean_pums``.
     """
     hh_ext = hh_path.rsplit(".", 1)[-1].lower()
     person_ext = person_path.rsplit(".", 1)[-1].lower()
@@ -614,8 +588,6 @@ def load_pums_from_files(
     # Cast types
     hh_df = _cast_pums_types(hh_df, hh_known)
     person_df = _cast_pums_types(person_df, person_known)
-
-    hh_df, person_df = _drop_gq(hh_df, person_df)
 
     if state_fips is not None and "ST" in hh_df.columns:
         hh_df = hh_df.filter(pl.col("ST") == state_fips)

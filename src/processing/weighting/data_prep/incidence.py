@@ -9,7 +9,8 @@ after recoding:
 2. **Incidence table** — :func:`build_incidence_table` orchestrates the
    helpers into a single household-level table for the balancer.
 3. **Aggregate** — :func:`aggregate_control_totals` sums the pivoted
-   PUMS incidence into per-zone target totals.
+   PUMS incidence into per-zone target totals, households on household
+   weights and persons on person weights.
 
 Category merging lives in :mod:`processing.weighting.data_prep.merges`.
 """
@@ -229,71 +230,59 @@ def build_incidence_table(
 
 def aggregate_control_totals(
     pums_incidence: pl.DataFrame,
+    pums_person_incidence: pl.DataFrame,
     targets: list[str],
     *,
-    weight_col: str = "WGTP",
     geo_col: str = "ctrl_geoid",
 ) -> ControlTotals:
     """Aggregate PUMS incidence into per-zone control totals.
 
-    Reads the pivoted ``{control}__{member}`` columns and structural
-    columns directly from the incidence table, multiplies each by the
-    household weight, and sums by geography.
+    Household targets sum the household incidence times ``WGTP``; person targets
+    sum the person incidence (one row per person) times ``PWGTP``. Which weights
+    those are is set beforehand by ``pums_weights`` in ``clean_pums``.
 
     Parameters
     ----------
     pums_incidence : pl.DataFrame
-        Zone-allocated PUMS incidence table.  Must have *geo_col*,
-        *weight_col*, and the ``{control}__{member}`` / structural columns.
+        Zone-allocated PUMS household incidence. Must have *geo_col*, ``WGTP``
+        and the household ``{control}__{member}`` / structural columns.
+    pums_person_incidence : pl.DataFrame
+        Zone-allocated PUMS person incidence. Must have *geo_col*, ``PWGTP``
+        and the person ``{control}__{member}`` / structural columns.
     targets : list[str]
         Control registry names.
-    weight_col : str
-        Weight column (default ``"WGTP"``).
     geo_col : str
         Geography column (default ``"ctrl_geoid"``).
     """
-    ctrl_instances = resolve_targets(targets)
-
+    sources = {
+        ControlLevel.HOUSEHOLD: (pums_incidence, "WGTP"),
+        ControlLevel.PERSON: (pums_person_incidence, "PWGTP"),
+    }
     all_totals: list[pl.DataFrame] = []
 
-    for ctrl in ctrl_instances:
+    for ctrl in resolve_targets(targets):
+        source, weight_col = sources[ctrl.level]
         if ctrl.structural:
-            col = ctrl.name
-            if col not in pums_incidence.columns:
-                continue
+            cols = (
+                {ctrl.name: ctrl.valid_members[0][1].lower()} if ctrl.name in source.columns else {}
+            )
+        else:
+            prefix = f"{ctrl.name}__"
+            cols = {c: c[len(prefix) :] for c in sorted(source.columns) if c.startswith(prefix)}
+        for col, member in cols.items():
             totals = (
-                pums_incidence.group_by(geo_col)
+                source.group_by(geo_col)
                 .agg(
                     (pl.col(col).cast(pl.Float64) * pl.col(weight_col)).sum().alias("target_total")
                 )
                 .with_columns(
                     pl.col(geo_col).cast(pl.Utf8).alias("geo_id"),
                     pl.lit(ctrl.name).alias("control_name"),
-                    pl.lit(ctrl.valid_members[0][1].lower()).alias("category"),
+                    pl.lit(member).alias("category"),
                 )
                 .select("geo_id", "control_name", "category", "target_total")
             )
             all_totals.append(totals)
-        else:
-            prefix = f"{ctrl.name}__"
-            ctrl_cols = sorted(c for c in pums_incidence.columns if c.startswith(prefix))
-            for col in ctrl_cols:
-                member = col[len(prefix) :]
-                totals = (
-                    pums_incidence.group_by(geo_col)
-                    .agg(
-                        (pl.col(col).cast(pl.Float64) * pl.col(weight_col))
-                        .sum()
-                        .alias("target_total")
-                    )
-                    .with_columns(
-                        pl.col(geo_col).cast(pl.Utf8).alias("geo_id"),
-                        pl.lit(ctrl.name).alias("control_name"),
-                        pl.lit(member).alias("category"),
-                    )
-                    .select("geo_id", "control_name", "category", "target_total")
-                )
-                all_totals.append(totals)
 
     if not all_totals:
         msg = "No control columns found in PUMS incidence table."
@@ -302,15 +291,9 @@ def aggregate_control_totals(
     combined = pl.concat(all_totals)
     geo_ids = combined["geo_id"].unique().sort().to_list()
 
-    id_col = "SERIALNO" if "SERIALNO" in pums_incidence.columns else pums_incidence.columns[0]
-    pums_hh_count = pums_incidence[id_col].n_unique()
-    pums_person_count = 0
-    if "p_total" in pums_incidence.columns:
-        pums_person_count = int(pums_incidence["p_total"].sum())
-
     return ControlTotals(
         totals=combined,
-        pums_hh_count=pums_hh_count,
-        pums_person_count=pums_person_count,
+        pums_hh_count=pums_incidence["SERIALNO"].n_unique(),
+        pums_person_count=pums_person_incidence.select("SERIALNO", "SPORDER").n_unique(),
         geo_ids=geo_ids,
     )

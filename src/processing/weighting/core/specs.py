@@ -8,6 +8,7 @@ Kept as a leaf module with minimal imports to avoid circular dependencies.
 
 import logging
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import NamedTuple
 
@@ -150,6 +151,21 @@ class PUMSSource:
     puma_ids: list[str] | None = None
 
 
+class PumsWeights(StrEnum):
+    """Which PUMS weight each level of target sums.
+
+    The ACS weights persons and households separately, so person weights summed
+    over a household's members need not equal its household weight times its size.
+    """
+
+    # Persons take their household's weight: the two kinds of target agree.
+    HOUSEHOLD = "household"
+    # Households take the mean of their members' person weights: they agree the other way.
+    PERSON = "person"
+    # Each level keeps its own weight, and the fit shows where the two disagree.
+    INDEPENDENT = "independent"
+
+
 # ==============================================================================
 # Balancing Configuration
 # ==============================================================================
@@ -210,6 +226,13 @@ class CensusConfig(BaseModel):
 
     state_fips: str = Field(description="Two-digit state FIPS code, e.g. '06'.")
     pums_year: int = Field(description="ACS PUMS 1-year vintage the controls are built from.")
+    pums_weights: PumsWeights = Field(
+        description=(
+            "Which PUMS weight the targets sum: `household` (persons take their "
+            "household's weight), `person` (households take the mean of their members' "
+            "person weights) or `independent` (each level keeps its own)."
+        ),
+    )
     pums_households: str | None = Field(
         default=None,
         description="Local PUMS household file; fetched from the Census API when not given.",
@@ -347,6 +370,7 @@ class WeightingConfig:
     geography: GeographyConfig
     state_fips: str
     pums_year: int
+    pums_weights: PumsWeights
     # Which usability profiles decide who carries weight, one fit each. Required:
     # with several profiles stamped there is no defensible default, and picking
     # silently would weight a different universe than the formatters emit.

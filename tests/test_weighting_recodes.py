@@ -552,6 +552,12 @@ class TestRecodePumsHouseholds:
         result = recode_pums_households(pums_households, pums_persons)
         assert result.sort("SERIALNO")[column].to_list() == [v.value for v in expected]
 
+    def test_vehicles_na_is_not_zero_vehicles(self):
+        """VEH = -1 (N/A) stays null, so it stops the run instead of becoming 0 vehicles."""
+        hh = pl.DataFrame({"VEH": pl.Series([-1, None, 0, 3, 8], dtype=pl.Int32)})
+        got = hh.select(CONTROLS["h_vehicles"].pums_expr()).to_series().to_list()
+        assert got == [None, None, 0, 3, 6]
+
 
 # ---------------------------------------------------------------------------
 # recode_pums_persons

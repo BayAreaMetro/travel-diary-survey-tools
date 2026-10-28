@@ -328,6 +328,7 @@ steps:
       census:
         state_fips: "06"
         pums_year: 2023
+        pums_weights: independent
         # PUMS microdata; downloaded from the Census if not given
         # pums_households: "{{ pums_dir }}/psam_h06.csv"
         # pums_persons: "{{ pums_dir }}/psam_p06.csv"
