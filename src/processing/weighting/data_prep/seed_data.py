@@ -80,6 +80,8 @@ def recode_survey_households(
                     Employment.EMPLOYED_FULLTIME.value,
                     Employment.EMPLOYED_PARTTIME.value,
                     Employment.EMPLOYED_SELF.value,
+                    # Has a job and an income; PUMS counts "with a job but not at work".
+                    Employment.EMPLOYED_FURLOUGHED.value,
                 ]
             )
             .sum()
