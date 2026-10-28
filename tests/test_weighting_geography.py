@@ -214,15 +214,32 @@ class TestAssignHouseholds:
     """Test PumaCrosswalk.assign_households via a minimal instance."""
 
     @staticmethod
-    def _make_xw(target_gdf: gpd.GeoDataFrame) -> PumaCrosswalk:
-        """Build a bare PumaCrosswalk with only target_gdf set."""
+    def _make_xw(target_gdf: gpd.GeoDataFrame, puma_gdf: gpd.GeoDataFrame) -> PumaCrosswalk:
+        """Build a bare PumaCrosswalk with only the zone and PUMA polygons set."""
         obj = object.__new__(PumaCrosswalk)
         obj.target_gdf = _load_target_zones(target_gdf, "target_id")
+        obj.puma_gdf = puma_gdf
         obj.zone_groups = {}
         obj._zone_remap = {}
         return obj
 
-    def test_assigns_correct_zones(self, three_target_zones):
+    def test_assigns_home_puma(self, three_target_zones, two_pumas):
+        """Zone 2 straddles PUMAs A and B; each of its homes gets the one PUMA it is in."""
+        hh = pl.DataFrame(
+            {
+                "hh_id": [1, 2, 3, 4, 5],
+                "home_lon": [350.0, 900.0, 1100.0, 1650.0, -999.0],
+                "home_lat": [500.0] * 5,
+            }
+        )
+        target = three_target_zones.copy().set_crs("EPSG:4326", allow_override=True)
+        pumas = two_pumas.copy().set_crs("EPSG:4326", allow_override=True)
+
+        result = self._make_xw(target, pumas).assign_households(hh).sort("hh_id")
+        assert result["ctrl_geoid"].to_list() == ["1", "2", "2", "3", None]
+        assert result["home_puma"].to_list() == ["A", "A", "B", "B", None]
+
+    def test_assigns_correct_zones(self, three_target_zones, two_pumas):
         """Households should be assigned to the correct target zones based on their home coord."""
         hh = pl.DataFrame(
             {
@@ -233,8 +250,9 @@ class TestAssignHouseholds:
             }
         )
         target = three_target_zones.copy().set_crs("EPSG:4326", allow_override=True)
+        pumas = two_pumas.copy().set_crs("EPSG:4326", allow_override=True)
 
-        xw = self._make_xw(target)
+        xw = self._make_xw(target, pumas)
         result = xw.assign_households(hh)
         assert "ctrl_geoid" in result.columns
         assert result.height == 4

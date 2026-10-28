@@ -314,7 +314,7 @@ def _impute_controls(
     household incidence row before overlay.
     """
     level_label = "person" if level == ControlLevel.PERSON else "household"
-    controls = [c for c in resolve_targets(targets, level) if not c.structural]
+    controls = [c for c in resolve_targets(targets, level) if not c.structural and c.imputable]
 
     for ctrl in controls:
         member_cols = [f"{ctrl.name}__{m.lower()}" for _, m in ctrl.valid_members]

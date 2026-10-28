@@ -9,6 +9,8 @@ documented in [`ControlTarget`][processing.weighting.controls.base.ControlTarget
 — individual method docstrings are omitted for brevity (ruff noqa: D102).
 """
 
+from enum import IntEnum
+
 import polars as pl
 
 from data_canon.codebook.households import IncomeBroad
@@ -150,6 +152,35 @@ class HHChildrenControl(ControlTarget):
 
     def pums_expr(self) -> pl.Expr:
         return pl.col("_n_children").clip(0, 5).cast(pl.Int16)
+
+
+class HHPumaControl(ControlTarget):
+    """Home PUMA: one category per crosswalk PUMA, plus outside the region.
+
+    The categories depend on the geography, so the control is built at run time
+    by ``register_puma_control``. It is never imputed: where a household lives is
+    not a guess from its other answers, so a missing PUMA fails the sum check.
+    """
+
+    name = "h_puma"
+    level = ControlLevel.HOUSEHOLD
+    description = "Home PUMA"
+    survey_fields = ("home_puma",)
+    pums_fields = ("PUMA",)
+    imputable = False
+
+    def __init__(self, puma_ids: list[str]) -> None:
+        """Number the PUMAs from 1; 0 is a PUMS household outside the region."""
+        self._codes = {puma: i for i, puma in enumerate(puma_ids, start=1)}
+        members = {"OUTSIDE_REGION": 0} | {f"PUMA_{p}": i for p, i in self._codes.items()}
+        self.categories = IntEnum("HHPumaCategory", members)
+
+    def survey_expr(self) -> pl.Expr:
+        return pl.col("home_puma").replace_strict(self._codes, default=None, return_dtype=pl.Int16)
+
+    def pums_expr(self) -> pl.Expr:
+        # Allocation drops the outside rows; the PUMS is statewide until then.
+        return pl.col("PUMA").replace_strict(self._codes, default=0, return_dtype=pl.Int16)
 
 
 class HHTotalControl(ControlTarget):

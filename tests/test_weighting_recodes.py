@@ -23,16 +23,18 @@ from processing.weighting.controls.enums import (
     HHWorkersCategory,
     StudentCategory,
 )
-from processing.weighting.controls.registry import CONTROLS
+from processing.weighting.controls.registry import CONTROLS, register_puma_control
 from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
 )
+from processing.weighting.data_prep.fractional_impute import fill_null_incidence
 from processing.weighting.data_prep.incidence import build_incidence_table
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
 )
+from processing.weighting.validation.checksums import check_incidence_sums
 
 # Convenience target lists used across multiple tests
 HH_TARGETS = ["h_size", "h_income", "h_workers", "h_children"]
@@ -742,3 +744,73 @@ class TestRecodePumsPersons:
             Education.LESS_HIGH_SCHOOL.value,
             Education.BACHELORS.value,
         ]
+
+
+# ===========================================================================
+# h_puma: categories built at run time from the crosswalk's PUMAs
+# ===========================================================================
+class TestPumaControl:
+    """The home-PUMA target, registered for this run's PUMAs and never imputed."""
+
+    @pytest.fixture
+    def puma_ctrl(self, _clean_registry):
+        """``h_puma`` for the two PUMAs the PUMS fixtures live in."""
+        register_puma_control(["00100", "00200"])
+        return CONTROLS["h_puma"]
+
+    def test_one_category_per_puma_plus_outside(self, puma_ctrl):
+        """Numbered from 1 in the order given; 0 is outside the region."""
+        assert puma_ctrl.valid_members == [
+            (0, "OUTSIDE_REGION"),
+            (1, "PUMA_00100"),
+            (2, "PUMA_00200"),
+        ]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_registering_again_replaces_and_none_removes(self):
+        """A second geography never keeps the first one's PUMAs."""
+        register_puma_control(["00300"])
+        assert [m for _, m in CONTROLS["h_puma"].valid_members] == ["OUTSIDE_REGION", "PUMA_00300"]
+        register_puma_control(None)
+        assert "h_puma" not in CONTROLS
+
+    def test_survey_recode(self, puma_ctrl):
+        """A home in no region PUMA, or in none at all, has no category."""
+        hh = pl.DataFrame({"home_puma": ["00200", "00100", "09999", None]})
+        assert hh.select(puma_ctrl.survey_expr()).to_series().to_list() == [2, 1, None, None]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_pums_recode(self, pums_households, pums_persons):
+        """Each PUMS household lands in its PUMA; one outside the region in OUTSIDE_REGION."""
+        outside = pums_households.head(1).with_columns(
+            pl.lit("HH4").alias("SERIALNO"), pl.lit("09999").alias("PUMA")
+        )
+        result = recode_pums_households(
+            pl.concat([pums_households, outside]), pums_persons, ["h_puma"]
+        )
+        assert result.sort("SERIALNO")["h_puma"].to_list() == [1, 1, 2, 0]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_a_household_with_no_puma_is_not_imputed(
+        self, survey_households, survey_persons, pums_households, pums_persons
+    ):
+        """Imputation leaves it empty, so the seed's sum check stops the run."""
+        names = ["h_total", "p_total", "h_size", "h_puma"]
+        hh = survey_households.with_columns(pl.Series("home_puma", ["00100", "00200", None]))
+        survey = build_incidence_table(
+            recode_survey_households(hh, survey_persons, names),
+            recode_survey_persons(survey_persons, names),
+            names,
+        )
+        pums = build_incidence_table(
+            recode_pums_households(pums_households, pums_persons, names),
+            recode_pums_persons(pums_persons, names),
+            names,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
+        )
+        seed, _ = fill_null_incidence(survey, pums, names)
+        puma_cols = [c for c in seed.columns if c.startswith("h_puma__")]
+        assert seed.sort("hh_id").select(pl.sum_horizontal(puma_cols))[:, 0].to_list() == [1, 1, 0]
+        with pytest.raises(ValueError, match="h_puma"):
+            check_incidence_sums(seed, names, source_label="survey", tolerance=0.01)

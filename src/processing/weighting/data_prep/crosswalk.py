@@ -237,6 +237,15 @@ class PumaCrosswalk:
     # -- public methods ---------------------------------------------------
 
     @property
+    def allocated_puma_ids(self) -> list[str]:
+        """PUMAs that allocate PUMS households to some zone.
+
+        Fewer than ``puma_ids``: a PUMA that only touches the study area, or whose
+        share falls below ``min_allocation``, is in ``puma_ids`` but allocates nothing.
+        """
+        return self.crosswalk_df["puma_id"].unique().sort().to_list()
+
+    @property
     def zone_populations(self) -> pl.DataFrame:
         """Census block population totals per balancing zone.
 
@@ -330,10 +339,12 @@ class PumaCrosswalk:
         lon_col: str = "home_lon",
         lat_col: str = "home_lat",
     ) -> pl.DataFrame:
-        """Point-in-polygon assignment of households to target zones.
+        """Point-in-polygon assignment of households to target zones and PUMAs.
 
-        Returns *households* with ``study_geoid`` and ``ctrl_geoid``
-        columns added (null for points outside all zones).
+        Returns *households* with ``study_geoid``, ``ctrl_geoid`` and
+        ``home_puma`` columns added (each null for points outside all polygons).
+        The PUMAs are the ones the PUMS is allocated from, so both sides of the
+        ``h_puma`` target share one set of boundaries.
         """
         points = gpd.GeoDataFrame(
             {"hh_id": households["hh_id"].to_list()},
@@ -343,16 +354,17 @@ class PumaCrosswalk:
             ),
             crs="EPSG:4326",
         )
-        target = self.target_gdf.to_crs("EPSG:4326")[["study_geoid", "geometry"]]
-        joined = gpd.sjoin(points, target, how="left", predicate="within")
-        joined = joined.drop(columns=["geometry", "index_right"])
 
-        result_pl = (
-            pl.from_pandas(joined[["hh_id", "study_geoid"]])
-            .unique(subset=["hh_id"], keep="first")
-            .with_columns(pl.col("study_geoid").replace(self._zone_remap).alias("ctrl_geoid"))
+        def within(polygons: gpd.GeoDataFrame, id_col: str) -> pl.DataFrame:
+            shapes = polygons.to_crs("EPSG:4326")[[id_col, "geometry"]]
+            joined = gpd.sjoin(points, shapes, how="left", predicate="within")
+            return pl.from_pandas(joined[["hh_id", id_col]]).unique(subset=["hh_id"], keep="first")
+
+        zones = within(self.target_gdf, "study_geoid").with_columns(
+            pl.col("study_geoid").replace(self._zone_remap).alias("ctrl_geoid")
         )
-        return households.join(result_pl, on="hh_id", how="left")
+        pumas = within(self.puma_gdf, "puma_id").rename({"puma_id": "home_puma"})
+        return households.join(zones, on="hh_id", how="left").join(pumas, on="hh_id", how="left")
 
     def allocate_pums_weights(
         self,
