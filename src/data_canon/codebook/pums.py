@@ -83,6 +83,7 @@ class PumsSchl(LabeledEnum):
 
     canonical_field_name = "SCHL"
 
+    NA = (0, "N/A (less than 3 years old)")
     NO_SCHOOLING = (1, "No schooling completed")
     NURSERY = (2, "Nursery school, preschool")
     KINDERGARTEN = (3, "Kindergarten")

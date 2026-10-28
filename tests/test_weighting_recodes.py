@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.households import IncomeBroad
-from data_canon.codebook.persons import AgeCategory, Ethnicity
+from data_canon.codebook.persons import AgeCategory, Education, Ethnicity
 from processing.weighting.controls.enums import (
     CommuteModeCategory,
     EmploymentCategory,
@@ -322,6 +322,25 @@ class TestRecodeSurveyPersons:
             }
         )
         result = persons.select(CONTROLS["p_student"].survey_expr())
+        assert result.to_series().to_list() == [expected]
+
+    @pytest.mark.parametrize(
+        ("education", "age", "expected"),
+        [
+            pytest.param(995, 1, Education.LESS_HIGH_SCHOOL.value, id="under_5_no_answer"),
+            pytest.param(None, 3, Education.LESS_HIGH_SCHOOL.value, id="age_16_to_17_no_answer"),
+            pytest.param(995, 4, None, id="adult_no_answer_stays_null"),
+            pytest.param(999, 6, None, id="adult_prefer_not_stays_null"),
+            pytest.param(3, 3, Education.SOME_COLLEGE.value, id="child_answer_kept"),
+            pytest.param(6, 5, Education.BACHELORS.value, id="adult_answer_kept"),
+        ],
+    )
+    def test_education_recode(self, education, age, expected):
+        """Children with no answer are less than high school; adults are left to imputation."""
+        persons = pl.DataFrame(
+            {"education": pl.Series([education], dtype=pl.Int64), "age": [age]},
+        )
+        result = persons.select(CONTROLS["p_education"].survey_expr())
         assert result.to_series().to_list() == [expected]
 
     def test_age_recode(self, survey_persons):
@@ -669,3 +688,14 @@ class TestRecodePumsPersons:
         result = recode_pums_persons(pums_persons)
         got = result.sort(["SERIALNO", "SPORDER"])[column].to_list()
         assert got == [v.value for v in expected]
+
+    def test_education_na_schl_is_less_than_high_school(self):
+        """SCHL is N/A (0, or blank) under age 3; they count with the other children."""
+        persons = pl.DataFrame({"SCHL": pl.Series([0, None, 1, 21], dtype=pl.Int64)})
+        result = persons.select(CONTROLS["p_education"].pums_expr())
+        assert result.to_series().to_list() == [
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.BACHELORS.value,
+        ]
