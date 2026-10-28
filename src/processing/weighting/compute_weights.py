@@ -125,13 +125,13 @@ def _split_weighting_columns(
             "survey_complete",
             "usable_<profile>",
             "income_bin",  # h_income
-            "num_vehicles",  # h_vehicles
+            "num_vehicles",  # h_vehicles, h_vehicles_per_driver
         },
         "persons": {
             "person_id",
             "hh_id",  # also h_size
             "employment",  # h_workers, p_employment
-            "age",  # h_children, p_age, p_student
+            "age",  # h_children, h_vehicles_per_driver, p_age, p_student, p_education
             "student",  # p_student
             "school_type",  # p_student
             "gender",  # p_gender

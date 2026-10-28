@@ -197,6 +197,9 @@ class PumsThresholds:
     # AGEP — child age ceiling for h_children aggregation
     CHILD_MAX_AGE: int = 17
 
+    # AGEP — youngest driving age, for h_vehicles_per_driver aggregation
+    MIN_DRIVING_AGE: int = 16
+
     # WKHP — weekly hours threshold below which an employed person
     # is classified as part-time
     PART_TIME_HOURS: int = 35

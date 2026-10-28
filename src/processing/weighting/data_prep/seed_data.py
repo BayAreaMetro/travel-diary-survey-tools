@@ -41,6 +41,7 @@ _COUNTED_FROM: dict[str, tuple[str, ...]] = {
     "h_size": ("hh_id",),
     "h_workers": ("employment",),
     "h_children": ("age",),
+    "h_vehicles_per_driver": ("age",),
 }
 
 
@@ -69,7 +70,7 @@ def recode_survey_households(
         return households
 
     # Pre-aggregate person → household counts for derived HH controls.
-    # These become plain columns (_n_persons, _n_workers, _n_children)
+    # These become plain columns (_n_persons, _n_workers, _n_children, _n_drivers)
     # that the control expressions read directly.
     _person_aggs: dict[str, pl.Expr] = {
         "h_size": pl.len().alias("_n_persons"),
@@ -100,6 +101,13 @@ def recode_survey_households(
             .sum()
             .cast(pl.Int32)
             .alias("_n_children")
+        ),
+        # Assuming here that anyone of driving age (16+) is considered a driver.
+        "h_vehicles_per_driver": (
+            (pl.col("age") >= AgeCategory.AGE_16_TO_17.value)
+            .sum()
+            .cast(pl.Int32)
+            .alias("_n_drivers")
         ),
     }
     requested = {c.name for c in hh_ctrls}

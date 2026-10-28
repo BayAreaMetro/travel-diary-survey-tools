@@ -19,6 +19,7 @@ from processing.weighting.controls.enums import (
     HHChildrenCategory,
     HHSizeCategory,
     HHVehiclesCategory,
+    HHVehiclesPerDriverCategory,
     HHWorkersCategory,
     StudentCategory,
 )
@@ -207,6 +208,38 @@ class TestRecodeSurveyHouseholds:
             int(HHVehiclesCategory.VEH_2),
             int(HHVehiclesCategory.VEH_1),
         ]
+
+    @pytest.mark.parametrize(
+        ("num_vehicles", "expected"),
+        [
+            pytest.param(
+                [0, 2, 3],
+                [
+                    HHVehiclesPerDriverCategory.NONE,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                    HHVehiclesPerDriverCategory.MORE_THAN_DRIVERS,
+                ],
+                id="none_one_to_one_more",
+            ),
+            pytest.param(
+                [1, 1, 1],
+                [
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                ],
+                id="less_than_drivers",
+            ),
+        ],
+    )
+    def test_vehicles_per_driver_recode(
+        self, survey_households, survey_persons, num_vehicles, expected
+    ):
+        """Drivers are 16+: household 2 has two (a 16-17 counts, an under-5 does not)."""
+        hh = survey_households.with_columns(pl.Series("num_vehicles", num_vehicles))
+        result = recode_survey_households(hh, survey_persons, ["h_vehicles_per_driver"])
+        got = result.sort("hh_id")["h_vehicles_per_driver"].to_list()
+        assert got == [int(c) for c in expected]
 
     @pytest.mark.parametrize(
         ("target", "drop_field", "missing_field"),
@@ -563,6 +596,16 @@ class TestRecodePumsHouseholds:
                 # VEH: 1, 2, 0
                 [HHVehiclesCategory.VEH_1, HHVehiclesCategory.VEH_2, HHVehiclesCategory.VEH_0],
                 id="h_vehicles_from_veh",
+            ),
+            pytest.param(
+                "h_vehicles_per_driver",
+                # VEH: 1, 2, 0 against drivers 16+: [35,33], [40,38] (not 10, 7), [65]
+                [
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                    HHVehiclesPerDriverCategory.NONE,
+                ],
+                id="h_vehicles_per_driver_from_veh_and_agep",
             ),
             pytest.param(
                 "h_workers",

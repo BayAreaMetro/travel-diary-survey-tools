@@ -22,6 +22,7 @@ from processing.weighting.controls.enums import (
     HHChildrenCategory,
     HHSizeCategory,
     HHVehiclesCategory,
+    HHVehiclesPerDriverCategory,
     HHWorkersCategory,
     TotalCategory,
 )
@@ -96,6 +97,42 @@ class HHVehiclesControl(ControlTarget):
         # clean_pums); left null so a stray one stops the run at the null check.
         v = pl.col("VEH")
         return pl.when(v >= 0).then(v.clip(0, 6)).cast(pl.Int16)
+
+
+class HHVehiclesPerDriverControl(ControlTarget):
+    """Vehicles in household against drivers: none, fewer, as many, more.
+
+    A driver is anyone of driving age (16+); neither side has license data.
+    """
+
+    name = "h_vehicles_per_driver"
+    level = ControlLevel.HOUSEHOLD
+    description = "Vehicles per driver"
+    categories = HHVehiclesPerDriverCategory
+    survey_fields = ("num_vehicles", "_n_drivers")
+    pums_fields = ("VEH",)  # drivers derived from person-level AGEP in recode_pums_households
+
+    @staticmethod
+    def _per_driver(vehicles: pl.Expr) -> pl.Expr:
+        drivers = pl.col("_n_drivers")
+        return (
+            pl.when(vehicles == 0)
+            .then(HHVehiclesPerDriverCategory.NONE)
+            .when(vehicles < drivers)
+            .then(HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS)
+            .when(vehicles == drivers)
+            .then(HHVehiclesPerDriverCategory.ONE_TO_ONE)
+            .otherwise(HHVehiclesPerDriverCategory.MORE_THAN_DRIVERS)
+            .cast(pl.Int16)
+        )
+
+    def survey_expr(self) -> pl.Expr:
+        return self._per_driver(pl.col("num_vehicles"))
+
+    def pums_expr(self) -> pl.Expr:
+        # Missing or negative VEH is 0 vehicles, as in h_vehicles.
+        v = pl.col("VEH")
+        return self._per_driver(pl.when(v.is_null() | (v < 0)).then(0).otherwise(v))
 
 
 class HHChildrenControl(ControlTarget):
