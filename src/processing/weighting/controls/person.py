@@ -423,14 +423,26 @@ class StudentControl(ControlTarget):
 
 
 class EducationControl(ControlTarget):
-    """Education attainment (canonical Education enum)."""
+    """Education attainment (canonical Education enum).
+
+    Children under 18 with no answer are less than high school, as are PUMS
+    persons with N/A ``SCHL`` (under 3), so both sides count every child.
+    """
 
     name = "p_education"
     level = ControlLevel.PERSON
     description = "Education attainment"
     categories = Education
-    survey_fields = ("education",)
+    survey_fields = ("education", "age")
     pums_fields = ("SCHL",)
+
+    _under_18: frozenset[int] = frozenset(
+        {
+            AgeCategory.AGE_UNDER_5.value,
+            AgeCategory.AGE_5_TO_15.value,
+            AgeCategory.AGE_16_TO_17.value,
+        }
+    )
 
     _schl_map: dict[int, int] = {  # type: ignore[dict-item]
         **dict.fromkeys(PumsSchl.LESS_THAN_HS, Education.LESS_HIGH_SCHOOL.value),
@@ -442,13 +454,27 @@ class EducationControl(ControlTarget):
     }
 
     def survey_expr(self) -> pl.Expr:
-        return identity_expr("education", Education)
+        education = identity_expr("education", Education)
+        return (
+            pl.when(education.is_null() & pl.col("age").is_in(list(self._under_18)))
+            .then(Education.LESS_HIGH_SCHOOL.value)
+            .otherwise(education)
+            .cast(pl.Int16)
+        )
 
     def pums_expr(self) -> pl.Expr:
-        return pl.col("SCHL").replace_strict(
-            self._schl_map,
-            default=None,
-            return_dtype=pl.Int16,
+        schl = pl.col("SCHL")
+        return (
+            pl.when(schl.is_null() | (schl == PumsSchl.NA.value))
+            .then(Education.LESS_HIGH_SCHOOL.value)
+            .otherwise(
+                schl.replace_strict(
+                    self._schl_map,
+                    default=None,
+                    return_dtype=pl.Int16,
+                ),
+            )
+            .cast(pl.Int16)
         )
 
 
