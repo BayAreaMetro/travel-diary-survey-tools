@@ -1,6 +1,6 @@
 """Custom IntEnum categories for weighting controls.
 
-These define the **output bins** for the 8 collapsing controls where the
+These define the **output bins** for the 9 collapsing controls where the
 canonical survey granularity is reduced to fewer bins for weighting.  The
 5 identity controls (income, education, race, ethnicity, age) reuse
 canonical ``LabeledEnum`` directly and are not duplicated here.
@@ -48,6 +48,15 @@ class HHVehiclesCategory(IntEnum):
     VEH_4 = 4
     VEH_5 = 5
     VEH_6_PLUS = 6
+
+
+class HHVehiclesPerDriverCategory(IntEnum):
+    """Household vehicles against drivers (anyone 16+)."""
+
+    NONE = 0
+    LESS_THAN_DRIVERS = 1
+    ONE_TO_ONE = 2
+    MORE_THAN_DRIVERS = 3
 
 
 class HHChildrenCategory(IntEnum):
