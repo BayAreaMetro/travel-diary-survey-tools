@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.households import IncomeBroad
-from data_canon.codebook.persons import AgeCategory, Ethnicity
+from data_canon.codebook.persons import AgeCategory, Education, Ethnicity, Race
 from processing.weighting.controls.enums import (
     CommuteModeCategory,
     EmploymentCategory,
@@ -19,19 +19,23 @@ from processing.weighting.controls.enums import (
     HHChildrenCategory,
     HHSizeCategory,
     HHVehiclesCategory,
+    HHVehiclesPerDriverCategory,
     HHWorkersCategory,
+    RaceEthnicityCategory,
     StudentCategory,
 )
-from processing.weighting.controls.registry import CONTROLS
+from processing.weighting.controls.registry import CONTROLS, register_puma_control
 from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
 )
+from processing.weighting.data_prep.fractional_impute import fill_null_incidence
 from processing.weighting.data_prep.incidence import build_incidence_table
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
 )
+from processing.weighting.validation.checksums import check_incidence_sums
 
 # Convenience target lists used across multiple tests
 HH_TARGETS = ["h_size", "h_income", "h_workers", "h_children"]
@@ -153,6 +157,26 @@ class TestRecodeSurveyHouseholds:
             int(HHWorkersCategory.WORKERS_3),
         ]
 
+    def test_hh_workers_count_employed_on_leave(self):
+        """A person employed but on leave is a worker, as PUMS counts them.
+
+        PUMS ESR counts "with a job but not at work" as employed, so leaving
+        them out would put the survey household one worker short of its target.
+        Unpaid volunteers and interns stay out on both sides.
+        """
+        households = pl.DataFrame({"hh_id": [1, 2]})
+        persons = pl.DataFrame(
+            {
+                # HH1: one on leave.  HH2: an unpaid intern and a full-timer.
+                "hh_id": [1, 1, 2, 2],
+                "person_id": [101, 102, 201, 202],
+                "employment": [8, 5, 7, 1],
+            }
+        )
+        result = recode_survey_households(households, persons, ["h_workers"])
+        workers = result.sort("hh_id")["h_workers"].to_list()
+        assert workers == [int(HHWorkersCategory.WORKERS_1), int(HHWorkersCategory.WORKERS_1)]
+
     def test_hh_children_derived(self, survey_households, survey_persons):
         """Number of children is derived from person-level age."""
         result = recode_survey_households(
@@ -187,6 +211,38 @@ class TestRecodeSurveyHouseholds:
             int(HHVehiclesCategory.VEH_2),
             int(HHVehiclesCategory.VEH_1),
         ]
+
+    @pytest.mark.parametrize(
+        ("num_vehicles", "expected"),
+        [
+            pytest.param(
+                [0, 2, 3],
+                [
+                    HHVehiclesPerDriverCategory.NONE,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                    HHVehiclesPerDriverCategory.MORE_THAN_DRIVERS,
+                ],
+                id="none_one_to_one_more",
+            ),
+            pytest.param(
+                [1, 1, 1],
+                [
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                ],
+                id="less_than_drivers",
+            ),
+        ],
+    )
+    def test_vehicles_per_driver_recode(
+        self, survey_households, survey_persons, num_vehicles, expected
+    ):
+        """Drivers are 16+: household 2 has two (a 16-17 counts, an under-5 does not)."""
+        hh = survey_households.with_columns(pl.Series("num_vehicles", num_vehicles))
+        result = recode_survey_households(hh, survey_persons, ["h_vehicles_per_driver"])
+        got = result.sort("hh_id")["h_vehicles_per_driver"].to_list()
+        assert got == [int(c) for c in expected]
 
     @pytest.mark.parametrize(
         ("target", "drop_field", "missing_field"),
@@ -303,6 +359,54 @@ class TestRecodeSurveyPersons:
         )
         result = persons.select(CONTROLS["p_student"].survey_expr())
         assert result.to_series().to_list() == [expected]
+
+    @pytest.mark.parametrize(
+        ("education", "age", "expected"),
+        [
+            pytest.param(995, 1, Education.LESS_HIGH_SCHOOL.value, id="under_5_no_answer"),
+            pytest.param(None, 3, Education.LESS_HIGH_SCHOOL.value, id="age_16_to_17_no_answer"),
+            pytest.param(995, 4, None, id="adult_no_answer_stays_null"),
+            pytest.param(999, 6, None, id="adult_prefer_not_stays_null"),
+            pytest.param(3, 3, Education.SOME_COLLEGE.value, id="child_answer_kept"),
+            pytest.param(6, 5, Education.BACHELORS.value, id="adult_answer_kept"),
+        ],
+    )
+    def test_education_recode(self, education, age, expected):
+        """Children with no answer are less than high school; adults are left to imputation."""
+        persons = pl.DataFrame(
+            {"education": pl.Series([education], dtype=pl.Int64), "age": [age]},
+        )
+        result = persons.select(CONTROLS["p_education"].survey_expr())
+        assert result.to_series().to_list() == [expected]
+
+    @pytest.mark.parametrize(
+        ("ethnicity", "race", "expected"),
+        [
+            pytest.param(
+                Ethnicity.NOT_HISPANIC, Race.WHITE, RaceEthnicityCategory.WHITE, id="not_hispanic"
+            ),
+            pytest.param(
+                Ethnicity.MEXICAN,
+                Race.WHITE,
+                RaceEthnicityCategory.HISPANIC_ALLRACES,
+                id="hispanic_whatever_the_race",
+            ),
+            pytest.param(
+                Ethnicity.OTHER,
+                Race.MISSING,
+                RaceEthnicityCategory.HISPANIC_ALLRACES,
+                id="hispanic_no_race",
+            ),
+            pytest.param(Ethnicity.NOT_HISPANIC, Race.PNTA, None, id="not_hispanic_no_race"),
+            pytest.param(Ethnicity.MISSING, Race.WHITE, None, id="origin_missing"),
+            pytest.param(Ethnicity.PNTA, Race.ASIAN, None, id="origin_prefer_not"),
+        ],
+    )
+    def test_race_ethnicity_recode(self, ethnicity, race, expected):
+        """Hispanic origin decides first; race only counts for persons not Hispanic."""
+        persons = pl.DataFrame({"ethnicity": [ethnicity.value], "race": [race.value]})
+        result = persons.select(CONTROLS["p_race_ethnicity"].survey_expr())
+        assert result.to_series().to_list() == [expected if expected is None else expected.value]
 
     def test_age_recode(self, survey_persons):
         """Age category recode should map canonical AgeCategory values to control categories."""
@@ -526,6 +630,16 @@ class TestRecodePumsHouseholds:
                 id="h_vehicles_from_veh",
             ),
             pytest.param(
+                "h_vehicles_per_driver",
+                # VEH: 1, 2, 0 against drivers 16+: [35,33], [40,38] (not 10, 7), [65]
+                [
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                    HHVehiclesPerDriverCategory.NONE,
+                ],
+                id="h_vehicles_per_driver_from_veh_and_agep",
+            ),
+            pytest.param(
                 "h_workers",
                 # ESR per household: [1,1], [1,6,0,0], [6]
                 [
@@ -557,6 +671,19 @@ class TestRecodePumsHouseholds:
         hh = pl.DataFrame({"VEH": pl.Series([-1, None, 0, 3, 8], dtype=pl.Int32)})
         got = hh.select(CONTROLS["h_vehicles"].pums_expr()).to_series().to_list()
         assert got == [None, None, 0, 3, 6]
+
+    def test_vehicles_per_driver_na_is_not_a_category(self):
+        """Not "none" (0 vehicles), and not "more than drivers", where a null would fall."""
+        hh = pl.DataFrame(
+            {"VEH": pl.Series([-1, None, 0, 2], dtype=pl.Int32), "_n_drivers": [2, 2, 2, 2]}
+        )
+        got = hh.select(CONTROLS["h_vehicles_per_driver"].pums_expr()).to_series().to_list()
+        assert got == [
+            None,
+            None,
+            HHVehiclesPerDriverCategory.NONE,
+            HHVehiclesPerDriverCategory.ONE_TO_ONE,
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -601,18 +728,18 @@ class TestRecodePumsPersons:
                 id="p_age_from_agep",
             ),
             pytest.param(
-                "p_ethnicity",
-                # HISP: 1, 1, 1, 3, 1, 1, 2
+                "p_race_ethnicity",
+                # RAC1P: 1, 6, 2, 1, 1, 1, 9; HISP: 1, 1, 1, 3, 1, 1, 2
                 [
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.PUERTO_RICAN,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.MEXICAN,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.ASIAN,
+                    RaceEthnicityCategory.AFAM,
+                    RaceEthnicityCategory.HISPANIC_ALLRACES,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.HISPANIC_ALLRACES,
                 ],
-                id="p_ethnicity_from_hisp",
+                id="p_race_ethnicity_from_rac1p_and_hisp",
             ),
             pytest.param(
                 "p_commute_mode",
@@ -649,3 +776,84 @@ class TestRecodePumsPersons:
         result = recode_pums_persons(pums_persons)
         got = result.sort(["SERIALNO", "SPORDER"])[column].to_list()
         assert got == [v.value for v in expected]
+
+    def test_education_na_schl_is_less_than_high_school(self):
+        """SCHL is N/A (0, or blank) under age 3; they count with the other children."""
+        persons = pl.DataFrame({"SCHL": pl.Series([0, None, 1, 21], dtype=pl.Int64)})
+        result = persons.select(CONTROLS["p_education"].pums_expr())
+        assert result.to_series().to_list() == [
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.BACHELORS.value,
+        ]
+
+
+# ===========================================================================
+# h_puma: categories built at run time from the crosswalk's PUMAs
+# ===========================================================================
+class TestPumaControl:
+    """The home-PUMA target, registered for this run's PUMAs and never imputed."""
+
+    @pytest.fixture
+    def puma_ctrl(self, _clean_registry):
+        """``h_puma`` for the two PUMAs the PUMS fixtures live in."""
+        register_puma_control(["00100", "00200"])
+        return CONTROLS["h_puma"]
+
+    def test_one_category_per_puma_plus_outside(self, puma_ctrl):
+        """Numbered from 1 in the order given; 0 is outside the region."""
+        assert puma_ctrl.valid_members == [
+            (0, "OUTSIDE_REGION"),
+            (1, "PUMA_00100"),
+            (2, "PUMA_00200"),
+        ]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_registering_again_replaces_and_none_removes(self):
+        """A second geography never keeps the first one's PUMAs."""
+        register_puma_control(["00300"])
+        assert [m for _, m in CONTROLS["h_puma"].valid_members] == ["OUTSIDE_REGION", "PUMA_00300"]
+        register_puma_control(None)
+        assert "h_puma" not in CONTROLS
+
+    def test_survey_recode(self, puma_ctrl):
+        """A home in no region PUMA, or in none at all, has no category."""
+        hh = pl.DataFrame({"home_puma": ["00200", "00100", "09999", None]})
+        assert hh.select(puma_ctrl.survey_expr()).to_series().to_list() == [2, 1, None, None]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_pums_recode(self, pums_households, pums_persons):
+        """Each PUMS household lands in its PUMA; one outside the region in OUTSIDE_REGION."""
+        outside = pums_households.head(1).with_columns(
+            pl.lit("HH4").alias("SERIALNO"), pl.lit("09999").alias("PUMA")
+        )
+        result = recode_pums_households(
+            pl.concat([pums_households, outside]), pums_persons, ["h_puma"]
+        )
+        assert result.sort("SERIALNO")["h_puma"].to_list() == [1, 1, 2, 0]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_a_household_with_no_puma_is_not_imputed(
+        self, survey_households, survey_persons, pums_households, pums_persons
+    ):
+        """Imputation leaves it empty, so the seed's sum check stops the run."""
+        names = ["h_total", "p_total", "h_size", "h_puma"]
+        hh = survey_households.with_columns(pl.Series("home_puma", ["00100", "00200", None]))
+        survey = build_incidence_table(
+            recode_survey_households(hh, survey_persons, names),
+            recode_survey_persons(survey_persons, names),
+            names,
+        )
+        pums = build_incidence_table(
+            recode_pums_households(pums_households, pums_persons, names),
+            recode_pums_persons(pums_persons, names),
+            names,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
+        )
+        seed, _ = fill_null_incidence(survey, pums, names)
+        puma_cols = [c for c in seed.columns if c.startswith("h_puma__")]
+        assert seed.sort("hh_id").select(pl.sum_horizontal(puma_cols))[:, 0].to_list() == [1, 1, 0]
+        with pytest.raises(ValueError, match="h_puma"):
+            check_incidence_sums(seed, names, source_label="survey", tolerance=0.01)

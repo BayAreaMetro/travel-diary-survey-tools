@@ -121,6 +121,7 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         pums_incidence=pipeline.pums_incidence,
         max_expansion_factor=pipeline.balancing.max_expansion_factor,
         comparison=_weight_comparisons(pipeline, diagnostics.compare_weights),
+        survey_shares=pipeline.survey_shares,
     )
 
 

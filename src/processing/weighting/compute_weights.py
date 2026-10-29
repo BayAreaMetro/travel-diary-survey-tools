@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 # because zone assignment, balancing and diagnostics all read it, then moves to
 # its own table before the tables are handed back. Profile-independent: where a
 # household is does not depend on which universe was fitted.
-_GEOGRAPHY_COLUMNS = ("study_geoid", "ctrl_geoid", "bg_geo_id")
+_GEOGRAPHY_COLUMNS = ("study_geoid", "ctrl_geoid", "home_puma", "bg_geo_id")
 
 
 def _split_weighting_columns(
@@ -125,18 +125,18 @@ def _split_weighting_columns(
             "survey_complete",
             "usable_<profile>",
             "income_bin",  # h_income
-            "num_vehicles",  # h_vehicles
+            "num_vehicles",  # h_vehicles, h_vehicles_per_driver
         },
         "persons": {
             "person_id",
             "hh_id",  # also h_size
             "employment",  # h_workers, p_employment
-            "age",  # h_children, p_age, p_student
+            "age",  # h_children, h_vehicles_per_driver, p_age, p_student, p_education
             "student",  # p_student
             "school_type",  # p_student
             "gender",  # p_gender
-            "race",  # p_race
-            "ethnicity",  # p_ethnicity
+            "race",  # p_race_ethnicity
+            "ethnicity",  # p_race_ethnicity
             "education",  # p_education
             "work_mode",  # p_commute_mode
             "job_type",  # p_commute_mode
@@ -163,6 +163,7 @@ def _split_weighting_columns(
             "hh_id",
             "study_geoid",
             "ctrl_geoid",
+            "home_puma",
             "bg_geo_id",
             "base_weight_<profile>",
             "hh_weight_<profile>",
@@ -273,20 +274,23 @@ def compute_weights(  # noqa: PLR0913
     wt_pipeline.setup()
     wt_pipeline.fetch_pums()
 
-    # 2. Incidence prep — recode both PUMS and survey, pivot, fill nulls
+    # 2. Place households first: h_puma's recode reads their home PUMA
+    wt_pipeline.place_households()
+
+    # 3. Incidence prep — recode both PUMS and survey, pivot, fill nulls
     wt_pipeline.recode_and_pivot()
 
-    # 3. Zone assignment and merges are intertwined — merges may depend on zone groups
-    wt_pipeline.assign_zones()
+    # 4. Zone allocation and merges are intertwined — merges may depend on zone groups
+    wt_pipeline.allocate_pums()
 
-    # 4. Merge controls, must be applied after zone assignment and before total aggregation
+    # 5. Merge controls, must be applied after zone allocation and before total aggregation
     wt_pipeline.apply_merges()
 
-    # 5. Control aggregation
+    # 6. Control aggregation
     wt_pipeline.aggregate_totals()
     wt_pipeline.resolve_importance()
 
-    # 6. One fit per profile: balance, propagate, and report each in turn
+    # 7. One fit per profile: balance, propagate, and report each in turn
     profiles = wt_config.fitted_profiles
     logger.info(
         "Weighting: %d balancing run(s), one per profile (%s). Each is fitted to the "

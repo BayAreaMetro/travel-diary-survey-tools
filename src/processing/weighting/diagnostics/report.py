@@ -69,6 +69,7 @@ from .tables import (
     balancer_performance_table,
     crosswalk_summary_table,
     imputation_summary_table,
+    survey_share_table_html,
     unweighted_cell_counts,
     weight_quality_table,
 )
@@ -290,6 +291,7 @@ def generate_report(  # noqa: PLR0913
     pums_incidence: pl.DataFrame | None = None,
     max_expansion_factor: float | None = None,
     comparison: Comparison | None = None,
+    survey_shares: pl.DataFrame | None = None,
 ) -> Path:
     """Write the run's self-contained HTML diagnostics report to *output_path*.
 
@@ -316,6 +318,8 @@ def generate_report(  # noqa: PLR0913
         comparison: Weight sets to compare pairwise. Run-level by construction:
             a comparison names two profiles, so it cannot sit in a pane that
             shows one. Omitted, or holding no pairs, the section is left out.
+        survey_shares: Each group's share of its area's survey against its share
+            of the area's PUMS, from the check run before balancing.
 
     Returns:
         The path written.
@@ -365,6 +369,7 @@ def generate_report(  # noqa: PLR0913
         if crosswalk_df is not None
         else ""
     )
+    survey_share_html = survey_share_table_html(survey_shares) if survey_shares is not None else ""
 
     # Section 3 — the weight cascade, every profile side by side
     cascades = {
@@ -396,7 +401,7 @@ def generate_report(  # noqa: PLR0913
     nums = _section_numbers(
         {
             "comparison": bool(comparison_table),
-            "crosswalk": bool(crosswalk_section or crosswalk_table),
+            "crosswalk": bool(crosswalk_section or crosswalk_table or survey_share_html),
             "cascade": any(cascade_blocks.values()),
             "comparer": bool(comparer),
         },
@@ -412,6 +417,7 @@ def generate_report(  # noqa: PLR0913
         "comparison_table": comparison_table,
         "crosswalk_section": crosswalk_section,
         "crosswalk_table": crosswalk_table,
+        "survey_share_table": survey_share_html,
         **cascade_blocks,
         "panes": panes,
         "nums": nums,

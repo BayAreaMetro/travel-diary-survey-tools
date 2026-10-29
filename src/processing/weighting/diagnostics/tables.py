@@ -529,3 +529,35 @@ def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> s
         body_rows.append(f"<tr>{cells}</tr>")
 
     return f"<table>\n{header}\n" + "\n".join(body_rows) + "\n</table>"
+
+
+def survey_share_table_html(shares: pl.DataFrame) -> str:
+    """Every group's share of its area's survey against its share of the area's PUMS.
+
+    Smallest ratio first, so the groups nearest the stop are at the top. The
+    columns are the stop message's, so the two read the same way.
+    """
+    headers = [
+        "Area",
+        "Target",
+        "Group",
+        "Survey",
+        "PUMS",
+        "%&nbsp;of area's survey",
+        "%&nbsp;of area's PUMS",
+        "Ratio",
+    ]
+    rows = [
+        [
+            r["area"],
+            r["target"],
+            wbr(r["group"]),
+            f"{r['survey']:,.0f}",
+            f"{r['pums']:,.0f}",
+            f"{r['survey_share'] * 100:.1f}%",
+            f"{r['pums_share'] * 100:.1f}%",
+            f"{r['ratio']:.2f}",
+        ]
+        for r in shares.sort("ratio").iter_rows(named=True)
+    ]
+    return html_table(headers, rows)

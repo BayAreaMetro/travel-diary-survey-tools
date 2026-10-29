@@ -304,6 +304,14 @@ class BalancingConfig(BaseModel):
     default_importance: float = Field(
         description="Importance for a control without its own, when not MOE-derived."
     )
+    min_survey_share_ratio: float = Field(
+        ge=0,
+        description=(
+            "Stop before balancing if any group's share of its area's survey records, "
+            "divided by its share of the area's PUMS, is below this. Such a group cannot "
+            "be weighted up to its target; merge it, or lower this to accept the miss."
+        ),
+    )
 
 
 @dataclass

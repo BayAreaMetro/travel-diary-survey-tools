@@ -9,6 +9,8 @@ Dynamic cross-tab creation:
 ``register_crosstab`` creates a CrosstabControlTarget instance at runtime
 from dimension control names, allowing cross-tabs to be defined in YAML
 config without requiring Python class definitions.
+``register_puma_control`` does the same for ``h_puma``, whose categories are the
+crosswalk's PUMAs.
 """
 
 import logging
@@ -18,9 +20,11 @@ from processing.weighting.controls.enums import make_crosstab_enum
 from processing.weighting.controls.household import (
     HHChildrenControl,
     HHIncomeControl,
+    HHPumaControl,
     HHSizeControl,
     HHTotalControl,
     HHVehiclesControl,
+    HHVehiclesPerDriverControl,
     HHWorkersControl,
 )
 from processing.weighting.controls.person import (
@@ -28,10 +32,9 @@ from processing.weighting.controls.person import (
     CommuteModeControl,
     EducationControl,
     EmploymentControl,
-    EthnicityControl,
     GenderControl,
     PersonTotalControl,
-    RaceControl,
+    RaceEthnicityControl,
     StudentControl,
 )
 
@@ -47,6 +50,7 @@ CONTROLS: dict[str, ControlTarget] = {
         HHIncomeControl(),
         HHWorkersControl(),
         HHVehiclesControl(),
+        HHVehiclesPerDriverControl(),
         HHChildrenControl(),
         PersonTotalControl(),
         GenderControl(),
@@ -54,8 +58,7 @@ CONTROLS: dict[str, ControlTarget] = {
         CommuteModeControl(),
         StudentControl(),
         EducationControl(),
-        RaceControl(),
-        EthnicityControl(),
+        RaceEthnicityControl(),
         AgeControl(),
     ]
 }
@@ -79,6 +82,17 @@ def resolve_targets(
 def pums_variables(level: ControlLevel) -> set[str]:
     """PUMS variable names needed for all controls at *level*."""
     return {f for ctrl in CONTROLS.values() if ctrl.level == level for f in ctrl.pums_fields}
+
+
+def register_puma_control(puma_ids: list[str] | None) -> None:
+    """Register ``h_puma`` for this run's PUMAs, or remove it when ``None``.
+
+    Always replaces: a second run in one process may have another geography, and
+    keeping the first run's PUMAs would recode its households against the wrong list.
+    """
+    CONTROLS.pop(HHPumaControl.name, None)
+    if puma_ids is not None:
+        CONTROLS[HHPumaControl.name] = HHPumaControl(puma_ids)
 
 
 def register_crosstab(

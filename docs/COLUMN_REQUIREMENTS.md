@@ -295,6 +295,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `hh_id` | int | ≥ 1, UNIQUE, FK → `households.hh_id` | + |
     | `study_geoid` | str or None |  | + |
     | `ctrl_geoid` | str or None |  | + |
+    | `home_puma` | str or None |  | + |
     | `bg_geo_id` | str or None |  | + |
     | `base_weight_<profile>` | named by config |  | + |
     | `hh_weight_<profile>` | named by config |  | + |
