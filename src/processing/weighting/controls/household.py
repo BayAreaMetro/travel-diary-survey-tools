@@ -118,7 +118,9 @@ class HHVehiclesPerDriverControl(ControlTarget):
     def _per_driver(vehicles: pl.Expr) -> pl.Expr:
         drivers = pl.col("_n_drivers")
         return (
-            pl.when(vehicles == 0)
+            pl.when(vehicles.is_null())
+            .then(None)
+            .when(vehicles == 0)
             .then(HHVehiclesPerDriverCategory.NONE)
             .when(vehicles < drivers)
             .then(HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS)
@@ -132,9 +134,9 @@ class HHVehiclesPerDriverControl(ControlTarget):
         return self._per_driver(pl.col("num_vehicles"))
 
     def pums_expr(self) -> pl.Expr:
-        # Missing or negative VEH is 0 vehicles, as in h_vehicles.
+        # VEH = -1 is N/A and stays null, as in h_vehicles, so a stray one stops the run.
         v = pl.col("VEH")
-        return self._per_driver(pl.when(v.is_null() | (v < 0)).then(0).otherwise(v))
+        return self._per_driver(pl.when(v >= 0).then(v))
 
 
 class HHChildrenControl(ControlTarget):
