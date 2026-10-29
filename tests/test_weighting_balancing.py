@@ -49,6 +49,7 @@ _BALANCING = BalancingConfig(
     n_workers=1,
     moe_based_importance=False,
     default_importance=100.0,
+    min_survey_share_ratio=0.25,
 )
 
 

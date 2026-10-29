@@ -268,6 +268,7 @@ steps:
         default_importance: 100      # baseline importance for controls without an explicit override
         # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
         moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+        min_survey_share_ratio: 0.25  # stop if a group's % of area's survey / % of area's PUMS is below this
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.

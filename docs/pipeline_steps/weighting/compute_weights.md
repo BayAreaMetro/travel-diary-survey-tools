@@ -138,6 +138,7 @@ seed, weights or diagnostics.
       n_workers: 8
       moe_based_importance: true
       default_importance: 100
+      min_survey_share_ratio: 0.25
     controls:
       - name: h_total
         importance: 200
