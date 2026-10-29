@@ -240,6 +240,29 @@ def _replicate_weight_problems(
     return problems
 
 
+def check_pums_complete(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
+    """Raise if any variable is blank on any record of API data.
+
+    The API writes every "not applicable" as a code (0, -1, -60000), so a blank
+    is a value lost in the fetch or the conversion, never an answer. Downloaded
+    files leave "not applicable" blank, so they are not checked here (#184).
+
+    Raises:
+        ValueError: Naming each variable with blanks and how many.
+    """
+    blanks = [
+        f"{table} {col}: {n:,} of {df.height:,}"
+        for table, df in (("household", hh_df), ("person", person_df))
+        for col in df.columns
+        if (n := df[col].null_count())
+    ]
+    if blanks:
+        msg = "PUMS from the Census API has blank values, which it never sends:\n  - " + (
+            "\n  - ".join(blanks)
+        )
+        raise ValueError(msg)
+
+
 def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
     """Verify PUMS records are internally consistent, or raise.
 
@@ -363,6 +386,7 @@ def _load_cached_pums(
     person_df = pl.read_parquet(per_cache)
     logger.info("Loaded PUMS from cache (%d HH, %d persons)", len(hh_df), len(person_df))
     check_pums_integrity(hh_df, person_df)
+    check_pums_complete(hh_df, person_df)
     return hh_df, person_df
 
 
@@ -528,6 +552,7 @@ def fetch_pums_data(
         hh_expected=_HH_VARS | hh_extra,
         person_expected=_PERSON_VARS | person_extra,
     )
+    check_pums_complete(hh_df, person_df)
 
     # Save raw data to cache (before any filtering)
     if cache_dir is not None:
@@ -606,25 +631,37 @@ def load_pums_from_files(
 
 
 def _cast_pums_types(df: pl.DataFrame, expected_vars: set[str]) -> pl.DataFrame:
-    """Cast PUMS columns from string (Census API) to numeric types."""
+    """Cast PUMS columns from string (Census API) to numeric types.
+
+    Strict: a value that does not read as a number raises, naming the variable.
+    Turning it into null instead is how ``ADJINC``, which the API sends as a
+    decimal, once came back blank on every record while the fetch reported success.
+
+    Raises:
+        ValueError: If any value of an expected variable is not a number.
+    """
     # String ID columns that should stay as strings
     string_cols = {"SERIALNO", "PUMA", "ST"}
+    # Written with a fractional part; every other variable read is a whole number
+    decimal_vars = {"HINCP", "PWGTP", "WGTP", "WKHP", "ADJINC"}
 
-    numeric_casts = []
+    casts = []
     for col_name in df.columns:
         if col_name in string_cols:
-            numeric_casts.append(pl.col(col_name).cast(pl.Utf8))
+            casts.append(pl.col(col_name).cast(pl.Utf8))
         elif col_name in expected_vars:
-            # Try int first, fall back to float for income-like fields
-            if col_name in ("HINCP", "PWGTP", "WGTP", "WKHP"):
-                numeric_casts.append(
-                    pl.col(col_name).cast(pl.Utf8).str.strip_chars().cast(pl.Float64, strict=False)
+            dtype = pl.Float64 if col_name in decimal_vars else pl.Int32
+            text = pl.col(col_name).cast(pl.Utf8).str.strip_chars()
+            unreadable = df.filter(text.is_not_null() & text.cast(dtype, strict=False).is_null())
+            if unreadable.height:
+                sample = unreadable[col_name].cast(pl.Utf8).unique().head(3).to_list()
+                msg = (
+                    f"PUMS variable {col_name}: {unreadable.height:,} value(s) do not read as "
+                    f"{'numbers' if dtype == pl.Float64 else 'whole numbers'}, e.g. {sample}"
                 )
-            else:
-                numeric_casts.append(
-                    pl.col(col_name).cast(pl.Utf8).str.strip_chars().cast(pl.Int32, strict=False)
-                )
+                raise ValueError(msg)
+            casts.append(text.cast(dtype))
 
-    if numeric_casts:
-        df = df.with_columns(numeric_casts)
+    if casts:
+        df = df.with_columns(casts)
     return df

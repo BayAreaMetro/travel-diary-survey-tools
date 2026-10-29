@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 #: ``TYPEHUGQ`` for a housing unit; 2 is institutional and 3 noninstitutional group quarters.
 _HOUSING_UNIT = 1
 
-#: ``ADJINC`` carries six implied decimal places.
-_ADJINC_SCALE = 1_000_000
+#: ``ADJINC`` as the API sends it, the factor itself (2019-2023: 1.010 to 1.042). Outside
+#: this range it is not a factor: most likely a downloaded file's integer form (#184).
+_ADJINC_RANGE = (0.5, 2.0)
 
 _HH_REQUIRED = ("SERIALNO", "NP", "TYPEHUGQ", "WGTP", "HINCP", "ADJINC")
 _PERSON_REQUIRED = ("SERIALNO", "PWGTP")
@@ -80,14 +81,21 @@ def adjust_income(hh_df: pl.DataFrame) -> pl.DataFrame:
 
     Each record's income covers the 12 months before its interview, so records
     from early and late in the year are in different dollars until adjusted.
+
+    Raises:
+        ValueError: If ``ADJINC`` is blank, or not a factor near 1.
     """
-    factor = pl.col("ADJINC") / _ADJINC_SCALE
-    logger.info(
-        "PUMS rule income: HINCP x ADJINC, factor %.6f to %.6f",
-        hh_df.select(factor.min()).item(),
-        hh_df.select(factor.max()).item(),
-    )
-    return hh_df.with_columns((pl.col("HINCP") * factor).alias("HINCP"))
+    factor = hh_df["ADJINC"]
+    low, high = _ADJINC_RANGE
+    if factor.null_count() or not low <= factor.min() <= factor.max() <= high:
+        msg = (
+            f"ADJINC is not an income factor: {factor.null_count():,} blank, range "
+            f"{factor.min()} to {factor.max()}. The Census API sends the factor (about 1.02); "
+            "a downloaded file sends it times 1,000,000, which is not read yet."
+        )
+        raise ValueError(msg)
+    logger.info("PUMS rule income: HINCP x ADJINC, factor %.6f to %.6f", factor.min(), factor.max())
+    return hh_df.with_columns(pl.col("HINCP") * pl.col("ADJINC"))
 
 
 def apply_pums_weights(

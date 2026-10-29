@@ -24,7 +24,7 @@ def households() -> pl.DataFrame:
             "WGTP": [100.0, 50.0, 80.0, 0.0, 0.0],
             "WGTP1": [110.0, 40.0, 70.0, 0.0, 0.0],
             "HINCP": [50_000.0, 20_000.0, -60_000.0, -60_000.0, -60_000.0],
-            "ADJINC": [1_020_000, 1_010_000, 1_020_000, 1_020_000, 1_020_000],
+            "ADJINC": [1.02, 1.01, 1.02, 1.02, 1.02],
         }
     )
 
@@ -57,9 +57,23 @@ def test_group_quarters_are_dropped_with_their_residents(households, persons):
 
 
 def test_income_is_in_the_pums_years_dollars(households):
-    """HINCP x ADJINC / 1,000,000."""
+    """HINCP x ADJINC, the factor as the API sends it."""
     hh = adjust_income(households.head(2))
     assert hh["HINCP"].to_list() == pytest.approx([51_000.0, 20_200.0])
+
+
+@pytest.mark.parametrize(
+    "adjinc",
+    [
+        pytest.param([1.02, None], id="blank"),
+        pytest.param([1_019_518.0, 1_019_518.0], id="a_downloaded_files_integer_form"),
+    ],
+)
+def test_income_stops_on_a_factor_that_is_not_one(households, adjinc):
+    """A blank, or a factor a million times too big, is never applied."""
+    hh = households.head(2).with_columns(pl.Series("ADJINC", adjinc, dtype=pl.Float64))
+    with pytest.raises(ValueError, match="ADJINC is not an income factor"):
+        adjust_income(hh)
 
 
 @pytest.fixture
