@@ -274,7 +274,7 @@ steps:
       # Each name must match a key in the CONTROLS registry.
       # Household-level: h_size, h_income, h_workers, h_vehicles, h_children
       # Person-level:    p_gender, p_employment, p_commute_mode, p_student,
-      #                  p_education, p_race, p_ethnicity, p_age
+      #                  p_education, p_race_ethnicity, p_age
       # Optional: merge granular categories before balancing.
       # We start with maximum granularity (e.g. 10 household size categories)
       # and merge up to a coarser set as necessary to achieve convergence.
@@ -358,21 +358,17 @@ steps:
               age_65_plus: [age_65_to_74, age_75_plus]
 
         # Just wait until we have imputation which handles this processing and more
-        # - name: p_race
+        # - name: p_race_ethnicity
         #   merge:
         #     "AAPI": [asian, pacific]
         #     other:  [native, multi, other] # collapse small groups into "other"
 
-        # - name: p_ethnicity
-        #   merge:
-        #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
-
         # Cross-tab controls, these help ensure the joint distribution of two or more variables is preserved
-        # - name: p_gender_x_ethnicity
-        #   dimensions: [p_gender, p_ethnicity]  # Uses FULL 2×5 = 10 cells from originals
+        # - name: p_gender_x_race_ethnicity
+        #   dimensions: [p_gender, p_race_ethnicity]  # Uses FULL 2×8 = 16 cells from originals
         #   # Cross-tab applies its own coarser merges
         #   merges:
-        #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
+        #     other_multi: [native, multi, other]
 
         # Result: 3x3 = 9 cells
         # - name: h_size_by_income

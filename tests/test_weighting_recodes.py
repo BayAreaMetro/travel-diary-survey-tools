@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.households import IncomeBroad
-from data_canon.codebook.persons import AgeCategory, Education, Ethnicity
+from data_canon.codebook.persons import AgeCategory, Education, Ethnicity, Race
 from processing.weighting.controls.enums import (
     CommuteModeCategory,
     EmploymentCategory,
@@ -21,6 +21,7 @@ from processing.weighting.controls.enums import (
     HHVehiclesCategory,
     HHVehiclesPerDriverCategory,
     HHWorkersCategory,
+    RaceEthnicityCategory,
     StudentCategory,
 )
 from processing.weighting.controls.registry import CONTROLS, register_puma_control
@@ -378,6 +379,35 @@ class TestRecodeSurveyPersons:
         result = persons.select(CONTROLS["p_education"].survey_expr())
         assert result.to_series().to_list() == [expected]
 
+    @pytest.mark.parametrize(
+        ("ethnicity", "race", "expected"),
+        [
+            pytest.param(
+                Ethnicity.NOT_HISPANIC, Race.WHITE, RaceEthnicityCategory.WHITE, id="not_hispanic"
+            ),
+            pytest.param(
+                Ethnicity.MEXICAN,
+                Race.WHITE,
+                RaceEthnicityCategory.HISPANIC_ALLRACES,
+                id="hispanic_whatever_the_race",
+            ),
+            pytest.param(
+                Ethnicity.OTHER,
+                Race.MISSING,
+                RaceEthnicityCategory.HISPANIC_ALLRACES,
+                id="hispanic_no_race",
+            ),
+            pytest.param(Ethnicity.NOT_HISPANIC, Race.PNTA, None, id="not_hispanic_no_race"),
+            pytest.param(Ethnicity.MISSING, Race.WHITE, None, id="origin_missing"),
+            pytest.param(Ethnicity.PNTA, Race.ASIAN, None, id="origin_prefer_not"),
+        ],
+    )
+    def test_race_ethnicity_recode(self, ethnicity, race, expected):
+        """Hispanic origin decides first; race only counts for persons not Hispanic."""
+        persons = pl.DataFrame({"ethnicity": [ethnicity.value], "race": [race.value]})
+        result = persons.select(CONTROLS["p_race_ethnicity"].survey_expr())
+        assert result.to_series().to_list() == [expected if expected is None else expected.value]
+
     def test_age_recode(self, survey_persons):
         """Age category recode should map canonical AgeCategory values to control categories."""
         result = recode_survey_persons(survey_persons, ["p_age"])
@@ -698,18 +728,18 @@ class TestRecodePumsPersons:
                 id="p_age_from_agep",
             ),
             pytest.param(
-                "p_ethnicity",
-                # HISP: 1, 1, 1, 3, 1, 1, 2
+                "p_race_ethnicity",
+                # RAC1P: 1, 6, 2, 1, 1, 1, 9; HISP: 1, 1, 1, 3, 1, 1, 2
                 [
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.PUERTO_RICAN,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.MEXICAN,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.ASIAN,
+                    RaceEthnicityCategory.AFAM,
+                    RaceEthnicityCategory.HISPANIC_ALLRACES,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.HISPANIC_ALLRACES,
                 ],
-                id="p_ethnicity_from_hisp",
+                id="p_race_ethnicity_from_rac1p_and_hisp",
             ),
             pytest.param(
                 "p_commute_mode",

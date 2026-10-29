@@ -2,8 +2,8 @@
 
 These define the **output bins** for the 9 collapsing controls where the
 canonical survey granularity is reduced to fewer bins for weighting.  The
-5 identity controls (income, education, race, ethnicity, age) reuse
-canonical ``LabeledEnum`` directly and are not duplicated here.
+identity controls (income, education, age) reuse canonical ``LabeledEnum``
+directly and are not duplicated here.
 """
 
 from enum import IntEnum
@@ -102,6 +102,22 @@ class CommuteModeCategory(IntEnum):
     WALK = 5
     BIKE = 6
     OTHER = 7
+
+
+class RaceEthnicityCategory(IntEnum):
+    """Hispanic persons of any race, then race for everyone else.
+
+    Race values match the canonical ``Race`` enum.
+    """
+
+    AFAM = 1
+    NATIVE = 2
+    ASIAN = 3
+    PACIFIC = 4
+    WHITE = 5
+    OTHER = 6
+    MULTI = 7
+    HISPANIC_ALLRACES = 8
 
 
 class StudentCategory(IntEnum):
