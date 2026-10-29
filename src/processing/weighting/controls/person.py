@@ -45,6 +45,7 @@ from processing.weighting.controls.enums import (
     CommuteModeCategory,
     EmploymentCategory,
     GenderCategory,
+    RaceEthnicityCategory,
     StudentCategory,
     TotalCategory,
 )
@@ -478,64 +479,57 @@ class EducationControl(ControlTarget):
         )
 
 
-class RaceControl(ControlTarget):
-    """Race (canonical Race enum)."""
+class RaceEthnicityControl(ControlTarget):
+    """Hispanic persons of any race in one group; everyone else by race.
 
-    name = "p_race"
+    The census and the survey record the race of Hispanic persons differently
+    (#187), so they are counted by Hispanic origin alone.
+    """
+
+    name = "p_race_ethnicity"
     level = ControlLevel.PERSON
-    description = "Race"
-    categories = Race
-    survey_fields = ("race",)
-    pums_fields = ("RAC1P",)
+    description = "Race and Hispanic origin (race groups exclude Hispanic persons)"
+    categories = RaceEthnicityCategory
+    survey_fields = ("race", "ethnicity")
+    pums_fields = ("RAC1P", "HISP")
 
-    _pums_map: dict[int, int] = {  # type: ignore[dict-item]
-        PumsRac1p.WHITE.value: Race.WHITE.value,
-        PumsRac1p.BLACK.value: Race.AFAM.value,
-        PumsRac1p.AIAN.value: Race.NATIVE.value,
-        PumsRac1p.ALASKA_NATIVE.value: Race.NATIVE.value,
-        PumsRac1p.AIAN_BOTH.value: Race.NATIVE.value,
-        PumsRac1p.ASIAN.value: Race.ASIAN.value,
-        PumsRac1p.NHPI.value: Race.PACIFIC.value,
-        PumsRac1p.OTHER.value: Race.OTHER.value,
-        PumsRac1p.TWO_OR_MORE.value: Race.MULTI.value,
+    _hispanic: list[int] = [
+        Ethnicity.MEXICAN.value,
+        Ethnicity.PUERTO_RICAN.value,
+        Ethnicity.CUBAN.value,
+        Ethnicity.OTHER.value,
+    ]
+
+    _pums_race_map: dict[int, int] = {
+        PumsRac1p.WHITE.value: RaceEthnicityCategory.WHITE,
+        PumsRac1p.BLACK.value: RaceEthnicityCategory.AFAM,
+        PumsRac1p.AIAN.value: RaceEthnicityCategory.NATIVE,
+        PumsRac1p.ALASKA_NATIVE.value: RaceEthnicityCategory.NATIVE,
+        PumsRac1p.AIAN_BOTH.value: RaceEthnicityCategory.NATIVE,
+        PumsRac1p.ASIAN.value: RaceEthnicityCategory.ASIAN,
+        PumsRac1p.NHPI.value: RaceEthnicityCategory.PACIFIC,
+        PumsRac1p.OTHER.value: RaceEthnicityCategory.OTHER,
+        PumsRac1p.TWO_OR_MORE.value: RaceEthnicityCategory.MULTI,
     }
 
     def survey_expr(self) -> pl.Expr:
-        return identity_expr("race", Race)
-
-    def pums_expr(self) -> pl.Expr:
-        return pl.col("RAC1P").replace_strict(
-            self._pums_map,
-            default=Race.OTHER.value,
-            return_dtype=pl.Int16,
+        """Unknown Hispanic origin, or unknown race when not Hispanic, is left to imputation."""
+        eth = pl.col("ethnicity")
+        return (
+            pl.when(eth.is_in(self._hispanic))
+            .then(RaceEthnicityCategory.HISPANIC_ALLRACES)
+            .when(eth == Ethnicity.NOT_HISPANIC.value)
+            .then(identity_expr("race", Race))
+            .otherwise(None)
+            .cast(pl.Int16)
         )
 
-
-class EthnicityControl(ControlTarget):
-    """Hispanic/Latino ethnicity (canonical Ethnicity enum)."""
-
-    name = "p_ethnicity"
-    level = ControlLevel.PERSON
-    description = "Hispanic/Latino ethnicity"
-    categories = Ethnicity
-    survey_fields = ("ethnicity",)
-    pums_fields = ("HISP",)
-
-    _pums_map: dict[int, int] = {  # type: ignore[dict-item]
-        PumsHisp.NOT_HISPANIC.value: Ethnicity.NOT_HISPANIC.value,
-        PumsHisp.MEXICAN.value: Ethnicity.MEXICAN.value,
-        PumsHisp.PUERTO_RICAN.value: Ethnicity.PUERTO_RICAN.value,
-        PumsHisp.CUBAN.value: Ethnicity.CUBAN.value,
-    }
-
-    def survey_expr(self) -> pl.Expr:
-        return identity_expr("ethnicity", Ethnicity)
-
     def pums_expr(self) -> pl.Expr:
-        return pl.col("HISP").replace_strict(
-            self._pums_map,
-            default=Ethnicity.OTHER.value,
-            return_dtype=pl.Int16,
+        return (
+            pl.when(pl.col("HISP") != PumsHisp.NOT_HISPANIC.value)
+            .then(RaceEthnicityCategory.HISPANIC_ALLRACES)
+            .otherwise(pl.col("RAC1P").replace_strict(self._pums_race_map, return_dtype=pl.Int16))
+            .cast(pl.Int16)
         )
 
 

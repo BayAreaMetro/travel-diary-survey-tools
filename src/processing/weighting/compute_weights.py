@@ -135,8 +135,8 @@ def _split_weighting_columns(
             "student",  # p_student
             "school_type",  # p_student
             "gender",  # p_gender
-            "race",  # p_race
-            "ethnicity",  # p_ethnicity
+            "race",  # p_race_ethnicity
+            "ethnicity",  # p_race_ethnicity
             "education",  # p_education
             "work_mode",  # p_commute_mode
             "job_type",  # p_commute_mode

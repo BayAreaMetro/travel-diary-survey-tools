@@ -32,10 +32,9 @@ from processing.weighting.controls.person import (
     CommuteModeControl,
     EducationControl,
     EmploymentControl,
-    EthnicityControl,
     GenderControl,
     PersonTotalControl,
-    RaceControl,
+    RaceEthnicityControl,
     StudentControl,
 )
 
@@ -59,8 +58,7 @@ CONTROLS: dict[str, ControlTarget] = {
         CommuteModeControl(),
         StudentControl(),
         EducationControl(),
-        RaceControl(),
-        EthnicityControl(),
+        RaceEthnicityControl(),
         AgeControl(),
     ]
 }
