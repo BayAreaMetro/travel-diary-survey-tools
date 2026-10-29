@@ -375,6 +375,7 @@ steps:
         default_importance: 100      # baseline importance for controls without an explicit override
         # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
         moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+        min_survey_share_ratio: 0.25  # stop if a group's % of area's survey / % of area's PUMS is below this
 
       # -- One balancing run per profile -------------------------------
       # Each profile named here is fitted separately, and its own flag is the
@@ -399,7 +400,7 @@ steps:
       # Each name must match a key in the CONTROLS registry.
       # Household-level: h_size, h_income, h_workers, h_vehicles, h_children
       # Person-level:    p_gender, p_employment, p_commute_mode, p_student,
-      #                  p_education, p_race, p_ethnicity, p_age
+      #                  p_education, p_race_ethnicity, p_age
       # Optional: merge granular categories before balancing.
       # We start with maximum granularity (e.g. 10 household size categories)
       # and merge up to a coarser set as necessary to achieve convergence.
@@ -423,32 +424,52 @@ steps:
         - name: h_size
           merge:
             size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+          zone_merges:
+            "Contra Costa":
+              size_3_plus: [size_3, size_4_plus]
+            "Marin/Napa/Solano/Sonoma":
+              size_3_plus: [size_3, size_4_plus]
 
         # Household income controls
         - name: h_income
           merge:
             income_under_100:   [income_under25, income_25to50, income_50to75, income_75to100]
 
-        # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
-        - name: h_vehicles
-          merge:
-            veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
-          # zone_merges:
-          #   "San Francisco":
-          #     veh_1_plus: [veh_1, veh_2_plus]
-
-        # Turning these off because p_employment and p_age captures this already,
-        # just adds excess double constraints that make it hard to converge in places like SF.
-        # - name: h_workers
+        # # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
+        # - name: h_vehicles
         #   merge:
-        #     workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
+        #     veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
+        #   # zone_merges:
+        #   #   "San Francisco":
+        #   #     veh_1_plus: [veh_1, veh_2_plus]
+
+        - name: h_vehicles_per_driver
+          merge:
+            one_or_more: [one_to_one, more_than_drivers]
+
+        - name: h_puma
+          zone_merges:
+            "Contra Costa":
+              puma_east_central: [puma_01308, puma_01309, puma_01314, puma_01313]
+
+
+        # We might need to turn off h_worker because it might clash with person-level employment controls.
+        # Adds double constraints that make it hard to converge in places like SF.
+        - name: h_workers
+          merge:
+            workers_3_plus: [workers_3, workers_4, workers_5_plus]
+          zone_merges:
+            "Contra Costa":
+              workers_2_plus: [workers_2, workers_3_plus]
+            "Marin/Napa/Solano/Sonoma":
+              workers_2_plus: [workers_2, workers_3_plus]
         #   zone_merges:
         #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
         #       workers_1_plus: [workers_1, workers_2_plus]
 
-        # - name: h_children
-        #   merge:
-        #     children_2_plus: [children_2,children_3, children_4, children_5_plus]
+        - name: h_children
+          merge:
+            children_1_plus: [children_1, children_2, children_3, children_4, children_5_plus]
         #   zone_merges:
         #     "San Francisco": # SF has very few households with 2+ children
         #       children_1_plus: [children_1, children_2_plus]
@@ -456,6 +477,12 @@ steps:
         # Person level controls (get's aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment
+        - name: p_education
+          merge:
+            no_college: [less_high_school, highschool, vocational]
+            college: [some_college, associate, bachelors, grad]
+
+
         - name: p_commute_mode
           merge:
             car: ["carpool", "drive_alone"]
@@ -470,22 +497,17 @@ steps:
           merge:
             age_75_plus: [age_75_to_84, age_85_and_up]
 
-        # Just wait until we have imputation which handles this processing and more
-        # - name: p_race
-        #   merge:
-        #     "AAPI": [asian, pacific]
-        #     other:  [native, multi, other] # collapse small groups into "other"
-
-        # - name: p_ethnicity
-        #   merge:
-        #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
+        - name: p_race_ethnicity
+          merge:
+            "AAPI": [asian, pacific]
+            other_multi:  [native, multi, other] # collapse small groups into "other/multi"
 
         # Cross-tab controls, these help ensure the joint distribution of two or more variables is preserved
-        # - name: p_gender_x_ethnicity
-        #   dimensions: [p_gender, p_ethnicity]  # Uses FULL 2×5 = 10 cells from originals
+        # - name: p_gender_x_race_ethnicity
+        #   dimensions: [p_gender, p_race_ethnicity]  # Uses FULL 2×8 = 16 cells from originals
         #   # Cross-tab applies its own coarser merges
         #   merges:
-        #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
+        #     other_multi: [native, multi, other]
 
         # Result: 3x3 = 9 cells
         # - name: h_size_by_income
