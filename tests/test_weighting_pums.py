@@ -26,6 +26,8 @@ import pytest
 
 from processing.weighting.data_prep import pums_api
 from processing.weighting.data_prep.pums_data import (
+    _cast_pums_types,
+    check_pums_complete,
     check_pums_integrity,
     load_pums_from_files,
 )
@@ -452,3 +454,37 @@ class TestLoadPumsFromFiles:
 
         hh, _ = load_pums_from_files(str(hh_path), str(per_path), puma_ids=["00100"])
         assert all(hh["PUMA"].cast(pl.Utf8) == "00100")
+
+
+# ===========================================================================
+# What the API sends is read exactly, or the fetch stops
+# ===========================================================================
+class TestConversionIsStrict:
+    """A value that is not a number stops the fetch instead of becoming blank."""
+
+    def test_adjinc_reads_as_the_decimal_the_api_sends(self):
+        """The API sends ADJINC as "1.019518", which once became blank as an integer."""
+        df = pl.DataFrame({"ADJINC": ["1.019518"], "NP": ["2"]})
+        out = _cast_pums_types(df, {"ADJINC", "NP"})
+        assert out.row(0) == (1.019518, 2)
+
+    def test_a_value_that_is_not_a_number_is_named(self):
+        """The variable and a sample of what came back."""
+        df = pl.DataFrame({"VEH": ["1", "2.5", "x"]})
+        with pytest.raises(ValueError, match=r"PUMS variable VEH: 2 value\(s\).*whole numbers"):
+            _cast_pums_types(df, {"VEH"})
+
+
+class TestApiPumsHasNoBlanks:
+    """The API writes "not applicable" as a code, so a blank is a lost value."""
+
+    def test_complete_records_pass(self, sound):
+        """Nothing blank, nothing raised."""
+        check_pums_complete(*sound)
+
+    def test_a_blank_is_named_with_its_count(self, sound):
+        """How ADJINC would have been caught: every record blank."""
+        hh, per = sound
+        hh = hh.with_columns(pl.lit(None, dtype=pl.Float64).alias("ADJINC"))
+        with pytest.raises(ValueError, match=f"household ADJINC: {hh.height:,} of {hh.height:,}"):
+            check_pums_complete(hh, per)

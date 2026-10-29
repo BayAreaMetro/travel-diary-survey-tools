@@ -5,7 +5,8 @@ Downloads ACS PUMS 1-year microdata from the Census Bureau API (through
 the API's string responses to proper numeric dtypes. Downloads are cached as
 Parquet at ``<cache_dir>/pums/{state}_{year}_{hh|person}.parquet``.
 
-Transformation (recoding, aggregation) lives in ``control_data``.
+Records come back as the Census published them: which ones count is decided by
+``pums_cleaning``, and transformation (recoding, aggregation) lives in ``control_data``.
 """
 
 import difflib
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Infrastructure vars that don't come from any ControlTarget.
 # Names use the **2020+** (canonical) convention; for older vintages the
 # aliases in ``_PRE2020_ALIASES`` are requested instead and then renamed.
-_HH_INFRA = {"SERIALNO", "PUMA", "STATE", "WGTP", "TYPEHUGQ"}
+_HH_INFRA = {"SERIALNO", "PUMA", "STATE", "WGTP", "TYPEHUGQ", "ADJINC"}
 
 
 _PERSON_INFRA = {"SERIALNO", "SPORDER", "PUMA", "STATE", "PWGTP"}
@@ -239,6 +240,29 @@ def _replicate_weight_problems(
     return problems
 
 
+def check_pums_complete(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
+    """Raise if any variable is blank on any record of API data.
+
+    The API writes every "not applicable" as a code (0, -1, -60000), so a blank
+    is a value lost in the fetch or the conversion, never an answer. Downloaded
+    files leave "not applicable" blank, so they are not checked here (#184).
+
+    Raises:
+        ValueError: Naming each variable with blanks and how many.
+    """
+    blanks = [
+        f"{table} {col}: {n:,} of {df.height:,}"
+        for table, df in (("household", hh_df), ("person", person_df))
+        for col in df.columns
+        if (n := df[col].null_count())
+    ]
+    if blanks:
+        msg = "PUMS from the Census API has blank values, which it never sends:\n  - " + (
+            "\n  - ".join(blanks)
+        )
+        raise ValueError(msg)
+
+
 def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
     """Verify PUMS records are internally consistent, or raise.
 
@@ -259,7 +283,7 @@ def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
     * Keys identify rows, or the tables cannot be joined at all.
 
     Args:
-        hh_df: PUMS household records, before group-quarters filtering.
+        hh_df: PUMS household records, before ``clean_pums``.
         person_df: PUMS person records.
 
     Raises:
@@ -321,33 +345,6 @@ def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
         raise ValueError(msg)
 
 
-def _drop_gq(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Drop group-quarters households (TYPEHUGQ != 1) and their persons."""
-    if "TYPEHUGQ" not in hh_df.columns:
-        return hh_df, person_df
-    n_before = len(hh_df)
-    hh_df = hh_df.filter(pl.col("TYPEHUGQ") == 1)
-    n_dropped = n_before - len(hh_df)
-    if n_dropped > 0:
-        logger.info(
-            "Dropped %d / %d group-quarters HH records (TYPEHUGQ != 1)", n_dropped, n_before
-        )
-
-    # Always filter persons to surviving HH serials (handles stale caches
-    # where GQ households were already removed but GQ persons were not).
-    hh_serials = hh_df["SERIALNO"]
-    n_per_before = len(person_df)
-    person_df = person_df.filter(pl.col("SERIALNO").is_in(hh_serials))
-    n_per_dropped = n_per_before - len(person_df)
-    if n_per_dropped > 0:
-        logger.info(
-            "Dropped %d / %d group-quarters person records",
-            n_per_dropped,
-            n_per_before,
-        )
-    return hh_df, person_df
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -389,6 +386,7 @@ def _load_cached_pums(
     person_df = pl.read_parquet(per_cache)
     logger.info("Loaded PUMS from cache (%d HH, %d persons)", len(hh_df), len(person_df))
     check_pums_integrity(hh_df, person_df)
+    check_pums_complete(hh_df, person_df)
     return hh_df, person_df
 
 
@@ -485,7 +483,8 @@ def fetch_pums_data(
 
     Returns:
         Tuple of ``(households, persons)`` Polars DataFrames with PUMS
-        data typed to appropriate dtypes.
+        data typed to appropriate dtypes, every record kept: vacant homes and
+        group quarters are dropped by ``clean_pums``.
     """
     hh_extra = extra_hh_vars or set()
     person_extra = extra_person_vars or set()
@@ -501,7 +500,7 @@ def fetch_pums_data(
     hh_cache, per_cache = _cache_paths(cache_dir, source, hh_vars, person_vars)
     cached = _load_cached_pums(hh_cache, per_cache)
     if cached is not None:
-        return _drop_gq(*cached)
+        return cached
 
     dataset_name = f"ACSPUMS1Y{source.pums_year}"
     base_url = f"{CENSUS_BASE}/{source.pums_year}/acs/acs1/pums"
@@ -553,6 +552,7 @@ def fetch_pums_data(
         hh_expected=_HH_VARS | hh_extra,
         person_expected=_PERSON_VARS | person_extra,
     )
+    check_pums_complete(hh_df, person_df)
 
     # Save raw data to cache (before any filtering)
     if cache_dir is not None:
@@ -560,8 +560,6 @@ def fetch_pums_data(
         hh_df.write_parquet(hh_cache)
         person_df.write_parquet(per_cache)
         logger.info("Cached PUMS data to %s", hh_cache.parent)
-
-    hh_df, person_df = _drop_gq(hh_df, person_df)
 
     logger.info(
         "Fetched %d household records, %d person records",
@@ -589,7 +587,8 @@ def load_pums_from_files(
             and ``PWGTP1`` to ``PWGTP80`` replicate weight columns.
 
     Returns:
-        Tuple of ``(households, persons)`` Polars DataFrames.
+        Tuple of ``(households, persons)`` Polars DataFrames, every record kept:
+        vacant homes and group quarters are dropped by ``clean_pums``.
     """
     hh_ext = hh_path.rsplit(".", 1)[-1].lower()
     person_ext = person_path.rsplit(".", 1)[-1].lower()
@@ -615,8 +614,6 @@ def load_pums_from_files(
     hh_df = _cast_pums_types(hh_df, hh_known)
     person_df = _cast_pums_types(person_df, person_known)
 
-    hh_df, person_df = _drop_gq(hh_df, person_df)
-
     if state_fips is not None and "ST" in hh_df.columns:
         hh_df = hh_df.filter(pl.col("ST") == state_fips)
         person_df = person_df.filter(pl.col("ST") == state_fips)
@@ -634,25 +631,37 @@ def load_pums_from_files(
 
 
 def _cast_pums_types(df: pl.DataFrame, expected_vars: set[str]) -> pl.DataFrame:
-    """Cast PUMS columns from string (Census API) to numeric types."""
+    """Cast PUMS columns from string (Census API) to numeric types.
+
+    Strict: a value that does not read as a number raises, naming the variable.
+    Turning it into null instead is how ``ADJINC``, which the API sends as a
+    decimal, once came back blank on every record while the fetch reported success.
+
+    Raises:
+        ValueError: If any value of an expected variable is not a number.
+    """
     # String ID columns that should stay as strings
     string_cols = {"SERIALNO", "PUMA", "ST"}
+    # Written with a fractional part; every other variable read is a whole number
+    decimal_vars = {"HINCP", "PWGTP", "WGTP", "WKHP", "ADJINC"}
 
-    numeric_casts = []
+    casts = []
     for col_name in df.columns:
         if col_name in string_cols:
-            numeric_casts.append(pl.col(col_name).cast(pl.Utf8))
+            casts.append(pl.col(col_name).cast(pl.Utf8))
         elif col_name in expected_vars:
-            # Try int first, fall back to float for income-like fields
-            if col_name in ("HINCP", "PWGTP", "WGTP", "WKHP"):
-                numeric_casts.append(
-                    pl.col(col_name).cast(pl.Utf8).str.strip_chars().cast(pl.Float64, strict=False)
+            dtype = pl.Float64 if col_name in decimal_vars else pl.Int32
+            text = pl.col(col_name).cast(pl.Utf8).str.strip_chars()
+            unreadable = df.filter(text.is_not_null() & text.cast(dtype, strict=False).is_null())
+            if unreadable.height:
+                sample = unreadable[col_name].cast(pl.Utf8).unique().head(3).to_list()
+                msg = (
+                    f"PUMS variable {col_name}: {unreadable.height:,} value(s) do not read as "
+                    f"{'numbers' if dtype == pl.Float64 else 'whole numbers'}, e.g. {sample}"
                 )
-            else:
-                numeric_casts.append(
-                    pl.col(col_name).cast(pl.Utf8).str.strip_chars().cast(pl.Int32, strict=False)
-                )
+                raise ValueError(msg)
+            casts.append(text.cast(dtype))
 
-    if numeric_casts:
-        df = df.with_columns(numeric_casts)
+    if casts:
+        df = df.with_columns(casts)
     return df

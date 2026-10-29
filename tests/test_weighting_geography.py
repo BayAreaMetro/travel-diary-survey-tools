@@ -15,11 +15,9 @@ import requests
 from rasterio.transform import from_bounds
 from shapely.geometry import box
 
-from processing.weighting.core.specs import ControlSpec, ControlTotals
 from processing.weighting.data_prep import census_geo
 from processing.weighting.data_prep.census_geo import puma_vintage_for_pums_year
 from processing.weighting.data_prep.control_data import (
-    build_control_totals,
     recode_pums_households,
     recode_pums_persons,
 )
@@ -29,6 +27,7 @@ from processing.weighting.data_prep.crosswalk import (
     TargetZoneConfig,
     _load_target_zones,
 )
+from processing.weighting.data_prep.incidence import aggregate_control_totals, build_incidence_table
 from processing.weighting.diagnostics.crosswalk_map import crosswalk_figure
 from processing.weighting.validation.coverage import check_control_geography_coverage
 from utils.crosswalk import (
@@ -459,22 +458,17 @@ class TestCrossTabMath:
 # Tests: control_data crosswalk integration
 # ---------------------------------------------------------------------------
 class TestControlDataCrosswalk:
-    """Verify PumaCrosswalk.allocate_pums_weights + build_control_totals."""
+    """Verify PumaCrosswalk.allocate_pums_incidence + aggregate_control_totals."""
 
     def test_crosswalk_redistributes_controls(self):
-        """Expanded PUMS totals should be split across target zones."""
+        """PUMA A splits 70/30 between zones T1 and T2, households and persons alike."""
         # Synthetic PUMS data — 2 PUMAs, 3 households
         hh = pl.DataFrame(
             {
                 "SERIALNO": ["H1", "H2", "H3"],
                 "PUMA": ["A", "A", "B"],
-                "ST": ["06", "06", "06"],
-                "WGTP": [100, 200, 150],
+                "WGTP": [100.0, 200.0, 150.0],
                 "NP": [1, 3, 2],
-                "HINCP": [50000, 100000, 75000],
-                "VEH": [1, 2, 0],
-                "NOC": [0, 1, 0],
-                "TYPEHUGQ": [1, 1, 1],
             }
         )
         per = pl.DataFrame(
@@ -482,24 +476,23 @@ class TestControlDataCrosswalk:
                 "SERIALNO": ["H1", "H2", "H2", "H2", "H3", "H3"],
                 "SPORDER": [1, 1, 2, 3, 1, 2],
                 "PUMA": ["A", "A", "A", "A", "B", "B"],
-                "ST": ["06", "06", "06", "06", "06", "06"],
-                "PWGTP": [100, 200, 200, 200, 150, 150],
-                "AGEP": [35, 40, 10, 5, 55, 25],
-                "SEX": [1, 2, 1, 2, 1, 2],
-                "ESR": [1, 1, 0, 0, 1, 3],
-                "JWTRNS": [1, 1, None, None, 6, None],
-                "SCHG": [None, None, 2, 1, None, None],
-                "SCHL": [21, 22, None, None, 20, 19],
-                "RAC1P": [1, 1, 1, 1, 2, 2],
-                "HISP": [1, 1, 1, 1, 1, 1],
+                "PWGTP": [110.0, 190.0, 210.0, 200.0, 150.0, 150.0],
             }
         )
+        targets = ["h_total", "p_total", "h_size"]
+        bundle = build_incidence_table(
+            recode_pums_households(hh, per, targets),
+            recode_pums_persons(per, targets),
+            targets,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
+        )
+        persons = bundle.person_pivot.join(
+            per.select("SERIALNO", "SPORDER", "PUMA", "PWGTP"), on=["SERIALNO", "SPORDER"]
+        )
 
-        hh_recoded = recode_pums_households(hh, per, ["h_size"])
-        per_recoded = recode_pums_persons(per, ["h_size"])
-
-        # Crosswalk: PUMA A splits 70/30 between zones T1/T2; PUMA B is 100% T2
-        crosswalk_df = pl.DataFrame(
+        xw = object.__new__(PumaCrosswalk)
+        xw.crosswalk_df = pl.DataFrame(
             {
                 "puma_id": ["A", "A", "B"],
                 "study_geoid": ["T1", "T2", "T2"],
@@ -507,27 +500,23 @@ class TestControlDataCrosswalk:
                 "allocation_weight": [0.7, 0.3, 1.0],
             }
         )
-
-        # Use PumaCrosswalk.allocate_pums_weights via a minimal instance
-        xw = object.__new__(PumaCrosswalk)
-        xw.crosswalk_df = crosswalk_df
-        hh_xw, per_xw = xw.allocate_pums_weights(hh_recoded, per_recoded, geo_col="PUMA")
-
-        result = build_control_totals(
-            hh_xw,
-            per_xw,
-            [ControlSpec(name="h_size")],
-            geo_col="ctrl_geoid",
+        result = aggregate_control_totals(
+            xw.allocate_pums_incidence(bundle.incidence),
+            xw.allocate_pums_incidence(persons, weight_col="PWGTP"),
+            targets,
         )
 
-        assert isinstance(result, ControlTotals)
         assert set(result.geo_ids) == {"T1", "T2"}
-
-        # T1 should have 70% of PUMA A's totals
-        t1_total = result.totals.filter(pl.col("geo_id") == "T1")["target_total"].sum()
-        a_total = 100 + 200  # WGTP for HH1 + HH2 in PUMA A
-        expected_t1 = a_total * 0.7
-        assert abs(t1_total - expected_t1) < 1, f"T1 total {t1_total}, expected {expected_t1}"
+        by_zone = {
+            (ctrl, geo): total
+            for geo, ctrl, _, total in result.totals.filter(
+                pl.col("control_name").is_in(["h_total", "p_total"])
+            ).iter_rows()
+        }
+        # PUMA A: WGTP 100 + 200 = 300; PWGTP 110 + 190 + 210 + 200 = 710
+        assert by_zone["h_total", "T1"] == pytest.approx(300 * 0.7)
+        assert by_zone["p_total", "T1"] == pytest.approx(710 * 0.7)
+        assert by_zone["p_total", "T2"] == pytest.approx(710 * 0.3 + 300)
 
 
 # ---------------------------------------------------------------------------

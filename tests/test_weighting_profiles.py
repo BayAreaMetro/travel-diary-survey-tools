@@ -20,7 +20,7 @@ from processing.weighting.core.hierarchy import (
     weight_col_for,
     weight_columns_for,
 )
-from processing.weighting.core.specs import WeightingConfig, resolve_fitted_profiles
+from processing.weighting.core.specs import PumsWeights, WeightingConfig, resolve_fitted_profiles
 
 STRICT = "ctramp"
 RELAXED = "analysis"
@@ -29,7 +29,13 @@ PROFILE = "analysis"
 
 def _config(**overrides) -> WeightingConfig:
     """A WeightingConfig with only the universe settings that matter here."""
-    return WeightingConfig(geography={}, state_fips="06", pums_year=2023, **overrides)
+    return WeightingConfig(
+        geography={},
+        state_fips="06",
+        pums_year=2023,
+        pums_weights=PumsWeights.INDEPENDENT,
+        **overrides,
+    )
 
 
 # ---------------------------------------------------------------------------

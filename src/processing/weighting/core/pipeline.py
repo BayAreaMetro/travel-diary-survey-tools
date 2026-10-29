@@ -94,6 +94,7 @@ from processing.weighting.data_prep.merges import (
     apply_1d_merges,
     merge_control_totals,
 )
+from processing.weighting.data_prep.pums_cleaning import clean_pums
 from processing.weighting.data_prep.pums_data import fetch_pums_data, load_pums_from_files
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
@@ -167,6 +168,7 @@ class WeightingPipeline:
     survey_bundle: IncidenceBundle
     pums_bundle: IncidenceBundle
     pums_incidence: pl.DataFrame
+    pums_person_incidence: pl.DataFrame
     control_totals: ControlTotals
     resolved_importance: dict[str, float]
     control_moe: pl.DataFrame | None
@@ -240,7 +242,7 @@ class WeightingPipeline:
         )
 
     def fetch_pums(self) -> None:
-        """Load PUMS microdata from local files or the Census API."""
+        """Load PUMS microdata from local files or the Census API, then clean it."""
         load_reps = self.importance_cfg.moe_based
         if self.config.pums_households is not None and self.config.pums_persons is not None:
             logger.info("Loading PUMS from local files")
@@ -261,6 +263,9 @@ class WeightingPipeline:
                 load_replicate_weights=load_reps,
                 cache_dir=self.cache_dir,
             )
+        self.pums_hh, self.pums_per = clean_pums(
+            self.pums_hh, self.pums_per, pums_weights=self.config.pums_weights
+        )
 
         # Ensure that PUMA is 0 padded to 5 digits for consistency with crosswalk
         self.pums_hh = self.pums_hh.with_columns(pl.col("PUMA").cast(pl.Utf8).str.zfill(5))
@@ -308,6 +313,12 @@ class WeightingPipeline:
         )
         self.pums_incidence = self.pums_bundle.incidence
         check_incidence_sums(self.pums_incidence, names, source_label="pums")
+        # Person targets sum person weights, so they are built from one row per person.
+        self.pums_person_incidence = self.pums_bundle.person_pivot.join(
+            self.pums_per.select("SERIALNO", "SPORDER", "PUMA", "PWGTP"),
+            on=["SERIALNO", "SPORDER"],
+            how="left",
+        )
 
         # ==============================================================
         # Survey stream — travel-diary seed (may contain nulls)
@@ -338,7 +349,7 @@ class WeightingPipeline:
         """Point-in-polygon zone assignment + optional block-group assignment.
 
         Mutates ``self.data.households`` in place (adds geo columns) and
-        allocates ``self.pums_incidence`` across zones. Each seed takes its geo
+        allocates the PUMS household and person incidence across zones. Each seed takes its geo
         columns off ``self.data.households`` in `build_seed`, since a seed only
         exists once a profile has been named.
         """
@@ -355,9 +366,13 @@ class WeightingPipeline:
         self.pums_incidence = self.crosswalk.allocate_pums_incidence(
             self.pums_incidence,
         )
+        self.pums_person_incidence = self.crosswalk.allocate_pums_incidence(
+            self.pums_person_incidence,
+            weight_col="PWGTP",
+        )
 
     def apply_merges(self) -> None:
-        """Apply 1-D merges to the PUMS incidence table.
+        """Apply 1-D merges to the PUMS household and person incidence tables.
 
         Cross-tab merges are applied at registration time (pre-merge into
         the enum), so only 1-D merges need post-pivot application here. The seed
@@ -366,6 +381,10 @@ class WeightingPipeline:
         if self.controls.merges_1d:
             self.pums_incidence = apply_1d_merges(
                 self.pums_incidence,
+                self.controls.merges_1d,
+            )
+            self.pums_person_incidence = apply_1d_merges(
+                self.pums_person_incidence,
                 self.controls.merges_1d,
             )
             logger.info(
@@ -379,8 +398,8 @@ class WeightingPipeline:
         names = self.controls.target_names
         self.control_totals = aggregate_control_totals(
             self.pums_incidence,
+            self.pums_person_incidence,
             names,
-            weight_col="WGTP",
             geo_col="ctrl_geoid",
         )
         if self.controls.merges_1d:
