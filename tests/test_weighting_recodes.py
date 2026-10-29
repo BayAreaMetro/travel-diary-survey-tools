@@ -642,6 +642,19 @@ class TestRecodePumsHouseholds:
         got = hh.select(CONTROLS["h_vehicles"].pums_expr()).to_series().to_list()
         assert got == [None, None, 0, 3, 6]
 
+    def test_vehicles_per_driver_na_is_not_a_category(self):
+        """Not "none" (0 vehicles), and not "more than drivers", where a null would fall."""
+        hh = pl.DataFrame(
+            {"VEH": pl.Series([-1, None, 0, 2], dtype=pl.Int32), "_n_drivers": [2, 2, 2, 2]}
+        )
+        got = hh.select(CONTROLS["h_vehicles_per_driver"].pums_expr()).to_series().to_list()
+        assert got == [
+            None,
+            None,
+            HHVehiclesPerDriverCategory.NONE,
+            HHVehiclesPerDriverCategory.ONE_TO_ONE,
+        ]
+
 
 # ---------------------------------------------------------------------------
 # recode_pums_persons
