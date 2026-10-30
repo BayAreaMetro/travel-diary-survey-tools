@@ -225,6 +225,8 @@ steps:
       # nulls quietly. A tripwire for a misconfigured geography.
       max_unplaceable_share: 0.01
 
+      use_imputed_values: false
+
       # -- Sample Plan Path ------------------------------------------------
       # null: no sample plan for 2019.
       sample_plan: null

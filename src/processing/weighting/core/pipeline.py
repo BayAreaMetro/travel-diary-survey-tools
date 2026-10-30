@@ -108,6 +108,7 @@ from processing.weighting.data_prep.pums_data import fetch_pums_data, load_pums_
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
+    restore_original_answers,
 )
 from processing.weighting.validation.checksums import check_incidence_sums
 from processing.weighting.validation.control_validation import (
@@ -350,13 +351,16 @@ class WeightingPipeline:
         # Recode canonical survey HH + person tables through the same
         # control expressions used for PUMS above.
         strict_nulls = self.config.strict_survey_nulls
+        households, persons = self.data.households, self.data.persons
+        if not self.config.use_imputed_values:
+            households, persons = restore_original_answers(households, persons)  # pyright: ignore[reportArgumentType]
         hh_recoded = recode_survey_households(
-            self.data.households,  # pyright: ignore[reportArgumentType]
-            self.data.persons,  # pyright: ignore[reportArgumentType]
+            households,  # pyright: ignore[reportArgumentType]
+            persons,  # pyright: ignore[reportArgumentType]
             names,
             strict_nulls=strict_nulls,
         )
-        per_recoded = recode_survey_persons(self.data.persons, names, strict_nulls=strict_nulls)  # pyright: ignore[reportArgumentType]
+        per_recoded = recode_survey_persons(persons, names, strict_nulls=strict_nulls)  # pyright: ignore[reportArgumentType]
 
         # Pivot into incidence bundle (one row per hh_id). Unfiltered: which
         # households enter a seed is a profile's question, answered per fit in

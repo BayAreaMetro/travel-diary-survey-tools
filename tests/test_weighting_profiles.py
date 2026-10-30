@@ -34,6 +34,7 @@ def _config(**overrides) -> WeightingConfig:
         state_fips="06",
         pums_year=2023,
         pums_weights=PumsWeights.INDEPENDENT,
+        use_imputed_values=True,
         **overrides,
     )
 

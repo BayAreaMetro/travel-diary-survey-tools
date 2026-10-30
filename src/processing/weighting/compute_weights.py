@@ -180,6 +180,7 @@ def compute_weights(  # noqa: PLR0913
     weight_profiles: list[str],
     max_unplaceable_share: float,
     sample_plan: str | None,
+    use_imputed_values: bool,
     strict_survey_nulls: bool = False,
     *,
     # -- Pipeline plumbing (auto-injected by @step decorator) -----------
@@ -214,6 +215,9 @@ def compute_weights(  # noqa: PLR0913
         max_unplaceable_share: The most of the survey whose homes may fall
             outside the control geography before the step raises.
         sample_plan: Path to the sample plan for base weights; null for none.
+        use_imputed_values: Fit to the imputation step's values. When false,
+            weighting reads each ``<column>_preimputed`` instead and fills the
+            blanks itself; the published columns stay imputed.
         strict_survey_nulls: Raise on survey nulls in control variables rather
             than imputing them.
         pipeline_cache: Supplied by the pipeline.
@@ -254,6 +258,7 @@ def compute_weights(  # noqa: PLR0913
         cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
         expansion_factor_grid=diagnostics.expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
+        use_imputed_values=use_imputed_values,
         weight_profiles=tuple(weight_profiles),
         max_unplaceable_share=max_unplaceable_share,
     )

@@ -117,6 +117,7 @@ seed, weights or diagnostics.
     weight_profiles: [ctramp, daysim]
     sample_plan: data/sample_plan.csv
     max_unplaceable_share: 0.01
+    use_imputed_values: false
     census:
       state_fips: "06"
       pums_year: 2023
