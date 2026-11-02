@@ -256,6 +256,12 @@ steps:
       # No setting admits a tour with a missing leg or no activity to anchor on.
       # Those are missing data, not an open end.
       usability_profiles:
+        analysis:
+          tour_closes_at: anywhere
+          household_day_needs: nothing
+          zone_coverage: none
+          joint_tours: partial
+          travel_days: [tuesday, wednesday, thursday]
         ctramp:
           tour_closes_at: primary_home
           household_day_needs: all_members
@@ -267,12 +273,6 @@ steps:
           household_day_needs: all_members
           zone_coverage: taz
           joint_tours: fully_joint
-          travel_days: [tuesday, wednesday, thursday]
-        analysis:
-          tour_closes_at: anywhere
-          household_day_needs: nothing
-          zone_coverage: none
-          joint_tours: partial
           travel_days: [tuesday, wednesday, thursday]
         # Placeholder profile for vendor weights -- Same profile, just repeated under a different key to receive the pre-computed weights
         ctramp_rsg:
@@ -352,32 +352,30 @@ steps:
         # Also useful for applying names to things.
         zone_groups:
           "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
-          # "Contra Costa/Alameda": ["013", "001"]
-          "San Mateo/Santa Clara": ["085", "081"]
-          "Alameda": ["001"]
-          "Contra Costa": ["013"]
+          "Alameda/Contra Costa/San Mateo": ["001", "013", "081"]
+          # "Alameda": ["001"]
+          # "Contra Costa": ["013"]
           # "Marin": ["041"]
-          # "Sonoma": ["055"]
+          # "Sonoma": ["097"]
           "San Francisco": ["075"]
-          # "Santa Clara": ["081"]
-          # "San Mateo": ["085"]
+          "Santa Clara": ["085"]
+          # "San Mateo": ["081"]
           # "Solano": ["095"]
-          # "Napa": ["097"]
+          # "Napa": ["055"]
 
       # -- Balancer settings -------------------------------------------
       balancing:
         max_expansion_factor: 5.0    # upper bound = initial_weight × factor
         min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
         max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
-        min_survey_share_ratio: 0.125  # stop if a group's % of area's survey / % of area's PUMS is below this
-        min_weight: 1              # absolute floor (no weight < 1)
+        min_weight: 1                # absolute floor (no weight < 1)
         # max_weight:                # absolute ceiling (null = no ceiling)
         max_iterations: 10000
         n_workers: 8                 # parallel zone balancing (numba releases GIL)
         default_importance: 100      # baseline importance for controls without an explicit override
         # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
         moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
-        min_survey_share_ratio: 0.25  # stop if a group's % of area's survey / % of area's PUMS is below this
+        min_survey_share_ratio: 0.125  # stop if a group's % of area's survey / % of area's PUMS is below this
 
       # -- One balancing run per profile -------------------------------
       # Each profile named here is fitted separately, and its own flag is the
@@ -397,6 +395,8 @@ steps:
       # rather than returning nulls quietly. Measured 0.00% on 2019 and 2023, so
       # this is a tripwire for a misconfigured geography, not a routine dial.
       max_unplaceable_share: 0.01
+
+      use_imputed_values: false
 
       # -- Controls to balance against ---------------------------------
       # Each name must match a key in the CONTROLS registry.
@@ -424,13 +424,15 @@ steps:
 
         # Household level controls
         - name: h_size
+          importance: 150
           merge:
-            size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
-          zone_merges:
-            "Contra Costa":
-              size_3_plus: [size_3, size_4_plus]
-            "Marin/Napa/Solano/Sonoma":
-              size_3_plus: [size_3, size_4_plus]
+            size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+          #   size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+          # zone_merges:
+          #   "Contra Costa":
+          #     size_3_plus: [size_3, size_4_plus]
+          #   "Marin/Napa/Solano/Sonoma":
+          #     size_3_plus: [size_3, size_4_plus]
 
         # Household income controls
         - name: h_income
@@ -449,10 +451,10 @@ steps:
           merge:
             one_or_more: [one_to_one, more_than_drivers]
 
-        - name: h_puma
-          zone_merges:
-            "Contra Costa":
-              puma_east_central: [puma_01308, puma_01309, puma_01314, puma_01313]
+        # - name: h_puma
+        #   zone_merges:
+        #     "Contra Costa":
+        #       puma_east_central: [puma_01308, puma_01309, puma_01314, puma_01313]
 
 
         # We might need to turn off h_worker because it might clash with person-level employment controls.
@@ -461,7 +463,7 @@ steps:
           merge:
             workers_3_plus: [workers_3, workers_4, workers_5_plus]
           zone_merges:
-            "Contra Costa":
+            "Alameda/Contra Costa/San Mateo":
               workers_2_plus: [workers_2, workers_3_plus]
             "Marin/Napa/Solano/Sonoma":
               workers_2_plus: [workers_2, workers_3_plus]
@@ -484,11 +486,10 @@ steps:
             no_college: [less_high_school, highschool, vocational]
             college: [some_college, associate, bachelors, grad]
 
-
-        - name: p_commute_mode
-          merge:
-            car: ["carpool", "drive_alone"]
-            walk_bike: ["walk", "bike"]
+        # - name: p_commute_mode
+        #   merge:
+        #     car: ["carpool", "drive_alone"]
+        #     walk_bike: ["walk", "bike"]
 
         - name: p_student
           # merge:
@@ -497,11 +498,12 @@ steps:
 
         - name: p_age
           merge:
+            age_5_to_17: [age_5_to_15, age_16_to_17]
             age_75_plus: [age_75_to_84, age_85_and_up]
 
         - name: p_race_ethnicity
           merge:
-            "AAPI": [asian, pacific]
+            AAPI: [asian, pacific]
             other_multi:  [native, multi, other] # collapse small groups into "other/multi"
 
         # Cross-tab controls, these help ensure the joint distribution of two or more variables is preserved
