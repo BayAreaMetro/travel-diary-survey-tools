@@ -186,7 +186,7 @@ def reference_weight_sets(spec: Mapping[str, Mapping] | None) -> list[WeightSet]
 
     Named rather than discovered, because neither half of a supplied column's
     name is reliable. A vendor suffix is indistinguishable from a profile suffix
-    -- ``hh_weight_rmove_only`` parses as a profile called ``rmove_only`` that
+    -- ``hh_weight_vendor_only`` parses as a profile called ``vendor_only`` that
     was never fitted -- and a supplied column may not share the level's base name
     at all, as the vendor's ``trip_weight`` does not match the hierarchy's
     ``unlinked_trip_weight``. An un-suffixed column is worse still: it may be the

@@ -261,8 +261,8 @@ steps:
 
       # -- Balancer settings -------------------------------------------
       balancing:
-        max_expansion_factor: 4.0    # upper bound = initial_weight × factor
-        min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+        max_expansion_factor: 4.0    # upper bound = base weight × factor
+        min_expansion_factor: 0.01  # lower bound = base weight × factor, OK to be low since we still have absolute floor of 1
         max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
         min_weight: 1                # absolute floor (no weight < 1)
         # max_weight:                # absolute ceiling (null = no ceiling)
@@ -274,22 +274,18 @@ steps:
         min_survey_share_ratio: 0.25  # stop if a group's % of area's survey / % of area's PUMS is below this
 
       # -- Controls to balance against ---------------------------------
-      # Each name must match a key in the CONTROLS registry.
-      # Household-level: h_size, h_income, h_workers, h_vehicles, h_children
-      # Person-level:    p_gender, p_employment, p_commute_mode, p_student,
-      #                  p_education, p_race_ethnicity, p_age
+      # Each name must match a key in the CONTROLS registry; the docs' Controls
+      # page lists them all, with their categories.
       # Optional: merge granular categories before balancing.
       # We start with maximum granularity (e.g. 10 household size categories)
       # and merge up to a coarser set as necessary to achieve convergence.
       # The merge can be global (all zones) or zone-specific
       # merge:
-      #   merged_label: [category1, category2, ...]      #
+      #   merged_label: [category1, category2, ...]
       # For additional per-zone merges on top of the global merge, use
-      # zone_merges:
-      #   "06001":
+      # zone_merges:        # keyed by zone group name, or zone ID if in no group
+      #   "San Francisco":
       #     further_merged: [category_a, already_merged_label]
-      #   "06075":
-      #     another_merged: [category_b, already_merged_label]
       controls:
         # Structural controls, set importance very high to ensure totals are matched exactly (if possible)
         - name: h_total
@@ -338,7 +334,7 @@ steps:
         #     "San Francisco": # SF has very few households with 2+ children
         #       children_1_plus: [children_1, children_2_plus]
 
-        # Person level controls (get's aggregated to household level, i.e., num age group per household)
+        # Person level controls (gets aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment
 
