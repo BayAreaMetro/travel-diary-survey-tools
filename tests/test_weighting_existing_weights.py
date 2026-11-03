@@ -873,7 +873,10 @@ class TestAUsableRecordWithoutASuppliedWeightStopsTheRun:
     """
 
     def _run(
-        self, tmp_path, usable: dict[str, list[bool]] | None = None
+        self,
+        tmp_path,
+        usable: dict[str, list[bool]] | None = None,
+        person_weight: list[float] | None = None,
     ) -> dict[str, pl.DataFrame]:
         tables = {
             "households": pl.DataFrame({"hh_id": [1, 2, 3], "usable_p": [True, True, True]}),
@@ -906,7 +909,7 @@ class TestAUsableRecordWithoutASuppliedWeightStopsTheRun:
                     tmp_path,
                     "person",
                     person_id=[11, 12, 21, 31],
-                    person_weight=[10.0, 10.0, 10.0, 10.0],
+                    person_weight=person_weight or [10.0, 10.0, 10.0, 10.0],
                 )
             },
             "person_day_weight": {
@@ -931,6 +934,13 @@ class TestAUsableRecordWithoutASuppliedWeightStopsTheRun:
         message = r"person_days: 2 of 4 record\(s\) admitted by usable_p were supplied no"
         with pytest.raises(ValueError, match=message):
             self._run(tmp_path)
+
+    def test_one_stop_names_every_level(self, tmp_path):
+        """Persons 11 and 21 also unweighted: one message names persons and days."""
+        with pytest.raises(ValueError, match="supplier did not weight") as stopped:
+            self._run(tmp_path, person_weight=[0.0, 10.0, 0.0, 10.0])
+        assert "persons: 2 of 4" in str(stopped.value)
+        assert "person_days: 2 of 4" in str(stopped.value)
 
     def test_it_runs_once_the_unweighted_records_are_unusable(self, tmp_path):
         """Days 111 and 211, persons 11 and 21, and household 2 left out upstream.

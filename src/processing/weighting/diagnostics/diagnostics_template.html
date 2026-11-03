@@ -230,6 +230,12 @@
 <p class="lede">Records each profile keeps at each level. Only kept records carry a weight.</p>
 {{ cascade_table }}
 
+{% if exclusion_table %}
+<h3>Excluded by the cleaner</h3>
+<p class="lede">Records the project cleaner excluded, each counted at its own level. An excluded record is dropped under every profile, and so is everything below it. Where a profile needs every member's day, an excluded day also drops the household's other days on that date.</p>
+{{ exclusion_table }}
+{% endif %}
+
 <div class="checks">
   <b class="converged">&#10003; Weight checks passed</b>
   <ul>

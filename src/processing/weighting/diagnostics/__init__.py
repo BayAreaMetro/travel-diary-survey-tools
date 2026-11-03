@@ -18,11 +18,9 @@ one-line summary, with the longer guidance collapsed beneath it.
    means two balancing runs produced one answer.
 2. **Crosswalk Map** — geographic crosswalk visualization, with every profile's
    seed count in each zone's tooltip. Boundaries are simplified to a few metres.
-3. **Weight Cascade** — per level, what each profile admitted and what carries
-   weight, all profiles side by side; plus the redistribution each survivor
-   absorbs, whether each weight set's lower levels were copied, redistributed
-   or adjusted per record, the day-split identity, and control-geography
-   coverage.
+3. **Weight Cascade** — per level, the records each profile keeps, all
+   profiles side by side; the records the cleaner excluded, by reason; and the
+   weight each kept record carries for dropped ones.
 4. **Weight Set Comparer** — any two weight sets compared at any level: this
    run's fits against each other, or against weights supplied with the survey
    and named in ``diagnostics.compare_weights``. Run-level because a comparison

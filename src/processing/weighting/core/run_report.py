@@ -50,11 +50,9 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
     2. **Crosswalk Map** — choropleth showing how PUMAs overlap the target
        zones, with allocation weights per PUMA-zone pair and each profile's
        seed count in the zone tooltip.
-    3. **Weight Cascade** — per level, what the profile admitted and what
-       carries weight, every profile side by side; the redistribution each
-       survivor absorbs, how each weight set's lower levels descend from
-       the level above, the day-split identity, and control-geography
-       coverage.
+    3. **Weight Cascade** — per level, the records each profile keeps,
+       every profile side by side; the records the cleaner excluded, by
+       reason; and the weight each kept record carries for dropped ones.
     4. **Weight Set Comparer** *(optional)* — any two weight sets compared
        pairwise at any level, this run's fits against each other or against
        sets named in ``diagnostics.compare_weights``. Omitted when there is

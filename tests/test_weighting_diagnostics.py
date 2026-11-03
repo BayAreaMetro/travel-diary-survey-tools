@@ -42,6 +42,7 @@ from processing.weighting.diagnostics.comparison import (
     reference_weight_sets,
 )
 from processing.weighting.diagnostics.data import (
+    exclusions,
     redistribution,
     weight_cascade,
 )
@@ -655,6 +656,38 @@ class TestWeightCascade:
         assert reported == ["households"]
 
 
+class TestExclusions:
+    """The records the cleaner excluded, counted per level and reason."""
+
+    def test_counts_each_level_by_its_own_reason(self):
+        """A level is read off its own column; a level without one is skipped."""
+        tables = {
+            "households": pl.DataFrame(
+                {"hh_id": [1, 2, 3], "exclusion_reason": ["no subregion", None, "no subregion"]}
+            ),
+            "persons": pl.DataFrame({"person_id": [1]}),
+            "person_days": pl.DataFrame({"person_day_id": [1, 2], "exclusion_reason": ["b", "a"]}),
+        }
+
+        rows = [(r.table, r.reason, r.records) for r in exclusions(tables)]
+
+        assert rows == [
+            ("households", "no subregion", 2),
+            ("person_days", "a", 1),
+            ("person_days", "b", 1),
+        ]
+
+    def test_nothing_excluded_is_no_rows(self):
+        """A null reason excludes nothing, so there is nothing to show."""
+        tables = {
+            "households": pl.DataFrame({"hh_id": [1]}, schema={"hh_id": pl.Int64}).with_columns(
+                pl.lit(None, dtype=pl.String).alias("exclusion_reason")
+            )
+        }
+
+        assert exclusions(tables) == []
+
+
 class TestRedistribution:
     """The factor a survivor absorbs for the siblings the gate removed."""
 
@@ -917,6 +950,26 @@ class TestGenerateReport:
         # No geometry was passed, so the crosswalk is left out entirely rather
         # than rendered as a heading, a sidebar entry and an empty map.
         assert "Crosswalk Map" not in html
+
+    @pytest.mark.parametrize("excluded", [True, False], ids=["excluded", "none"])
+    def test_the_cascade_shows_what_the_cleaner_excluded(self, tmp_path, excluded):
+        """Shown only when something was excluded."""
+        tables = _propagated_tables(["ctramp"])
+        if excluded:
+            tables["households"] = tables["households"].with_columns(
+                pl.Series("exclusion_reason", [None, None, None, "no subregion"])
+            )
+        out = generate_report(
+            fits={"ctramp": _fit("ctramp")},
+            control_totals=_control_totals(),
+            target_names=TARGETS,
+            tables=tables,
+            output_path=tmp_path / "diagnostics.html",
+        )
+        cascade = _section(out.read_text(encoding="utf-8"), "sec-cascade")
+
+        assert ("Excluded by the cleaner" in cascade) is excluded
+        assert ("<td>no subregion</td>" in cascade) is excluded
 
     def test_omitted_imputation_leaves_no_gap(self, tmp_path):
         """A run that imputed nothing skips the section without skipping a number.

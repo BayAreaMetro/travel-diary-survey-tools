@@ -49,6 +49,7 @@ from .crosswalk_map import crosswalk_figure
 from .data import (
     apply_fit_merges,
     compute_weighted_totals,
+    exclusions,
     fit_table,
     merge_control_moe,
     profile_summary,
@@ -59,6 +60,7 @@ from .data import (
 from .glossary import CASCADE, COMPARER, FIT, IMPUTATION, WEIGHTS, glossary_groups, term
 from .profile_tables import (
     cascade_table,
+    exclusion_table,
     profile_comparison_table,
     redistribution_view,
 )
@@ -417,6 +419,7 @@ def generate_report(  # noqa: PLR0913
     }
     cascade_blocks = {
         "cascade_table": cascade_table(cascades),
+        "exclusion_table": exclusion_table(exclusions(tables)),
         "redistribution_view": _per_profile(carried) if any(carried.values()) else "",
     }
 

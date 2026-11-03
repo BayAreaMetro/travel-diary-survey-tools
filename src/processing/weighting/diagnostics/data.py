@@ -447,6 +447,37 @@ def weight_cascade(
     return rows
 
 
+@dataclass(frozen=True)
+class ExclusionRow:
+    """Records the project cleaner excluded at one level, for one reason."""
+
+    table: str
+    reason: str
+    records: int
+
+
+def exclusions(tables: dict[str, pl.DataFrame | None]) -> list[ExclusionRow]:
+    """Count, per level and reason, the records the project cleaner excluded.
+
+    Each level is read off its own ``exclusion_reason``; a record unusable only
+    because the level above was excluded is not counted again. Profile-free:
+    an exclusion holds under every profile.
+    """
+    rows: list[ExclusionRow] = []
+    for level in HIERARCHY:
+        df = tables.get(level.table)
+        if df is None or "exclusion_reason" not in df.columns:
+            continue
+        counts = (
+            df.filter(pl.col("exclusion_reason").is_not_null())
+            .group_by("exclusion_reason")
+            .len()
+            .sort("exclusion_reason")
+        )
+        rows += [ExclusionRow(level.table, reason, n) for reason, n in counts.iter_rows()]
+    return rows
+
+
 # How far a kept record's weight can be raised to carry dropped siblings, as
 # (label, lower, upper) multiples of the record above. "Unchanged" comes first.
 RAISE_BANDS: tuple[tuple[str, float, float], ...] = (
