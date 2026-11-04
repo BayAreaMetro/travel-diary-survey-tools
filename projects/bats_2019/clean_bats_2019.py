@@ -200,6 +200,24 @@ def clean_households(households: pl.DataFrame) -> pl.DataFrame:
     return households
 
 
+def most_common_mode(trips: pl.DataFrame) -> pl.DataFrame:
+    """Each person's most common ``mode_type`` over *trips*, one row per person.
+
+    A tie goes to the lowest mode code. Without that rule the winner was
+    whichever tied row came first, which changes from run to run.
+    """
+    return (
+        trips.group_by("person_id", "mode_type")
+        .agg(pl.len().alias("mode_count"))
+        .group_by("person_id")
+        .agg(
+            pl.col("mode_type")
+            .sort_by(["mode_count", "mode_type"], descending=[True, False])
+            .first()
+        )
+    )
+
+
 def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.DataFrame:
     """Custom cleaning for persons."""
     logger.info("Cleaning 2019 person data")
@@ -286,17 +304,7 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
         & (pl.col("person_id").is_in(missing_work_mode["person_id"].to_list()))
     ).select("person_id", "mode_type", "d_lat", "d_lon")
 
-    # Find the most common mode for each person
-    work_mode = (
-        work_trips
-        # Start by getting count of each mode used by each person
-        .group_by(["person_id", "mode_type"])
-        .agg(pl.count().alias("mode_count"))
-        # Then select the mode with the highest count for each person
-        .sort(["person_id", "mode_count"], descending=[False, True])
-        .group_by("person_id")
-        .agg(pl.first("mode_type").alias("work_mode"))
-    )
+    work_mode = most_common_mode(work_trips).rename({"mode_type": "work_mode"})
 
     # Join back to the original persons table
     persons = persons.join(work_mode, on="person_id", how="left")
@@ -446,7 +454,8 @@ def clean_days(
     days_for_dow = (
         person_days.select(["hh_id", "travel_dow", "travel_date", "day_num"])
         .filter(pl.col("hh_id").is_in(persons_without_days["hh_id"].unique().implode()))
-        .unique()
+        # Keep order: these rows become the filler days, so their order is the days' order.
+        .unique(maintain_order=True)
     )
 
     # Which day columns to include
