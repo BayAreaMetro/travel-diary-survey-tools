@@ -31,7 +31,7 @@ flowchart TD
     S0(["Survey HH + Person"]) --> S1("Recode + pivot") --> SI[["Survey incidence"]]
   end
 
-  NI("Null imputation on survey only\nRF trained on PUMS incidence")
+  NI("Fractional imputation on survey only\nRF trained on PUMS by zone and household")
 
   subgraph shared_stage ["**Shared incidence transforms**"]
     direction TD
