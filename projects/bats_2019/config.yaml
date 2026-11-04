@@ -285,13 +285,15 @@ steps:
         # Also useful for applying names to things.
         zone_groups:
           "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
-          "Alameda/Contra Costa/San Mateo": ["001", "013", "081"]
-          "San Francisco": ["075"]
-          "Santa Clara": ["085"]
+          # "Alameda/Contra Costa/San Mateo": ["001", "013", "081"]
+          # "San Francisco": ["075"]
+          # "Santa Clara": ["085"]
+          "San Francisco/San Mateo/Santa Clara": ["075", "081", "085"]
+          "Alameda/Contra Costa": ["001", "013"]
 
       # -- Balancer settings -------------------------------------------
       balancing:
-        max_expansion_factor: 5.0    # upper bound = base weight × factor
+        max_expansion_factor: 7.0    # upper bound = base weight × factor
         min_expansion_factor: 0.01  # lower bound = base weight × factor, OK to be low since we still have absolute floor of 1
         max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
         min_weight: 1                # absolute floor (no weight < 1)
