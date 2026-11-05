@@ -179,6 +179,9 @@ class WeightingPipeline:
     pums_person_incidence: pl.DataFrame
     control_totals: ControlTotals
     resolved_importance: dict[str, float]
+    # Per control: what the MOE gave (None when not MOE-based), and what balancing used.
+    moe_importance: dict[str, float] | None
+    importance_used: dict[str, float]
     control_moe: pl.DataFrame | None
     survey_shares: pl.DataFrame
 
@@ -210,6 +213,7 @@ class WeightingPipeline:
 
         # Mutable state initialised empty; populated by phases
         self.control_moe = None
+        self.moe_importance = None
         self.fits = {}
         self.block_households: pl.DataFrame | None = None
         self.puma_growth: pl.DataFrame | None = None
@@ -436,6 +440,7 @@ class WeightingPipeline:
                 self.controls.target_names,
             )
             # YAML explicit overrides take precedence over MOE-derived
+            self.moe_importance = dict(moe_importance)
             moe_importance.update(overrides)
             overrides = moe_importance
 
@@ -451,6 +456,7 @@ class WeightingPipeline:
         imp_lines = "\n".join(f"  {k}: {v:.1f}" for k, v in full.items())
         logger.info("Importance weights:\n%s", imp_lines)
         self.resolved_importance = overrides
+        self.importance_used = full
 
     def build_seed(self, profile: str | None) -> ProfileFit:
         """Gate, impute, place and merge one profile's seed.

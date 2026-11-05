@@ -46,7 +46,10 @@ from processing.weighting.diagnostics.data import (
     weight_cascade,
 )
 from processing.weighting.diagnostics.report import generate_report
-from processing.weighting.diagnostics.tables import crosswalk_summary_table
+from processing.weighting.diagnostics.tables import (
+    crosswalk_summary_table,
+    unweighted_cell_counts,
+)
 
 HOUSEHOLDS = LEVELS["households"]
 PERSONS = LEVELS["persons"]
@@ -829,6 +832,40 @@ def _section(html: str, section_id: str) -> str:
 def _panes(html: str) -> list[str]:
     """The per-profile panes, as raw HTML fragments."""
     return html.split('class="profile-pane"')[1:]
+
+
+class TestCellCountImportance:
+    """Each control's importance, beside the counts that explain its fit."""
+
+    def _table(self, **importance) -> str:
+        return unweighted_cell_counts(_fit("ctramp").seed_incidence, TARGETS, **importance)
+
+    def test_shows_what_balancing_used_with_the_moe_value_in_parentheses(self):
+        """A set value shows with the MOE's beside it; a control with no MOE shows a dash."""
+        html = self._table(
+            moe_importance={"h_total": 64.4},
+            importance_used={"h_total": 200.0, "p_total": 100.0},
+        )
+
+        assert "<th>Importance (MOE-computed)</th>" in html
+        assert (
+            '<td rowspan="1">200 <em style="color:#888;font-weight:normal">(64)</em></td>' in html
+        )
+        assert (
+            '<td rowspan="1">100 <em style="color:#888;font-weight:normal">(&mdash;)</em></td>'
+            in html
+        )
+
+    def test_no_parentheses_when_importance_was_not_moe_based(self):
+        """Without MOE-based importance there is nothing to compare against."""
+        html = self._table(importance_used={"h_total": 200.0, "p_total": 100.0})
+
+        assert "<th>Importance</th>" in html
+        assert '<th rowspan="1">h_total</th><td rowspan="1">200</td>' in html
+
+    def test_no_importance_columns_when_none_given(self):
+        """A caller with no importance gets the counts alone."""
+        assert "importance" not in self._table().lower()
 
 
 class TestGenerateReport:

@@ -10,7 +10,8 @@ This module generates five of the tables displayed in the diagnostics HTML repor
    std, min, max) and expansion factor stats (min/max/mean/median EF ratio).
 
 3. **Unweighted Cell Counts** — Data sparsity matrix showing unweighted sample counts
-   per control category per zone, with optional PUMS-weighted percentages for context.
+   per control category per zone, with optional PUMS-weighted percentages for context,
+   and each control's importance.
 
 4. **Crosswalk Summary Table** — Zone → HH samples mapping with optional zone group
    aggregation.
@@ -309,16 +310,33 @@ def _build_zone_merge_lookups(
     return merged_zones, absorbed_zones
 
 
+def _importance_cell(control: str, used: dict[str, float], moe: dict[str, float] | None) -> str:
+    """The importance balancing used, with the MOE-computed one in parentheses."""
+    if moe is None:
+        return f"{used[control]:.0f}"
+    computed = moe.get(control)
+    shown = "&mdash;" if computed is None else f"{computed:.0f}"
+    return f'{used[control]:.0f} <em style="color:#888;font-weight:normal">({shown})</em>'
+
+
 def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     seed: pl.DataFrame,
     target_names: list[str],
     control_totals: ControlTotals | None = None,
     merge_specs: list | None = None,
+    *,
+    moe_importance: dict[str, float] | None = None,
+    importance_used: dict[str, float] | None = None,
 ) -> str:
     """Single matrix table: categories (rows) x zones (columns).
 
     Row headers are grouped by control name using ``<th rowspan>``.
     A level separator row (Household / Person) divides the two groups.
+
+    With *importance_used*, each control also shows the importance balancing
+    gave it, with what its PUMS MOE gave (*moe_importance*) in parentheses, or
+    a dash where the MOE could not be computed. The parentheses are left out
+    when importance was not MOE-based.
 
     When *control_totals* is provided, each cell also shows the
     PUMS-weighted percentage in italic parentheses so the reader can
@@ -398,9 +416,14 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
         for row in ct_total.iter_rows(named=True):
             pums_pct_total[(row["control_name"], row["category"])] = row["pct"]
 
+    importance_cols: list[str] = []
+    if importance_used is not None:
+        importance_cols = ["Importance" if moe_importance is None else "Importance (MOE-computed)"]
+
     header = (
         "<tr>"
         + tag("th", "Control")
+        + "".join(tag("th", c) for c in importance_cols)
         + tag("th", "Category")
         + "".join(tag("th", wbr(str(z))) for z in zones)
         + tag("th", "Total")
@@ -415,7 +438,7 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
             continue
         level_label = "Household" if level == ControlLevel.HOUSEHOLD else "Person"
         data_rows.append(
-            f'<tr><td colspan="{n_zone_cols + 3}" '
+            f'<tr><td colspan="{n_zone_cols + 3 + len(importance_cols)}" '
             f'style="background:#e8e8e8;font-weight:bold;text-align:left">{level_label}</td></tr>'
         )
         for ctrl in ctrls:
@@ -423,7 +446,11 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
             for i, (col, member_key) in enumerate(members):
                 cells = ""
                 if i == 0:
-                    cells += f'<th rowspan="{len(members)}">{ctrl.name}</th>'
+                    span = f'rowspan="{len(members)}"'
+                    cells += f"<th {span}>{ctrl.name}</th>"
+                    if importance_used is not None:
+                        shown = _importance_cell(ctrl.name, importance_used, moe_importance)
+                        cells += f"<td {span}>{shown}</td>"
 
                 # Zone merge annotations
                 active_in = merged_zones.get((ctrl.name, member_key))

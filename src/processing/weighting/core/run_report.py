@@ -124,6 +124,8 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         ),
         merge_specs=pipeline.controls.all_merges,
         control_moe=pipeline.control_moe,
+        moe_importance=pipeline.moe_importance,
+        importance_used=pipeline.importance_used,
         pums_incidence=pipeline.pums_incidence,
         max_expansion_factor=pipeline.balancing.max_expansion_factor,
         comparison=_weight_comparisons(pipeline, diagnostics.compare_weights),

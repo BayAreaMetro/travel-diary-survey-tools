@@ -261,6 +261,9 @@ def _pane(
     pums_incidence: pl.DataFrame | None,
     max_expansion_factor: float | None,
     fit_x_range: float,
+    *,
+    moe_importance: dict[str, float] | None,
+    importance_used: dict[str, float] | None,
 ) -> dict:
     """Everything one profile contributes to the document."""
     weighted = fit.seed_incidence.join(
@@ -278,7 +281,12 @@ def _pane(
         "violins_html": violins_figure(weighted).to_html(**_PLOTLY_KWARGS),
         "fit_bars_html": fit_diverging_figure(control_table, fit_x_range).to_html(**_PLOTLY_KWARGS),
         "sparsity_html": unweighted_cell_counts(
-            fit.seed_incidence, target_names, control_totals, merge_specs
+            fit.seed_incidence,
+            target_names,
+            control_totals,
+            merge_specs,
+            moe_importance=moe_importance,
+            importance_used=importance_used,
         ),
         "ef_tradeoff_section": _ef_section(fit, max_expansion_factor),
     }
@@ -299,6 +307,8 @@ def generate_report(  # noqa: PLR0913
     zone_counties: dict[str, str] | None = None,
     merge_specs: list | None = None,
     control_moe: pl.DataFrame | None = None,
+    moe_importance: dict[str, float] | None = None,
+    importance_used: dict[str, float] | None = None,
     pums_incidence: pl.DataFrame | None = None,
     max_expansion_factor: float | None = None,
     comparison: Comparison | None = None,
@@ -323,6 +333,9 @@ def generate_report(  # noqa: PLR0913
         zone_counties: Each zone's Census county name or names, for the zone table.
         merge_specs: Category merges, for labelling the fit table.
         control_moe: Per-cell PUMS standard errors from replicate weights.
+        moe_importance: Each control's importance as its PUMS MOE gave it, or
+            None when importance was not MOE-based.
+        importance_used: Each control's importance as balancing used it.
         pums_incidence: PUMS incidence, as the reference distribution for the
             fractional seed imputation chart.
         max_expansion_factor: The production EF, marked on the calibration
@@ -356,6 +369,8 @@ def generate_report(  # noqa: PLR0913
             pums_incidence,
             max_expansion_factor,
             fit_x_range,
+            moe_importance=moe_importance,
+            importance_used=importance_used,
         )
         for profile, fit in fits.items()
     ]
