@@ -11,6 +11,7 @@ report then assembles both, once per run and once per fitted profile.
 
 import json
 import re
+from typing import ClassVar
 
 import numpy as np
 import polars as pl
@@ -38,15 +39,14 @@ from processing.weighting.diagnostics.comparison import (
     all_pairs,
     compare_pair,
     fitted_weight_sets,
-    inheritance,
     reference_weight_sets,
 )
 from processing.weighting.diagnostics.data import (
     redistribution,
-    split_identity,
     weight_cascade,
 )
 from processing.weighting.diagnostics.report import generate_report
+from processing.weighting.diagnostics.tables import crosswalk_summary_table
 
 HOUSEHOLDS = LEVELS["households"]
 PERSONS = LEVELS["persons"]
@@ -228,6 +228,51 @@ class TestWeightDistribution:
         assert trace.points == "all"
         assert trace.jitter > 0
         assert not trace.box.visible
+
+
+class TestZoneTable:
+    """Households per zone in their groups, named by Census county."""
+
+    CROSSWALK = pl.DataFrame(
+        {
+            "puma_id": ["A", "B", "C"],
+            "study_geoid": ["001", "013", "075"],
+            "ctrl_geoid": ["East Bay", "East Bay", "San Francisco"],
+        }
+    )
+    COUNTIES: ClassVar[dict[str, str]] = {
+        "001": "Alameda County",
+        "013": "Contra Costa County",
+        "075": "San Francisco County",
+    }
+
+    @staticmethod
+    def _rows(html: str) -> list[list[str]]:
+        rows = re.findall(r"<tr>(.*?)</tr>", html, re.DOTALL)
+        cells = [re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", r) for r in rows]
+        return [[re.sub(r"<.*?>", "", c) for c in row] for row in cells]
+
+    def test_groups_counties_and_totals(self):
+        """Each group lists its zones and a subtotal; outside homes get their own row."""
+        seed = pl.DataFrame({"study_geoid": ["001", "001", "013", "075", None]})
+        rows = self._rows(crosswalk_summary_table(self.CROSSWALK, seed, self.COUNTIES))
+        assert rows == [
+            ["Zone group", "Zone", "Census county", "Households"],
+            ["East Bay", "001", "Alameda County", "2"],
+            ["", "013", "Contra Costa County", "1"],
+            ["", "", "Group", "3"],
+            ["San Francisco", "075", "San Francisco County", "1"],
+            ["Outside all zones", "", "", "1"],
+            ["Total", "", "", "5"],
+        ]
+
+    def test_without_groups_there_is_no_group_column(self):
+        """Zones balanced on their own need no group column or subtotals."""
+        crosswalk = self.CROSSWALK.with_columns(pl.col("study_geoid").alias("ctrl_geoid"))
+        seed = pl.DataFrame({"study_geoid": ["001", "075"]})
+        rows = self._rows(crosswalk_summary_table(crosswalk, seed, self.COUNTIES))
+        assert rows[0] == ["Zone", "Census county", "Households"]
+        assert ["001", "Alameda County", "1"] in rows
 
 
 class TestSummaries:
@@ -487,114 +532,6 @@ class TestAllPairs:
         assert all_pairs({"households": _frame(x=weights)}, [_set("x", "x")]) == []
 
 
-class TestInheritance:
-    """How a level's weight descends from its parent, and by what mechanism."""
-
-    def _tables(self, *, trips, person_days, day_of_trip=None):
-        """A days table and a trips table, trips mapped to days by *day_of_trip*."""
-        ids = day_of_trip if day_of_trip is not None else list(range(len(trips)))
-        return {
-            "person_days": pl.DataFrame(
-                {"person_day_id": list(range(len(person_days))), "dw": person_days}
-            ),
-            "unlinked_trips": pl.DataFrame({"person_day_id": ids, "tw": trips}),
-        }
-
-    def _set(self):
-        return WeightSet(
-            name="v", label="v", columns={"person_days": "dw", "unlinked_trips": "tw"}, fitted=False
-        )
-
-    def test_a_pure_copy_adds_nothing(self):
-        """Every child carries its parent's weight, so the level restates its parent."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
-        (row,) = inheritance(self._tables(trips=weights, person_days=list(weights)), [self._set()])
-
-        assert row.level == "unlinked_trips"
-        assert row.parent == "person_days"
-        assert row.share == pytest.approx(100.0)
-        assert row.mode == "copied"
-
-    def test_one_factor_per_scope_is_redistribution(self):
-        """Siblings absorbing a dropped sibling all move by the same factor.
-
-        Two trips share each day; both are scaled together, so the level is still
-        a faithful expansion of the level above.
-        """
-        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
-        day_of_trip, trips = [], []
-        for i, dw in enumerate(person_days):
-            factor = 1.5 if i % 3 == 0 else 1.0
-            day_of_trip += [i, i]
-            trips += [dw * factor, dw * factor]
-        (row,) = inheritance(
-            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
-            [self._set()],
-        )
-
-        assert row.n_scopes_varying == 0
-        assert row.max_scope_spread == pytest.approx(1.0)
-        assert row.share < 100.0
-        assert row.mode == "redistributed"
-
-    def test_siblings_on_different_factors_are_an_adjustment(self):
-        """The case worth flagging: records rescaled individually after descending.
-
-        Measured on bats_2023, the vendor's trip weights vary within 1,102 of
-        25,312 days by up to exactly 2x, while every fitted profile varies within
-        none. A summary that only counts departures from the parent cannot tell
-        the two apart.
-        """
-        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
-        day_of_trip, trips = [], []
-        for i, dw in enumerate(person_days):
-            day_of_trip += [i, i]
-            trips += [dw, dw * 2 if i % 5 == 0 else dw]
-        (row,) = inheritance(
-            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
-            [self._set()],
-        )
-
-        assert row.n_scopes_varying == 12
-        assert row.max_scope_spread == pytest.approx(2.0)
-        assert row.mode == "adjusted"
-
-    def test_float_noise_is_not_an_adjustment(self):
-        """Division noise must not be read as siblings on different factors."""
-        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
-        day_of_trip, trips = [], []
-        for i, dw in enumerate(person_days):
-            day_of_trip += [i, i]
-            trips += [dw, dw * (1 + 1e-15)]
-        (row,) = inheritance(
-            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
-            [self._set()],
-        )
-
-        assert row.n_scopes_varying == 0
-        assert row.mode != "adjusted"
-
-    def test_split_levels_are_excluded(self):
-        """Days divide their person's weight, so sibling ratios differ by design."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
-        tables = {
-            "persons": pl.DataFrame({"person_id": list(range(100)), "pw": weights}),
-            "person_days": pl.DataFrame({"person_id": list(range(100)), "dw": list(weights)}),
-        }
-        weight_set = WeightSet("v", "v", {"persons": "pw", "person_days": "dw"}, fitted=False)
-
-        assert inheritance(tables, [weight_set]) == []
-
-    def test_a_set_not_reaching_both_levels_is_skipped(self):
-        """Inheritance needs a parent weight to inherit from."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
-        weight_set = WeightSet("v", "v", {"unlinked_trips": "tw"}, fitted=False)
-
-        assert (
-            inheritance(self._tables(trips=weights, person_days=list(weights)), [weight_set]) == []
-        )
-
-
 # ===========================================================================
 # The weight cascade: what carries weight below the household
 #
@@ -728,9 +665,9 @@ class TestRedistribution:
             per_hh=[1, 1],
         )
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
-        assert row.p50 == 1.0
+        assert row.unchanged == 100.0
+        assert row.bands == (0.0, 0.0, 0.0, 0.0)
         assert row.maximum == 1.0
-        assert row.share_above == 0.0
 
     def test_survivor_carries_the_whole_household(self):
         """One usable member of four stands in for all of them."""
@@ -743,7 +680,36 @@ class TestRedistribution:
         )
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
         assert row.maximum == 4.0
-        assert row.share_above == 100.0
+        assert row.unchanged == 0.0
+        # 4x lands in the top range, over 3x
+        assert row.bands == (0.0, 0.0, 0.0, 100.0)
+
+    def test_an_exact_factor_stays_in_its_range(self):
+        """One of three kept is 3x, even when float arithmetic lands a hair above it."""
+        tables = _tables(
+            hh_usable=[True],
+            hh_weight=[0.1],
+            per_usable=[True, False, False],
+            per_weight=[0.1 * 3, 0.0, 0.0],  # 0.30000000000000004
+            per_hh=[1, 1, 1],
+        )
+        row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
+        assert row.bands == (0.0, 0.0, 100.0, 0.0)
+
+    def test_each_kept_record_lands_in_one_range(self):
+        """Two households, one kept whole and one keeping 2 of 3: shares add up to 100."""
+        tables = _tables(
+            hh_usable=[True, True],
+            hh_weight=[10.0, 10.0],
+            per_usable=[True, True, True, False],
+            per_weight=[10.0, 15.0, 15.0, 0.0],
+            per_hh=[1, 2, 2, 2],
+        )
+        row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
+        assert row.records == 3
+        assert row.unchanged == pytest.approx(100 / 3)
+        assert row.bands == pytest.approx((200 / 3, 0.0, 0.0, 0.0))
+        assert row.unchanged + sum(row.bands) == pytest.approx(100.0)
 
     def test_dropped_households_are_excluded(self):
         """A rejected household's members say nothing about redistribution."""
@@ -756,52 +722,6 @@ class TestRedistribution:
         )
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
         assert row.maximum == 1.0
-
-
-class TestSplitIdentity:
-    """Days divide their person's weight; they must sum back to it."""
-
-    @staticmethod
-    def _with_days(
-        person_day_weight: list[float], day_person: list[int]
-    ) -> dict[str, pl.DataFrame]:
-        tables = _tables(
-            hh_usable=[True],
-            hh_weight=[10.0],
-            per_usable=[True, True],
-            per_weight=[10.0, 10.0],
-            per_hh=[1, 1],
-        )
-        tables["person_days"] = pl.DataFrame(
-            {
-                "person_day_id": list(range(1, len(person_day_weight) + 1)),
-                "person_id": day_person,
-                FLAG: [True] * len(person_day_weight),
-                f"person_day_weight_{PROFILE}": person_day_weight,
-            }
-        )
-        return tables
-
-    def test_days_summing_to_the_person_leave_no_residual(self):
-        """Two usable days at half the person weight each."""
-        tables = self._with_days([5.0, 5.0, 10.0], [1, 1, 2])
-        row = next(iter(split_identity(tables, profile=PROFILE)))
-        assert row.max_residual == 0.0
-        assert row.stranded_parents == 0
-        assert row.parents_checked == 2
-
-    def test_residual_is_reported_not_swallowed(self):
-        """A split that does not reconcile is arithmetic we control -- surface it."""
-        tables = self._with_days([5.0, 3.0, 10.0], [1, 1, 2])
-        row = next(iter(split_identity(tables, profile=PROFILE)))
-        assert row.max_residual == 2.0
-
-    def test_person_with_no_usable_day_is_stranded(self):
-        """Their weight is unrepresented below, never pooled onto other people."""
-        tables = self._with_days([10.0], [2])
-        row = next(iter(split_identity(tables, profile=PROFILE)))
-        assert row.stranded_parents == 1
-        assert row.stranded_weight == 10.0
 
 
 # ===========================================================================
@@ -952,7 +872,11 @@ class TestGenerateReport:
         assert titles.count("Weight Cascade") == 1
         cascade = _section(html, "sec-cascade")
         for profile in fits:
-            assert f'colspan="3">{profile}' in cascade
+            assert f"<th>{profile}</th>" in cascade
+            # weight carried for dropped records follows each profile's toggle
+            assert f'class="profile-view" data-profile="{profile}"' in cascade
+        # every kept record is weighted or the run stops, so only kept counts show
+        assert "Unweighted" not in cascade
         # No geometry was passed, so the crosswalk is left out entirely rather
         # than rendered as a heading, a sidebar entry and an empty map.
         assert "Crosswalk Map" not in html

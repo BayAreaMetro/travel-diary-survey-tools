@@ -162,6 +162,25 @@ class TestBlockHouseholds:
             census_geo.get_block_households("06", 2023)
 
 
+class TestCountyNames:
+    """County names come from the Census, without the state the API appends."""
+
+    def test_names_drop_the_state(self, monkeypatch):
+        """'Alameda County, California' is shown as 'Alameda County'."""
+        payload = [
+            ["NAME", "state", "county"],
+            ["Alameda County, California", "06", "001"],
+            ["San Francisco County, California", "06", "075"],
+        ]
+        monkeypatch.setattr(census_geo, "_census_api_key", lambda: "k")
+        monkeypatch.setattr(census_geo.requests, "get", lambda *_a, **_k: payload)
+        monkeypatch.setattr(census_geo, "_census_json", lambda resp: resp)
+
+        result = census_geo.get_county_names("06", 2023)
+
+        assert result.rows() == [("06001", "Alameda County"), ("06075", "San Francisco County")]
+
+
 class TestPumaVintage:
     """Verify correct PUMA vintage is returned for a given PUMS year."""
 
@@ -360,6 +379,42 @@ class TestAssignBlocks:
         xw = self._make_xw({"G": ["1", "2"]})
         result = xw.assign_blocks(self._blocks()).sort("block_id")
         assert result["ctrl_geoid"].to_list() == ["G"] * 9 + [None]
+
+    def test_zones_are_named_by_their_census_counties(self):
+        """A zone in one county takes its name; one across counties lists each share."""
+        xw = self._make_xw()
+        # blocks 0-4 sit in county 001, blocks 5-9 in county 013, 100 people each
+        county = ["06001"] * 5 + ["06013"] * 5
+        xw.block_gdf = gpd.GeoDataFrame(
+            {
+                "block_id": [f"{c}{i:010d}" for i, c in enumerate(county)],
+                "block_pop": [100] * 10,
+            },
+            geometry=[box(i * 200, 0, i * 200 + 200, 1000) for i in range(10)],
+            crs="EPSG:5070",
+        )
+        names = pl.DataFrame(
+            {
+                "county_fips": ["06001", "06013"],
+                "county_name": ["Alameda County", "Contra Costa County"],
+            }
+        )
+        assert xw.zone_counties(names) == {
+            "1": "Alameda County",
+            "2": "Contra Costa County 67%, Alameda County 33%",
+        }
+
+    def test_a_county_without_a_census_name_stops(self):
+        """A county code the Census does not name is not guessed at."""
+        xw = self._make_xw()
+        xw.block_gdf = gpd.GeoDataFrame(
+            {"block_id": ["060010000000001"], "block_pop": [100]},
+            geometry=[box(0, 0, 200, 1000)],
+            crs="EPSG:5070",
+        )
+        empty = pl.DataFrame(schema={"county_fips": pl.Utf8, "county_name": pl.Utf8})
+        with pytest.raises(ValueError, match="no name for counties"):
+            xw.zone_counties(empty)
 
 
 class TestAssignBlockGroups:

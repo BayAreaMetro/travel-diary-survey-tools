@@ -48,6 +48,9 @@ from utils.crosswalk import build_crosswalk
 
 logger = logging.getLogger(__name__)
 
+# Counties under this share of a zone's population are left out of its name.
+_MIN_COUNTY_SHARE = 0.01
+
 
 def _build_zone_remap(zone_groups: dict[str, list[str]]) -> dict[str, str]:
     """Invert ``{group: [zone, ...]}`` → ``{zone: group}``."""
@@ -343,8 +346,8 @@ class PumaCrosswalk:
         and at most one zone. Pass every block in the state, not just the ones
         in the study area: a PUMA's Census total must count all of its blocks.
 
-        Returns ``[block_id, puma_id, ctrl_geoid]`` for blocks inside the
-        study's PUMAs, with ``ctrl_geoid`` null outside the zones.
+        Returns ``[block_id, puma_id, study_geoid, ctrl_geoid]`` for blocks
+        inside the study's PUMAs, with both zone columns null outside the zones.
         """
         pumas = self.puma_gdf[["puma_id", "geometry"]]
         minx, miny, maxx, maxy = pumas.to_crs(blocks.crs).total_bounds
@@ -362,10 +365,55 @@ class PumaCrosswalk:
                 subset=["block_id"], keep="first"
             )
 
-        zones = within(self.target_gdf, "study_geoid").select(
-            "block_id", pl.col("study_geoid").replace(self._zone_remap).alias("ctrl_geoid")
+        zones = within(self.target_gdf, "study_geoid").with_columns(
+            pl.col("study_geoid").replace(self._zone_remap).alias("ctrl_geoid")
         )
         return within(pumas, "puma_id").join(zones, on="block_id", how="left")
+
+    def zone_counties(self, county_names: pl.DataFrame) -> dict[str, str]:
+        """Name the Census counties each target zone covers, by population share.
+
+        The names come from the Census, not from the zone IDs in the config, so a
+        zone ID put in the wrong group shows up as a county that doesn't belong.
+        A zone inside one county reads "Alameda County"; one spanning several
+        reads "Alameda County 92%, Contra Costa County 8%". Counties under 1% of
+        a zone's population are left out.
+
+        Args:
+            county_names: ``[county_fips, county_name]``, from
+                [`get_county_names`][processing.weighting.data_prep.census_geo.get_county_names].
+
+        Raises:
+            ValueError: A county the zones cover has no Census name.
+        """
+        blocks = self.assign_blocks(self.block_gdf).join(
+            pl.from_pandas(self.block_gdf[["block_id", "block_pop"]]), on="block_id"
+        )
+        shares = (
+            blocks.filter(pl.col("study_geoid").is_not_null())
+            .group_by("study_geoid", pl.col("block_id").str.slice(0, 5).alias("county_fips"))
+            .agg(pl.col("block_pop").sum())
+            .with_columns(
+                (pl.col("block_pop") / pl.col("block_pop").sum().over("study_geoid")).alias("share")
+            )
+            .filter(pl.col("share") >= _MIN_COUNTY_SHARE)
+            .join(county_names, on="county_fips", how="left")
+            .sort("study_geoid", "share", descending=[False, True])
+        )
+        unnamed = shares.filter(pl.col("county_name").is_null())["county_fips"].unique().to_list()
+        if unnamed:
+            msg = f"The Census has no name for counties {sorted(unnamed)}"
+            raise ValueError(msg)
+
+        labels: dict[str, str] = {}
+        for (zone,), rows in shares.group_by("study_geoid", maintain_order=True):
+            names = rows["county_name"].to_list()
+            if rows.height == 1:
+                labels[str(zone)] = names[0]
+            else:
+                parts = zip(names, rows["share"].to_list(), strict=True)
+                labels[str(zone)] = ", ".join(f"{n} {s:.0%}" for n, s in parts)
+        return labels
 
     def allocate_pums_weights(
         self,

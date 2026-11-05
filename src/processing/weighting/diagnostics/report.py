@@ -44,7 +44,7 @@ from .charts import (
     imputation_distribution_figure,
     violins_figure,
 )
-from .comparison import Comparison, fitted_weight_sets, inheritance, payload
+from .comparison import Comparison, payload
 from .crosswalk_map import crosswalk_figure
 from .data import (
     apply_fit_merges,
@@ -53,18 +53,14 @@ from .data import (
     merge_control_moe,
     profile_summary,
     redistribution,
-    split_identity,
     weight_cascade,
     zone_fit_summary,
 )
 from .glossary import CASCADE, COMPARER, FIT, IMPUTATION, WEIGHTS, glossary_groups, term
 from .profile_tables import (
     cascade_table,
-    coverage_table,
-    inheritance_table,
     profile_comparison_table,
-    redistribution_table,
-    split_identity_table,
+    redistribution_view,
 )
 from .tables import (
     balancer_performance_table,
@@ -194,6 +190,18 @@ def _key(profile: str | None) -> str:
     return profile or "survey"
 
 
+def _per_profile(views: dict[str | None, str]) -> str:
+    """One block per profile, outside the panes, shown with that profile's toggle.
+
+    The first profile's block is shown on load, matching the first pane.
+    """
+    return "".join(
+        f'<div class="profile-view" data-profile="{_key(profile)}"'
+        f"{'' if i == 0 else ' hidden'}>{html}</div>"
+        for i, (profile, html) in enumerate(views.items())
+    )
+
+
 def _fit_control_table(
     fit: ProfileFit,
     control_totals: ControlTotals,
@@ -288,6 +296,7 @@ def generate_report(  # noqa: PLR0913
     target_gdf: GeoDataFrame | None = None,
     crosswalk_df: pl.DataFrame | None = None,
     zone_groups: dict[str, list[str]] | None = None,
+    zone_counties: dict[str, str] | None = None,
     merge_specs: list | None = None,
     control_moe: pl.DataFrame | None = None,
     pums_incidence: pl.DataFrame | None = None,
@@ -311,6 +320,7 @@ def generate_report(  # noqa: PLR0913
         target_gdf: Target-zone boundaries for the crosswalk map.
         crosswalk_df: The PUMA-to-zone allocation table.
         zone_groups: Zone groupings, when zones were merged for balancing.
+        zone_counties: Each zone's Census county name or names, for the zone table.
         merge_specs: Category merges, for labelling the fit table.
         control_moe: Per-cell PUMS standard errors from replicate weights.
         pums_incidence: PUMS incidence, as the reference distribution for the
@@ -367,9 +377,13 @@ def generate_report(  # noqa: PLR0913
         )
         crosswalk_section = f'<div class="chart-map">{figure.to_html(**_PLOTLY_KWARGS)}</div>'
 
-    first = next(iter(fits.values()))
     crosswalk_table = (
-        crosswalk_summary_table(crosswalk_df, first.seed_incidence)
+        _per_profile(
+            {
+                p: crosswalk_summary_table(crosswalk_df, f.seed_incidence, zone_counties or {})
+                for p, f in fits.items()
+            }
+        )
         if crosswalk_df is not None
         else ""
     )
@@ -380,23 +394,15 @@ def generate_report(  # noqa: PLR0913
         profile: weight_cascade(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
         for profile, fit in fits.items()
     }
-    ratios = {
-        profile: redistribution(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
+    carried = {
+        profile: redistribution_view(
+            redistribution(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
+        )
         for profile, fit in fits.items()
     }
-    splits = {profile: split_identity(tables, profile=profile) for profile in fits}
-
-    # How each set's weight descends, including any supplied sets: it describes
-    # each set on its own, so it belongs with the cascade, not the comparer.
-    sets = comparison.sets if comparison is not None else fitted_weight_sets(list(fits))
     cascade_blocks = {
         "cascade_table": cascade_table(cascades),
-        "redistribution_table": redistribution_table(ratios),
-        "inheritance_table": inheritance_table(
-            inheritance(tables, sets), {s.name: s.label for s in sets}
-        ),
-        "split_identity_table": split_identity_table(splits),
-        "coverage_table": coverage_table({p: f.coverage for p, f in fits.items()}),
+        "redistribution_view": _per_profile(carried) if any(carried.values()) else "",
     }
 
     # Section 4 — the pairwise comparer, embedded as data and drawn in the browser

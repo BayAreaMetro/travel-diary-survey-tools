@@ -447,7 +447,15 @@ def weight_cascade(
     return rows
 
 
-REDISTRIBUTION_TAIL = 1.5
+# How far a kept record's weight can be raised to carry dropped siblings, as
+# (label, lower, upper) multiples of the record above. "Unchanged" comes first.
+RAISE_BANDS: tuple[tuple[str, float, float], ...] = (
+    ("Up to 1.5&times;", 1.0, 1.5),
+    ("1.5&times; to 2&times;", 1.5, 2.0),
+    ("2&times; to 3&times;", 2.0, 3.0),
+    ("Over 3&times;", 3.0, float("inf")),
+)
+_UNCHANGED_TOL = 1e-6  # ratios this close to 1, or to a range edge, are that value
 
 
 @dataclass(frozen=True)
@@ -458,15 +466,17 @@ class RedistributionRow:
     rule every child in a scope is scaled by the same factor, so the ratio *is*
     that factor: 1.0 where every sibling was usable, and rising as the survivors
     take on the share of those that were not.
+
+    ``unchanged`` and ``bands`` are percentages of ``records``; ``bands`` follows
+    [`RAISE_BANDS`][processing.weighting.diagnostics.data.RAISE_BANDS].
     """
 
     table: str
     parent: str
-    p50: float
-    p90: float
-    p99: float
+    records: int
+    unchanged: float
+    bands: tuple[float, ...]
     maximum: float
-    share_above: float
 
 
 def _edge_columns(
@@ -502,8 +512,7 @@ def redistribution(
 
     Split edges (days) are excluded: their children divide the parent's weight
     rather than copying it, so a ratio below 1 is the rule working, not a record
-    standing in for its siblings. Those are described by
-    [`split_identity`][processing.weighting.diagnostics.data.split_identity].
+    standing in for its siblings.
     """
     out: list[RedistributionRow] = []
     for level in levels_with_flow(Flow.DOWN):
@@ -528,82 +537,23 @@ def redistribution(
             continue
 
         ratio = joined[child_col] / joined[parent_col]
+        n = len(ratio)
+
+        def share(mask: pl.Series, n: int = n) -> float:
+            return 100.0 * float(mask.sum()) / n
+
         out.append(
             RedistributionRow(
                 table=level.table,
                 parent=level.parent,
-                p50=float(ratio.quantile(0.5) or 0.0),
-                p90=float(ratio.quantile(0.9) or 0.0),
-                p99=float(ratio.quantile(0.99) or 0.0),
+                records=n,
+                unchanged=share((ratio - 1).abs() <= _UNCHANGED_TOL),
+                # Edges carry the tolerance too: 1 of 3 kept is 3x, give or take float error
+                bands=tuple(
+                    share((ratio > lo + _UNCHANGED_TOL) & (ratio <= hi + _UNCHANGED_TOL))
+                    for _, lo, hi in RAISE_BANDS
+                ),
                 maximum=float(ratio.max() or 0.0),
-                share_above=100.0 * float((ratio > REDISTRIBUTION_TAIL).sum()) / len(ratio),
-            )
-        )
-    return out
-
-
-@dataclass(frozen=True)
-class SplitIdentityRow:
-    """Whether a split level's children still sum to what their parent carries.
-
-    Arithmetic the pipeline controls, so a residual past floating-point noise is
-    a bug rather than a finding. ``stranded_parents`` is the exception it cannot
-    fix: a parent carrying weight with no child rows at all has nothing to
-    represent it below, and that weight is deliberately left unrepresented
-    rather than pooled onto other parents.
-    """
-
-    table: str
-    parent: str
-    parents_checked: int
-    max_residual: float
-    stranded_parents: int
-    stranded_weight: float
-    min_children: int
-    median_children: int
-    max_children: int
-
-
-def split_identity(
-    tables: dict[str, pl.DataFrame | None],
-    *,
-    profile: str | None,
-) -> list[SplitIdentityRow]:
-    """Verify ``sum(child weight) == parent weight`` on every split edge."""
-    out: list[SplitIdentityRow] = []
-    for level in levels_with_flow(Flow.DOWN):
-        if not level.split or level.parent is None:
-            continue
-        child, parent = tables.get(level.table), tables.get(level.parent)
-        if child is None or parent is None:
-            continue
-        cols = _edge_columns(level, child, parent, profile)
-        if cols is None:
-            continue
-        child_col, parent_col, key = cols
-
-        per_parent = (
-            child.filter(pl.col(child_col) > 0)
-            .group_by(key)
-            .agg(pl.col(child_col).sum().alias("_sum"), pl.len().alias("_n"))
-        )
-        carrying = parent.filter(pl.col(parent_col) > 0).select(key, parent_col)
-        merged = carrying.join(per_parent, on=key, how="inner")
-        stranded = carrying.join(per_parent.select(key), on=key, how="anti")
-        if merged.is_empty():
-            continue
-
-        out.append(
-            SplitIdentityRow(
-                table=level.table,
-                parent=level.parent,
-                parents_checked=merged.height,
-                max_residual=float((merged["_sum"] - merged[parent_col]).abs().max() or 0.0),
-                stranded_parents=stranded.height,
-                stranded_weight=float(stranded[parent_col].sum() or 0.0),
-                min_children=int(merged["_n"].min() or 0),
-                median_children=int(merged["_n"].median() or 0),
-                max_children=int(merged["_n"].max() or 0),
             )
         )
     return out

@@ -107,6 +107,20 @@
   .tile { border: 1px solid #ddd; padding: .4rem .7rem; min-width: 104px; }
   .tile .k { display: block; color: #666; font-size: .78em; margin-bottom: .1rem; }
   .tile .v { font-size: 1.25em; font-variant-numeric: tabular-nums; }
+  /* Zone table and weight carried for dropped records */
+  .checks { border-left: 3px solid #2a7f2a; background: #f3f9f3; padding: .5rem .9rem;
+            margin: .8rem 0; max-width: 80ch; font-size: .95em; }
+  .checks ul { margin: .3rem 0 0; padding-left: 1.2rem; }
+  .bars { max-width: 720px; margin: .8rem 0; }
+  .bar-row { display: flex; align-items: center; gap: .6rem; margin: .3rem 0; }
+  .bar-lab { width: 7rem; color: #444; font-size: .9em; }
+  .bar { display: flex; flex: 1; height: 1.1rem; border: 1px solid #ccc; }
+  .seg { display: block; height: 100%; }
+  .s0 { background: #d9e6ef; } .s1 { background: #f2c18d; } .s2 { background: #e8954b; }
+  .s3 { background: #c9611f; } .s4 { background: #8a3a0c; }
+  .legend { font-size: .8em; color: #555; margin: .3rem 0 0 7.6rem; }
+  .legend .key { display: inline-block; width: .8rem; height: .8rem; vertical-align: -1px;
+                 margin: 0 .2rem 0 .6rem; border: 1px solid #bbb; }
   @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -188,7 +202,11 @@
   simplified to about 10&nbsp;m, which is not visible at this scale and keeps the file small.
 </div></details>
 {{ crosswalk_section }}
+{% if crosswalk_table %}
+<h3>Households by zone &mdash; <span class="profile-name active-profile">{{ panes[0].profile }}</span></h3>
+<p class="lede">Surveyed households in each zone for the selected profile. County names come from the Census, so a zone ID listed under the wrong group shows up as the wrong county.</p>
 {{ crosswalk_table }}
+{% endif %}
 {% if survey_share_table %}
 <h3>Survey share of each group</h3>
 <p class="lede">Each group's share of its area's survey records against its share of the area's PUMS (households for household targets, persons for person targets), smallest ratio first.</p>
@@ -209,46 +227,28 @@
 {% if nums.cascade is defined %}
 <section id="sec-cascade" data-sec="cascade">
 <h2>{{ nums.cascade }} &mdash; {{ titles.cascade }}</h2>
-<p class="lede">Records included and records weighted at each level, for every profile.</p>
-<details class="more"><summary>How to read this</summary><div><ul>
-  <li><b>Usable</b>: meets the profile's criteria for that level.</li>
-  <li><b>Weighted</b>: usable and assigned a weight.</li>
-  <li><b>Unweighted</b>: usable but assigned no weight. Below the household level, this means the record's household was excluded, so a person can be usable and still have no weight. At the household level, it means the household is outside every control zone (see the coverage table below).</li>
-</ul></div></details>
+<p class="lede">Records each profile keeps at each level. Only kept records carry a weight.</p>
 {{ cascade_table }}
 
-<h3>Redistribution of dropped records' weight</h3>
-<p class="lede">Dropped records' weight is redistributed among the remaining records at that level. The table shows each record's {{ term("ratio", "weight divided by the weight of the record it belongs to") }}, such as a person's weight divided by their household's; 1.0 means nothing was dropped.</p>
-<details class="more"><summary>How to read this</summary><div>
-  Every remaining record that belongs to the same higher-level record is scaled up by the same factor. A maximum of 10 means one
-  person carries the weight of a ten-person household. This is arithmetically correct, but records with
-  high ratios have a large influence on estimates, so check how many there are.
-</div></details>
-{{ redistribution_table }}
+<div class="checks">
+  <b class="converged">&#10003; Weight checks passed</b>
+  <ul>
+    <li>Every kept record carries a weight, and no other record does.</li>
+    <li>At every level, the weights add up to the level above.</li>
+  </ul>
+</div>
 
-{% if inheritance_table %}
-<h3>How each level's weights relate to the level above</h3>
-<p class="lede">For each set of weights, whether the weights at a level were copied from the level above, redistributed from it, or adjusted afterwards. Includes weights supplied with the survey.</p>
-<details class="more"><summary>How to read this</summary><div><ul>
-  <li><b>Copied</b>: every record has the same weight as the record it belongs to. Comparing weight sets at this level shows nothing that the level above does not.</li>
-  <li><b>Redistributed</b>: records that belong to the same higher-level record, such as the trips on one day, are all scaled by the same factor, so totals at this level stay consistent with the level above.</li>
-  <li><b>Adjusted per record</b>: records that belong to the same higher-level record were scaled by different factors after the weights were assigned. Totals calculated at this level will not match the same totals calculated at the level above; for example, trip-based totals will not match day-based totals. <b>Groups with unequal adjustments</b> counts the higher-level records where this occurs, and <b>Largest difference</b> is the largest ratio between two factors within one of them.</li>
-</ul>Days are excluded, because a person's weight is divided among their days by design.</div></details>
-{{ inheritance_table }}
+{% if redistribution_view %}
+<h3>Weight carried for dropped records &mdash; <span class="profile-name active-profile">{{ panes[0].profile }}</span></h3>
+<p class="lede">When a household keeps only some of its people, the people kept carry the dropped people's share of the household's weight. Trips within a day work the same way. Most kept records are unchanged; the rest are scaled up by the amount shown.</p>
+<details class="more"><summary>How to read this</summary><div>
+  A household of 3 that keeps 2 people: each kept person carries 1.5&times; the household's weight.
+  One person kept from a household of 4 carries 4&times;. The totals stay right either way, but a record
+  scaled up a lot has more influence on estimates, so look at how many are in the higher ranges.
+  Days are split from their person rather than carried, so they are not shown.
+</div></details>
+{{ redistribution_view }}
 {% endif %}
-
-<h3>Day split identity</h3>
-<p class="lede">A person's weight is divided among their usable days, so each person's day weights must add up to the person weight.</p>
-<details class="more"><summary>How to read this</summary><div>
-  Any gap larger than rounding error indicates a software defect. <b>With no usable lower-level record</b>
-  counts persons who have a weight but no usable day. Their weight is not passed down to the day level, rather
-  than being moved to other persons, which would distort day-level totals.
-</div></details>
-{{ split_identity_table }}
-
-<h3>Control geography coverage</h3>
-<p class="lede">Households outside every control zone cannot be assigned a weight.</p>
-{{ coverage_table }}
 </section>
 {% endif %}
 
@@ -582,6 +582,14 @@ the model's estimates do not suit the survey population.</p>
     active = key;
     panes.forEach(function (p) {
       p.style.display = p.dataset.profile === key ? '' : 'none';
+    });
+    /* Blocks outside the panes that still belong to one profile */
+    document.querySelectorAll('.profile-view').forEach(function (v) {
+      v.hidden = v.dataset.profile !== key;
+    });
+    var label = activePane() && activePane().querySelector('.profile-name');
+    document.querySelectorAll('.active-profile').forEach(function (s) {
+      s.textContent = label ? label.textContent : key;
     });
     buttons.forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.profile === key));
