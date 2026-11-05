@@ -71,7 +71,7 @@ def survey_tech(persons: pl.DataFrame) -> pl.DataFrame:
     """
     techs = {
         "rmove": SurveyTech.GPS,
-        "browser": SurveyTech.FORM,
+        "browser": SurveyTech.BROWSER,
         "call": SurveyTech.CALL_CENTER,
     }
     unknown = sorted(set(persons["diary_platform"].drop_nulls().unique()) - set(techs))

@@ -81,7 +81,7 @@ COORDS = {
     "home_t": (37.7390, -122.4380),
 }
 
-# A week diary runs Monday to Sunday, as rMove households report, so every
+# A week diary runs Monday to Sunday, as phone-app households report, so every
 # household type is on every day and a profile limiting the days of the week
 # drops some of each household's days rather than whole households.
 WEEK = [date(2024, 3, 11) + timedelta(days=n) for n in range(7)]
@@ -134,7 +134,7 @@ MODE_WALK, MODE_BIKE_RENTED, MODE_BART = Mode.WALK.value, Mode.BIKE_RENTED.value
 WP_FREE, WP_NOT_APPLICABLE = WorkParking.FREE.value, WorkParking.NOT_APPLICABLE.value
 WP_MISSING = WorkParking.MISSING.value
 YES, NO = 1, 0
-TECH_GPS, TECH_FORM = SurveyTech.GPS.value, SurveyTech.FORM.value
+TECH_GPS, TECH_BROWSER = SurveyTech.GPS.value, SurveyTech.BROWSER.value
 DRV_DRIVER, DRV_PASSENGER = Driver.DRIVER.value, Driver.PASSENGER.value
 DRV_MISSING = Driver.MISSING.value
 JOB_FIXED, JOB_VARIES = JobType.FIXED.value, JobType.VARIES.value
@@ -1326,8 +1326,8 @@ def _build_records():
         FEMALE,
         EMP_NOT_LOOKING,
         STU_NONSTUDENT,
-        tech=TECH_FORM,
-        excl="survey_tech excluded: form",
+        tech=TECH_BROWSER,
+        excl="survey_tech excluded: browser",
     )
     s.week(3301, 33).round_trip(
         "home_l",

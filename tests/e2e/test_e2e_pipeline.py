@@ -360,4 +360,4 @@ class TestExcludedPersons:
 
     def test_the_reason_reaches_the_delivered_persons(self, full_result):
         person = full_result.persons.filter(pl.col("hh_id") == self.HH)
-        assert person["exclusion_reason"].to_list() == ["survey_tech excluded: form"]
+        assert person["exclusion_reason"].to_list() == ["survey_tech excluded: browser"]

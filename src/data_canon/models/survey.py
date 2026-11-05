@@ -154,7 +154,7 @@ class PersonModel(BaseModel):
     survey_tech: SurveyTech = schema_field(
         description=(
             "The technology that collected this person's travel: a call center, a "
-            "form (browser, tablet or paper), or GPS (a phone app). A person whose "
+            "browser, or GPS (a phone app). A person whose "
             "travel was reported by someone else carries the technology it was "
             "reported through; one whose travel was never collected is MISSING."
         ),

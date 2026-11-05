@@ -378,7 +378,7 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
     # neither veto a household-date nor inherit its verdict.
     persons = persons.with_columns((pl.col("is_active_participant") == 1).alias("surveyable"))
 
-    # 2019 collected every diary through rMove, the phone app. A non-participant
+    # 2019 collected every diary through a phone app (GPS). A non-participant
     # kept no diary, so no technology collected their travel.
     persons = persons.with_columns(
         pl.when(pl.col("is_active_participant") == 1)

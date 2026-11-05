@@ -521,7 +521,7 @@ class TestExcludedPersons:
 
     def test_the_excluded_persons_day_tour_and_trip_are_unusable(self):
         """Everything of the excluded member goes; the other member keeps theirs."""
-        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: browser"]), self.LOOSE)
 
         for table, key in (
             ("person_days", "person_day_id"),
@@ -533,13 +533,13 @@ class TestExcludedPersons:
 
     def test_survey_complete_is_untouched(self):
         """The vendor's verdict stays the vendor's; only usability narrows."""
-        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: browser"]), self.LOOSE)
 
         assert stamped["person_days"]["survey_complete"].to_list() == [True, True]
 
     def test_a_household_needing_every_member_loses_the_date(self):
         """An excluded member is an unusable member, so the whole date fails."""
-        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), STRICT)
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: browser"]), STRICT)
 
         assert stamped["household_days"]["usable_test"].to_list() == [False]
         assert stamped["households"]["usable_test"].to_list() == [False]
@@ -547,13 +547,13 @@ class TestExcludedPersons:
 
     def test_a_household_needing_no_whole_date_keeps_its_other_member(self):
         """With no whole-date rule, the household stands on the member it kept."""
-        stamped = _stamp(self._two_members([None, "survey_tech excluded: form"]), self.LOOSE)
+        stamped = _stamp(self._two_members([None, "survey_tech excluded: browser"]), self.LOOSE)
 
         assert stamped["households"]["usable_test"].to_list() == [True]
 
     def test_a_household_whose_members_are_all_excluded_is_unusable(self):
         """No household reason is needed: with no usable day, the household falls."""
-        reason = "survey_tech excluded: form"
+        reason = "survey_tech excluded: browser"
         stamped = _stamp(self._two_members([reason, reason]), self.LOOSE)
 
         assert stamped["households"]["usable_test"].to_list() == [False]
