@@ -346,25 +346,9 @@ steps:
           merge:
             children_1_plus: [children_1, children_2, children_3, children_4, children_5_plus]
 
-        # PUMA level controls, used for geographic balancing within larger zones
-        # In this case we use is to ensure the total population of the individual counties
-        # within the weighting zone groups are well fit.
-        - name: h_puma
-          importance: 200
-          zone_merges:
-            "Marin/Napa/Solano/Sonoma":
-              napa: [puma_05500]
-              marin: [puma_04101, puma_04102]
-              solano: [puma_09501, puma_09502, puma_09503]
-              sonoma: [puma_09701, puma_09702, puma_09703]
-            "San Francisco/San Mateo/Santa Clara":
-              san_francisco: [puma_07501, puma_07502, puma_07503, puma_07504, puma_07505, puma_07506, puma_07507]
-              san_mateo: [puma_08101, puma_08102, puma_08103, puma_08104, puma_08105, puma_08106]
-              santa_clara: [puma_08501, puma_08502, puma_08503, puma_08504, puma_08505, puma_08506, puma_08507, puma_08508, puma_08509, puma_08510, puma_08511, puma_08512, puma_08513, puma_08514]
-            "Alameda/Contra Costa":
-              alameda: [puma_00101, puma_00102, puma_00103, puma_00104, puma_00105, puma_00106, puma_00107, puma_00108, puma_00109, puma_00110]
-              contra_costa: [puma_01301, puma_01302, puma_01303, puma_01304, puma_01305, puma_01306, puma_01307, puma_01308, puma_01309]
-
+        # Households per target zone within each zone group, which in this case is a county
+        - name: h_target_zone
+        # - name: h_puma # Tends to be too granular and can make convergence difficult
 
         # Person level controls (gets aggregated to household level, i.e., num age group per household)
         - name: p_gender

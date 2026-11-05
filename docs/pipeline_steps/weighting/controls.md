@@ -51,22 +51,32 @@ outside every zone.
   is written to `household_weights` as `home_puma`.
 - It is never imputed: a household with no PUMA stops the run.
 
-A survey rarely reaches enough homes in every PUMA to target each one. Grouping a
-zone's PUMAs by county keeps each county's households right where counties share a
-zone, without a zone per county:
+A survey rarely reaches enough homes in every PUMA to target each one. Merging a
+zone's PUMAs into groups, with `zone_merges`, targets the groups instead. Merging
+all of a zone's PUMAs into one group turns the target off in that zone. A category
+that merges replace in every zone is left out of the report's tables.
+
+## Households per target zone
+
+`h_target_zone` targets the households in each target zone, the polygons of
+`geography.target_zones`, within each balancing zone. Where `zone_groups` joins
+target zones to balance them together, it keeps each one's household total right
+without a balancing zone of its own. Where target zones are counties, these are the
+county totals.
+
+- Like `h_puma`, it is not in the table below: its categories are the target zone
+  IDs, found when the run starts, such as `001`.
+- A survey home's zone is the one its point falls in. A PUMS record's zone comes
+  from the crosswalk, which copies each record into every zone its PUMA reaches,
+  so each copy counts in its own zone.
+- In a balancing zone made of one target zone it has no target: there it would be
+  the zone's household total, already `h_total`.
+- It is never imputed: a household in no zone stops the run.
 
 ```yaml
 controls:
-  - name: h_puma
-    zone_merges:
-      "Alameda/Contra Costa/San Mateo":  # PUMA lists shortened
-        alameda: [puma_00101, puma_00111, puma_00112, ...]
-        contra_costa: [puma_01301, puma_01305, puma_01308, ...]
-        san_mateo: [puma_08101, puma_08102, puma_08103, ...]
+  - name: h_target_zone
 ```
-
-Merging all of a zone's PUMAs into one group turns the target off in that zone.
-A category that merges replace in every zone is left out of the report's tables.
 
 ## Available controls
 
