@@ -87,6 +87,7 @@ class ControlTarget:
         categories: ``IntEnum`` or ``LabeledEnum`` for output bins.
         survey_fields: Canonical survey column names (metadata).
         pums_fields: PUMS column names (metadata).
+        imputable: Whether fractional imputation may fill a missing value.
     """
 
     name: str
@@ -96,6 +97,7 @@ class ControlTarget:
     survey_fields: tuple[str, ...]
     pums_fields: tuple[str, ...]
     structural: bool = False
+    imputable: bool = True
 
     def survey_expr(self) -> pl.Expr:
         """Polars expression mapping survey columns → control int (Int16)."""

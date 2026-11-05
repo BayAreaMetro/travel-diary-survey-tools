@@ -2,12 +2,14 @@
 
 One row or column per profile, so the fits can be read side by side: seed and
 weight sums, the cascade of usable records, and how far kept records were
-scaled up to carry dropped ones.
+scaled up to carry dropped ones. The records the cleaner excluded sit beside the
+cascade, the same under every profile.
 """
 
 from .data import (
     RAISE_BANDS,
     CascadeRow,
+    ExclusionRow,
     ProfileSummary,
     RedistributionRow,
 )
@@ -89,6 +91,14 @@ def cascade_table(cascades: dict[str | None, list[CascadeRow]]) -> str:
         cells += [f"{r.usable:,}" if (r := per_profile.get(p)) else "—" for p in profiles]
         body.append(cells)
     return html_table(headers, body)
+
+
+def exclusion_table(rows: list[ExclusionRow]) -> str:
+    """Records the project cleaner excluded, by level and reason."""
+    if not rows:
+        return ""
+    body = [[r.table.replace("_", " "), r.reason, f"{r.records:,}"] for r in rows]
+    return html_table(["Level", "Reason", "Records"], body)
 
 
 def redistribution_view(rows: list[RedistributionRow]) -> str:

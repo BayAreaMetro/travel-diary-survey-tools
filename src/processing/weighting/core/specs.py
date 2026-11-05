@@ -388,6 +388,7 @@ class WeightingConfig:
     state_fips: str
     pums_year: int
     pums_weights: PumsWeights
+    use_imputed_values: bool
     # Which usability profiles decide who carries weight, one fit each. Required:
     # with several profiles stamped there is no defensible default, and picking
     # silently would weight a different universe than the formatters emit.

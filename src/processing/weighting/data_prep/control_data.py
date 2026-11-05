@@ -56,7 +56,7 @@ def recode_pums_households(
 ) -> pl.DataFrame:
     """Recode PUMS household records into control categories.
 
-    Derives person-level aggregates (workers, children) then loops over
+    Derives person-level aggregates (workers, children, drivers) then loops over
     household-level controls calling ``ctrl.from_pums_row``.
 
     Args:
@@ -84,6 +84,13 @@ def recode_pums_households(
             .sum()
             .cast(pl.Int32)
             .alias("_n_children"),
+        )
+    if "h_vehicles_per_driver" in requested:
+        aggs.append(
+            (pl.col("AGEP").is_not_null() & (pl.col("AGEP") >= PumsThresholds.MIN_DRIVING_AGE))
+            .sum()
+            .cast(pl.Int32)
+            .alias("_n_drivers"),
         )
 
     if aggs:

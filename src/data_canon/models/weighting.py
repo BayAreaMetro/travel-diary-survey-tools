@@ -39,6 +39,13 @@ class HouseholdWeightingModel(BaseModel):
             "balance them separately."
         ),
     )
+    home_puma: str | None = schema_field(
+        default=None,
+        description=(
+            "PUMA containing the home location, from the PUMA boundaries the "
+            "PUMS targets are allocated by."
+        ),
+    )
     bg_geo_id: str | None = schema_field(
         default=None,
         description="Census block group GEOID containing the home location.",

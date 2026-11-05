@@ -64,7 +64,12 @@ from processing.weighting.balancing.base_weights import (
     grow_block_households,
 )
 from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
-from processing.weighting.controls.registry import register_crosstabs_from_config, resolve_targets
+from processing.weighting.controls.household import HHPumaControl
+from processing.weighting.controls.registry import (
+    register_crosstabs_from_config,
+    register_puma_control,
+    resolve_targets,
+)
 from processing.weighting.core.hierarchy import seed_col_for, weight_col_for
 from processing.weighting.core.propagation import (
     propagate_weights,
@@ -103,6 +108,7 @@ from processing.weighting.data_prep.pums_data import fetch_pums_data, load_pums_
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
+    restore_original_answers,
 )
 from processing.weighting.validation.checksums import check_incidence_sums
 from processing.weighting.validation.control_validation import (
@@ -142,8 +148,9 @@ class WeightingPipeline:
     pipeline.setup()
     pipeline.fetch_pums()
 
+    pipeline.place_households()
     pipeline.recode_and_pivot()
-    pipeline.assign_zones()
+    pipeline.allocate_pums()
     pipeline.apply_merges()
 
     pipeline.aggregate_totals()
@@ -228,7 +235,25 @@ class WeightingPipeline:
     # ------------------------------------------------------------------
 
     def setup(self) -> None:
-        """Register crosstabs, resolve control instances, build crosswalk."""
+        """Build crosswalk, register run-time controls, resolve control instances."""
+        zone_groups = self.config.geography.zone_groups
+
+        # Prepare the crosswalk with the full set of zones (including zone groups)
+        # Store as an instance attribute for use in zone assignment and diagnostics
+        self.crosswalk = PumaCrosswalk(
+            self.config.geography,
+            state_fips=self.config.state_fips,
+            pums_year=self.config.pums_year,
+            cache_dir=self.cache_dir,
+            zone_groups=zone_groups,
+        )
+
+        # h_puma's categories are the crosswalk's PUMAs, so it is registered here
+        register_puma_control(
+            self.crosswalk.allocated_puma_ids
+            if HHPumaControl.name in self.controls.target_names
+            else None
+        )
         register_crosstabs_from_config(
             [
                 {
@@ -243,18 +268,6 @@ class WeightingPipeline:
         ctrl_instances = resolve_targets(self.controls.target_names)
         validate_total_control_categories(ctrl_instances)
         logger.info("Controls: %s", self.controls.target_names)
-
-        zone_groups = self.config.geography.zone_groups
-
-        # Prepare the crosswalk with the full set of zones (including zone groups)
-        # Store as an instance attribute for use in zone assignment and diagnostics
-        self.crosswalk = PumaCrosswalk(
-            self.config.geography,
-            state_fips=self.config.state_fips,
-            pums_year=self.config.pums_year,
-            cache_dir=self.cache_dir,
-            zone_groups=zone_groups,
-        )
 
     def fetch_pums(self) -> None:
         """Load PUMS microdata from local files or the Census API, then clean it."""
@@ -338,13 +351,16 @@ class WeightingPipeline:
         # Recode canonical survey HH + person tables through the same
         # control expressions used for PUMS above.
         strict_nulls = self.config.strict_survey_nulls
+        households, persons = self.data.households, self.data.persons
+        if not self.config.use_imputed_values:
+            households, persons = restore_original_answers(households, persons)  # pyright: ignore[reportArgumentType]
         hh_recoded = recode_survey_households(
-            self.data.households,  # pyright: ignore[reportArgumentType]
-            self.data.persons,  # pyright: ignore[reportArgumentType]
+            households,  # pyright: ignore[reportArgumentType]
+            persons,  # pyright: ignore[reportArgumentType]
             names,
             strict_nulls=strict_nulls,
         )
-        per_recoded = recode_survey_persons(self.data.persons, names, strict_nulls=strict_nulls)  # pyright: ignore[reportArgumentType]
+        per_recoded = recode_survey_persons(persons, names, strict_nulls=strict_nulls)  # pyright: ignore[reportArgumentType]
 
         # Pivot into incidence bundle (one row per hh_id). Unfiltered: which
         # households enter a seed is a profile's question, answered per fit in
@@ -357,13 +373,13 @@ class WeightingPipeline:
             self.survey_bundle.person_pivot["p_total"].sum(),
         )
 
-    def assign_zones(self) -> None:
-        """Point-in-polygon zone assignment + optional block-group assignment.
+    def place_households(self) -> None:
+        """Point-in-polygon zone and PUMA assignment + optional block-group assignment.
 
-        Mutates ``self.data.households`` in place (adds geo columns) and
-        allocates the PUMS household and person incidence across zones. Each seed takes its geo
-        columns off ``self.data.households`` in `build_seed`, since a seed only
-        exists once a profile has been named.
+        Mutates ``self.data.households`` in place (adds geo columns). Runs before
+        `recode_and_pivot`, which reads ``home_puma`` for ``h_puma``. Each seed
+        takes its geo columns off ``self.data.households`` in `build_seed`, since a
+        seed only exists once a profile has been named.
         """
         hh = self.crosswalk.assign_households(self.data.households)  # pyright: ignore[reportArgumentType]
         n_assigned = hh.filter(pl.col("study_geoid").is_not_null()).height
@@ -375,6 +391,9 @@ class WeightingPipeline:
             logger.info("Assigned %d / %d HHs to block groups", n_bg, len(hh))
 
         self.data.households = hh
+
+    def allocate_pums(self) -> None:
+        """Allocate the PUMS household and person incidence across zones through the crosswalk."""
         self.pums_incidence = self.crosswalk.allocate_pums_incidence(
             self.pums_incidence,
         )
@@ -514,7 +533,8 @@ class WeightingPipeline:
         if coverage.n_unplaceable:
             # A household in no zone reaches no ZoneInput, so keeping it cannot
             # weight it -- it only inflates the response count its sample segment
-            # divides by. Dropped before imputation, which needs each household's zone.
+            # divides by. Dropped before imputation, which needs each household's zone
+            # and never fills h_puma.
             placed = geo.filter(pl.col("ctrl_geoid").is_not_null())["hh_id"]
             bundle = bundle.filter_households(placed)
 

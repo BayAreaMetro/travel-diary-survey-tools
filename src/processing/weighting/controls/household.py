@@ -9,6 +9,8 @@ documented in [`ControlTarget`][processing.weighting.controls.base.ControlTarget
 — individual method docstrings are omitted for brevity (ruff noqa: D102).
 """
 
+from enum import IntEnum
+
 import polars as pl
 
 from data_canon.codebook.households import IncomeBroad
@@ -22,6 +24,7 @@ from processing.weighting.controls.enums import (
     HHChildrenCategory,
     HHSizeCategory,
     HHVehiclesCategory,
+    HHVehiclesPerDriverCategory,
     HHWorkersCategory,
     TotalCategory,
 )
@@ -98,6 +101,44 @@ class HHVehiclesControl(ControlTarget):
         return pl.when(v >= 0).then(v.clip(0, 6)).cast(pl.Int16)
 
 
+class HHVehiclesPerDriverControl(ControlTarget):
+    """Vehicles in household against drivers: none, fewer, as many, more.
+
+    A driver is anyone of driving age (16+); neither side has license data.
+    """
+
+    name = "h_vehicles_per_driver"
+    level = ControlLevel.HOUSEHOLD
+    description = "Vehicles per driver"
+    categories = HHVehiclesPerDriverCategory
+    survey_fields = ("num_vehicles", "_n_drivers")
+    pums_fields = ("VEH",)  # drivers derived from person-level AGEP in recode_pums_households
+
+    @staticmethod
+    def _per_driver(vehicles: pl.Expr) -> pl.Expr:
+        drivers = pl.col("_n_drivers")
+        return (
+            pl.when(vehicles.is_null())
+            .then(None)
+            .when(vehicles == 0)
+            .then(HHVehiclesPerDriverCategory.NONE)
+            .when(vehicles < drivers)
+            .then(HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS)
+            .when(vehicles == drivers)
+            .then(HHVehiclesPerDriverCategory.ONE_TO_ONE)
+            .otherwise(HHVehiclesPerDriverCategory.MORE_THAN_DRIVERS)
+            .cast(pl.Int16)
+        )
+
+    def survey_expr(self) -> pl.Expr:
+        return self._per_driver(pl.col("num_vehicles"))
+
+    def pums_expr(self) -> pl.Expr:
+        # VEH = -1 is N/A and stays null, as in h_vehicles, so a stray one stops the run.
+        v = pl.col("VEH")
+        return self._per_driver(pl.when(v >= 0).then(v))
+
+
 class HHChildrenControl(ControlTarget):
     """Children in household (0-5+)."""
 
@@ -113,6 +154,35 @@ class HHChildrenControl(ControlTarget):
 
     def pums_expr(self) -> pl.Expr:
         return pl.col("_n_children").clip(0, 5).cast(pl.Int16)
+
+
+class HHPumaControl(ControlTarget):
+    """Home PUMA: one category per crosswalk PUMA, plus outside the region.
+
+    The categories depend on the geography, so the control is built at run time
+    by ``register_puma_control``. It is never imputed: where a household lives is
+    not a guess from its other answers, so a missing PUMA fails the sum check.
+    """
+
+    name = "h_puma"
+    level = ControlLevel.HOUSEHOLD
+    description = "Home PUMA"
+    survey_fields = ("home_puma",)
+    pums_fields = ("PUMA",)
+    imputable = False
+
+    def __init__(self, puma_ids: list[str]) -> None:
+        """Number the PUMAs from 1; 0 is a PUMS household outside the region."""
+        self._codes = {puma: i for i, puma in enumerate(puma_ids, start=1)}
+        members = {"OUTSIDE_REGION": 0} | {f"PUMA_{p}": i for p, i in self._codes.items()}
+        self.categories = IntEnum("HHPumaCategory", members)
+
+    def survey_expr(self) -> pl.Expr:
+        return pl.col("home_puma").replace_strict(self._codes, default=None, return_dtype=pl.Int16)
+
+    def pums_expr(self) -> pl.Expr:
+        # Allocation drops the outside rows; the PUMS is statewide until then.
+        return pl.col("PUMA").replace_strict(self._codes, default=0, return_dtype=pl.Int16)
 
 
 class HHTotalControl(ControlTarget):

@@ -41,10 +41,49 @@ _COUNTED_FROM: dict[str, tuple[str, ...]] = {
     "h_size": ("hh_id",),
     "h_workers": ("employment",),
     "h_children": ("age",),
+    "h_vehicles_per_driver": ("age",),
 }
+
+# The imputation step keeps each column's original values under this suffix.
+_ORIGINAL_SUFFIX = "_preimputed"
 
 
 # -- Public API ------------------------------------------------------------
+def restore_original_answers(
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Put the survey's own answers back in place of the imputation step's values.
+
+    Blanks then reach `fill_null_incidence`, which spreads each one across a
+    control's groups instead of committing it to one. Returns copies for weighting
+    to recode, so the published columns keep their imputed values.
+
+    Raises:
+        ValueError: Neither table has a ``<column>_preimputed`` column.
+    """
+    tables = (households, persons)
+    if not any(c.endswith(_ORIGINAL_SUFFIX) for df in tables for c in df.columns):
+        msg = (
+            "use_imputed_values is false, but no column ends in "
+            f"'{_ORIGINAL_SUFFIX}'. Run imputation with stash_preimputed: true, "
+            "or set it to true if nothing is imputed."
+        )
+        raise ValueError(msg)
+
+    restored = [
+        df.with_columns(
+            [
+                pl.col(c).alias(c.removesuffix(_ORIGINAL_SUFFIX))
+                for c in df.columns
+                if c.endswith(_ORIGINAL_SUFFIX)
+            ]
+        )
+        for df in tables
+    ]
+    return restored[0], restored[1]
+
+
 def recode_survey_households(
     households: pl.DataFrame,
     persons: pl.DataFrame,
@@ -69,7 +108,7 @@ def recode_survey_households(
         return households
 
     # Pre-aggregate person → household counts for derived HH controls.
-    # These become plain columns (_n_persons, _n_workers, _n_children)
+    # These become plain columns (_n_persons, _n_workers, _n_children, _n_drivers)
     # that the control expressions read directly.
     _person_aggs: dict[str, pl.Expr] = {
         "h_size": pl.len().alias("_n_persons"),
@@ -80,6 +119,8 @@ def recode_survey_households(
                     Employment.EMPLOYED_FULLTIME.value,
                     Employment.EMPLOYED_PARTTIME.value,
                     Employment.EMPLOYED_SELF.value,
+                    # Has a job and an income; PUMS counts "with a job but not at work".
+                    Employment.EMPLOYED_FURLOUGHED.value,
                 ]
             )
             .sum()
@@ -98,6 +139,13 @@ def recode_survey_households(
             .sum()
             .cast(pl.Int32)
             .alias("_n_children")
+        ),
+        # Assuming here that anyone of driving age (16+) is considered a driver.
+        "h_vehicles_per_driver": (
+            (pl.col("age") >= AgeCategory.AGE_16_TO_17.value)
+            .sum()
+            .cast(pl.Int32)
+            .alias("_n_drivers")
         ),
     }
     requested = {c.name for c in hh_ctrls}

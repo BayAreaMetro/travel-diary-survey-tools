@@ -78,7 +78,7 @@ steps:
         persons:
           - column: gender
             method: rf
-            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]  # Must conform to M/F for weighting (ACS only includes male/female, so the weighting approach reflects this constraint)
+            missing_values: [TRANS, NON_BINARY, MISSING, OTHER, PNTA]
             join_tables: [households]
             # numeric_features: [age] # Optional if you have them.
             numeric_features: [num_trips]
@@ -109,7 +109,8 @@ steps:
           #   categorical_features: [age, relationship, employment, occupation, education, industry, student, can_drive, work_mode, income_bin, residence_type, residence_rent_own]
           #   max_iter: 10
 
-      # Optional: keep each imputed column's original values in <column>_preimputed (default: true)
+      # Keep each imputed column's original values in <column>_preimputed.
+      # Required while compute_weights has use_imputed_values: false.
       stash_preimputed: true
       random_state: 42     # For reproducibility
 
@@ -256,6 +257,12 @@ steps:
       # No setting admits a tour with a missing leg or no activity to anchor on.
       # Those are missing data, not an open end.
       usability_profiles:
+        analysis:
+          tour_closes_at: anywhere
+          household_day_needs: nothing
+          zone_coverage: none
+          joint_tours: partial
+          travel_days: [tuesday, wednesday, thursday]
         ctramp:
           tour_closes_at: primary_home
           household_day_needs: all_members
@@ -267,12 +274,6 @@ steps:
           household_day_needs: all_members
           zone_coverage: taz
           joint_tours: fully_joint
-          travel_days: [tuesday, wednesday, thursday]
-        analysis:
-          tour_closes_at: anywhere
-          household_day_needs: nothing
-          zone_coverage: none
-          joint_tours: partial
           travel_days: [tuesday, wednesday, thursday]
         # Placeholder profile for vendor weights -- Same profile, just repeated under a different key to receive the pre-computed weights
         ctramp_rsg:
@@ -352,31 +353,30 @@ steps:
         # Also useful for applying names to things.
         zone_groups:
           "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
-          # "Contra Costa/Alameda": ["013", "001"]
-          "San Mateo/Santa Clara": ["085", "081"]
-          "Alameda": ["001"]
-          "Contra Costa": ["013"]
+          "Alameda/Contra Costa/San Mateo": ["001", "013", "081"]
+          # "Alameda": ["001"]
+          # "Contra Costa": ["013"]
           # "Marin": ["041"]
-          # "Sonoma": ["055"]
+          # "Sonoma": ["097"]
           "San Francisco": ["075"]
-          # "Santa Clara": ["081"]
-          # "San Mateo": ["085"]
+          "Santa Clara": ["085"]
+          # "San Mateo": ["081"]
           # "Solano": ["095"]
-          # "Napa": ["097"]
+          # "Napa": ["055"]
 
       # -- Balancer settings -------------------------------------------
       balancing:
-        max_expansion_factor: 5.0    # upper bound = initial_weight × factor
-        min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+        max_expansion_factor: 6.0    # upper bound = base weight × factor
+        min_expansion_factor: 0.01   # lower bound = base weight × factor, OK to be low since we still have absolute floor of 1
         max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
-        min_survey_share_ratio: 0.125  # stop if a group's % of area's survey / % of area's PUMS is below this
-        min_weight: 1              # absolute floor (no weight < 1)
+        min_weight: 1                # absolute floor (no weight < 1)
         # max_weight:                # absolute ceiling (null = no ceiling)
         max_iterations: 10000
         n_workers: 8                 # parallel zone balancing (numba releases GIL)
         default_importance: 100      # baseline importance for controls without an explicit override
         # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
         moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
+        min_survey_share_ratio: 0.125  # stop if a group's % of area's survey / % of area's PUMS is below this
 
       # -- One balancing run per profile -------------------------------
       # Each profile named here is fitted separately, and its own flag is the
@@ -397,23 +397,21 @@ steps:
       # this is a tripwire for a misconfigured geography, not a routine dial.
       max_unplaceable_share: 0.01
 
+      use_imputed_values: false
+
       # -- Controls to balance against ---------------------------------
-      # Each name must match a key in the CONTROLS registry.
-      # Household-level: h_size, h_income, h_workers, h_vehicles, h_children
-      # Person-level:    p_gender, p_employment, p_commute_mode, p_student,
-      #                  p_education, p_race, p_ethnicity, p_age
+      # Each name must match a key in the CONTROLS registry; the docs' Controls
+      # page lists them all, with their categories.
       # Optional: merge granular categories before balancing.
       # We start with maximum granularity (e.g. 10 household size categories)
       # and merge up to a coarser set as necessary to achieve convergence.
       # The merge can be global (all zones) or zone-specific
       # merge:
-      #   merged_label: [category1, category2, ...]      #
+      #   merged_label: [category1, category2, ...]
       # For additional per-zone merges on top of the global merge, use
-      # zone_merges:
-      #   "06001":
+      # zone_merges:        # keyed by zone group name, or zone ID if in no group
+      #   "San Francisco":
       #     further_merged: [category_a, already_merged_label]
-      #   "06075":
-      #     another_merged: [category_b, already_merged_label]
       controls:
         # Structural controls, set importance very high to ensure totals are matched exactly (if possible)
         - name: h_total
@@ -423,45 +421,47 @@ steps:
 
         # Household level controls
         - name: h_size
+          importance: 150
           merge:
-            size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+            size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
 
         # Household income controls
         - name: h_income
           merge:
             income_under_100:   [income_under25, income_25to50, income_50to75, income_75to100]
 
-        # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
-        - name: h_vehicles
+        - name: h_vehicles_per_driver
           merge:
-            veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
-          # zone_merges:
-          #   "San Francisco":
-          #     veh_1_plus: [veh_1, veh_2_plus]
+            one_or_more: [one_to_one, more_than_drivers]
 
-        # Turning these off because p_employment and p_age captures this already,
-        # just adds excess double constraints that make it hard to converge in places like SF.
-        # - name: h_workers
-        #   merge:
-        #     workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
+        # - name: h_puma
         #   zone_merges:
-        #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
-        #       workers_1_plus: [workers_1, workers_2_plus]
+        #     "Alameda/Contra Costa/San Mateo":
+        #       puma_east_central: [puma_01308, puma_01309, puma_01314, puma_01313]
 
-        # - name: h_children
-        #   merge:
-        #     children_2_plus: [children_2,children_3, children_4, children_5_plus]
-        #   zone_merges:
-        #     "San Francisco": # SF has very few households with 2+ children
-        #       children_1_plus: [children_1, children_2_plus]
 
-        # Person level controls (get's aggregated to household level, i.e., num age group per household)
+        # We might need to turn off h_worker because it might clash with person-level employment controls.
+        # Adds double constraints that make it hard to converge in places like SF.
+        - name: h_workers
+          merge:
+            workers_3_plus: [workers_3, workers_4, workers_5_plus]
+
+        - name: h_children
+          merge:
+            children_1_plus: [children_1, children_2, children_3, children_4, children_5_plus]
+
+        # Person level controls (gets aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment
-        - name: p_commute_mode
+        - name: p_education
           merge:
-            car: ["carpool", "drive_alone"]
-            walk_bike: ["walk", "bike"]
+            no_college: [less_high_school, highschool, vocational]
+            college: [some_college, associate, bachelors, grad]
+
+        # - name: p_commute_mode
+        #   merge:
+        #     car: ["carpool", "drive_alone"]
+        #     walk_bike: ["walk", "bike"]
 
         - name: p_student
           # merge:
@@ -470,24 +470,20 @@ steps:
 
         - name: p_age
           merge:
+            age_5_to_17: [age_5_to_15, age_16_to_17]
             age_75_plus: [age_75_to_84, age_85_and_up]
 
-        # Just wait until we have imputation which handles this processing and more
-        # - name: p_race
-        #   merge:
-        #     "AAPI": [asian, pacific]
-        #     other:  [native, multi, other] # collapse small groups into "other"
-
-        # - name: p_ethnicity
-        #   merge:
-        #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
+        - name: p_race_ethnicity
+          merge:
+            AAPI: [asian, pacific]
+            other_multi:  [native, multi, other] # collapse small groups into "other/multi"
 
         # Cross-tab controls, these help ensure the joint distribution of two or more variables is preserved
-        # - name: p_gender_x_ethnicity
-        #   dimensions: [p_gender, p_ethnicity]  # Uses FULL 2×5 = 10 cells from originals
+        # - name: p_gender_x_race_ethnicity
+        #   dimensions: [p_gender, p_race_ethnicity]  # Uses FULL 2×8 = 16 cells from originals
         #   # Cross-tab applies its own coarser merges
         #   merges:
-        #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
+        #     other_multi: [native, multi, other]
 
         # Result: 3x3 = 9 cells
         # - name: h_size_by_income

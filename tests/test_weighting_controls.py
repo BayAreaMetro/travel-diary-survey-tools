@@ -18,6 +18,7 @@ import polars as pl
 import pytest
 
 from data_canon.codebook.households import IncomeBroad
+from data_canon.codebook.persons import Gender
 from processing.weighting.balancing.merges import apply_category_merges
 from processing.weighting.controls.base import ControlLevel, CrosstabControlTarget
 from processing.weighting.controls.enums import HHSizeCategory
@@ -37,7 +38,11 @@ from processing.weighting.data_prep.incidence import (
     build_incidence_table,
 )
 from processing.weighting.data_prep.merges import apply_1d_merges, apply_crosstab_merges
-from processing.weighting.data_prep.seed_data import recode_survey_households
+from processing.weighting.data_prep.seed_data import (
+    recode_survey_households,
+    recode_survey_persons,
+    restore_original_answers,
+)
 from processing.weighting.diagnostics.data import apply_fit_merges
 from processing.weighting.validation.checksums import check_incidence_sums, check_recode_nulls
 from processing.weighting.validation.control_validation import warn_crosstab_sparsity
@@ -1000,6 +1005,62 @@ class TestCheckIncidenceSums:
         with caplog.at_level(logging.WARNING):
             check_incidence_sums(seed, ["p_gender"], source_label="test")
         assert "p_total column missing" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# restore_original_answers
+# ---------------------------------------------------------------------------
+class TestRestoreOriginalAnswers:
+    """Weighting can set aside the imputation step's values."""
+
+    # Person 1 answered male, person 2 chose not to say and was imputed male.
+    PERSONS = pl.DataFrame(
+        {
+            "person_id": [1, 2],
+            "hh_id": [10, 10],
+            "gender": [Gender.MALE.value, Gender.MALE.value],
+            "gender_preimputed": [Gender.MALE.value, Gender.PNTA.value],
+        }
+    )
+    HOUSEHOLDS = pl.DataFrame(
+        {
+            "hh_id": [10, 20],
+            "income_bin": [IncomeBroad.INCOME_UNDER25.value, IncomeBroad.INCOME_UNDER25.value],
+            "income_bin_preimputed": [IncomeBroad.INCOME_UNDER25.value, None],
+        }
+    )
+
+    def test_each_table_gets_its_original_values(self):
+        """Every stashed column is restored, in both tables."""
+        households, persons = restore_original_answers(self.HOUSEHOLDS, self.PERSONS)
+        assert households["income_bin"].to_list() == [IncomeBroad.INCOME_UNDER25.value, None]
+        assert persons["gender"].to_list() == [Gender.MALE.value, Gender.PNTA.value]
+
+    def test_inputs_are_left_imputed(self):
+        """The published columns keep their imputed values."""
+        restore_original_answers(self.HOUSEHOLDS, self.PERSONS)
+        assert self.PERSONS["gender"].to_list() == [Gender.MALE.value, Gender.MALE.value]
+
+    def test_prefer_not_to_answer_reaches_the_control_as_a_blank(self):
+        """A restored sentinel recodes to null, so weighting fills it."""
+        _, persons = restore_original_answers(self.HOUSEHOLDS, self.PERSONS)
+        recoded = recode_survey_persons(persons, ["p_gender"])
+        assert recoded["p_gender"].null_count() == 1
+        assert recoded.filter(pl.col("person_id") == 2)["p_gender"].item() is None
+
+    def test_one_stashed_table_is_enough(self):
+        """A table with nothing imputed passes through unchanged."""
+        households = self.HOUSEHOLDS.drop("income_bin_preimputed")
+        restored, _ = restore_original_answers(households, self.PERSONS)
+        assert restored.equals(households)
+
+    def test_stops_when_nothing_was_stashed(self):
+        """With no original values to read, the setting cannot do what it says."""
+        with pytest.raises(ValueError, match="use_imputed_values is false"):
+            restore_original_answers(
+                self.HOUSEHOLDS.drop("income_bin_preimputed"),
+                self.PERSONS.drop("gender_preimputed"),
+            )
 
 
 # ---------------------------------------------------------------------------

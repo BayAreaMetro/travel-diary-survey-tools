@@ -22,6 +22,7 @@
 #     SOME_SHARED_ROOT: "/opt/shared"
 #
 survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/Bay Area Travel Study 2018-2019/Data/Final Version with Imputations/Final Updated Dataset as of 10-18-2021"
+weights_dir: "{{ survey_dir }}/weights"
 output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
@@ -49,7 +50,7 @@ steps:
     cache: false
     params:
       weight_col_suffix: sphone_wkday  # This will look for weight columns with the suffix "_sphone_wkday" in each dataframe, e.g. "daywt_sphone_wkday"
-      weights_dir: "{{ survey_dir }}/weights"
+      weights_dir: "{{ weights_dir }}"
 
   # - name: imputation
   #   validate_input: true
@@ -199,7 +200,44 @@ steps:
           zone_coverage: none
           joint_tours: partial
           travel_days: [tuesday, wednesday, thursday]
+        # Placeholder profiles for vendor weights, to receive the pre-computed weights
+        ctramp_rsg:
+          tour_closes_at: primary_home
+          household_day_needs: all_members
+          zone_coverage: TAZ1454
+          joint_tours: fully_joint
+          travel_days: [tuesday, wednesday, thursday]
+        analysis_rsg:
+          tour_closes_at: anywhere
+          household_day_needs: all_members
+          zone_coverage: none
+          joint_tours: partial
+          travel_days: [tuesday, wednesday, thursday]
 
+  - name: add_existing_weights
+    validate_input: false
+    cache: false
+    params:
+      # Required. true: a kept day's dropped trips hand their weight to its kept
+      # trips. false: kept trips keep their own. Trips always follow their day.
+      preserve_travel_totals: true
+      # Required. Households scale by one factor per size (number of persons);
+      # sizes from this one up share a factor.
+      household_size_top_group: 6
+      # Optional. The most a record may grow past its supplied weight, per table.
+      max_weight_factor:
+        households: 3.0
+      derive_missing_weights: true
+      weight_profiles: [ctramp_rsg, analysis_rsg]
+      weights:
+        hh_weight:
+          weight_path: "{{ weights_dir }}/households_weights.csv"
+        person_weight:
+          weight_path: "{{ weights_dir }}/persons_weights.csv"
+        person_day_weight:
+          weight_path: "{{ weights_dir }}/person_days_weights.csv"
+        unlinked_trip_weight:
+          weight_path: "{{ weights_dir }}/unlinked_trips_weights.csv"
 
   - name: compute_weights
     validate_input: true
@@ -218,12 +256,14 @@ steps:
       # with the profile name. Named rather than defaulted: with several stamped
       # there is no defensible default, and a silent choice would weight a
       # different universe than the formatters emit.
-      weight_profiles: [ctramp]
+      weight_profiles: [ctramp, analysis]
 
       # Homes outside the control geography belong to no balancing zone and can
       # carry no fitted weight. Error above this share rather than returning
       # nulls quietly. A tripwire for a misconfigured geography.
       max_unplaceable_share: 0.01
+
+      use_imputed_values: false
 
       # -- Sample Plan Path ------------------------------------------------
       # null: no sample plan for 2019.
@@ -245,22 +285,16 @@ steps:
         # Also useful for applying names to things.
         zone_groups:
           "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
-          # "Contra Costa/Alameda": ["013", "001"]
-          "San Mateo/Santa Clara": ["085", "081"]
-          "Alameda": ["001"]
-          "Contra Costa": ["013"]
-          # "Marin": ["041"]
-          # "Sonoma": ["055"]
-          "San Francisco": ["075"]
-          # "Santa Clara": ["081"]
-          # "San Mateo": ["085"]
-          # "Solano": ["095"]
-          # "Napa": ["097"]
+          # "Alameda/Contra Costa/San Mateo": ["001", "013", "081"]
+          # "San Francisco": ["075"]
+          # "Santa Clara": ["085"]
+          "San Francisco/San Mateo/Santa Clara": ["075", "081", "085"]
+          "Alameda/Contra Costa": ["001", "013"]
 
       # -- Balancer settings -------------------------------------------
       balancing:
-        max_expansion_factor: 4.0    # upper bound = initial_weight × factor
-        min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
+        max_expansion_factor: 7.0    # upper bound = base weight × factor
+        min_expansion_factor: 0.01  # lower bound = base weight × factor, OK to be low since we still have absolute floor of 1
         max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
         min_weight: 1                # absolute floor (no weight < 1)
         # max_weight:                # absolute ceiling (null = no ceiling)
@@ -269,25 +303,21 @@ steps:
         default_importance: 100      # baseline importance for controls without an explicit override
         # Lower importance when MOE is higher, to allow more deviation from controls with high sampling variability
         moe_based_importance: true  # derive per-control importance from PUMS replicate-weight MOE
-        min_survey_share_ratio: 0.25  # stop if a group's % of area's survey / % of area's PUMS is below this
+        min_survey_share_ratio: 0.125  # stop if a group's % of area's survey / % of area's PUMS is below this
 
       # -- Controls to balance against ---------------------------------
-      # Each name must match a key in the CONTROLS registry.
-      # Household-level: h_size, h_income, h_workers, h_vehicles, h_children
-      # Person-level:    p_gender, p_employment, p_commute_mode, p_student,
-      #                  p_education, p_race, p_ethnicity, p_age
+      # Each name must match a key in the CONTROLS registry; the docs' Controls
+      # page lists them all, with their categories.
       # Optional: merge granular categories before balancing.
       # We start with maximum granularity (e.g. 10 household size categories)
       # and merge up to a coarser set as necessary to achieve convergence.
       # The merge can be global (all zones) or zone-specific
       # merge:
-      #   merged_label: [category1, category2, ...]      #
+      #   merged_label: [category1, category2, ...]
       # For additional per-zone merges on top of the global merge, use
-      # zone_merges:
-      #   "06001":
+      # zone_merges:        # keyed by zone group name, or zone ID if in no group
+      #   "San Francisco":
       #     further_merged: [category_a, already_merged_label]
-      #   "06075":
-      #     another_merged: [category_b, already_merged_label]
       controls:
         # Structural controls, set importance very high to ensure totals are matched exactly (if possible)
         - name: h_total
@@ -298,91 +328,46 @@ steps:
         # Household level controls
         - name: h_size
           merge:
-            size_4_plus: [size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
-          # zone_merges:
-          #   "San Mateo/Santa Clara": # SM/SC has very few large households
-          #     size_4_plus: [size_4, size_5_plus]
+            size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
 
-        # Household income controls
         - name: h_income
           merge:
             income_under_100:   [income_under25, income_25to50, income_50to75, income_75to100]
 
-        # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
-        - name: h_vehicles
+        - name: h_vehicles_per_driver
           merge:
-            veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
-          zone_merges:
-            "Marin/Napa/Solano/Sonoma":
-              veh_0_1: [veh_0, veh_1]
-            "Contra Costa":
-              veh_0_1: [veh_0, veh_1]
-          #   "San Francisco":
-          #     veh_1_plus: [veh_1, veh_2_plus]
+            one_or_more: [one_to_one, more_than_drivers]
 
-        # Turning these off because p_employment and p_age captures this already,
-        # just adds excess double constraints that make it hard to converge in places like SF.
-        # - name: h_workers
-        #   merge:
-        #     workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
-        #   zone_merges:
-        #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
-        #       workers_1_plus: [workers_1, workers_2_plus]
+        - name: h_workers
+          merge:
+            workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
 
-        # - name: h_children
-        #   merge:
-        #     children_2_plus: [children_2,children_3, children_4, children_5_plus]
-        #   zone_merges:
-        #     "San Francisco": # SF has very few households with 2+ children
-        #       children_1_plus: [children_1, children_2_plus]
+        - name: h_children
+          merge:
+            children_1_plus: [children_1, children_2, children_3, children_4, children_5_plus]
 
-        # Person level controls (get's aggregated to household level, i.e., num age group per household)
+        # Person level controls (gets aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment
+        - name: p_education
+          merge:
+            no_college: [less_high_school, highschool, vocational]
+            college: [some_college, associate, bachelors, grad]
 
         # BATS 2019 didn't have commute mode, so we can't confidently weight with this target
         # - name: p_commute_mode
-        #   merge:
-        #     car: ["carpool", "drive_alone"]
-        #     walk_bike: ["walk", "bike"]
 
         - name: p_student
-          # merge:
-          #   university: ["student_college"]
-          #   nonuniversity: ["student_k12", "not_student"]
 
         - name: p_age
           merge:
+            age_5_to_17: [age_5_to_15, age_16_to_17]
             age_75_plus: [age_75_to_84, age_85_and_up]
-          zone_merges:
-            "San Mateo/Santa Clara": # SM/SC has very few elderly people
-              age_65_plus: [age_65_to_74, age_75_plus]
 
-        # Just wait until we have imputation which handles this processing and more
-        # - name: p_race
-        #   merge:
-        #     "AAPI": [asian, pacific]
-        #     other:  [native, multi, other] # collapse small groups into "other"
-
-        # - name: p_ethnicity
-        #   merge:
-        #     hispanic: [mexican, puerto_rican, cuban, other]  # collapse Hispanic sub-groups
-
-        # Cross-tab controls, these help ensure the joint distribution of two or more variables is preserved
-        # - name: p_gender_x_ethnicity
-        #   dimensions: [p_gender, p_ethnicity]  # Uses FULL 2×5 = 10 cells from originals
-        #   # Cross-tab applies its own coarser merges
-        #   merges:
-        #     hispanic: [mexican, puerto_rican, cuban, other_hispanic]
-
-        # Result: 3x3 = 9 cells
-        # - name: h_size_by_income
-        #   dimensions: [h_size, h_income]
-        #   merges:
-        #     h_income:
-        #       income_under_100: [income_under25, income_25to50, income_50to75, income_75to100]
-        #     h_size:
-        #         size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
+        - name: p_race_ethnicity
+          merge:
+            AAPI: [asian, pacific]
+            other_multi:  [native, multi, other]
 
       # -- Diagnostics report ------------------------------------------
       diagnostics:
@@ -390,34 +375,17 @@ steps:
 
         # Re-run balancing across a grid of max_expansion_factor values and
         # add a diagnostic chart showing fit vs weight quality tradeoffs.
-        expansion_factor_grid: [2, 3, 4, 5, 7, 10]
+        expansion_factor_grid: [2, 3, 4, 5, 7, 10, 15, 20]
 
+        compare_weights:
+          vendor:
+            label: vendor
+            columns:
+              households: hh_weight_ctramp_rsg
+              persons: person_weight_ctramp_rsg
+              person_days: person_day_weight_ctramp_rsg
+              unlinked_trips: unlinked_trip_weight_ctramp_rsg
 
-  # - name: add_existing_weights
-  #   validate_input: false
-  #   cache: false
-  #   params:
-  #     # Required. true: a kept day's dropped trips hand their weight to its kept
-  #     # trips. false: kept trips keep their own. Trips always follow their day.
-  #     preserve_travel_totals: true
-  #     # Required. Households scale by one factor per size (number of persons);
-  #     # sizes from this one up share a factor.
-  #     household_size_top_group: 6
-  #     # Optional. The most a record may grow past its supplied weight, per table.
-  #     max_weight_factor:
-  #       households: 2.0
-  #     derive_missing_weights: true
-  #     # Required. The profiles to weight, one column set each.
-  #     weight_profiles: [ctramp, daysim, analysis]
-  #     weights:
-  #       hh_weight:
-  #         weight_path: "{{ survey_dir }}/weights/households_weights.csv"
-  #       person_weight:
-  #         weight_path: "{{ survey_dir }}/weights/persons_weights.csv"
-  #       person_day_weight:
-  #         weight_path: "{{ survey_dir }}/weights/person_days_weights.csv"
-  #       unlinked_trip_weight:
-  #         weight_path: "{{ survey_dir }}/weights/unlinked_trips_weights.csv"
 
   - name: write_data
     validate_input: true
