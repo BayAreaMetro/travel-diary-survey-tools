@@ -851,8 +851,16 @@ class TestPumaControl:
             names,
             hh_id_col="SERIALNO",
             extra_cols=["WGTP", "PUMA"],
+            person_extra_cols=["PWGTP", "PUMA"],
         )
-        seed, _ = fill_null_incidence(survey, pums, names)
+        one_zone = pl.lit("z1").alias("ctrl_geoid")
+        seed, _ = fill_null_incidence(
+            survey,
+            pums.incidence.with_columns(one_zone),
+            pums.person_pivot.with_columns(one_zone),
+            survey.incidence.select("hh_id").with_columns(one_zone),
+            names,
+        )
         puma_cols = [c for c in seed.columns if c.startswith("h_puma__")]
         assert seed.sort("hh_id").select(pl.sum_horizontal(puma_cols))[:, 0].to_list() == [1, 1, 0]
         with pytest.raises(ValueError, match="h_puma"):
