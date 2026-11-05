@@ -485,6 +485,23 @@ class WeightingPipeline:
             n_gated,
         )
 
+        # Geography is a property of the household, but how much of a universe it
+        # covers is a property of this seed, so it is counted per profile.
+        geo_names = ("study_geoid", "ctrl_geoid", "bg_geo_id")
+        geo_cols = [c for c in geo_names if c in households.columns]
+        geo = households.filter(pl.col("hh_id").is_in(admitted)).select("hh_id", *geo_cols)
+        coverage = check_control_geography_coverage(
+            geo,
+            profile=profile,
+            max_unplaceable_share=self.config.max_unplaceable_share,
+        )
+        if coverage.n_unplaceable:
+            # A household in no zone reaches no ZoneInput, so keeping it cannot
+            # weight it -- it only inflates the response count its sample segment
+            # divides by. Dropped before imputation, which needs each household's zone.
+            placed = geo.filter(pl.col("ctrl_geoid").is_not_null())["hh_id"]
+            bundle = bundle.filter_households(placed)
+
         # Null imputation -- RF-predicted fractional probabilities. Survey
         # respondents with null demographics get zero incidence from the pivot.
         # It trains on PUMS split across zones as the targets are, but unmerged, as the seed is.
@@ -502,22 +519,7 @@ class WeightingPipeline:
         # After imputation, every control must sum correctly (with tolerance
         # for floating-point fractions introduced by the RF predictions).
         check_incidence_sums(seed, names, source_label="survey", tolerance=0.01)
-
-        # Geography is a property of the household, but how much of a universe it
-        # covers is a property of this seed, so it is counted per profile.
-        geo_names = ("study_geoid", "ctrl_geoid", "bg_geo_id")
-        geo_cols = [c for c in geo_names if c in households.columns]
-        seed = seed.join(households.select("hh_id", *geo_cols), on="hh_id", how="left")
-        coverage = check_control_geography_coverage(
-            seed,
-            profile=profile,
-            max_unplaceable_share=self.config.max_unplaceable_share,
-        )
-        if coverage.n_unplaceable:
-            # A household in no zone reaches no ZoneInput, so keeping it cannot
-            # weight it -- it only inflates the response count its sample segment
-            # divides by.
-            seed = seed.filter(pl.col("ctrl_geoid").is_not_null())
+        seed = seed.join(geo, on="hh_id", how="left")
 
         if self.controls.merges_1d:
             seed = apply_1d_merges(seed, self.controls.merges_1d)
