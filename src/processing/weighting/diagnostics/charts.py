@@ -8,10 +8,9 @@ from plotly.subplots import make_subplots
 
 from processing.weighting.controls.registry import CONTROLS, resolve_targets
 
-_WARN_PCT = 15  # fallback red threshold when MOE is unavailable or zero
-
-
-_MIN_MOE = 5  # floor for MOE-based red trigger (avoids over-sensitivity on precise targets)
+_MOE_Z = 1.645  # ACS 90% margin of error = 1.645 x the replicate-weight standard error
+_FLOOR_PCT = 5  # never red within this, however small the margin of error
+_WARN_PCT = 15  # red threshold for a group with no standard error
 
 
 def _add_panel_traces(
@@ -40,13 +39,9 @@ def _add_panel_traces(
         y.append(lbl)
         x.append(pct)
 
-        effective_moe = max(moe, _MIN_MOE) if moe is not None and moe > 0 else None
-        if effective_moe is not None and abs(pct) <= effective_moe:
-            colors.append("#999")
-        elif (effective_moe is not None and abs(pct) > effective_moe) or abs(pct) > _WARN_PCT:
-            colors.append("#c33")
-        else:
-            colors.append("#999")
+        margin = _MOE_Z * moe if moe is not None and moe > 0 else None
+        is_red = abs(pct) > (max(margin, _FLOOR_PCT) if margin is not None else _WARN_PCT)
+        colors.append("#c33" if is_red else "#999")
 
         hover_lines = [
             f"<b>{lbl}</b>",
@@ -55,10 +50,12 @@ def _add_panel_traces(
             f"Diff: {r['diff']:+,.1f}",
             f"Diff %: {pct:+.1f}%",
         ]
-        if moe is not None:
-            hover_lines.append(f"PUMS SE: \u00b1{moe:.1f}%")
+        if margin is not None:
+            hover_lines.append(f"ACS 90% MOE: \u00b1{margin:.1f}%")
+        else:
+            hover_lines.append(f"No ACS margin of error: red past \u00b1{_WARN_PCT}%")
         hovers.append("<br>".join(hover_lines))
-        moe_values.append(moe)
+        moe_values.append(margin)
 
     fig.add_trace(
         go.Bar(
@@ -118,29 +115,19 @@ def _add_group_prefixes(cat_labels: list[str], ctrl_per_label: list[str]) -> lis
     return ticktext
 
 
-def fit_diverging_figure(
-    fit: pl.DataFrame,
-) -> go.Figure:
-    """Grid of horizontal diverging bar charts (% error, one panel per zone + overall).
-
-    Expects *fit* to contain a ``label`` column (added by
-    [`apply_fit_merges`][processing.weighting.diagnostics.data.apply_fit_merges]).
-    Null placeholder rows are rendered as invisible bars
-    so the y-axis remains consistent across panels.
-
-    When ``moe_pct`` is present (from PUMS replicate weights), horizontal
-    error bars show the sampling margin of error on each target.
-    """
+def _overall_fit(fit: pl.DataFrame) -> pl.DataFrame:
+    """The fit table summed over zones, for the Overall panel."""
     has_moe = "moe_pct" in fit.columns
-    zones = sorted(fit["geo_id"].unique().to_list())
-
     # Overall aggregation — sum targets/weighted across zones
     agg_exprs = [pl.col("target_total").sum(), pl.col("weighted_total").sum()]
     if has_moe:
         # Propagate MOE: SE_overall = sqrt(Σ SE_i²), then moe_pct = SE / target * 100
-        # SE_i = moe_pct_i / 100 * target_i
+        # SE_i = moe_pct_i / 100 * target_i. An area with a target but no SE leaves none.
+        no_se = (pl.col("moe_pct").is_null() & pl.col("target_total").is_not_null()).any()
         agg_exprs.append(
-            (
+            pl.when(no_se)
+            .then(None)
+            .otherwise(
                 ((pl.col("moe_pct") / 100 * pl.col("target_total")) ** 2).sum().sqrt()
                 / pl.col("target_total").sum()
                 * 100
@@ -164,13 +151,53 @@ def fit_diverging_figure(
 
     # Re-sort: structural controls first (h_total, p_total), then alphabetical
     _structural = {n for n, c in CONTROLS.items() if c.structural}
-    overall = (
+    return (
         overall.with_columns(
             pl.when(pl.col("control_name").is_in(_structural)).then(0).otherwise(1).alias("_prio")
         )
         .sort("_prio", "control_name", "category", "label")
         .drop("_prio")
     )
+
+
+def fit_x_limit(fits: list[pl.DataFrame]) -> float:
+    """One x range for every profile's fit chart, so equal errors look equal.
+
+    Wide enough for the largest error in any zone or overall at 1.5x, and for the
+    median margin of error; at least 5%, in steps of 5.
+    """
+    limit = 5.0
+    for fit in fits:
+        overall = _overall_fit(fit)
+        max_err = max(
+            fit["diff_pct"].drop_nulls().abs().max() or 0,
+            overall["diff_pct"].drop_nulls().abs().max() or 0,
+        )
+        median_margin = (
+            _MOE_Z * (fit["moe_pct"].drop_nulls().median() or 0) if "moe_pct" in fit.columns else 0
+        )
+        limit = max(limit, median_margin, max_err * 1.5)
+    return math.ceil(limit / 5) * 5
+
+
+def fit_diverging_figure(
+    fit: pl.DataFrame,
+    x_limit: float | None = None,
+) -> go.Figure:
+    """Grid of horizontal diverging bar charts (% error, one panel per zone + overall).
+
+    Expects *fit* to contain a ``label`` column (added by
+    [`apply_fit_merges`][processing.weighting.diagnostics.data.apply_fit_merges]).
+    Null placeholder rows are rendered as invisible bars
+    so the y-axis remains consistent across panels.
+
+    When ``moe_pct`` is present (from PUMS replicate weights), horizontal
+    error bars show the sampling margin of error on each target. *x_limit* is
+    the range either side of zero, from `fit_x_limit`; ``None`` fits this chart alone.
+    """
+    has_moe = "moe_pct" in fit.columns
+    zones = sorted(fit["geo_id"].unique().to_list())
+    overall = _overall_fit(fit)
 
     panels = [*zones, "Overall"]
     n_cols = min(4, len(panels))
@@ -200,14 +227,7 @@ def fit_diverging_figure(
         )
         _add_panel_traces(fig, pdf, has_moe, row=r_idx + 1, col=c_idx + 1)
 
-    # Data-driven x-range: show errors at readable scale while
-    # keeping typical PUMS MOE whiskers partially visible.
-    _max_err = max(
-        fit["diff_pct"].drop_nulls().abs().max() or 0,
-        overall["diff_pct"].drop_nulls().abs().max() or 0,
-    )
-    _median_moe = (fit["moe_pct"].drop_nulls().median() or 0) if has_moe else 0
-    _x_limit = math.ceil(max(_median_moe, _max_err * 1.5, 5) / 5) * 5
+    _x_limit = x_limit if x_limit is not None else fit_x_limit([fit])
 
     fig.update_xaxes(
         range=[-_x_limit, _x_limit],
@@ -242,7 +262,7 @@ def fit_diverging_figure(
 
 
 def violins_figure(weighted: pl.DataFrame) -> go.Figure:
-    """Violin plot of ``hh_weight`` by zone (log scale)."""
+    """Half violin of ``hh_weight`` by zone, beside one jittered point per household."""
     zones = sorted(weighted["ctrl_geoid"].unique().to_list())
     fig = go.Figure()
     for z in zones:
@@ -251,7 +271,11 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
             go.Violin(
                 y=w,
                 name=str(z),
-                box_visible=True,
+                side="positive",
+                points="all",
+                jitter=0.5,
+                pointpos=-0.5,
+                marker={"size": 3, "opacity": 0.4},
                 meanline_visible=True,
                 bandwidth=max(0.05, (max(w) - min(w)) / 40) if w else 0.1,
                 spanmode="manual",

@@ -22,6 +22,7 @@ from processing.weighting.balancing.merges import apply_category_merges
 from processing.weighting.controls.base import ControlLevel, CrosstabControlTarget
 from processing.weighting.controls.enums import HHSizeCategory
 from processing.weighting.controls.registry import CONTROLS, register_crosstab
+from processing.weighting.core.pipeline import WeightingPipeline
 from processing.weighting.core.specs import (
     ControlRegistryConfig,
     ControlTotals,
@@ -566,6 +567,19 @@ class TestParseControlsZoneMerges:
         assert "size_4_plus" in merges[1].groups
         assert "size_3_plus" in merges[2].groups
 
+    def test_labels_and_members_are_lower_case(self):
+        """A label written AAPI is aapi, as every downstream table names its groups."""
+        controls = [
+            {
+                "name": "p_race_ethnicity",
+                "merge": {"AAPI": ["Asian", "pacific"]},
+                "zone_merges": {"Z1": {"AAPI_Other": ["AAPI", "other"]}},
+            },
+        ]
+        merges = ControlRegistryConfig.from_yaml(controls).merges_1d
+        assert merges[0].groups == {"aapi": ["asian", "pacific"]}
+        assert merges[1].groups == {"aapi_other": ["aapi", "other"]}
+
     def test_zone_merges_without_global_merge(self):
         """A control with only zone_merges (no global merge) still works."""
         controls = [
@@ -581,6 +595,61 @@ class TestParseControlsZoneMerges:
         assert len(merges) == 1
         assert merges[0].zones == ["Z1"]
         assert merges[0].control == "h_size"
+
+
+class TestZoneMergeTargets:
+    """A zone merge is one target in its own areas and none elsewhere."""
+
+    def test_one_target_row_per_group(self):
+        """Merged area A: 0 / 2+; area B keeps 0 / 2 / 3. No duplicates, no extra 2+ in B."""
+        pipeline = object.__new__(WeightingPipeline)
+        pipeline.controls = ControlRegistryConfig.from_yaml(
+            [
+                {"name": "h_total"},
+                {"name": "p_total"},
+                {
+                    "name": "h_workers",
+                    "zone_merges": {"A": {"w2_plus": ["workers_2", "workers_3"]}},
+                },
+            ]
+        )
+        pipeline.pums_incidence = pl.DataFrame(
+            {
+                "SERIALNO": ["1", "2", "3", "4"],
+                "ctrl_geoid": ["A", "A", "B", "B"],
+                "WGTP": [10.0, 20.0, 30.0, 40.0],
+                "h_total": [1, 1, 1, 1],
+                "h_workers__workers_0": [1, 0, 1, 0],
+                "h_workers__workers_2": [0, 1, 0, 0],
+                "h_workers__workers_3": [0, 0, 0, 1],
+            }
+        )
+        pipeline.pums_person_incidence = pl.DataFrame(
+            {
+                "SERIALNO": ["1"],
+                "SPORDER": [1],
+                "ctrl_geoid": ["A"],
+                "PWGTP": [10.0],
+                "p_total": [1],
+            }
+        )
+
+        pipeline.apply_merges()
+        pipeline.aggregate_totals()
+
+        workers = pipeline.control_totals.totals.filter(pl.col("control_name") == "h_workers")
+        got = {
+            (r["geo_id"], r["category"]): r["target_total"] for r in workers.iter_rows(named=True)
+        }
+        assert workers.height == len(got)
+        assert {k: v for k, v in got.items() if v} == {
+            ("A", "workers_0"): 10.0,
+            ("A", "w2_plus"): 20.0,
+            ("B", "workers_0"): 30.0,
+            ("B", "workers_3"): 40.0,
+        }
+        assert ("B", "w2_plus") not in got
+        assert ("A", "workers_2") not in got
 
 
 # ---------------------------------------------------------------------------

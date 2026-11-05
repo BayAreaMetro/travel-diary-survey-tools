@@ -11,6 +11,7 @@ report then assembles both, once per run and once per fitted profile.
 
 import json
 import re
+from typing import ClassVar
 
 import numpy as np
 import polars as pl
@@ -24,6 +25,11 @@ from processing.weighting.core.specs import (
     ProfileFit,
     ZoneStatus,
 )
+from processing.weighting.diagnostics.charts import (
+    fit_diverging_figure,
+    fit_x_limit,
+    violins_figure,
+)
 from processing.weighting.diagnostics.comparison import (
     MAX_POINTS,
     MIN_OVERLAP,
@@ -33,15 +39,17 @@ from processing.weighting.diagnostics.comparison import (
     all_pairs,
     compare_pair,
     fitted_weight_sets,
-    inheritance,
     reference_weight_sets,
 )
 from processing.weighting.diagnostics.data import (
     redistribution,
-    split_identity,
     weight_cascade,
 )
 from processing.weighting.diagnostics.report import generate_report
+from processing.weighting.diagnostics.tables import (
+    crosswalk_summary_table,
+    unweighted_cell_counts,
+)
 
 HOUSEHOLDS = LEVELS["households"]
 PERSONS = LEVELS["persons"]
@@ -121,6 +129,153 @@ class TestFit:
 
         assert stats is not None
         assert stats.intercept + stats.slope * log_b.mean() == pytest.approx(log_a.mean())
+
+
+class TestFitBars:
+    """A bar is red outside its target's ACS 90% margin of error (1.645 SE) and 5%."""
+
+    @staticmethod
+    def _bars(rows: list[tuple[str, str, float, float | None]]) -> dict[tuple[str, str], tuple]:
+        """(panel, group) -> (color, whisker) from a fit table of (area, group, error %, SE %)."""
+        fit = pl.DataFrame(
+            {
+                "geo_id": [r[0] for r in rows],
+                "control_name": ["h_size"] * len(rows),
+                "category": [r[1] for r in rows],
+                "label": [r[1] for r in rows],
+                "target_total": [100.0] * len(rows),
+                "weighted_total": [100.0 + r[2] for r in rows],
+                "diff": [r[2] for r in rows],
+                "diff_pct": [r[2] for r in rows],
+                "moe_pct": pl.Series([r[3] for r in rows], dtype=pl.Float64),
+            }
+        )
+        fig = fit_diverging_figure(fit)
+        panels = [a.text for a in fig.layout.annotations]
+        bars = [t for t in fig.data if t.type == "bar"]
+        # A panel with no margin of error anywhere draws no whisker trace
+        whiskers = {t.xaxis: t.error_x.array for t in fig.data if t.type == "scatter"}
+        out = {}
+        for panel, bar in zip(panels, bars, strict=True):
+            margins = whiskers.get(bar.xaxis, [None] * len(bar.y))
+            for group, color, margin in zip(bar.y, bar.marker.color, margins, strict=True):
+                out[panel, group] = (color, margin)
+        return out
+
+    @pytest.mark.parametrize(
+        ("error", "se", "red"),
+        [
+            pytest.param(7.0, 4.0, True, id="outside_a_6.6pct_margin"),
+            pytest.param(6.0, 4.0, False, id="inside_a_6.6pct_margin"),
+            pytest.param(6.0, 1.0, True, id="outside_the_5pct_floor"),
+            pytest.param(3.0, 1.0, False, id="outside_a_1.6pct_margin_but_inside_5pct"),
+        ],
+    )
+    def test_red_outside_both_the_margin_of_error_and_5_percent(self, error, se, red):
+        """The whisker is the margin of error alone; the floor only decides the color."""
+        bars = self._bars([("A", "size_1", error, se)])
+        assert bars["A", "size_1"] == ("#c33" if red else "#999", pytest.approx(1.645 * se))
+
+    def test_no_standard_error_is_red_past_15_percent(self):
+        """With no margin of error to compare against, the 15% rule decides."""
+        bars = self._bars([("A", "size_1", 10.0, None), ("A", "size_2", 20.0, None)])
+        assert bars["A", "size_1"][0] == "#999"
+        assert bars["A", "size_2"][0] == "#c33"
+
+    def test_one_area_without_a_standard_error_leaves_the_region_without_one(self):
+        """Not 0%, which would turn any miss red; the region falls back to the 15% rule.
+
+        Area A alone would give the region a margin of 0.8%, and 8% would be red.
+        """
+        bars = self._bars([("A", "size_1", 8.0, 1.0), ("B", "size_1", 8.0, None)])
+        assert bars["A", "size_1"][0] == "#c33"
+        assert bars["Overall", "size_1"][0] == "#999"
+
+    def test_every_profile_shares_one_x_range(self):
+        """A 12% miss in one profile sets the range for both, so a 2% miss looks small."""
+
+        def fit(error: float) -> pl.DataFrame:
+            return pl.DataFrame(
+                {
+                    "geo_id": ["A"],
+                    "control_name": ["h_size"],
+                    "category": ["size_1"],
+                    "label": ["size_1"],
+                    "target_total": [100.0],
+                    "weighted_total": [100.0 + error],
+                    "diff": [error],
+                    "diff_pct": [error],
+                    "moe_pct": [1.0],
+                }
+            )
+
+        tight, loose = fit(2.0), fit(12.0)
+        assert fit_x_limit([tight]) == 5
+        limit = fit_x_limit([tight, loose])
+        assert limit == 20
+        assert tuple(fit_diverging_figure(tight, limit).layout.xaxis.range) == (-20, 20)
+
+
+class TestWeightDistribution:
+    """Each zone shows its weights as a shape and as points, not a box as well."""
+
+    WEIGHTED = pl.DataFrame({"ctrl_geoid": ["1", "1", "2"], "hh_weight": [10.0, 20.0, 30.0]})
+
+    def test_one_trace_per_zone(self):
+        """Every zone gets a violin named after it."""
+        assert [t.name for t in violins_figure(self.WEIGHTED).data] == ["1", "2"]
+
+    def test_points_are_jittered_and_there_is_no_box(self):
+        """All points show, spread sideways so they do not stack."""
+        trace = violins_figure(self.WEIGHTED).data[0]
+        assert trace.points == "all"
+        assert trace.jitter > 0
+        assert not trace.box.visible
+
+
+class TestZoneTable:
+    """Households per zone in their groups, named by Census county."""
+
+    CROSSWALK = pl.DataFrame(
+        {
+            "puma_id": ["A", "B", "C"],
+            "study_geoid": ["001", "013", "075"],
+            "ctrl_geoid": ["East Bay", "East Bay", "San Francisco"],
+        }
+    )
+    COUNTIES: ClassVar[dict[str, str]] = {
+        "001": "Alameda County",
+        "013": "Contra Costa County",
+        "075": "San Francisco County",
+    }
+
+    @staticmethod
+    def _rows(html: str) -> list[list[str]]:
+        rows = re.findall(r"<tr>(.*?)</tr>", html, re.DOTALL)
+        cells = [re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", r) for r in rows]
+        return [[re.sub(r"<.*?>", "", c) for c in row] for row in cells]
+
+    def test_groups_counties_and_totals(self):
+        """Each group lists its zones and a subtotal; outside homes get their own row."""
+        seed = pl.DataFrame({"study_geoid": ["001", "001", "013", "075", None]})
+        rows = self._rows(crosswalk_summary_table(self.CROSSWALK, seed, self.COUNTIES))
+        assert rows == [
+            ["Zone group", "Zone", "Census county", "Households"],
+            ["East Bay", "001", "Alameda County", "2"],
+            ["", "013", "Contra Costa County", "1"],
+            ["", "", "Group", "3"],
+            ["San Francisco", "075", "San Francisco County", "1"],
+            ["Outside all zones", "", "", "1"],
+            ["Total", "", "", "5"],
+        ]
+
+    def test_without_groups_there_is_no_group_column(self):
+        """Zones balanced on their own need no group column or subtotals."""
+        crosswalk = self.CROSSWALK.with_columns(pl.col("study_geoid").alias("ctrl_geoid"))
+        seed = pl.DataFrame({"study_geoid": ["001", "075"]})
+        rows = self._rows(crosswalk_summary_table(crosswalk, seed, self.COUNTIES))
+        assert rows[0] == ["Zone", "Census county", "Households"]
+        assert ["001", "Alameda County", "1"] in rows
 
 
 class TestSummaries:
@@ -380,114 +535,6 @@ class TestAllPairs:
         assert all_pairs({"households": _frame(x=weights)}, [_set("x", "x")]) == []
 
 
-class TestInheritance:
-    """How a level's weight descends from its parent, and by what mechanism."""
-
-    def _tables(self, *, trips, person_days, day_of_trip=None):
-        """A days table and a trips table, trips mapped to days by *day_of_trip*."""
-        ids = day_of_trip if day_of_trip is not None else list(range(len(trips)))
-        return {
-            "person_days": pl.DataFrame(
-                {"person_day_id": list(range(len(person_days))), "dw": person_days}
-            ),
-            "unlinked_trips": pl.DataFrame({"person_day_id": ids, "tw": trips}),
-        }
-
-    def _set(self):
-        return WeightSet(
-            name="v", label="v", columns={"person_days": "dw", "unlinked_trips": "tw"}, fitted=False
-        )
-
-    def test_a_pure_copy_adds_nothing(self):
-        """Every child carries its parent's weight, so the level restates its parent."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
-        (row,) = inheritance(self._tables(trips=weights, person_days=list(weights)), [self._set()])
-
-        assert row.level == "unlinked_trips"
-        assert row.parent == "person_days"
-        assert row.share == pytest.approx(100.0)
-        assert row.mode == "copied"
-
-    def test_one_factor_per_scope_is_redistribution(self):
-        """Siblings absorbing a dropped sibling all move by the same factor.
-
-        Two trips share each day; both are scaled together, so the level is still
-        a faithful expansion of the level above.
-        """
-        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
-        day_of_trip, trips = [], []
-        for i, dw in enumerate(person_days):
-            factor = 1.5 if i % 3 == 0 else 1.0
-            day_of_trip += [i, i]
-            trips += [dw * factor, dw * factor]
-        (row,) = inheritance(
-            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
-            [self._set()],
-        )
-
-        assert row.n_scopes_varying == 0
-        assert row.max_scope_spread == pytest.approx(1.0)
-        assert row.share < 100.0
-        assert row.mode == "redistributed"
-
-    def test_siblings_on_different_factors_are_an_adjustment(self):
-        """The case worth flagging: records rescaled individually after descending.
-
-        Measured on bats_2023, the vendor's trip weights vary within 1,102 of
-        25,312 days by up to exactly 2x, while every fitted profile varies within
-        none. A summary that only counts departures from the parent cannot tell
-        the two apart.
-        """
-        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
-        day_of_trip, trips = [], []
-        for i, dw in enumerate(person_days):
-            day_of_trip += [i, i]
-            trips += [dw, dw * 2 if i % 5 == 0 else dw]
-        (row,) = inheritance(
-            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
-            [self._set()],
-        )
-
-        assert row.n_scopes_varying == 12
-        assert row.max_scope_spread == pytest.approx(2.0)
-        assert row.mode == "adjusted"
-
-    def test_float_noise_is_not_an_adjustment(self):
-        """Division noise must not be read as siblings on different factors."""
-        person_days = list(np.exp(np.linspace(np.log(10), np.log(100), 60)))
-        day_of_trip, trips = [], []
-        for i, dw in enumerate(person_days):
-            day_of_trip += [i, i]
-            trips += [dw, dw * (1 + 1e-15)]
-        (row,) = inheritance(
-            self._tables(trips=trips, person_days=person_days, day_of_trip=day_of_trip),
-            [self._set()],
-        )
-
-        assert row.n_scopes_varying == 0
-        assert row.mode != "adjusted"
-
-    def test_split_levels_are_excluded(self):
-        """Days divide their person's weight, so sibling ratios differ by design."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
-        tables = {
-            "persons": pl.DataFrame({"person_id": list(range(100)), "pw": weights}),
-            "person_days": pl.DataFrame({"person_id": list(range(100)), "dw": list(weights)}),
-        }
-        weight_set = WeightSet("v", "v", {"persons": "pw", "person_days": "dw"}, fitted=False)
-
-        assert inheritance(tables, [weight_set]) == []
-
-    def test_a_set_not_reaching_both_levels_is_skipped(self):
-        """Inheritance needs a parent weight to inherit from."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(100), 100)))
-        weight_set = WeightSet("v", "v", {"unlinked_trips": "tw"}, fitted=False)
-
-        assert (
-            inheritance(self._tables(trips=weights, person_days=list(weights)), [weight_set]) == []
-        )
-
-
 # ===========================================================================
 # The weight cascade: what carries weight below the household
 #
@@ -621,9 +668,9 @@ class TestRedistribution:
             per_hh=[1, 1],
         )
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
-        assert row.p50 == 1.0
+        assert row.unchanged == 100.0
+        assert row.bands == (0.0, 0.0, 0.0, 0.0)
         assert row.maximum == 1.0
-        assert row.share_above == 0.0
 
     def test_survivor_carries_the_whole_household(self):
         """One usable member of four stands in for all of them."""
@@ -636,7 +683,36 @@ class TestRedistribution:
         )
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
         assert row.maximum == 4.0
-        assert row.share_above == 100.0
+        assert row.unchanged == 0.0
+        # 4x lands in the top range, over 3x
+        assert row.bands == (0.0, 0.0, 0.0, 100.0)
+
+    def test_an_exact_factor_stays_in_its_range(self):
+        """One of three kept is 3x, even when float arithmetic lands a hair above it."""
+        tables = _tables(
+            hh_usable=[True],
+            hh_weight=[0.1],
+            per_usable=[True, False, False],
+            per_weight=[0.1 * 3, 0.0, 0.0],  # 0.30000000000000004
+            per_hh=[1, 1, 1],
+        )
+        row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
+        assert row.bands == (0.0, 0.0, 100.0, 0.0)
+
+    def test_each_kept_record_lands_in_one_range(self):
+        """Two households, one kept whole and one keeping 2 of 3: shares add up to 100."""
+        tables = _tables(
+            hh_usable=[True, True],
+            hh_weight=[10.0, 10.0],
+            per_usable=[True, True, True, False],
+            per_weight=[10.0, 15.0, 15.0, 0.0],
+            per_hh=[1, 2, 2, 2],
+        )
+        row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
+        assert row.records == 3
+        assert row.unchanged == pytest.approx(100 / 3)
+        assert row.bands == pytest.approx((200 / 3, 0.0, 0.0, 0.0))
+        assert row.unchanged + sum(row.bands) == pytest.approx(100.0)
 
     def test_dropped_households_are_excluded(self):
         """A rejected household's members say nothing about redistribution."""
@@ -649,52 +725,6 @@ class TestRedistribution:
         )
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
         assert row.maximum == 1.0
-
-
-class TestSplitIdentity:
-    """Days divide their person's weight; they must sum back to it."""
-
-    @staticmethod
-    def _with_days(
-        person_day_weight: list[float], day_person: list[int]
-    ) -> dict[str, pl.DataFrame]:
-        tables = _tables(
-            hh_usable=[True],
-            hh_weight=[10.0],
-            per_usable=[True, True],
-            per_weight=[10.0, 10.0],
-            per_hh=[1, 1],
-        )
-        tables["person_days"] = pl.DataFrame(
-            {
-                "person_day_id": list(range(1, len(person_day_weight) + 1)),
-                "person_id": day_person,
-                FLAG: [True] * len(person_day_weight),
-                f"person_day_weight_{PROFILE}": person_day_weight,
-            }
-        )
-        return tables
-
-    def test_days_summing_to_the_person_leave_no_residual(self):
-        """Two usable days at half the person weight each."""
-        tables = self._with_days([5.0, 5.0, 10.0], [1, 1, 2])
-        row = next(iter(split_identity(tables, profile=PROFILE)))
-        assert row.max_residual == 0.0
-        assert row.stranded_parents == 0
-        assert row.parents_checked == 2
-
-    def test_residual_is_reported_not_swallowed(self):
-        """A split that does not reconcile is arithmetic we control -- surface it."""
-        tables = self._with_days([5.0, 3.0, 10.0], [1, 1, 2])
-        row = next(iter(split_identity(tables, profile=PROFILE)))
-        assert row.max_residual == 2.0
-
-    def test_person_with_no_usable_day_is_stranded(self):
-        """Their weight is unrepresented below, never pooled onto other people."""
-        tables = self._with_days([10.0], [2])
-        row = next(iter(split_identity(tables, profile=PROFILE)))
-        assert row.stranded_parents == 1
-        assert row.stranded_weight == 10.0
 
 
 # ===========================================================================
@@ -804,6 +834,40 @@ def _panes(html: str) -> list[str]:
     return html.split('class="profile-pane"')[1:]
 
 
+class TestCellCountImportance:
+    """Each control's importance, beside the counts that explain its fit."""
+
+    def _table(self, **importance) -> str:
+        return unweighted_cell_counts(_fit("ctramp").seed_incidence, TARGETS, **importance)
+
+    def test_shows_what_balancing_used_with_the_moe_value_in_parentheses(self):
+        """A set value shows with the MOE's beside it; a control with no MOE shows a dash."""
+        html = self._table(
+            moe_importance={"h_total": 64.4},
+            importance_used={"h_total": 200.0, "p_total": 100.0},
+        )
+
+        assert "<th>Importance (MOE-computed)</th>" in html
+        assert (
+            '<td rowspan="1">200 <em style="color:#888;font-weight:normal">(64)</em></td>' in html
+        )
+        assert (
+            '<td rowspan="1">100 <em style="color:#888;font-weight:normal">(&mdash;)</em></td>'
+            in html
+        )
+
+    def test_no_parentheses_when_importance_was_not_moe_based(self):
+        """Without MOE-based importance there is nothing to compare against."""
+        html = self._table(importance_used={"h_total": 200.0, "p_total": 100.0})
+
+        assert "<th>Importance</th>" in html
+        assert '<th rowspan="1">h_total</th><td rowspan="1">200</td>' in html
+
+    def test_no_importance_columns_when_none_given(self):
+        """A caller with no importance gets the counts alone."""
+        assert "importance" not in self._table().lower()
+
+
 class TestGenerateReport:
     """The document a run writes, however many profiles it fitted."""
 
@@ -845,7 +909,11 @@ class TestGenerateReport:
         assert titles.count("Weight Cascade") == 1
         cascade = _section(html, "sec-cascade")
         for profile in fits:
-            assert f'colspan="3">{profile}' in cascade
+            assert f"<th>{profile}</th>" in cascade
+            # weight carried for dropped records follows each profile's toggle
+            assert f'class="profile-view" data-profile="{profile}"' in cascade
+        # every kept record is weighted or the run stops, so only kept counts show
+        assert "Unweighted" not in cascade
         # No geometry was passed, so the crosswalk is left out entirely rather
         # than rendered as a heading, a sidebar entry and an empty map.
         assert "Crosswalk Map" not in html

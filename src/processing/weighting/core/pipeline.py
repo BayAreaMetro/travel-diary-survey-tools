@@ -110,6 +110,10 @@ from processing.weighting.validation.control_validation import (
     warn_crosstab_sparsity,
 )
 from processing.weighting.validation.coverage import check_control_geography_coverage
+from processing.weighting.validation.survey_shares import (
+    check_survey_shares,
+    survey_share_table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +179,11 @@ class WeightingPipeline:
     pums_person_incidence: pl.DataFrame
     control_totals: ControlTotals
     resolved_importance: dict[str, float]
+    # Per control: what the MOE gave (None when not MOE-based), and what balancing used.
+    moe_importance: dict[str, float] | None
+    importance_used: dict[str, float]
     control_moe: pl.DataFrame | None
+    survey_shares: pl.DataFrame
 
     # -- Per-profile state ----------------------------------------------
     # Each fit keeps its own seed, weights and statuses. Sharing instance
@@ -205,6 +213,7 @@ class WeightingPipeline:
 
         # Mutable state initialised empty; populated by phases
         self.control_moe = None
+        self.moe_importance = None
         self.fits = {}
         self.block_households: pl.DataFrame | None = None
         self.puma_growth: pl.DataFrame | None = None
@@ -375,24 +384,23 @@ class WeightingPipeline:
         )
 
     def apply_merges(self) -> None:
-        """Apply 1-D merges to the PUMS household and person incidence tables.
+        """Apply global 1-D merges to the PUMS household and person incidence tables.
 
         Cross-tab merges are applied at registration time (pre-merge into
         the enum), so only 1-D merges need post-pivot application here. The seed
         side is merged in `build_seed`, symmetrically and once per profile.
+
+        Zone merges are left to `aggregate_totals`, which makes each merged group a
+        target in its own areas only. Added here, its column would be a target in
+        every area, and twice in its own.
         """
-        if self.controls.merges_1d:
-            self.pums_incidence = apply_1d_merges(
-                self.pums_incidence,
-                self.controls.merges_1d,
-            )
-            self.pums_person_incidence = apply_1d_merges(
-                self.pums_person_incidence,
-                self.controls.merges_1d,
-            )
+        global_merges = [m for m in self.controls.merges_1d if m.zones is None]
+        if global_merges:
+            self.pums_incidence = apply_1d_merges(self.pums_incidence, global_merges)
+            self.pums_person_incidence = apply_1d_merges(self.pums_person_incidence, global_merges)
             logger.info(
-                "Applied %d 1-D merge specs to PUMS; incidence now %d columns",
-                len(self.controls.merges_1d),
+                "Applied %d global 1-D merge specs to PUMS; incidence now %d columns",
+                len(global_merges),
                 len(self.pums_incidence.columns),
             )
 
@@ -432,6 +440,7 @@ class WeightingPipeline:
                 self.controls.target_names,
             )
             # YAML explicit overrides take precedence over MOE-derived
+            self.moe_importance = dict(moe_importance)
             moe_importance.update(overrides)
             overrides = moe_importance
 
@@ -447,6 +456,7 @@ class WeightingPipeline:
         imp_lines = "\n".join(f"  {k}: {v:.1f}" for k, v in full.items())
         logger.info("Importance weights:\n%s", imp_lines)
         self.resolved_importance = overrides
+        self.importance_used = full
 
     def build_seed(self, profile: str | None) -> ProfileFit:
         """Gate, impute, place and merge one profile's seed.
@@ -657,18 +667,6 @@ class WeightingPipeline:
             if df is not None:
                 setattr(self.data, name, df)
 
-    def fit(self, profile: str | None) -> ProfileFit:
-        """Build, balance and propagate one profile's weights.
-
-        Reporting is deliberately not done here: the report describes the run
-        and needs every fit, so ``fit_all`` writes it once they are all in.
-        """
-        fit = self.build_seed(profile)
-        self.balance_fit(fit)
-        self.propagate_fit(fit)
-        self.fits[fit.profile] = fit
-        return fit
-
     def fit_all(self, *, diagnostics: DiagnosticsConfig) -> dict[str | None, ProfileFit]:
         """Run one fit per configured profile, then raise if any failed to converge.
 
@@ -676,11 +674,23 @@ class WeightingPipeline:
         convergence failure in one costs a diagnosis of the others rather than
         hiding it -- including the failure itself, which the report names.
 
+        Every profile's seed is built before any is balanced, so the survey-share
+        check sees them all and stops the run before balancing if a group is too
+        small a share of its area's survey to reach its target.
+
         Raises:
+            ValueError: If a group's survey share is below ``min_survey_share_ratio``.
             RuntimeError: If any profile left zones unconverged.
         """
-        for profile in self.config.fitted_profiles:
-            self.fit(profile)
+        seeds = {p: self.build_seed(p) for p in self.config.fitted_profiles}
+        self.survey_shares = survey_share_table(
+            {p: fit.seed_incidence for p, fit in seeds.items()}, self.control_totals
+        )
+        check_survey_shares(self.survey_shares, self.balancing.min_survey_share_ratio)
+        for fit in seeds.values():
+            self.balance_fit(fit)
+            self.propagate_fit(fit)
+            self.fits[fit.profile] = fit
         generate_diagnostics(self, diagnostics)
 
         failed = {

@@ -369,6 +369,7 @@ steps:
         max_expansion_factor: 5.0    # upper bound = initial_weight × factor
         min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
         max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
+        min_survey_share_ratio: 0.125  # stop if a group's % of area's survey / % of area's PUMS is below this
         min_weight: 1              # absolute floor (no weight < 1)
         # max_weight:                # absolute ceiling (null = no ceiling)
         max_iterations: 10000

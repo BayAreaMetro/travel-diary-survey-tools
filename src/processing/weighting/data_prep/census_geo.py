@@ -358,6 +358,52 @@ def get_block_households(
     return households
 
 
+def get_county_names(
+    state_fips: str,
+    pums_year: int,
+    *,
+    cache_dir: Path | None = None,
+) -> pl.DataFrame:
+    """Fetch the Census name of every county in *state_fips*, such as "Alameda County".
+
+    Returns a DataFrame with columns ``[county_fips, county_name]``, where
+    ``county_fips`` is the 5-character state and county code that starts every
+    block GEOID.
+    """
+    vintage = puma_vintage_for_pums_year(pums_year)
+    path = _geo_cache_path(f"county_names_{state_fips}_{vintage}", cache_dir)
+    if path and path.exists():
+        logger.debug("Cache hit: %s", path)
+        return pl.read_parquet(path)
+
+    url, _ = _BLOCK_POP_API[vintage]
+    resp = requests.get(
+        url,
+        params={
+            "get": "NAME",
+            "for": "county:*",
+            "in": f"state:{state_fips}",
+            "key": _census_api_key(),
+        },
+        timeout=60,
+    )
+    header, *rows = _census_json(resp)
+    name_i, st_i, co_i = (header.index(c) for c in ("NAME", "state", "county"))
+    # The API names a county with its state, as in "Alameda County, California"
+    names = pl.DataFrame(
+        {
+            "county_fips": [r[st_i] + r[co_i] for r in rows],
+            "county_name": [r[name_i].split(",")[0] for r in rows],
+        }
+    ).sort("county_fips")
+
+    if path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        names.write_parquet(path)
+        logger.debug("Cached → %s", path)
+    return names
+
+
 def get_block_gdf(
     state_fips: str,
     pums_year: int,

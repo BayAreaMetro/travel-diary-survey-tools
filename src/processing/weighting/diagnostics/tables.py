@@ -10,7 +10,8 @@ This module generates five of the tables displayed in the diagnostics HTML repor
    std, min, max) and expansion factor stats (min/max/mean/median EF ratio).
 
 3. **Unweighted Cell Counts** — Data sparsity matrix showing unweighted sample counts
-   per control category per zone, with optional PUMS-weighted percentages for context.
+   per control category per zone, with optional PUMS-weighted percentages for context,
+   and each control's importance.
 
 4. **Crosswalk Summary Table** — Zone → HH samples mapping with optional zone group
    aggregation.
@@ -309,16 +310,33 @@ def _build_zone_merge_lookups(
     return merged_zones, absorbed_zones
 
 
+def _importance_cell(control: str, used: dict[str, float], moe: dict[str, float] | None) -> str:
+    """The importance balancing used, with the MOE-computed one in parentheses."""
+    if moe is None:
+        return f"{used[control]:.0f}"
+    computed = moe.get(control)
+    shown = "&mdash;" if computed is None else f"{computed:.0f}"
+    return f'{used[control]:.0f} <em style="color:#888;font-weight:normal">({shown})</em>'
+
+
 def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     seed: pl.DataFrame,
     target_names: list[str],
     control_totals: ControlTotals | None = None,
     merge_specs: list | None = None,
+    *,
+    moe_importance: dict[str, float] | None = None,
+    importance_used: dict[str, float] | None = None,
 ) -> str:
     """Single matrix table: categories (rows) x zones (columns).
 
     Row headers are grouped by control name using ``<th rowspan>``.
     A level separator row (Household / Person) divides the two groups.
+
+    With *importance_used*, each control also shows the importance balancing
+    gave it, with what its PUMS MOE gave (*moe_importance*) in parentheses, or
+    a dash where the MOE could not be computed. The parentheses are left out
+    when importance was not MOE-based.
 
     When *control_totals* is provided, each cell also shows the
     PUMS-weighted percentage in italic parentheses so the reader can
@@ -398,9 +416,14 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
         for row in ct_total.iter_rows(named=True):
             pums_pct_total[(row["control_name"], row["category"])] = row["pct"]
 
+    importance_cols: list[str] = []
+    if importance_used is not None:
+        importance_cols = ["Importance" if moe_importance is None else "Importance (MOE-computed)"]
+
     header = (
         "<tr>"
         + tag("th", "Control")
+        + "".join(tag("th", c) for c in importance_cols)
         + tag("th", "Category")
         + "".join(tag("th", wbr(str(z))) for z in zones)
         + tag("th", "Total")
@@ -415,7 +438,7 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
             continue
         level_label = "Household" if level == ControlLevel.HOUSEHOLD else "Person"
         data_rows.append(
-            f'<tr><td colspan="{n_zone_cols + 3}" '
+            f'<tr><td colspan="{n_zone_cols + 3 + len(importance_cols)}" '
             f'style="background:#e8e8e8;font-weight:bold;text-align:left">{level_label}</td></tr>'
         )
         for ctrl in ctrls:
@@ -423,7 +446,11 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
             for i, (col, member_key) in enumerate(members):
                 cells = ""
                 if i == 0:
-                    cells += f'<th rowspan="{len(members)}">{ctrl.name}</th>'
+                    span = f'rowspan="{len(members)}"'
+                    cells += f"<th {span}>{ctrl.name}</th>"
+                    if importance_used is not None:
+                        shown = _importance_cell(ctrl.name, importance_used, moe_importance)
+                        cells += f"<td {span}>{shown}</td>"
 
                 # Zone merge annotations
                 active_in = merged_zones.get((ctrl.name, member_key))
@@ -448,84 +475,84 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     return '<table class="sparsity">\n' + header + "\n" + "\n".join(data_rows) + "\n</table>"
 
 
-def crosswalk_summary_table(crosswalk_df: pl.DataFrame, seed: pl.DataFrame) -> str:  # noqa: C901, PLR0912
-    """Compact Zone -> HH Samples table with optional Zone Group column."""
-    # study_geoid is the raw crosswalk geography; ctrl_geoid may be grouped.
-    sample_counts = dict(
+def crosswalk_summary_table(
+    crosswalk_df: pl.DataFrame,
+    seed: pl.DataFrame,
+    counties: dict[str, str],
+) -> str:
+    """Households per zone, in their balancing groups, with the Census county each covers.
+
+    The county names come from the Census rather than the config, so a zone ID put
+    in the wrong group shows up as a county the group's name doesn't match.
+    Households outside every zone get their own row: they cannot be weighted.
+
+    Args:
+        crosswalk_df: The PUMA-to-zone allocation, with ``study_geoid`` and
+            ``ctrl_geoid``.
+        seed: One profile's household seed, with ``study_geoid``.
+        counties: Zone ID to its Census county name or names.
+    """
+    counts = dict(
         seed.filter(pl.col("study_geoid").is_not_null()).group_by("study_geoid").len().iter_rows()
     )
-
-    # Zone group mapping (study_geoid → ctrl_geoid when they differ)
-    zone_to_group: dict[str, str] = {}
-    if "ctrl_geoid" in seed.columns and "study_geoid" in seed.columns:
-        pairs = (
-            seed.filter(pl.col("study_geoid") != pl.col("ctrl_geoid"))
-            .select("study_geoid", "ctrl_geoid")
-            .unique()
-        )
-        if pairs.height > 0:
-            zone_to_group = dict(pairs.iter_rows())
-    has_groups = bool(zone_to_group)
-
-    raw_zones = (
-        crosswalk_df.select("study_geoid")
+    outside = seed.filter(pl.col("study_geoid").is_null()).height
+    zones = (
+        crosswalk_df.select("study_geoid", "ctrl_geoid")
         .unique()
         .filter(pl.col("study_geoid").is_not_null())
-        .to_series()
-        .to_list()
+        .sort("ctrl_geoid", "study_geoid")
     )
-    # Sort by zone group then descending HH samples so group members stay
-    # contiguous (needed for correct rowspan) and larger zones appear first.
-    zones = sorted(
-        raw_zones,
-        key=lambda g: (zone_to_group.get(g, ""), -(sample_counts.get(g, 0))),
-    )
+    grouped = zones.filter(pl.col("study_geoid") != pl.col("ctrl_geoid")).height > 0
 
-    headers = []
-    if has_groups:
-        headers += ["Zone Group", "Grouped HH Samples"]
-    headers += ["Zone", "HH Samples"]
-    header = "<tr>" + "".join(tag("th", h) for h in headers) + "</tr>"
+    headers = (["Zone group"] if grouped else []) + ["Zone", "Census county", "Households"]
+    pad = [""] if grouped else []
+    body: list[list[str]] = []
+    for (group,), members in zones.group_by("ctrl_geoid", maintain_order=True):
+        for i, zone in enumerate(members["study_geoid"].to_list()):
+            name = [str(group) if i == 0 else ""] if grouped else []
+            body.append(
+                [*name, _left(zone), _left(counties.get(zone, "")), f"{counts.get(zone, 0):,}"]
+            )
+        if grouped and members.height > 1:
+            total = sum(counts.get(z, 0) for z in members["study_geoid"].to_list())
+            body.append(["", "", _left("<b>Group</b>"), f"<b>{total:,}</b>"])
+    body.append(["<b>Outside all zones</b>", *pad, "", f"<b>{outside:,}</b>"])
+    body.append(["<b>Total</b>", *pad, "", f"<b>{seed.height:,}</b>"])
+    return html_table(headers, body)
 
-    # Build runs of consecutive zones sharing the same group for rowspan
-    group_runs: list[tuple[str, int]] = []  # (group_name, span)
-    if has_groups:
-        for geo in zones:
-            grp = zone_to_group.get(geo, "")
-            if group_runs and group_runs[-1][0] == grp and grp:
-                group_runs[-1] = (grp, group_runs[-1][1] + 1)
-            else:
-                group_runs.append((grp, 1))
 
-    # Grouped sample totals
-    group_sample_totals: dict[str, int] = {}
-    if has_groups:
-        for geo, grp in zone_to_group.items():
-            group_sample_totals[grp] = group_sample_totals.get(grp, 0) + sample_counts.get(geo, 0)
+def _left(text: str) -> str:
+    """A left-aligned cell, for names in a table that right-aligns its numbers."""
+    return f'<td style="text-align:left">{text}</td>'
 
-    body_rows: list[str] = []
-    run_idx = 0
-    pos_in_run = 0
-    for geo in zones:
-        cells = ""
-        if has_groups:
-            grp = zone_to_group.get(geo, "")
-            if grp and group_runs:
-                _, span = group_runs[run_idx]
-                if pos_in_run == 0:
-                    rs = f' rowspan="{span}"' if span > 1 else ""
-                    cells += f"<td{rs}>{grp}</td>"
-                    total = group_sample_totals.get(grp, 0)
-                    cells += f"<td{rs}>{total:,}</td>"
-                pos_in_run += 1
-                if pos_in_run >= span:
-                    run_idx += 1
-                    pos_in_run = 0
-            else:
-                cells += tag("td", "")
-                cells += tag("td", "")
-        cells += f'<td style="text-align:left">{geo}</td>'
-        cells += tag("td", f"{sample_counts.get(geo, 0):,}")
-        body_rows.append(f"<tr>{cells}</tr>")
 
-    return f"<table>\n{header}\n" + "\n".join(body_rows) + "\n</table>"
+def survey_share_table_html(shares: pl.DataFrame) -> str:
+    """Every group's share of its area's survey against its share of the area's PUMS.
+
+    Smallest ratio first, so the groups nearest the stop are at the top. The
+    columns are the stop message's, so the two read the same way.
+    """
+    headers = [
+        "Area",
+        "Target",
+        "Group",
+        "Survey",
+        "PUMS",
+        "%&nbsp;of area's survey",
+        "%&nbsp;of area's PUMS",
+        "Ratio",
+    ]
+    rows = [
+        [
+            r["area"],
+            r["target"],
+            wbr(r["group"]),
+            f"{r['survey']:,.0f}",
+            f"{r['pums']:,.0f}",
+            f"{r['survey_share'] * 100:.1f}%",
+            f"{r['pums_share'] * 100:.1f}%",
+            f"{r['ratio']:.2f}",
+        ]
+        for r in shares.sort("ratio").iter_rows(named=True)
+    ]
+    return html_table(headers, rows)

@@ -13,6 +13,7 @@ from processing.weighting.core.specs import (
     DiagnosticsConfig,
     ReferenceWeightSetConfig,
 )
+from processing.weighting.data_prep.census_geo import get_county_names
 from processing.weighting.diagnostics import generate_report
 from processing.weighting.diagnostics.comparison import (
     Comparison,
@@ -116,11 +117,19 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         target_gdf=pipeline.crosswalk.target_gdf,
         crosswalk_df=pipeline.crosswalk.crosswalk_df,
         zone_groups=zone_groups,
+        zone_counties=pipeline.crosswalk.zone_counties(
+            get_county_names(
+                pipeline.config.state_fips, pipeline.config.pums_year, cache_dir=pipeline.cache_dir
+            )
+        ),
         merge_specs=pipeline.controls.all_merges,
         control_moe=pipeline.control_moe,
+        moe_importance=pipeline.moe_importance,
+        importance_used=pipeline.importance_used,
         pums_incidence=pipeline.pums_incidence,
         max_expansion_factor=pipeline.balancing.max_expansion_factor,
         comparison=_weight_comparisons(pipeline, diagnostics.compare_weights),
+        survey_shares=pipeline.survey_shares,
     )
 
 

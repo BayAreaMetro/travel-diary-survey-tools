@@ -40,10 +40,11 @@ from processing.weighting.core.specs import ControlTotals, ProfileFit
 from .charts import (
     ef_tradeoff_figure,
     fit_diverging_figure,
+    fit_x_limit,
     imputation_distribution_figure,
     violins_figure,
 )
-from .comparison import Comparison, fitted_weight_sets, inheritance, payload
+from .comparison import Comparison, payload
 from .crosswalk_map import crosswalk_figure
 from .data import (
     apply_fit_merges,
@@ -52,23 +53,20 @@ from .data import (
     merge_control_moe,
     profile_summary,
     redistribution,
-    split_identity,
     weight_cascade,
     zone_fit_summary,
 )
 from .glossary import CASCADE, COMPARER, FIT, IMPUTATION, WEIGHTS, glossary_groups, term
 from .profile_tables import (
     cascade_table,
-    coverage_table,
-    inheritance_table,
     profile_comparison_table,
-    redistribution_table,
-    split_identity_table,
+    redistribution_view,
 )
 from .tables import (
     balancer_performance_table,
     crosswalk_summary_table,
     imputation_summary_table,
+    survey_share_table_html,
     unweighted_cell_counts,
     weight_quality_table,
 )
@@ -192,6 +190,18 @@ def _key(profile: str | None) -> str:
     return profile or "survey"
 
 
+def _per_profile(views: dict[str | None, str]) -> str:
+    """One block per profile, outside the panes, shown with that profile's toggle.
+
+    The first profile's block is shown on load, matching the first pane.
+    """
+    return "".join(
+        f'<div class="profile-view" data-profile="{_key(profile)}"'
+        f"{'' if i == 0 else ' hidden'}>{html}</div>"
+        for i, (profile, html) in enumerate(views.items())
+    )
+
+
 def _fit_control_table(
     fit: ProfileFit,
     control_totals: ControlTotals,
@@ -250,6 +260,10 @@ def _pane(
     merge_specs: list | None,
     pums_incidence: pl.DataFrame | None,
     max_expansion_factor: float | None,
+    fit_x_range: float,
+    *,
+    moe_importance: dict[str, float] | None,
+    importance_used: dict[str, float] | None,
 ) -> dict:
     """Everything one profile contributes to the document."""
     weighted = fit.seed_incidence.join(
@@ -265,9 +279,14 @@ def _pane(
         "balancer_performance_table": balancer_performance_table(fit.statuses, weighted, zone_fit),
         "weight_quality_table": weight_quality_table(weighted),
         "violins_html": violins_figure(weighted).to_html(**_PLOTLY_KWARGS),
-        "fit_bars_html": fit_diverging_figure(control_table).to_html(**_PLOTLY_KWARGS),
+        "fit_bars_html": fit_diverging_figure(control_table, fit_x_range).to_html(**_PLOTLY_KWARGS),
         "sparsity_html": unweighted_cell_counts(
-            fit.seed_incidence, target_names, control_totals, merge_specs
+            fit.seed_incidence,
+            target_names,
+            control_totals,
+            merge_specs,
+            moe_importance=moe_importance,
+            importance_used=importance_used,
         ),
         "ef_tradeoff_section": _ef_section(fit, max_expansion_factor),
     }
@@ -285,11 +304,15 @@ def generate_report(  # noqa: PLR0913
     target_gdf: GeoDataFrame | None = None,
     crosswalk_df: pl.DataFrame | None = None,
     zone_groups: dict[str, list[str]] | None = None,
+    zone_counties: dict[str, str] | None = None,
     merge_specs: list | None = None,
     control_moe: pl.DataFrame | None = None,
+    moe_importance: dict[str, float] | None = None,
+    importance_used: dict[str, float] | None = None,
     pums_incidence: pl.DataFrame | None = None,
     max_expansion_factor: float | None = None,
     comparison: Comparison | None = None,
+    survey_shares: pl.DataFrame | None = None,
 ) -> Path:
     """Write the run's self-contained HTML diagnostics report to *output_path*.
 
@@ -307,8 +330,12 @@ def generate_report(  # noqa: PLR0913
         target_gdf: Target-zone boundaries for the crosswalk map.
         crosswalk_df: The PUMA-to-zone allocation table.
         zone_groups: Zone groupings, when zones were merged for balancing.
+        zone_counties: Each zone's Census county name or names, for the zone table.
         merge_specs: Category merges, for labelling the fit table.
         control_moe: Per-cell PUMS standard errors from replicate weights.
+        moe_importance: Each control's importance as its PUMS MOE gave it, or
+            None when importance was not MOE-based.
+        importance_used: Each control's importance as balancing used it.
         pums_incidence: PUMS incidence, as the reference distribution for the
             fractional seed imputation chart.
         max_expansion_factor: The production EF, marked on the calibration
@@ -316,6 +343,8 @@ def generate_report(  # noqa: PLR0913
         comparison: Weight sets to compare pairwise. Run-level by construction:
             a comparison names two profiles, so it cannot sit in a pane that
             shows one. Omitted, or holding no pairs, the section is left out.
+        survey_shares: Each group's share of its area's survey against its share
+            of the area's PUMS, from the check run before balancing.
 
     Returns:
         The path written.
@@ -329,6 +358,7 @@ def generate_report(  # noqa: PLR0913
         for profile, fit in fits.items()
     }
 
+    fit_x_range = fit_x_limit(list(control_tables.values()))
     panes = [
         _pane(
             fit,
@@ -338,6 +368,9 @@ def generate_report(  # noqa: PLR0913
             merge_specs,
             pums_incidence,
             max_expansion_factor,
+            fit_x_range,
+            moe_importance=moe_importance,
+            importance_used=importance_used,
         )
         for profile, fit in fits.items()
     ]
@@ -359,35 +392,32 @@ def generate_report(  # noqa: PLR0913
         )
         crosswalk_section = f'<div class="chart-map">{figure.to_html(**_PLOTLY_KWARGS)}</div>'
 
-    first = next(iter(fits.values()))
     crosswalk_table = (
-        crosswalk_summary_table(crosswalk_df, first.seed_incidence)
+        _per_profile(
+            {
+                p: crosswalk_summary_table(crosswalk_df, f.seed_incidence, zone_counties or {})
+                for p, f in fits.items()
+            }
+        )
         if crosswalk_df is not None
         else ""
     )
+    survey_share_html = survey_share_table_html(survey_shares) if survey_shares is not None else ""
 
     # Section 3 — the weight cascade, every profile side by side
     cascades = {
         profile: weight_cascade(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
         for profile, fit in fits.items()
     }
-    ratios = {
-        profile: redistribution(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
+    carried = {
+        profile: redistribution_view(
+            redistribution(tables, profile=profile, usability_flag_col=fit.usability_flag_col)
+        )
         for profile, fit in fits.items()
     }
-    splits = {profile: split_identity(tables, profile=profile) for profile in fits}
-
-    # How each set's weight descends, including any supplied sets: it describes
-    # each set on its own, so it belongs with the cascade, not the comparer.
-    sets = comparison.sets if comparison is not None else fitted_weight_sets(list(fits))
     cascade_blocks = {
         "cascade_table": cascade_table(cascades),
-        "redistribution_table": redistribution_table(ratios),
-        "inheritance_table": inheritance_table(
-            inheritance(tables, sets), {s.name: s.label for s in sets}
-        ),
-        "split_identity_table": split_identity_table(splits),
-        "coverage_table": coverage_table({p: f.coverage for p, f in fits.items()}),
+        "redistribution_view": _per_profile(carried) if any(carried.values()) else "",
     }
 
     # Section 4 — the pairwise comparer, embedded as data and drawn in the browser
@@ -396,7 +426,7 @@ def generate_report(  # noqa: PLR0913
     nums = _section_numbers(
         {
             "comparison": bool(comparison_table),
-            "crosswalk": bool(crosswalk_section or crosswalk_table),
+            "crosswalk": bool(crosswalk_section or crosswalk_table or survey_share_html),
             "cascade": any(cascade_blocks.values()),
             "comparer": bool(comparer),
         },
@@ -412,6 +442,7 @@ def generate_report(  # noqa: PLR0913
         "comparison_table": comparison_table,
         "crosswalk_section": crosswalk_section,
         "crosswalk_table": crosswalk_table,
+        "survey_share_table": survey_share_html,
         **cascade_blocks,
         "panes": panes,
         "nums": nums,

@@ -1,25 +1,29 @@
 """The report's per-profile tables: how each fit compares, and what carries weight.
 
 One row or column per profile, so the fits can be read side by side: seed and
-weight sums, the cascade of usable records, redistribution, the day split,
-control-geography coverage and how lower-level weights descend from the level
-above.
+weight sums, the cascade of usable records, and how far kept records were
+scaled up to carry dropped ones.
 """
 
-from processing.weighting.core.specs import (
-    GeographyCoverage,
-)
-
-from .comparison import Inheritance
 from .data import (
-    REDISTRIBUTION_TAIL,
+    RAISE_BANDS,
     CascadeRow,
     ProfileSummary,
     RedistributionRow,
-    SplitIdentityRow,
 )
 from .glossary import term
 from .table_html import html_table
+
+# How a parent level is named in a row label, as in "persons, from their household".
+_PARENT_NOUN = {
+    "households": "household",
+    "persons": "person",
+    "person_days": "day",
+    "linked_trips": "linked trip",
+    "tours": "tour",
+    "joint_trips": "joint trip",
+    "joint_tours": "joint tour",
+}
 
 
 def profile_comparison_table(rows: list[ProfileSummary]) -> str:
@@ -64,11 +68,10 @@ def profile_comparison_table(rows: list[ProfileSummary]) -> str:
 
 
 def cascade_table(cascades: dict[str | None, list[CascadeRow]]) -> str:
-    """Per-level weight coverage, one column group per profile.
+    """Records each profile keeps at each level, profiles side by side.
 
-    Shown side by side rather than behind the profile toggle: the counts are
-    small enough to compare directly, and a labelled column cannot be misread
-    the way a toggled chart can.
+    Only the kept count is shown: every kept record carries a weight and no other
+    record does, or the run stops before writing the report.
     """
     if not cascades:
         return ""
@@ -78,166 +81,52 @@ def cascade_table(cascades: dict[str | None, list[CascadeRow]]) -> str:
         for row in rows:
             by_table.setdefault(row.table, {})[profile] = row
 
-    group_row = [("Level", 1), ("Rows", 1)]
-    group_row += [(p or "the survey", 3) for p in profiles]
-    sub_headers = ["Usable", "Weighted", "Unweighted"] * len(profiles)
-
+    headers = ["Level", "Records", *(p or "the survey" for p in profiles)]
     body: list[list[str]] = []
     for table, per_profile in by_table.items():
         any_row = next(iter(per_profile.values()))
-        cells = [table, f"{any_row.rows:,}"]
-        for profile in profiles:
-            row = per_profile.get(profile)
-            if row is None:
-                cells += ["—", "—", "—"]
-                continue
-            unweighted = (
-                f'<td class="failed">{row.unweighted:,}</td>'
-                if row.unweighted
-                else f"{row.unweighted:,}"
-            )
-            cells += [f"{row.usable:,}", f"{row.weighted:,}", unweighted]
+        cells = [table.replace("_", " "), f"{any_row.rows:,}"]
+        cells += [f"{r.usable:,}" if (r := per_profile.get(p)) else "—" for p in profiles]
         body.append(cells)
-    return html_table(sub_headers, body, group_row=group_row)
-
-
-def redistribution_table(rows: dict[str | None, list[RedistributionRow]]) -> str:
-    """Child/parent weight ratio per copy-and-conserve edge, per profile."""
-    headers = [
-        "Levels",
-        "Profile",
-        "Median",
-        "P90",
-        "P99",
-        "Max",
-        f"&gt;&thinsp;{REDISTRIBUTION_TAIL:g}&times;",
-    ]
-    body: list[list[str]] = []
-    for profile, edges in rows.items():
-        for r in edges:
-            body.append(  # noqa: PERF401
-                [
-                    f"{r.table} / {r.parent}",
-                    profile or "the survey",
-                    f"{r.p50:.2f}",
-                    f"{r.p90:.2f}",
-                    f"{r.p99:.2f}",
-                    f"{r.maximum:.1f}",
-                    f"{r.share_above:.1f}%",
-                ]
-            )
-    return html_table(headers, body) if body else ""
-
-
-def split_identity_table(rows: dict[str | None, list[SplitIdentityRow]]) -> str:
-    """Whether each split level's children still sum to their parent's weight."""
-    headers = [
-        "Levels",
-        "Profile",
-        "Higher-level&nbsp;records",
-        "Largest&nbsp;gap",
-        "With&nbsp;no&nbsp;usable&nbsp;lower-level&nbsp;record",
-        "Weight&nbsp;not&nbsp;passed&nbsp;down",
-        "Lower-level&nbsp;records&nbsp;each",
-    ]
-    body: list[list[str]] = []
-    for profile, edges in rows.items():
-        for r in edges:
-            stranded = (
-                f'<td class="failed">{r.stranded_parents:,}</td>'
-                if r.stranded_parents
-                else f'<td class="converged">{r.stranded_parents:,}</td>'
-            )
-            body.append(
-                [
-                    f"{r.table} / {r.parent}",
-                    profile or "the survey",
-                    f"{r.parents_checked:,}",
-                    f"{r.max_residual:.1e}",
-                    stranded,
-                    f"{r.stranded_weight:,.0f}",
-                    f"{r.min_children}&ndash;{r.max_children} (med {r.median_children})",
-                ]
-            )
-    return html_table(headers, body) if body else ""
-
-
-def coverage_table(coverages: dict[str | None, GeographyCoverage]) -> str:
-    """Households each profile admits that the control geography cannot place.
-
-    A household outside every control polygon belongs to no balancing zone, so
-    no fit can give it a weight. That is a bound on what the weighting answers,
-    and it is stated rather than left to be inferred from a column of nulls.
-    """
-    headers = [
-        "Profile",
-        "Households",
-        "In&nbsp;a&nbsp;zone",
-        "Outside&nbsp;all&nbsp;zones",
-        "Share",
-    ]
-    body: list[list[str]] = []
-    for profile, cov in coverages.items():
-        unplaceable = (
-            f'<td class="failed">{cov.n_unplaceable:,}</td>'
-            if cov.n_unplaceable
-            else f'<td class="converged">{cov.n_unplaceable:,}</td>'
-        )
-        body.append(
-            [
-                profile or "the survey",
-                f"{cov.n_universe:,}",
-                f"{cov.n_placed:,}",
-                unplaceable,
-                f"{cov.unplaceable_share * 100:.2f}%",
-            ]
-        )
     return html_table(headers, body)
 
 
-def inheritance_table(rows: list[Inheritance], labels: dict[str, str]) -> str:
-    """How each set's weight descends from the level above, and by what mechanism.
+def redistribution_view(rows: list[RedistributionRow]) -> str:
+    """One profile's kept records: how many carry the record above's weight unchanged.
 
-    The mechanism is the column that matters. *Copied* means the level adds
-    nothing of its own, so a comparison there restates the level above. *Adjusted*
-    means records were rescaled individually after the weight descended, which is
-    the one case where the level no longer nests inside its parent -- and the one
-    a reader is most likely to mistake for the harmless kind.
+    The rest were scaled up to carry dropped siblings. A bar per level shows the
+    split at a glance, and the table gives the shares by how far each was raised.
     """
     if not rows:
         return ""
-    headers = [
-        "Level",
-        "Weight set",
-        "Records",
-        term("inherit", "Same&nbsp;as&nbsp;level&nbsp;above"),
-        "Groups&nbsp;with&nbsp;unequal&nbsp;adjustments",
-        "Largest&nbsp;difference",
-        "Mechanism",
-    ]
-    verdicts = {
-        "copied": '<td class="failed">copied</td>',
-        "redistributed": "redistributed",
-        "adjusted": '<td class="failed">adjusted per record</td>',
-    }
+    bars: list[str] = []
     body: list[list[str]] = []
-    for row in rows:
-        uniform = row.max_scope_spread <= 1 + 1e-9
-        spread = "&mdash;" if uniform else f"{row.max_scope_spread:,.2f}&times;"
-        varying = (
-            f'<td class="failed">{row.n_scopes_varying:,}</td>'
-            if row.n_scopes_varying
-            else f"{row.n_scopes_varying:,}"
+    for r in rows:
+        child = r.table.replace("_", " ")
+        parent = _PARENT_NOUN.get(r.parent, r.parent.replace("_", " "))
+        segments = [r.unchanged, *r.bands]
+        bars.append(
+            f'<div class="bar-row"><span class="bar-lab">{child}</span><span class="bar">'
+            + "".join(
+                f'<span class="seg s{i}" style="width:{share:.2f}%"></span>'
+                for i, share in enumerate(segments)
+            )
+            + "</span></div>"
         )
         body.append(
             [
-                f"{row.level} &larr; {row.parent}",
-                labels.get(row.set_name, row.set_name),
-                f"{row.n:,}",
-                f"{row.share:.1f}%",
-                varying,
-                spread,
-                verdicts[row.mode],
+                f"{child}, from their {parent}",
+                f"{r.records:,}",
+                *(f"{share:.1f}%" for share in segments),
+                f"{r.maximum:.1f}&times;",
             ]
         )
-    return html_table(headers, body, css_class="inherit")
+    labels = ["Unchanged", *(label for label, _, _ in RAISE_BANDS)]
+    legend = "".join(
+        f'<span class="key s{i}"></span>{label.lower()}' for i, label in enumerate(labels)
+    )
+    headers = ["Kept records", "Number", *labels, "Largest"]
+    return (
+        f'<div class="bars">{"".join(bars)}<div class="legend">{legend}</div></div>'
+        + html_table(headers, body)
+    )
