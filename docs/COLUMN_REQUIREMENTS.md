@@ -30,6 +30,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `income` | int or None | ≥ 0 |  |  |  |  |  |  |  |
     | `income_bin` | IncomeBroad |  |  |  |  |  | ✓ | ✓ |  |
     | `num_vehicles` | int | ≥ 0 |  |  |  |  | ✓ | ✓ |  |
+    | `exclusion_reason` | str or None |  |  |  |  |  |  |  |  |
     | `survey_complete` | bool |  |  |  | + |  | ✓ |  |  |
     | `<column>_preimputed` | named by config |  | + |  |  |  |  |  |  |
     | `hh_weight_<profile>` | named by config |  |  |  |  | + | + |  |  |
@@ -100,6 +101,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `travel_dow` | TravelDow |  |  |  |  |  | ✓ |  |  |  | ✓ |
     | `begin_day` | BeginEndDay or None |  |  | ✓ |  | ✓ |  |  |  |  |  |
     | `end_day` | BeginEndDay or None |  |  | ✓ |  | ✓ |  |  |  |  |  |
+    | `exclusion_reason` | str or None |  |  |  |  |  |  |  |  |  |  |
     | `survey_complete` | bool or None |  |  |  |  |  | ✓ |  |  |  |  |
     | `<column>_preimputed` | named by config |  | + |  |  |  |  |  |  |  |  |
     | `person_day_weight_<profile>` | named by config |  |  |  |  |  |  | + | + |  |  |

@@ -335,8 +335,8 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
         n_imputed_work_mode / n_missing_work_mode * 100 if n_missing_work_mode > 0 else 0,
     )
 
-    # Derive race from binary ethnicity_* columns
-    # 2019 used a single combined race/ethnicity question; race flags are under ethnicity_*
+    # Derive race from the ethnicity_* boxes of 2019's one race/ethnicity question.
+    # A box is 1 ticked, 0 not; 995, 999 and -9998 are no answer, so only 1 counts.
     race_flag_cols = [
         "ethnicity_af_am",
         "ethnicity_aiak",
@@ -346,10 +346,11 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
         "ethnicity_mideast",
         "ethnicity_other",
     ]
+    ticked = pl.sum_horizontal([(pl.col(c) == 1).fill_null(value=False) for c in race_flag_cols])
     persons = persons.with_columns(
         pl.when(pl.col("ethnicity_multi") == 1)
         .then(pl.lit(Race.MULTI.value))
-        .when(pl.sum_horizontal([pl.col(c) for c in race_flag_cols]) > 1)
+        .when(ticked > 1)
         .then(pl.lit(Race.MULTI.value))
         .when(pl.col("ethnicity_af_am") == 1)
         .then(pl.lit(Race.AFAM.value))
@@ -378,7 +379,7 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
     # neither veto a household-date nor inherit its verdict.
     persons = persons.with_columns((pl.col("is_active_participant") == 1).alias("surveyable"))
 
-    # 2019 collected every diary through rMove, the phone app. A non-participant
+    # 2019 collected every diary through a phone app (GPS). A non-participant
     # kept no diary, so no technology collected their travel.
     persons = persons.with_columns(
         pl.when(pl.col("is_active_participant") == 1)
@@ -387,14 +388,16 @@ def clean_persons(persons: pl.DataFrame, unlinked_trips: pl.DataFrame) -> pl.Dat
         .alias("survey_tech")
     )
 
-    # Derive ethnicity from ethnicity_hisp flag
+    # Derive ethnicity from the ethnicity_hisp box; any code but 0 or 1 is no answer.
     # 2019 does not distinguish Hispanic subtypes, so map to OTHER (Hispanic or Latino)
     persons = persons.with_columns(
         pl.when(pl.col("ethnicity_no_answer") == 1)
         .then(pl.lit(None))
         .when(pl.col("ethnicity_hisp") == 1)
         .then(pl.lit(Ethnicity.OTHER.value))
-        .otherwise(pl.lit(Ethnicity.NOT_HISPANIC.value))
+        .when(pl.col("ethnicity_hisp") == 0)
+        .then(pl.lit(Ethnicity.NOT_HISPANIC.value))
+        .otherwise(None)
         .alias("ethnicity")
     )
 
@@ -899,6 +902,38 @@ def placeholder_survey_complete(
     )
 
 
+def exclude_as_vendor_weekday_weights(
+    households: pl.DataFrame, person_days: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Give an ``exclusion_reason`` to what the vendor's weekday weights left out.
+
+    The vendor weighted only days with a ``day_status`` of 9 or 10, and no
+    household without a ``subregion``. Excluding the same keeps these weights
+    backwards compatible; nothing else about these records is known to be wrong,
+    so a future weighting could keep them.
+    """
+    households = households.with_columns(
+        pl.when(pl.col("subregion").is_null())
+        .then(pl.lit("no subregion"))
+        .otherwise(None)
+        .alias("exclusion_reason")
+    )
+    person_days = person_days.with_columns(
+        pl.when(pl.col("day_status") < 9)  # noqa: PLR2004
+        .then(pl.lit("day_status below 9"))
+        .otherwise(None)
+        .alias("exclusion_reason")
+    )
+    logger.info(
+        "Excluded %d of %d households and %d of %d days as the vendor's weekday weights",
+        households["exclusion_reason"].is_not_null().sum(),
+        households.height,
+        person_days["exclusion_reason"].is_not_null().sum(),
+        person_days.height,
+    )
+    return households, person_days
+
+
 @step()
 def clean_2019_bats(
     households: pl.DataFrame,
@@ -925,6 +960,11 @@ def clean_2019_bats(
     # Only the measured leaf; cascade_completeness derives the rest.
     person_days, unlinked_trips = flag_measured_completeness(person_days, unlinked_trips)
     households, persons = placeholder_survey_complete(households, persons, person_days)
+
+    # EXCLUSIONS ==================================
+    # Follows the vendor's weekday weighting, for backwards compatibility; comment
+    # out to keep these records for future weighting.
+    households, person_days = exclude_as_vendor_weekday_weights(households, person_days)
 
     # HOUSEHOLD DAYS ==================================
     person_days, household_days = create_household_days(person_days)

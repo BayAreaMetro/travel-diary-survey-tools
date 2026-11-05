@@ -93,6 +93,15 @@ class HouseholdModel(BaseModel):
     income: int | None = schema_field(ge=0, default=None)
     income_bin: IncomeBroad = schema_field()
     num_vehicles: int = schema_field(ge=0)
+    exclusion_reason: str | None = schema_field(
+        default=None,
+        description=(
+            "Why the project cleaner dropped this household, or null when kept. Any "
+            "reason makes every one of the household's days unusable under every "
+            "usability profile, and the household with them. survey_complete, the "
+            "vendor's verdict, is untouched."
+        ),
+    )
     survey_complete: bool = schema_field()
 
 
@@ -154,7 +163,7 @@ class PersonModel(BaseModel):
     survey_tech: SurveyTech = schema_field(
         description=(
             "The technology that collected this person's travel: a call center, a "
-            "form (browser, tablet or paper), or GPS (a phone app). A person whose "
+            "browser, or GPS (a phone app). A person whose "
             "travel was reported by someone else carries the technology it was "
             "reported through; one whose travel was never collected is MISSING."
         ),
@@ -203,6 +212,15 @@ class PersonDayModel(BaseModel):
             "Where the respondent said the day ended. Null where the survey did "
             "not ask. HOME or OTHER_HOME puts a home of theirs at the day's last "
             "trip destination; away from every reported home, that is another home."
+        ),
+    )
+    exclusion_reason: str | None = schema_field(
+        default=None,
+        description=(
+            "Why the project cleaner dropped this day, or null when kept. Any reason "
+            "makes the day unusable under every usability profile, and its "
+            "household-date incomplete where a profile needs every member's day. "
+            "survey_complete, the vendor's verdict, is untouched."
         ),
     )
     survey_complete: bool | None = schema_field(default=False)

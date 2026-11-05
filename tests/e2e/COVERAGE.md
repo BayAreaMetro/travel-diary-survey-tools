@@ -26,7 +26,7 @@ usable ones would come out wrong.
 ## Days of the week
 
 Every household except 11, 26, 28 and 29 reports a diary on all seven days, the same
-trips each day, as rMove households do, so every household type is on every day. The
+trips each day, as phone-app households do, so every household type is on every day. The
 strict profiles (`ctramp`, `daysim`) take Tuesday to Thursday, as the projects' do, and
 the relaxed one (`analysis`) every day: the day-of-week rule drops four days of each
 week, and no household or category depends on a day it drops. The four exceptions test

@@ -480,15 +480,15 @@ Quick lookup of categorical values and labels for codebook enum fields.
 
 | Value | Label |
 | --- | --- |
-| 1 | Signup via browserMove, Diary via browserMove |
-| 2 | Signup via browserMove, Diary via call center |
-| 3 | Signup via browserMove, Diary via rMove |
-| 4 | Signup via call center, Diary via browserMove |
-| 5 | Signup via call center, Diary via call center |
-| 6 | Signup via call center, Diary via rMove |
-| 7 | Signup via rMove, Diary via browserMove |
-| 8 | Signup via rMove, Diary via call center |
-| 9 | Signup via rMove, Diary via rMove |
+| 1 | Signup via browser, diary via browser |
+| 2 | Signup via browser, diary via call center |
+| 3 | Signup via browser, diary via GPS |
+| 4 | Signup via call center, diary via browser |
+| 5 | Signup via call center, diary via call center |
+| 6 | Signup via call center, diary via GPS |
+| 7 | Signup via GPS, diary via browser |
+| 8 | Signup via GPS, diary via call center |
+| 9 | Signup via GPS, diary via GPS |
 
 ## Purpose
 
@@ -706,7 +706,7 @@ Quick lookup of categorical values and labels for codebook enum fields.
 | Value | Label |
 | --- | --- |
 | 1 | Call center |
-| 2 | Form: browser, tablet or paper |
+| 2 | Browser |
 | 3 | GPS: phone app |
 | 995 | Missing Response |
 

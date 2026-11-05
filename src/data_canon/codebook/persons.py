@@ -292,7 +292,7 @@ class SurveyTech(LabeledEnum):
     canonical_field_name = "survey_tech"
 
     CALL_CENTER = (1, "Call center")
-    FORM = (2, "Form: browser, tablet or paper")
+    BROWSER = (2, "Browser")
     GPS = (3, "GPS: phone app")
     MISSING = (995, "Missing Response")
 

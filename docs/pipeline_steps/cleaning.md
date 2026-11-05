@@ -24,6 +24,12 @@ What a cleaner does depends on its survey. The BATS cleaners:
   `vendor` counts it only with an adult's proxy report, as the vendor does, and
   `observed_trips` also counts days seen only through trips copied from an
   adult they travelled with;
+- give an `exclusion_reason` to records the project drops, which makes them
+  unusable under every profile (see
+  [Exclusions](usability.md#exclusions)). 2023 excludes persons by survey
+  technology (`exclude_survey_tech`). 2019 excludes households with no
+  `subregion` and days with a `day_status` below 9, as the vendor's weekday
+  weights did, so its supplied weights cover every usable record;
 - deliver `habitual_locations` with the survey's reported locations (below).
 
 A cleaning step lives outside `processing`, so it need not declare a

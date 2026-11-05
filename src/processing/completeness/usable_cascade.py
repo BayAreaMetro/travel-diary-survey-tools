@@ -10,7 +10,11 @@ below are in the order they run.
 
 import polars as pl
 
-from .household_day import flag_household_day_usable, with_household_day
+from .household_day import (
+    flag_household_day_usable,
+    with_household_day,
+    with_household_day_excluded,
+)
 from .joint_groupings import flag_joint
 from .profiles import UsabilityProfile
 from .survey_complete import cascade_complete
@@ -88,7 +92,7 @@ def _flag_trips(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile) 
         )
 
 
-def _flag_days(
+def _flag_days(  # noqa: C901, PLR0912 # This needs fixing in next issue
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
 ) -> None:
@@ -103,8 +107,12 @@ def _flag_days(
 
     A day of the week the profile does not take is unusable, no-travel day or
     not; its tours and trips follow it on the way down, and a household-date
-    falling on it cannot be usable either. So is every day of a person the
-    cleaner excluded (``persons.exclusion_reason``), under every profile.
+    falling on it cannot be usable either.
+
+    Under every profile a day is unusable when the project cleaner excluded it,
+    its person or its household (``exclusion_reason`` on any of the three). A
+    profile needing every member's day also treats an excluded day as an
+    incomplete household-date, so the other members' days on it fall too.
 
     Requires the flag on tours; a tours table present but unflagged raises
     rather than silently passing every day.
@@ -150,16 +158,29 @@ def _flag_days(
         taken = [day.value for day in cols.travel_days]
         base = base & pl.col("travel_dow").is_in(taken).fill_null(value=False)
 
-    # A person the cleaner excluded has no usable day under any profile.
+    # What the cleaner excluded has no usable day under any profile.
     persons = tables.get("persons")
-    excluded = persons is not None and "exclusion_reason" in persons.columns
-    if excluded:
+    if persons is not None and "exclusion_reason" in persons.columns:
         person_days = person_days.join(
             persons.select("person_id", pl.col("exclusion_reason").alias("_excluded")),
             on="person_id",
             how="left",
         )
         base = base & pl.col("_excluded").is_null()
+    households = tables.get("households")
+    if households is not None and "exclusion_reason" in households.columns:
+        person_days = person_days.join(
+            households.select("hh_id", pl.col("exclusion_reason").alias("_hh_excluded")),
+            on="hh_id",
+            how="left",
+        )
+        base = base & pl.col("_hh_excluded").is_null()
+    if "exclusion_reason" in person_days.columns:
+        if cols.needs_whole_household_day:
+            person_days = with_household_day_excluded(person_days, persons, "_date_excluded")
+            base = base & ~pl.col("_date_excluded")
+        else:
+            base = base & pl.col("exclusion_reason").is_null()
 
     if tours is not None and "person_day_id" in tours.columns:
         day_has_usable = tours.group_by("person_day_id").agg(
@@ -173,7 +194,9 @@ def _flag_days(
     else:
         flagged = person_days.with_columns(base.alias(cols.flag))
 
-    flagged = flagged.drop("_hh_day_complete", "_excluded", strict=False)
+    flagged = flagged.drop(
+        "_hh_day_complete", "_excluded", "_hh_excluded", "_date_excluded", strict=False
+    )
     tables["person_days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
 
 
@@ -230,7 +253,9 @@ def _flag_households(
     household-day** -- a date on which every member's day is model-usable (the
     usable-side mirror of the complete-day rule). Without one there is no
     coherently usable household pattern to weight, so the household is dropped
-    rather than left holding weight it cannot pass down.
+    rather than left holding weight it cannot pass down. A household the
+    project cleaner excluded (``exclusion_reason``) is unusable under every
+    profile.
 
     A profile whose ``household_day_needs`` is ``nothing`` counts usable *days*
     instead. Reading the household-days here regardless would leave the
@@ -249,6 +274,8 @@ def _flag_households(
         return
 
     base = pl.col("survey_complete").fill_null(value=False)
+    if "exclusion_reason" in households.columns:
+        base = base & pl.col("exclusion_reason").is_null()
     # The profile's household_day_needs axis: whole household-days, or any member's day.
     counted_over = "household_days" if cols.needs_whole_household_day else "person_days"
     rows = tables.get(counted_over)
