@@ -262,7 +262,7 @@ def fit_diverging_figure(
 
 
 def violins_figure(weighted: pl.DataFrame) -> go.Figure:
-    """Violin plot of ``hh_weight`` by zone (log scale)."""
+    """Half violin of ``hh_weight`` by zone, beside one jittered point per household."""
     zones = sorted(weighted["ctrl_geoid"].unique().to_list())
     fig = go.Figure()
     for z in zones:
@@ -271,7 +271,11 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
             go.Violin(
                 y=w,
                 name=str(z),
-                box_visible=True,
+                side="positive",
+                points="all",
+                jitter=0.5,
+                pointpos=-0.5,
+                marker={"size": 3, "opacity": 0.4},
                 meanline_visible=True,
                 bandwidth=max(0.05, (max(w) - min(w)) / 40) if w else 0.1,
                 spanmode="manual",

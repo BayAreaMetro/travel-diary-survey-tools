@@ -24,7 +24,11 @@ from processing.weighting.core.specs import (
     ProfileFit,
     ZoneStatus,
 )
-from processing.weighting.diagnostics.charts import fit_diverging_figure, fit_x_limit
+from processing.weighting.diagnostics.charts import (
+    fit_diverging_figure,
+    fit_x_limit,
+    violins_figure,
+)
 from processing.weighting.diagnostics.comparison import (
     MAX_POINTS,
     MIN_OVERLAP,
@@ -207,6 +211,23 @@ class TestFitBars:
         limit = fit_x_limit([tight, loose])
         assert limit == 20
         assert tuple(fit_diverging_figure(tight, limit).layout.xaxis.range) == (-20, 20)
+
+
+class TestWeightDistribution:
+    """Each zone shows its weights as a shape and as points, not a box as well."""
+
+    WEIGHTED = pl.DataFrame({"ctrl_geoid": ["1", "1", "2"], "hh_weight": [10.0, 20.0, 30.0]})
+
+    def test_one_trace_per_zone(self):
+        """Every zone gets a violin named after it."""
+        assert [t.name for t in violins_figure(self.WEIGHTED).data] == ["1", "2"]
+
+    def test_points_are_jittered_and_there_is_no_box(self):
+        """All points show, spread sideways so they do not stack."""
+        trace = violins_figure(self.WEIGHTED).data[0]
+        assert trace.points == "all"
+        assert trace.jitter > 0
+        assert not trace.box.visible
 
 
 class TestSummaries:
