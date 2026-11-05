@@ -366,8 +366,8 @@ steps:
 
       # -- Balancer settings -------------------------------------------
       balancing:
-        max_expansion_factor: 5.0    # upper bound = base weight × factor
-        min_expansion_factor: 0.01  # lower bound = base weight × factor, OK to be low since we still have absolute floor of 1
+        max_expansion_factor: 6.0    # upper bound = base weight × factor
+        min_expansion_factor: 0.01   # lower bound = base weight × factor, OK to be low since we still have absolute floor of 1
         max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
         min_weight: 1                # absolute floor (no weight < 1)
         # max_weight:                # absolute ceiling (null = no ceiling)
@@ -430,14 +430,6 @@ steps:
           merge:
             income_under_100:   [income_under25, income_25to50, income_50to75, income_75to100]
 
-        # # Some places like SF have a hard time balancing on vehicles due to conflicting controls and sample-cell sparsity.
-        # - name: h_vehicles
-        #   merge:
-        #     veh_2_plus: [veh_2, veh_3, veh_4, veh_5, veh_6_plus]
-        #   # zone_merges:
-        #   #   "San Francisco":
-        #   #     veh_1_plus: [veh_1, veh_2_plus]
-
         - name: h_vehicles_per_driver
           merge:
             one_or_more: [one_to_one, more_than_drivers]
@@ -453,21 +445,10 @@ steps:
         - name: h_workers
           merge:
             workers_3_plus: [workers_3, workers_4, workers_5_plus]
-          zone_merges:
-            "Alameda/Contra Costa/San Mateo":
-              workers_2_plus: [workers_2, workers_3_plus]
-            "Marin/Napa/Solano/Sonoma":
-              workers_2_plus: [workers_2, workers_3_plus]
-        #   zone_merges:
-        #     "San Francisco": # SF has very few households with 2+ workers. Note that p_employment still controls number of workers.
-        #       workers_1_plus: [workers_1, workers_2_plus]
 
         - name: h_children
           merge:
             children_1_plus: [children_1, children_2, children_3, children_4, children_5_plus]
-        #   zone_merges:
-        #     "San Francisco": # SF has very few households with 2+ children
-        #       children_1_plus: [children_1, children_2_plus]
 
         # Person level controls (gets aggregated to household level, i.e., num age group per household)
         - name: p_gender

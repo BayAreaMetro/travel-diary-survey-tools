@@ -340,12 +340,7 @@ steps:
 
         - name: h_workers
           merge:
-            workers_3_plus: [workers_3, workers_4, workers_5_plus]
-          zone_merges:
-            "Alameda/Contra Costa/San Mateo":
-              workers_2_plus: [workers_2, workers_3_plus]
-            "Marin/Napa/Solano/Sonoma":
-              workers_2_plus: [workers_2, workers_3_plus]
+            workers_2_plus: [workers_2, workers_3, workers_4, workers_5_plus]
 
         - name: h_children
           merge:
