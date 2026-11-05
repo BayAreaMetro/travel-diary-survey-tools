@@ -50,17 +50,23 @@ outside every zone.
 - Each home's PUMA comes from the same PUMA boundaries the PUMS is allocated by, and
   is written to `household_weights` as `home_puma`.
 - It is never imputed: a household with no PUMA stops the run.
-- Where the survey reached too few homes in some PUMAs, merge them in that zone:
+
+A survey rarely reaches enough homes in every PUMA to target each one. Grouping a
+zone's PUMAs by county keeps each county's households right where counties share a
+zone, without a zone per county:
 
 ```yaml
 controls:
   - name: h_puma
     zone_merges:
-      "Alameda/Contra Costa/San Mateo":
-        puma_east_central: [puma_01308, puma_01309, puma_01314, puma_01313]
+      "Alameda/Contra Costa/San Mateo":  # PUMA lists shortened
+        alameda: [puma_00101, puma_00111, puma_00112, ...]
+        contra_costa: [puma_01301, puma_01305, puma_01308, ...]
+        san_mateo: [puma_08101, puma_08102, puma_08103, ...]
 ```
 
 Merging all of a zone's PUMAs into one group turns the target off in that zone.
+A category that merges replace in every zone is left out of the report's tables.
 
 ## Available controls
 
