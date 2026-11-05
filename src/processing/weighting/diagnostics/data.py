@@ -122,7 +122,7 @@ def merge_control_moe(
                 is_match = is_match & pl.col("geo_id").is_in(spec.zones)
 
             to_merge = df.filter(is_match)
-            if to_merge.is_empty() or len(to_merge) < 2:  # noqa: PLR2004
+            if to_merge.is_empty():  # a group of one still merges, as a rename
                 continue
 
             keep = df.filter(~is_match)

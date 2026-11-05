@@ -101,8 +101,8 @@ def apply_category_merges(
                 for i, (ctrl, member) in enumerate(row_labels)
                 if ctrl == spec.control and member in base_member_names
             ]
-            if len(idxs) < 2:  # noqa: PLR2004
-                continue  # single member — nothing to merge
+            if not idxs:  # a group of one still merges, as a rename
+                continue
 
             # Sum incidence rows and target entries
             merged_row = incidence[idxs].sum(axis=0)

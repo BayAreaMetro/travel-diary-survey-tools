@@ -37,7 +37,11 @@ from processing.weighting.data_prep.incidence import (
     aggregate_control_totals,
     build_incidence_table,
 )
-from processing.weighting.data_prep.merges import apply_1d_merges, apply_crosstab_merges
+from processing.weighting.data_prep.merges import (
+    apply_1d_merges,
+    apply_crosstab_merges,
+    merge_control_totals,
+)
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
@@ -655,6 +659,29 @@ class TestZoneMergeTargets:
         }
         assert ("B", "w2_plus") not in got
         assert ("A", "workers_2") not in got
+
+    def test_a_group_of_one_renames_its_category(self):
+        """A one-member group, such as a county of one PUMA, is a target under its own name."""
+        incidence = pl.DataFrame({"ctrl_geoid": ["A"], "h_puma__puma_05500": [1.0]})
+        spec = MergeSpec(control="h_puma", groups={"napa": ["puma_05500"]}, zones=["A"])
+        assert "h_puma__napa" in apply_1d_merges(incidence, [spec]).columns
+
+        totals = ControlTotals(
+            totals=pl.DataFrame(
+                {
+                    "geo_id": ["A"],
+                    "control_name": ["h_puma"],
+                    "category": ["puma_05500"],
+                    "target_total": [51167.0],
+                }
+            ),
+            pums_hh_count=1,
+            pums_person_count=0,
+            geo_ids=["A"],
+        )
+        merged = merge_control_totals(totals, [spec]).totals
+        assert merged["category"].to_list() == ["napa"]
+        assert merged["target_total"].to_list() == [51167.0]
 
 
 # ---------------------------------------------------------------------------

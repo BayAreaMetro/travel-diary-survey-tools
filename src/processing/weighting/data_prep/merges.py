@@ -45,7 +45,7 @@ def apply_1d_merges(
         for merged_label, base_members in spec.groups.items():
             src_cols = [f"{spec.control}__{m}" for m in base_members]
             present = [c for c in src_cols if c in df.columns]
-            if len(present) < 2:  # noqa: PLR2004
+            if not present:  # a group of one still merges, as a rename
                 continue
             merged_col = f"{spec.control}__{merged_label}"
 
@@ -91,7 +91,7 @@ def merge_control_totals(
                 & pl.col("geo_id").is_in(spec.zones)
             )
             to_merge = totals.filter(is_match)
-            if to_merge.is_empty() or len(to_merge) < 2:  # noqa: PLR2004
+            if to_merge.is_empty():  # a group of one still merges, as a rename
                 continue
             keep = totals.filter(~is_match)
             merged_rows = (
