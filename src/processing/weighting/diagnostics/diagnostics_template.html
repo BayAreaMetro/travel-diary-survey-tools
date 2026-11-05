@@ -189,6 +189,20 @@
 </div></details>
 {{ crosswalk_section }}
 {{ crosswalk_table }}
+{% if survey_share_table %}
+<h3>Survey share of each group</h3>
+<p class="lede">Each group's share of its area's survey records against its share of the area's PUMS (households for household targets, persons for person targets), smallest ratio first.</p>
+<details class="more"><summary>How to read this</summary><div>
+  <b>Ratio</b> is % of area's survey divided by % of area's PUMS. At 1.0 the group is in the survey in
+  proportion; at 0.10 it has a tenth of its share. A group with a low ratio needs weights well above its
+  area's average to reach its target, and the weighting caps how far a weight can go, so the run stops
+  before balancing on any group below <code>balancing.min_survey_share_ratio</code>. Each row is the
+  profile with the lowest ratio.
+</div></details>
+<details><summary>All groups</summary>
+{{ survey_share_table }}
+</details>
+{% endif %}
 </section>
 {% endif %}
 
