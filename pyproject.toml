@@ -1,7 +1,7 @@
 
 [project]
 name = "travel-diary-survey-tools"
-version = "0.1.0"
+version = "0.2.0"
 description = "Set of tools to process and analyze travel diary survey data."
 readme = "README.md"
 license = "GPL-3.0-or-later"
