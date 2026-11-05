@@ -74,6 +74,16 @@ def _prepare_individual_tours(
         persons = enrich_persons_with_person_type(persons)
 
     selected = tours if include_joint else tours.filter(pl.col("joint_tour_id").is_null())
+
+    if include_joint:
+        selected = selected.with_columns(
+            pl.when(pl.col("joint_tour_id").is_not_null())
+            .then(pl.col("person_id").n_unique().over("joint_tour_id"))
+            .otherwise(pl.lit(1))
+            .cast(pl.Int64)
+            .alias("num_participants")
+        )
+
     individual_tours = selected.join(
         persons.select(["person_id", "person_num", "person_type", "school_type", "employment"]),
         on="person_id",

@@ -201,7 +201,7 @@ steps:
   # usability column per profile declared below.
   - name: cascade_completeness
     validate_input: false
-    cache: true
+    cache: false
     params:
       # One boolean column per profile. A profile states its standard on five
       # axes, and every profile answers all of them, so a column's meaning reads off

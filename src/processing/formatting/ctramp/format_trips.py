@@ -126,7 +126,18 @@ def format_individual_trip(
     # Handle empty input DataFrames
     if len(tours_ctramp) == 0 or len(linked_trips_canonical) == 0:
         logger.info("No tours or trips provided")
-        return pl.DataFrame()
+        return pl.DataFrame(schema={"num_participants": pl.Int64})
+
+    participant_count = pl.lit(1)
+    if "joint_trip_id" in linked_trips_canonical.columns:
+        participant_count = (
+            pl.when(pl.col("joint_trip_id").is_not_null())
+            .then(pl.col("person_id").n_unique().over("joint_trip_id"))
+            .otherwise(pl.lit(1))
+        )
+    linked_trips_canonical = linked_trips_canonical.with_columns(
+        participant_count.cast(pl.Int64).alias("num_participants")
+    )
 
     # Filter to trips on individual tours only
     # tours_ctramp has _tour_id_canonical for matching with canonical trip tour_ids
