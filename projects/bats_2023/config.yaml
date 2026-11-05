@@ -368,7 +368,8 @@ steps:
       balancing:
         max_expansion_factor: 5.0    # upper bound = initial_weight × factor
         min_expansion_factor: 0.01  # lower bound = initial_weight × factor, OK to be low since we still have absolute floor of 1
-        min_weight: 1                # absolute floor (no weight < 1)
+        max_base_weight_gap: 0.005   # stop if a zone's base weights miss its household target by more than this share
+        min_weight: 1              # absolute floor (no weight < 1)
         # max_weight:                # absolute ceiling (null = no ceiling)
         max_iterations: 10000
         n_workers: 8                 # parallel zone balancing (numba releases GIL)

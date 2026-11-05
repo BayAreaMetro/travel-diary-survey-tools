@@ -336,6 +336,37 @@ class PumaCrosswalk:
         )
         return households.join(result_pl, on="hh_id", how="left")
 
+    def assign_blocks(self, blocks: gpd.GeoDataFrame) -> pl.DataFrame:
+        """Assign Census blocks to the study's PUMAs and balancing zones.
+
+        Each block is placed by a point inside it, so it gets exactly one PUMA
+        and at most one zone. Pass every block in the state, not just the ones
+        in the study area: a PUMA's Census total must count all of its blocks.
+
+        Returns ``[block_id, puma_id, ctrl_geoid]`` for blocks inside the
+        study's PUMAs, with ``ctrl_geoid`` null outside the zones.
+        """
+        pumas = self.puma_gdf[["puma_id", "geometry"]]
+        minx, miny, maxx, maxy = pumas.to_crs(blocks.crs).total_bounds
+        nearby = blocks.cx[minx:maxx, miny:maxy]
+        points = gpd.GeoDataFrame(
+            {"block_id": nearby["block_id"].to_numpy()},
+            geometry=nearby.geometry.representative_point().to_numpy(),
+            crs=blocks.crs,
+        )
+
+        def within(polygons: gpd.GeoDataFrame, id_col: str) -> pl.DataFrame:
+            shapes = polygons.to_crs(blocks.crs)[[id_col, "geometry"]]
+            joined = gpd.sjoin(points, shapes, how="inner", predicate="within")
+            return pl.from_pandas(joined[["block_id", id_col]]).unique(
+                subset=["block_id"], keep="first"
+            )
+
+        zones = within(self.target_gdf, "study_geoid").select(
+            "block_id", pl.col("study_geoid").replace(self._zone_remap).alias("ctrl_geoid")
+        )
+        return within(pumas, "puma_id").join(zones, on="block_id", how="left")
+
     def allocate_pums_weights(
         self,
         hh_df: pl.DataFrame,

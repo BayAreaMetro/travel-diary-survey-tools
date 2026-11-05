@@ -59,7 +59,10 @@ from processing.weighting.balancing.balancer import (
     balance_weights,
     grid_search_expansion_factor,
 )
-from processing.weighting.balancing.base_weights import compute_base_weights
+from processing.weighting.balancing.base_weights import (
+    compute_base_weights,
+    grow_block_households,
+)
 from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
 from processing.weighting.controls.registry import register_crosstabs_from_config, resolve_targets
 from processing.weighting.core.hierarchy import seed_col_for, weight_col_for
@@ -79,7 +82,7 @@ from processing.weighting.core.specs import (
     PUMSSource,
     WeightingConfig,
 )
-from processing.weighting.data_prep.census_geo import get_block_group_households
+from processing.weighting.data_prep.census_geo import get_block_gdf, get_block_households
 from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
@@ -203,6 +206,8 @@ class WeightingPipeline:
         # Mutable state initialised empty; populated by phases
         self.control_moe = None
         self.fits = {}
+        self.block_households: pl.DataFrame | None = None
+        self.puma_growth: pl.DataFrame | None = None
 
     @property
     def cache_dir(self) -> Path | None:
@@ -535,6 +540,20 @@ class WeightingPipeline:
             coverage=coverage,
         )
 
+    def grown_block_households(self) -> pl.DataFrame:
+        """Census households per block, grown to the PUMS year, for sample-plan base weights.
+
+        Built once and shared by every profile. The growth by PUMA is kept on
+        ``puma_growth``.
+        """
+        if self.block_households is None:
+            state, year = self.config.state_fips, self.config.pums_year
+            blocks = self.crosswalk.assign_blocks(
+                get_block_gdf(state, year, cache_dir=self.cache_dir)
+            ).join(get_block_households(state, year, cache_dir=self.cache_dir), on="block_id")
+            self.block_households, self.puma_growth = grow_block_households(blocks, self.pums_hh)
+        return self.block_households
+
     def balance_fit(self, fit: ProfileFit) -> None:
         """Compute base weights and balance one seed, in place on *fit*.
 
@@ -549,13 +568,7 @@ class WeightingPipeline:
             names,
             geo_col="ctrl_geoid",
             sample_plan=self.config.sample_plan,
-            bg_households=(
-                get_block_group_households(
-                    self.config.state_fips, self.config.pums_year, cache_dir=self.cache_dir
-                )
-                if self.config.sample_plan
-                else None
-            ),
+            block_households=self.grown_block_households() if self.config.sample_plan else None,
         )
 
         imp_cfg = ImportanceConfig(

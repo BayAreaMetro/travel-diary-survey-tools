@@ -15,12 +15,14 @@ import polars as pl
 import pytest
 
 from processing.weighting.balancing.balancer import (
+    _prepare_zone,
     balance_weights,
     grid_search_expansion_factor,
 )
 from processing.weighting.balancing.base_weights import (
     SamplePlan,
     compute_base_weights,
+    grow_block_households,
     load_sample_plan,
 )
 from processing.weighting.balancing.importance import (
@@ -44,6 +46,7 @@ from processing.weighting.diagnostics.charts import ef_tradeoff_figure
 _BALANCING = BalancingConfig(
     max_expansion_factor=10.0,
     min_expansion_factor=0.1,
+    max_base_weight_gap=0.005,
     min_weight=None,
     max_iterations=10_000,
     n_workers=1,
@@ -168,37 +171,58 @@ class TestResponseInversion:
 # Sample plan tests (block-group level)
 # ---------------------------------------------------------------------------
 class TestSamplePlan:
-    """Explicit sample plan with BG-level segment-based stratification."""
+    """Explicit sample plan: segments of block groups, split by balancing zone."""
 
-    def test_single_segment_all_bgs(self):
-        """All BGs in one segment → weight = total_bg_households / total_responses."""
-        plan = SamplePlan(
+    @staticmethod
+    def _plan(segments: dict[str, str]) -> SamplePlan:
+        """A plan from ``{bg_geo_id: sample_segment}``."""
+        return SamplePlan(
             strata=pl.DataFrame(
-                {
-                    "bg_geo_id": ["060010001001", "060010001002"],
-                    "sample_segment": ["seg_a", "seg_a"],
-                }
+                {"bg_geo_id": list(segments), "sample_segment": list(segments.values())}
             )
         )
-        bg_hh = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060010001002"], "bg_households": [60_000, 40_000]}
+
+    @staticmethod
+    def _blocks(blocks: dict[str, tuple[str, float]]) -> pl.DataFrame:
+        """Block households from ``{block_id: (ctrl_geoid, households)}``."""
+        return pl.DataFrame(
+            {
+                "block_id": list(blocks),
+                "ctrl_geoid": [z for z, _ in blocks.values()],
+                "households": [float(h) for _, h in blocks.values()],
+            }
         )
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
-        # 10 + 20 = 30 responses in one segment, households = 100k → weight = 100k/30
+
+    @staticmethod
+    def _weights(seed, plan, blocks, zones=("Z1",)) -> pl.DataFrame:
+        ct = _make_control_totals({z: [("h_size", 1, 999.0)] for z in zones})
+        return compute_base_weights(
+            seed, ct, ["h_size"], geo_col="ctrl_geoid", sample_plan=plan, block_households=blocks
+        )
+
+    def test_single_segment_all_bgs(self):
+        """All BGs in one segment and zone → weight = households / responses."""
+        plan = self._plan({"060010001001": "seg_a", "060010001002": "seg_a"})
+        blocks = self._blocks(
+            {"060010001001000": ("Z1", 60_000), "060010001002000": ("Z1", 40_000)}
+        )
+        # 10 + 20 = 30 responses in one cell, households = 100k → weight = 100k/30
         seed = _make_seed_with_bg(
             "ctrl_geoid",
             {"060010001001": ("Z1", 10), "060010001002": ("Z1", 20)},
         )
-        result = compute_base_weights(
-            seed,
-            ct,
-            ["h_size"],
-            geo_col="ctrl_geoid",
-            sample_plan=plan,
-            bg_households=bg_hh,
+        result = self._weights(seed, plan, blocks)
+        assert result["base_weight"].to_list() == [pytest.approx(100_000.0 / 30)] * 30
+
+    def test_blocks_add_up_to_their_block_group(self):
+        """Every block in a planned block group counts toward its cell."""
+        plan = self._plan({"060010001001": "seg_a"})
+        blocks = self._blocks(
+            {"060010001001000": ("Z1", 30_000), "060010001001001": ("Z1", 70_000)}
         )
-        expected = 100_000.0 / 30
-        assert result["base_weight"][0] == pytest.approx(expected)
+        seed = _make_seed_with_bg("ctrl_geoid", {"060010001001": ("Z1", 100)})
+        result = self._weights(seed, plan, blocks)
+        assert result["base_weight"][0] == pytest.approx(1_000.0)
 
     def test_multiple_segments(self):
         """A segment spanning two block groups pools them, and only itself.
@@ -206,23 +230,18 @@ class TestSamplePlan:
         The two segments are deliberately unequal, so pooling every response
         together (180 000 / 140 = 1285.7) fails both assertions.
         """
-        plan = SamplePlan(
-            strata=pl.DataFrame(
-                {
-                    "bg_geo_id": ["060010001001", "060130001001", "060130001002"],
-                    "sample_segment": ["urban", "rural", "rural"],
-                }
-            )
+        plan = self._plan(
+            {"060010001001": "urban", "060130001001": "rural", "060130001002": "rural"}
         )
-        bg_hh = pl.DataFrame(
+        blocks = self._blocks(
             {
-                "bg_geo_id": ["060010001001", "060130001001", "060130001002"],
-                "bg_households": [100_000, 50_000, 30_000],
+                "060010001001000": ("Z1", 100_000),
+                "060130001001000": ("Z2", 50_000),
+                "060130001002000": ("Z2", 30_000),
             }
         )
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
         # urban: 100 HHs, households = 100k → 1000
-        # rural: 25 + 15 = 40 HHs, pop = 50k + 30k = 80k → 2000
+        # rural: 25 + 15 = 40 HHs, households = 50k + 30k = 80k → 2000
         seed = _make_seed_with_bg(
             "ctrl_geoid",
             {
@@ -231,91 +250,60 @@ class TestSamplePlan:
                 "060130001002": ("Z2", 15),
             },
         )
-        result = compute_base_weights(
-            seed,
-            ct,
-            ["h_size"],
-            geo_col="ctrl_geoid",
-            sample_plan=plan,
-            bg_households=bg_hh,
-        )
+        result = self._weights(seed, plan, blocks, zones=("Z1", "Z2"))
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
         assert z1["base_weight"].to_list() == [pytest.approx(1_000.0)] * 100
         # both rural block groups share the segment's single ratio
         assert z2["base_weight"].to_list() == [pytest.approx(2_000.0)] * 40
 
-    def test_unequal_segments(self):
-        """Segments with different pop/response ratios."""
-        plan = SamplePlan(
-            strata=pl.DataFrame(
-                {
-                    "bg_geo_id": ["060010001001", "060750001001"],
-                    "sample_segment": ["big", "small"],
-                }
-            )
-        )
-        bg_hh = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060750001001"], "bg_households": [200_000, 50_000]}
-        )
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
-        # big: 200k/100 = 2000, small: 50k/50 = 1000
-        seed = _make_seed_with_bg(
-            "ctrl_geoid",
-            {"060010001001": ("Z1", 100), "060750001001": ("Z2", 50)},
-        )
-        result = compute_base_weights(
-            seed,
-            ct,
-            ["h_size"],
-            geo_col="ctrl_geoid",
-            sample_plan=plan,
-            bg_households=bg_hh,
-        )
-        z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
-        z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
-        assert z1["base_weight"][0] == pytest.approx(2_000.0)
-        assert z2["base_weight"][0] == pytest.approx(1_000.0)
+    def test_a_segment_crossing_zones_is_split_by_zone(self):
+        """Each zone's base weights add up to its own households, not its share of responses.
 
-    def test_segment_with_zero_responses_raises(self):
-        """If a segment has no survey responses, fail loud."""
-        plan = SamplePlan(
-            strata=pl.DataFrame(
-                {
-                    "bg_geo_id": ["060010001001", "060750001001"],
-                    "sample_segment": ["has_data", "empty"],
-                }
-            )
+        Pooled, the segment's 100k over 100 responses gives every home 1,000, so the
+        zone with 95 responses would carry 95k against its 80k households.
+        """
+        plan = self._plan({"060010001001": "seg", "060130001001": "seg"})
+        blocks = self._blocks(
+            {"060010001001000": ("Z1", 80_000), "060130001001000": ("Z2", 20_000)}
         )
-        bg_hh = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060750001001"], "bg_households": [100_000, 50_000]}
+        seed = _make_seed_with_bg(
+            "ctrl_geoid", {"060010001001": ("Z1", 95), "060130001001": ("Z2", 5)}
         )
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
+        result = self._weights(seed, plan, blocks, zones=("Z1", "Z2"))
+        sums = dict(result.group_by("ctrl_geoid").agg(pl.col("base_weight").sum()).iter_rows())
+        assert sums == {"Z1": pytest.approx(80_000.0), "Z2": pytest.approx(20_000.0)}
+
+    def test_cell_with_zero_responses_raises(self):
+        """If a segment has households in a zone but no responses there, fail loud."""
+        plan = self._plan({"060010001001": "has_data", "060750001001": "empty"})
+        blocks = self._blocks(
+            {"060010001001000": ("Z1", 100_000), "060750001001000": ("Z1", 50_000)}
+        )
         # Only BG1 has responses; BG2 (segment "empty") has none
         seed = _make_seed_with_bg("ctrl_geoid", {"060010001001": ("Z1", 10)})
         with pytest.raises(ValueError, match="zero survey responses"):
-            compute_base_weights(
-                seed,
-                ct,
-                ["h_size"],
-                geo_col="ctrl_geoid",
-                sample_plan=plan,
-                bg_households=bg_hh,
-            )
+            self._weights(seed, plan, blocks)
+
+    def test_responses_without_households_raise(self):
+        """Responses in a cell the Census gives no households cannot be weighted."""
+        plan = self._plan({"060010001001": "seg"})
+        blocks = self._blocks({"060010001001000": ("Z1", 0)})
+        seed = _make_seed_with_bg("ctrl_geoid", {"060010001001": ("Z1", 10)})
+        with pytest.raises(ValueError, match="responses but no Census households"):
+            self._weights(seed, plan, blocks)
 
     def test_sample_plan_missing_column_raises(self):
         """SamplePlan validates required columns on construction."""
         with pytest.raises(ValueError, match="missing required columns"):
             SamplePlan(strata=pl.DataFrame({"geo_id": ["Z1"], "target_population": [100]}))
 
-    def test_missing_bg_households_raises(self):
-        """sample_plan without bg_households should raise."""
-        plan = SamplePlan(
-            strata=pl.DataFrame({"bg_geo_id": ["060010001001"], "sample_segment": ["seg_a"]})
-        )
+    def test_missing_block_households_raises(self):
+        """sample_plan without block_households should raise."""
+        plan = self._plan({"060010001001": "seg_a"})
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
         seed = _make_seed_with_bg("ctrl_geoid", {"060010001001": ("Z1", 10)})
-        with pytest.raises(ValueError, match="bg_households is required"):
+        with pytest.raises(ValueError, match="block_households is required"):
             compute_base_weights(
                 seed,
                 ct,
@@ -326,21 +314,38 @@ class TestSamplePlan:
 
     def test_missing_bg_geo_id_raises(self):
         """Seed without bg_geo_id should raise when sample plan is used."""
-        plan = SamplePlan(
-            strata=pl.DataFrame({"bg_geo_id": ["060010001001"], "sample_segment": ["seg_a"]})
-        )
-        bg_hh = pl.DataFrame({"bg_geo_id": ["060010001001"], "bg_households": [100_000]})
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
+        plan = self._plan({"060010001001": "seg_a"})
+        blocks = self._blocks({"060010001001000": ("Z1", 100_000)})
         seed = _make_seed("ctrl_geoid", {"Z1": 10})  # no bg_geo_id
         with pytest.raises(ValueError, match="missing 'bg_geo_id'"):
-            compute_base_weights(
-                seed,
-                ct,
-                ["h_size"],
-                geo_col="ctrl_geoid",
-                sample_plan=plan,
-                bg_households=bg_hh,
-            )
+            self._weights(seed, plan, blocks)
+
+
+class TestGrowBlockHouseholds:
+    """Census block households are grown to the PUMS year by their PUMA."""
+
+    BLOCKS = pl.DataFrame(
+        {
+            "block_id": ["060010001001000", "060010001001001", "060130001001000"],
+            "puma_id": ["00101", "00101", "01301"],
+            # the third block's PUMA sits outside the zones; it gets no growth
+            "ctrl_geoid": ["Z1", None, None],
+            "households": [60, 40, 500],
+        }
+    )
+    PUMS = pl.DataFrame({"PUMA": ["00101", "00101", "01301"], "WGTP": [70.0, 40.0, 600.0]})
+
+    def test_each_puma_scales_its_blocks(self):
+        """Growth is the PUMA's PUMS households over all its Census households."""
+        grown, growth = grow_block_households(self.BLOCKS, self.PUMS)
+        # PUMA 00101: 110 PUMS households over 100 Census households, outside block included
+        assert growth.select("puma_id", "growth").rows() == [("00101", pytest.approx(1.1))]
+        assert grown.rows() == [("060010001001000", "Z1", pytest.approx(66.0))]
+
+    def test_a_puma_without_pums_households_stops(self):
+        """No PUMS count means no growth, and the run should not go on."""
+        with pytest.raises(ValueError, match="no PUMS households"):
+            grow_block_households(self.BLOCKS, self.PUMS.filter(pl.col("PUMA") != "00101"))
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +375,55 @@ class TestBalancerRequiresBaseWeight:
                 balancing=_BALANCING,
                 importance=ImportanceConfig(),
             )
+
+
+class TestBaseWeightsMatchTheTarget:
+    """The expansion limits are multiples of the base weight, so nothing rescales them."""
+
+    CT = _make_control_totals({"Z1": [("h_total", 1, 300.0)]})
+
+    @staticmethod
+    def _seed(base: list[float]) -> pl.DataFrame:
+        return pl.DataFrame(
+            {
+                "hh_id": list(range(1, len(base) + 1)),
+                "ctrl_geoid": ["Z1"] * len(base),
+                "h_total": [1] * len(base),
+                "base_weight": base,
+            }
+        )
+
+    def test_base_weights_off_the_target_stop(self):
+        """Base weights adding to half the target mean the base weights are wrong."""
+        with pytest.raises(ValueError, match="max_base_weight_gap"):
+            balance_weights(
+                self._seed([50.0, 50.0, 50.0]),
+                self.CT,
+                ["h_total"],
+                balancing=_BALANCING,
+                importance=ImportanceConfig(),
+            )
+
+    def test_limits_are_the_base_weight_times_the_factors(self):
+        """A home's cap is its base weight x max_expansion_factor, unscaled."""
+        # 301 against 300 is within 0.5%, so the zone balances
+        zone = _prepare_zone(
+            self._seed([100.0, 100.0, 101.0]),
+            self.CT.totals.filter(pl.col("geo_id") == "Z1"),
+            ["h_total"],
+            "Z1",
+            importance=None,
+            default_importance=100.0,
+            min_expansion_factor=0.1,
+            max_expansion_factor=10.0,
+            max_base_weight_gap=0.005,
+            min_weight=None,
+            max_weight=None,
+            max_iterations=10,
+            verbose=False,
+        )
+        assert zone.ub.tolist() == [1_000.0, 1_000.0, 1_010.0]
+        assert zone.lb.tolist() == pytest.approx([10.0, 10.0, 10.1])
 
 
 # ---------------------------------------------------------------------------
@@ -406,8 +460,12 @@ class TestLoadSamplePlan:
         csv = tmp_path / "plan.csv"
         csv.write_text("bg_geo_id,sample_segment\n060010001001,urban\n060750001001,rural\n")
         plan = load_sample_plan(csv)
-        bg_hh = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060750001001"], "bg_households": [100_000, 60_000]}
+        blocks = pl.DataFrame(
+            {
+                "block_id": ["060010001001000", "060750001001000"],
+                "ctrl_geoid": ["Z1", "Z2"],
+                "households": [100_000.0, 60_000.0],
+            }
         )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
         seed = _make_seed_with_bg(
@@ -420,7 +478,7 @@ class TestLoadSamplePlan:
             ["h_size"],
             geo_col="ctrl_geoid",
             sample_plan=plan,
-            bg_households=bg_hh,
+            block_households=blocks,
         )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
@@ -797,7 +855,7 @@ def _grid_control_totals(
     )
 
 
-def _grid_seed(zone_hh: dict[str, int]) -> pl.DataFrame:
+def _grid_seed(zone_hh: dict[str, int], base_weight: float) -> pl.DataFrame:
     """Build a seed table with base_weight and h_total/h_size category columns."""
     rows: list[dict] = []
     hh_id = 1
@@ -807,7 +865,7 @@ def _grid_seed(zone_hh: dict[str, int]) -> pl.DataFrame:
                 {
                     "hh_id": hh_id,
                     "ctrl_geoid": geo_id,
-                    "base_weight": 1.0,
+                    "base_weight": base_weight,
                     "h_total": 1,
                     "h_size": 1 if i % 2 == 0 else 2,
                 }
@@ -843,7 +901,8 @@ class TestGridSearch:
                 ]
             }
         )
-        seed = _grid_seed({"Z1": 20})
+        # 20 homes at 5 add up to the 100-household target
+        seed = _grid_seed({"Z1": 20}, base_weight=5.0)
         return seed, ct, targets
 
     def test_returns_one_point_per_ef(self, tiny_setup):

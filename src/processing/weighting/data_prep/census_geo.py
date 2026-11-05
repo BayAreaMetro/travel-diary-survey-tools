@@ -5,7 +5,7 @@ pre-2022 PUMS, 2020 for 2022+) so that block GEOIDs match the sample
 plan.  Block population is fetched from the Census decennial API
 (PL 94-171 for 2020, SF1 for 2010) and joined by GEOID — the TIGER
 shapefiles themselves do not always carry population columns.
-Block-group households come from the same API, for sample-plan base weights.
+Block households come from the same API, for sample-plan base weights.
 
 Processed tables are cached as Parquet under
 ``<pipeline-cache-dir>/weighting/census_geo/`` for fast repeat loads.
@@ -40,9 +40,6 @@ _BLOCK_POP_API: dict[int, tuple[str, str]] = {
 
 # Occupied housing units, one per household, on the same endpoints.
 _BLOCK_HOUSEHOLDS_VAR: dict[int, str] = {2020: "H1_002N", 2010: "H003002"}
-
-# A block group's GEOID is the first 12 characters of its blocks' GEOIDs.
-_BLOCK_GROUP_ID_LENGTH = 12
 
 
 # ---------------------------------------------------------------------------
@@ -317,20 +314,21 @@ def get_puma_gdf(
     return gdf
 
 
-def get_block_group_households(
+def get_block_households(
     state_fips: str,
     pums_year: int,
     *,
     cache_dir: Path | None = None,
 ) -> pl.DataFrame:
-    """Fetch decennial households per Census block group, for sample-plan base weights.
+    """Fetch decennial households per Census block, for sample-plan base weights.
 
-    Uses the same vintage as blocks so block-group GEOIDs match the sample plan.
+    Uses the same vintage as the block geometries, so block GEOIDs match them
+    and their first 12 characters match the sample plan's block groups.
 
-    Returns a DataFrame with columns ``[bg_geo_id, bg_households]``.
+    Returns a DataFrame with columns ``[block_id, households]``.
     """
     vintage = puma_vintage_for_pums_year(pums_year)
-    path = _geo_cache_path(f"bg_households_{state_fips}_{vintage}", cache_dir)
+    path = _geo_cache_path(f"block_households_{state_fips}_{vintage}", cache_dir)
     if path and path.exists():
         logger.debug("Cache hit: %s", path)
         return pl.read_parquet(path)
@@ -343,17 +341,14 @@ def get_block_group_households(
         )
         raise ValueError(msg)
 
-    households = (
-        pl.DataFrame({"block_id": list(counts), "households": list(counts.values())})
-        .group_by(pl.col("block_id").str.slice(0, _BLOCK_GROUP_ID_LENGTH).alias("bg_geo_id"))
-        .agg(pl.col("households").sum().alias("bg_households"))
-        .sort("bg_geo_id")
+    households = pl.DataFrame({"block_id": list(counts), "households": list(counts.values())}).sort(
+        "block_id"
     )
     logger.info(
-        "Total block-group households for state %s vintage %d: %d",
+        "Total block households for state %s vintage %d: %d",
         state_fips,
         vintage,
-        households["bg_households"].sum(),
+        households["households"].sum(),
     )
 
     if path:
