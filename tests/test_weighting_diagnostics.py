@@ -901,6 +901,65 @@ class TestCellCountImportance:
         assert "importance" not in self._table().lower()
 
 
+class TestCellCountEmptyCategories:
+    """A category zone merges replaced in every zone gets no row."""
+
+    SEED = pl.DataFrame(
+        {
+            "hh_id": [1, 2],
+            "ctrl_geoid": [ZONE, ZONE],
+            "h_total": [1.0, 1.0],
+            "h_size__size_1": [1.0, 0.0],
+            "h_size__size_2": [0.0, 0.0],
+            "h_size__size_2_plus": [0.0, 1.0],
+        }
+    )
+
+    @staticmethod
+    def _totals(size_2_target: float) -> ControlTotals:
+        return ControlTotals(
+            totals=pl.DataFrame(
+                {
+                    "geo_id": [ZONE] * 4,
+                    "control_name": ["h_total", "h_size", "h_size", "h_size"],
+                    "category": ["total", "size_1", "size_2", "size_2_plus"],
+                    "target_total": [100.0, 40.0, size_2_target, 60.0],
+                }
+            ),
+            pums_hh_count=50,
+            pums_person_count=0,
+            geo_ids=[ZONE],
+        )
+
+    def test_no_records_and_no_target_is_left_out(self):
+        """size_2 was merged into size_2_plus, so it has nothing to show."""
+        html = unweighted_cell_counts(self.SEED, ["h_total", "h_size"], self._totals(0.0))
+        assert "Size 2 Plus" in html
+        assert ">Size 2<" not in html
+
+    def test_a_target_with_no_records_is_kept(self):
+        """A group the survey missed but the PUMS has is the row worth seeing."""
+        html = unweighted_cell_counts(self.SEED, ["h_total", "h_size"], self._totals(10.0))
+        assert ">Size 2<" in html
+
+    def test_records_only_where_it_is_not_a_target_are_left_out(self):
+        """The seed keeps a zone-merged category's own column, records and all.
+
+        Where the zone merge replaced it, it is no target, so those records
+        are already counted in the merged group's row.
+        """
+        seed = self.SEED.with_columns(pl.Series("h_size__size_2", [0.0, 1.0]))
+        totals = self._totals(0.0)
+        totals = ControlTotals(
+            totals=totals.totals.filter(pl.col("category") != "size_2"),
+            pums_hh_count=50,
+            pums_person_count=0,
+            geo_ids=[ZONE],
+        )
+        html = unweighted_cell_counts(seed, ["h_total", "h_size"], totals)
+        assert ">Size 2<" not in html
+
+
 class TestGenerateReport:
     """The document a run writes, however many profiles it fitted."""
 

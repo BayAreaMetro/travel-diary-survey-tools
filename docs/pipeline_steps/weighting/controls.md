@@ -40,6 +40,28 @@ controls:
 The merged group is a target only in the zones listed. Elsewhere the separate
 categories stay targets.
 
+## Households per PUMA
+
+`h_puma` is listed like any other control, but it is not in the table below: its
+categories are the crosswalk's PUMAs, found when the run starts, named
+`puma_<PUMA ID>` (such as `puma_01308`), plus `outside_region` for PUMS households
+outside every zone.
+
+- Each home's PUMA comes from the same PUMA boundaries the PUMS is allocated by, and
+  is written to `household_weights` as `home_puma`.
+- It is never imputed: a household with no PUMA stops the run.
+- Where the survey reached too few homes in some PUMAs, merge them in that zone:
+
+```yaml
+controls:
+  - name: h_puma
+    zone_merges:
+      "Alameda/Contra Costa/San Mateo":
+        puma_east_central: [puma_01308, puma_01309, puma_01314, puma_01313]
+```
+
+Merging all of a zone's PUMAs into one group turns the target off in that zone.
+
 ## Available controls
 
 <!-- weighting-controls -->

@@ -860,6 +860,59 @@ class TestApplyFitMergesZoneAware:
             assert zone_labels == all_labels, f"Zone {z} missing some labels"
 
 
+class TestApplyFitMergesEmptyCategories:
+    """A category with no target and no weight anywhere gets no row."""
+
+    @staticmethod
+    def _fit(rows: list[tuple[str, str, float, float]]) -> pl.DataFrame:
+        return pl.DataFrame(
+            [
+                {
+                    "geo_id": z,
+                    "control_name": "h_size",
+                    "category": c,
+                    "target_total": t,
+                    "weighted_total": w,
+                    "diff": w - t,
+                    "diff_pct": 0.0,
+                }
+                for z, c, t, w in rows
+            ]
+        )
+
+    def test_category_merged_away_in_every_zone_is_dropped(self):
+        """Each zone merged size_3 into its own group, so size_3 is 0 everywhere."""
+        fit = self._fit(
+            [
+                ("Z1", "size_3", 0.0, 0.0),
+                ("Z1", "size_3_plus", 50.0, 51.0),
+                ("Z2", "size_3", 0.0, 0.0),
+                ("Z2", "size_3_plus", 40.0, 39.0),
+            ]
+        )
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert set(result["category"]) == {"size_3_plus"}
+
+    def test_category_with_a_target_in_one_zone_is_kept_and_padded(self):
+        """size_3 is a target in Z2 only, so Z1 keeps a placeholder row for it."""
+        fit = self._fit(
+            [
+                ("Z1", "size_3", 0.0, 0.0),
+                ("Z1", "size_3_plus", 50.0, 51.0),
+                ("Z2", "size_3", 30.0, 31.0),
+                ("Z2", "size_3_plus", 40.0, 39.0),
+            ]
+        )
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert result.filter(pl.col("category") == "size_3").height == 2
+
+    def test_weight_with_no_target_is_kept(self):
+        """Weight where the target is 0 is a miss, so the row stays."""
+        fit = self._fit([("Z1", "size_3", 0.0, 5.0), ("Z1", "size_3_plus", 50.0, 45.0)])
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert "size_3" in set(result["category"])
+
+
 # ===========================================================================
 # Checksums: the incidence table against its own structural totals
 # ===========================================================================

@@ -159,6 +159,10 @@ def apply_fit_merges(
     incidence tables and control totals), the fit table already
     reflects the correct merged/unmerged categories per zone.
     This function only adds labels and pads missing rows.
+
+    A category with no target and no weight in any zone is dropped first, so
+    one that zone merges replaced everywhere, such as each PUMA once PUMAs are
+    grouped by county, does not get a row of placeholders.
     """
     # Build label lookup from registry + merge specs
     lmap = category_label_map(target_names, merges)
@@ -169,6 +173,10 @@ def apply_fit_merges(
     result = fit.join(label_df, on=["control_name", "category"], how="left").with_columns(
         pl.col("label").fill_null(pl.col("control_name") + ":" + pl.col("category"))
     )
+    empty = (pl.col("target_total").fill_null(0) == 0) & (
+        pl.col("weighted_total").fill_null(0) == 0
+    )
+    result = result.filter(~empty.all().over("control_name", "category"))
 
     result = _pad_missing_rows(result)
     return result.sort("control_name", "category", "label", "geo_id")
