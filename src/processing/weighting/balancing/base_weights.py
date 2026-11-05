@@ -15,11 +15,11 @@ This module provides two paths:
 
 2. **Sample plan** — a [`SamplePlan`][processing.weighting.balancing.base_weights.SamplePlan]
    object mapping Census block groups
-   to sampling strata (segments).  Block-group populations are sourced
-   from the crosswalk (Census block population summed to BG level).
+   to sampling strata (segments).  Block-group household totals come
+   from the decennial Census (occupied housing units).
    Each household is assigned a block group (via spatial join), mapped
    to a segment via the plan, and receives a segment-level initial
-   weight: ``segment_pop / segment_responses``.
+   weight: ``segment_households / segment_responses``.
 
 The public entry point is
 [`compute_base_weights`][processing.weighting.balancing.base_weights.compute_base_weights],
@@ -46,8 +46,8 @@ def load_sample_plan(path: str | Path) -> SamplePlan:
 
     Args:
         path: Path to a CSV file.  Must contain at minimum ``bg_geo_id``
-            and ``sample_segment``.  Block-group population totals are
-            sourced from the crosswalk, not from the CSV.
+            and ``sample_segment``.  Block-group household totals come
+            from the decennial Census, not from the CSV.
 
     Returns:
         [`SamplePlan`][processing.weighting.core.specs.SamplePlan].
@@ -79,7 +79,7 @@ def compute_base_weights(
     geo_col: str = "ctrl_geoid",
     *,
     sample_plan: str | Path | SamplePlan | None = None,
-    bg_populations: pl.DataFrame | None = None,
+    bg_households: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Add ``base_weight`` column to the seed table.
 
@@ -98,10 +98,10 @@ def compute_base_weights(
             or an already-loaded
             [`SamplePlan`][processing.weighting.core.specs.SamplePlan].
             When ``None``, default response inversion is used.
-        bg_populations: Census block-group population totals with columns
-            ``[bg_geo_id, bg_population]``.  Required when *sample_plan*
+        bg_households: Census block-group household totals with columns
+            ``[bg_geo_id, bg_households]``.  Required when *sample_plan*
             is provided; sourced from
-            [`PumaCrosswalk.block_group_populations`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.block_group_populations].
+            [`get_block_group_households`][processing.weighting.data_prep.census_geo.get_block_group_households].
 
     Returns:
         *seed* with an additional ``base_weight`` column (Float64).
@@ -112,13 +112,13 @@ def compute_base_weights(
     """
     if sample_plan is not None:
         plan = sample_plan if isinstance(sample_plan, SamplePlan) else load_sample_plan(sample_plan)
-        if bg_populations is None:
+        if bg_households is None:
             msg = (
-                "bg_populations is required when using a sample plan. "
-                "Pass PumaCrosswalk.block_group_populations from the crosswalk step."
+                "bg_households is required when using a sample plan. "
+                "Pass the result of get_block_group_households."
             )
             raise ValueError(msg)
-        hh_weights = _hh_weights_from_plan(seed, plan, bg_populations)
+        hh_weights = _hh_weights_from_plan(seed, plan, bg_households)
         return seed.join(hh_weights, on="hh_id", how="left")
 
     logger.info("Using PUMS-target response inversion for base weights")
@@ -237,23 +237,21 @@ def _zone_weights_from_response_inversion(
 def _hh_weights_from_plan(
     seed: pl.DataFrame,
     plan: SamplePlan,
-    bg_populations: pl.DataFrame,
+    bg_households: pl.DataFrame,
 ) -> pl.DataFrame:
     """Return ``(hh_id, base_weight)`` from a block-group-level sample plan.
 
     The sample plan maps Census block groups to sampling segments.
-    Block-group populations come from the crosswalk (Census blocks
-    summed to BG).  Each survey household must already have a
-    ``bg_geo_id`` column (from
+    Each survey household must already have a ``bg_geo_id`` column (from
     [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
 
     Steps:
 
-    1. Join BG populations onto the plan by ``bg_geo_id``.
-    2. Sum BG populations per segment → segment target population.
+    1. Join BG households onto the plan by ``bg_geo_id``.
+    2. Sum BG households per segment.
     3. Map each HH to a segment via its ``bg_geo_id``.
     4. Count survey responses per segment.
-    5. ``base_weight = segment_pop / segment_responses``.
+    5. ``base_weight = segment_households / segment_responses``.
     6. Return ``(hh_id, base_weight)``.
     """
     if "bg_geo_id" not in seed.columns:
@@ -269,21 +267,21 @@ def _hh_weights_from_plan(
         pl.col("sample_segment").cast(pl.Utf8),
     )
 
-    # Attach BG populations
-    bg_with_pop = bg_segment.join(
-        bg_populations.with_columns(pl.col("bg_geo_id").cast(pl.Utf8)),
+    # Attach BG households
+    bg_with_hh = bg_segment.join(
+        bg_households.with_columns(pl.col("bg_geo_id").cast(pl.Utf8)),
         on="bg_geo_id",
         how="left",
     )
-    missing_pop = bg_with_pop.filter(pl.col("bg_population").is_null())
-    if len(missing_pop) > 0:
-        bad = missing_pop["bg_geo_id"].to_list()[:10]
-        msg = f"Block groups in sample plan have no Census population: {bad}"
+    missing = bg_with_hh.filter(pl.col("bg_households").is_null())
+    if len(missing) > 0:
+        bad = missing["bg_geo_id"].to_list()[:10]
+        msg = f"Block groups in sample plan have no Census household count: {bad}"
         raise ValueError(msg)
 
-    # Segment-level target population (sum BG pops within each segment)
-    seg_pop = bg_with_pop.group_by("sample_segment").agg(
-        pl.col("bg_population").sum().alias("_seg_target_pop")
+    # Households per segment
+    seg_households = bg_with_hh.group_by("sample_segment").agg(
+        pl.col("bg_households").sum().alias("_seg_households")
     )
 
     # Map each HH to its segment via bg_geo_id
@@ -311,7 +309,7 @@ def _hh_weights_from_plan(
     )
 
     # Derive weight per segment
-    seg_weights = seg_pop.join(seg_counts, on="sample_segment", how="left")
+    seg_weights = seg_households.join(seg_counts, on="sample_segment", how="left")
 
     zeros = seg_weights.filter(
         pl.col("_seg_n_responses").is_null() | (pl.col("_seg_n_responses") == 0)
@@ -322,7 +320,7 @@ def _hh_weights_from_plan(
         raise ValueError(msg)
 
     seg_weights = seg_weights.with_columns(
-        (pl.col("_seg_target_pop") / pl.col("_seg_n_responses")).alias("base_weight")
+        (pl.col("_seg_households") / pl.col("_seg_n_responses")).alias("base_weight")
     ).select("sample_segment", "base_weight")
 
     logger.info(

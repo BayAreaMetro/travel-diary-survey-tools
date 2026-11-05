@@ -7,6 +7,8 @@ Beside it sit the two things that go wrong at the edges: households the control
 geography cannot place at all, and the Census API failing mid-run.
 """
 
+from typing import ClassVar
+
 import geopandas as gpd
 import numpy as np
 import polars as pl
@@ -100,6 +102,65 @@ def target_zone_file(three_target_zones, tmp_path) -> str:
 # ---------------------------------------------------------------------------
 # Tests: census_geo helpers
 # ---------------------------------------------------------------------------
+class TestBlockGroupHouseholds:
+    """Sample-plan base weights count households, summed from blocks to block groups."""
+
+    BLOCKS: ClassVar[dict[str, int]] = {
+        "060010001001000": 3,
+        "060010001001001": 7,
+        "060010001002000": 5,
+    }
+
+    def test_blocks_add_up_to_their_block_group(self, monkeypatch):
+        """A block group's first 12 GEOID characters are shared by its blocks."""
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", lambda *_: self.BLOCKS)
+
+        result = census_geo.get_block_group_households("06", 2023)
+
+        assert result.to_dicts() == [
+            {"bg_geo_id": "060010001001", "bg_households": 10},
+            {"bg_geo_id": "060010001002", "bg_households": 5},
+        ]
+
+    @pytest.mark.parametrize(("pums_year", "variable"), [(2023, "H1_002N"), (2019, "H003002")])
+    def test_asks_for_occupied_units_not_population(self, monkeypatch, pums_year, variable):
+        """Each vintage names households in its own Census variable."""
+        asked = []
+
+        def fetch(_state, _vintage, requested):
+            asked.append(requested)
+            return self.BLOCKS
+
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", fetch)
+
+        census_geo.get_block_group_households("06", pums_year)
+
+        assert asked == [variable]
+
+    def test_a_second_call_reads_the_cache(self, monkeypatch, tmp_path):
+        """One statewide request is enough for every profile in a run."""
+        calls = []
+
+        def fetch(*_):
+            calls.append(1)
+            return self.BLOCKS
+
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", fetch)
+
+        first = census_geo.get_block_group_households("06", 2023, cache_dir=tmp_path)
+        second = census_geo.get_block_group_households("06", 2023, cache_dir=tmp_path)
+
+        assert first.equals(second)
+        assert len(calls) == 1
+
+    def test_an_empty_response_stops(self, monkeypatch):
+        """No counts means no base weights, so the run should not go on."""
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", lambda *_: {})
+
+        with pytest.raises(ValueError, match="empty block households"):
+            census_geo.get_block_group_households("06", 2023)
+
+
 class TestPumaVintage:
     """Verify correct PUMA vintage is returned for a given PUMS year."""
 

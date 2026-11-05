@@ -79,6 +79,7 @@ from processing.weighting.core.specs import (
     PUMSSource,
     WeightingConfig,
 )
+from processing.weighting.data_prep.census_geo import get_block_group_households
 from processing.weighting.data_prep.control_data import (
     recode_pums_households,
     recode_pums_persons,
@@ -548,8 +549,12 @@ class WeightingPipeline:
             names,
             geo_col="ctrl_geoid",
             sample_plan=self.config.sample_plan,
-            bg_populations=(
-                self.crosswalk.block_group_populations if self.config.sample_plan else None
+            bg_households=(
+                get_block_group_households(
+                    self.config.state_fips, self.config.pums_year, cache_dir=self.cache_dir
+                )
+                if self.config.sample_plan
+                else None
             ),
         )
 

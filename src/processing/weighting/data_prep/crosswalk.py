@@ -252,24 +252,6 @@ class PumaCrosswalk:
             .sort("geo_id")
         )
 
-    @property
-    def block_group_populations(self) -> pl.DataFrame:
-        """Census block population summed to block-group level.
-
-        Block group GEOID = first 12 characters of the 15-character
-        Census block GEOID (FIPS state + county + tract + block group).
-
-        Returns a DataFrame with columns ``[bg_geo_id, bg_population]``.
-        """
-        bg_df = pl.from_pandas(self.block_gdf[["block_id", "block_pop"]].copy()).with_columns(
-            pl.col("block_id").str.slice(0, 12).alias("bg_geo_id"),
-        )
-        return (
-            bg_df.group_by("bg_geo_id")
-            .agg(pl.col("block_pop").sum().alias("bg_population"))
-            .sort("bg_geo_id")
-        )
-
     def assign_block_groups(
         self,
         households: pl.DataFrame,

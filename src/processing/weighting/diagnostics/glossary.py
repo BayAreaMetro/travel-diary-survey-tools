@@ -42,8 +42,9 @@ GLOSSARY: tuple[Term, ...] = (
         "ef",
         "EF",
         "Expansion factor",
-        "EF = w / w<sub>0</sub>, where w<sub>0</sub> is the base weight: the zone target "
-        "divided by the number of responding households in the zone.",
+        "EF = w / w<sub>0</sub>, where w<sub>0</sub> is the base weight: Census households "
+        "in the sample segment divided by the responding households there. With no sample "
+        "plan, it is the zone target divided by the zone's responding households.",
         "How far weighting moved a household from its starting weight. Values at the "
         "configured limits mean weighting would have moved them further if allowed.",
         WEIGHTS,

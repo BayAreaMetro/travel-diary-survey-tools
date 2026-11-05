@@ -486,10 +486,10 @@ class SamplePlan:
     Each row represents a Census block group.  Block groups that share
     the same ``sample_segment`` are treated as a single stratum for
     initial-weight computation:
-    ``base_weight = segment_bg_pop / segment_n_responses``.
+    ``base_weight = segment_households / segment_n_responses``.
 
-    Block-group population totals are sourced from the crosswalk
-    ([`PumaCrosswalk.block_group_populations`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.block_group_populations]), not from this table.
+    Block-group household totals come from the decennial Census
+    ([`get_block_group_households`][processing.weighting.data_prep.census_geo.get_block_group_households]), not from this table.
 
     Attributes:
         strata: Required columns:

@@ -171,7 +171,7 @@ class TestSamplePlan:
     """Explicit sample plan with BG-level segment-based stratification."""
 
     def test_single_segment_all_bgs(self):
-        """All BGs in one segment → weight = total_bg_pop / total_responses."""
+        """All BGs in one segment → weight = total_bg_households / total_responses."""
         plan = SamplePlan(
             strata=pl.DataFrame(
                 {
@@ -180,11 +180,11 @@ class TestSamplePlan:
                 }
             )
         )
-        bg_pops = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060010001002"], "bg_population": [60_000, 40_000]}
+        bg_hh = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060010001002"], "bg_households": [60_000, 40_000]}
         )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
-        # 10 + 20 = 30 responses in one segment, pop = 100k → weight = 100k/30
+        # 10 + 20 = 30 responses in one segment, households = 100k → weight = 100k/30
         seed = _make_seed_with_bg(
             "ctrl_geoid",
             {"060010001001": ("Z1", 10), "060010001002": ("Z1", 20)},
@@ -195,7 +195,7 @@ class TestSamplePlan:
             ["h_size"],
             geo_col="ctrl_geoid",
             sample_plan=plan,
-            bg_populations=bg_pops,
+            bg_households=bg_hh,
         )
         expected = 100_000.0 / 30
         assert result["base_weight"][0] == pytest.approx(expected)
@@ -214,14 +214,14 @@ class TestSamplePlan:
                 }
             )
         )
-        bg_pops = pl.DataFrame(
+        bg_hh = pl.DataFrame(
             {
                 "bg_geo_id": ["060010001001", "060130001001", "060130001002"],
-                "bg_population": [100_000, 50_000, 30_000],
+                "bg_households": [100_000, 50_000, 30_000],
             }
         )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
-        # urban: 100 HHs, pop = 100k → 1000
+        # urban: 100 HHs, households = 100k → 1000
         # rural: 25 + 15 = 40 HHs, pop = 50k + 30k = 80k → 2000
         seed = _make_seed_with_bg(
             "ctrl_geoid",
@@ -237,7 +237,7 @@ class TestSamplePlan:
             ["h_size"],
             geo_col="ctrl_geoid",
             sample_plan=plan,
-            bg_populations=bg_pops,
+            bg_households=bg_hh,
         )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
@@ -255,8 +255,8 @@ class TestSamplePlan:
                 }
             )
         )
-        bg_pops = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060750001001"], "bg_population": [200_000, 50_000]}
+        bg_hh = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060750001001"], "bg_households": [200_000, 50_000]}
         )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
         # big: 200k/100 = 2000, small: 50k/50 = 1000
@@ -270,7 +270,7 @@ class TestSamplePlan:
             ["h_size"],
             geo_col="ctrl_geoid",
             sample_plan=plan,
-            bg_populations=bg_pops,
+            bg_households=bg_hh,
         )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
@@ -287,8 +287,8 @@ class TestSamplePlan:
                 }
             )
         )
-        bg_pops = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060750001001"], "bg_population": [100_000, 50_000]}
+        bg_hh = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060750001001"], "bg_households": [100_000, 50_000]}
         )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
         # Only BG1 has responses; BG2 (segment "empty") has none
@@ -300,7 +300,7 @@ class TestSamplePlan:
                 ["h_size"],
                 geo_col="ctrl_geoid",
                 sample_plan=plan,
-                bg_populations=bg_pops,
+                bg_households=bg_hh,
             )
 
     def test_sample_plan_missing_column_raises(self):
@@ -308,14 +308,14 @@ class TestSamplePlan:
         with pytest.raises(ValueError, match="missing required columns"):
             SamplePlan(strata=pl.DataFrame({"geo_id": ["Z1"], "target_population": [100]}))
 
-    def test_missing_bg_populations_raises(self):
-        """sample_plan without bg_populations should raise."""
+    def test_missing_bg_households_raises(self):
+        """sample_plan without bg_households should raise."""
         plan = SamplePlan(
             strata=pl.DataFrame({"bg_geo_id": ["060010001001"], "sample_segment": ["seg_a"]})
         )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
         seed = _make_seed_with_bg("ctrl_geoid", {"060010001001": ("Z1", 10)})
-        with pytest.raises(ValueError, match="bg_populations is required"):
+        with pytest.raises(ValueError, match="bg_households is required"):
             compute_base_weights(
                 seed,
                 ct,
@@ -329,7 +329,7 @@ class TestSamplePlan:
         plan = SamplePlan(
             strata=pl.DataFrame({"bg_geo_id": ["060010001001"], "sample_segment": ["seg_a"]})
         )
-        bg_pops = pl.DataFrame({"bg_geo_id": ["060010001001"], "bg_population": [100_000]})
+        bg_hh = pl.DataFrame({"bg_geo_id": ["060010001001"], "bg_households": [100_000]})
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)]})
         seed = _make_seed("ctrl_geoid", {"Z1": 10})  # no bg_geo_id
         with pytest.raises(ValueError, match="missing 'bg_geo_id'"):
@@ -339,7 +339,7 @@ class TestSamplePlan:
                 ["h_size"],
                 geo_col="ctrl_geoid",
                 sample_plan=plan,
-                bg_populations=bg_pops,
+                bg_households=bg_hh,
             )
 
 
@@ -406,8 +406,8 @@ class TestLoadSamplePlan:
         csv = tmp_path / "plan.csv"
         csv.write_text("bg_geo_id,sample_segment\n060010001001,urban\n060750001001,rural\n")
         plan = load_sample_plan(csv)
-        bg_pops = pl.DataFrame(
-            {"bg_geo_id": ["060010001001", "060750001001"], "bg_population": [100_000, 60_000]}
+        bg_hh = pl.DataFrame(
+            {"bg_geo_id": ["060010001001", "060750001001"], "bg_households": [100_000, 60_000]}
         )
         ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
         seed = _make_seed_with_bg(
@@ -420,7 +420,7 @@ class TestLoadSamplePlan:
             ["h_size"],
             geo_col="ctrl_geoid",
             sample_plan=plan,
-            bg_populations=bg_pops,
+            bg_households=bg_hh,
         )
         z1 = result.filter(pl.col("ctrl_geoid") == "Z1")
         z2 = result.filter(pl.col("ctrl_geoid") == "Z2")
