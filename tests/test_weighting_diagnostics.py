@@ -45,6 +45,7 @@ from processing.weighting.diagnostics.data import (
     exclusions,
     redistribution,
     weight_cascade,
+    zone_fit_summary,
 )
 from processing.weighting.diagnostics.report import generate_report
 from processing.weighting.diagnostics.tables import (
@@ -899,6 +900,24 @@ class TestCellCountImportance:
     def test_no_importance_columns_when_none_given(self):
         """A caller with no importance gets the counts alone."""
         assert "importance" not in self._table().lower()
+
+
+class TestMapeLeavesOutRowsWithNoTarget:
+    """A zero target has no % error, so it must not count as a perfect fit."""
+
+    def test_zero_target_rows_do_not_lower_mape(self):
+        """Two targets missed by 10% and 20%, plus a row with no target: MAPE is 15%."""
+        fit = pl.DataFrame(
+            {
+                "geo_id": [ZONE] * 3,
+                "control_name": ["h_total", "h_size", "h_size"],
+                "category": ["total", "size_1", "size_2"],
+                "target_total": [100.0, 50.0, 0.0],
+                "weighted_total": [110.0, 60.0, 0.0],
+                "diff_pct": [10.0, 20.0, 0.0],
+            }
+        )
+        assert zone_fit_summary(fit, ["h_total", "h_size"])["mape"].item() == 15.0
 
 
 class TestCellCountEmptyCategories:

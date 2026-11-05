@@ -217,8 +217,9 @@ def zone_fit_summary(
 
     for z in zones:
         zf = fit.filter(pl.col("geo_id") == z)
-        mape = zf["diff_pct"].abs().mean() or 0.0
-        abs_errs = zf["diff_pct"].abs()
+        # A row with no target has no % error; counted as 0% it would dilute these.
+        abs_errs = zf.filter(pl.col("target_total") > 0)["diff_pct"].abs()
+        mape = abs_errs.mean() or 0.0
         p90 = abs_errs.quantile(0.9, interpolation="higher") or 0.0
         max_err = abs_errs.max() or 0.0
 
@@ -380,7 +381,7 @@ def profile_summary(
         ess_pct=float(ess_pct),
         cv=cv,
         max_over_median=max_over_median,
-        mape=float(fit_table_df["diff_pct"].abs().mean() or 0.0),
+        mape=float(fit_table_df.filter(pl.col("target_total") > 0)["diff_pct"].abs().mean() or 0.0),
         zones_converged=sum(1 for s in fit.statuses if s.converged),
         zones_total=len(fit.statuses),
     )
