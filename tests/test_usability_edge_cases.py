@@ -568,6 +568,101 @@ class TestExcludedPersons:
         assert stamped["households"]["usable_test"].to_list() == [True]
 
 
+class TestExcludedHouseholdsAndDays:
+    """A household or day the cleaner excluded is unusable, under any profile."""
+
+    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+    REASON = "excluded"
+
+    def _two_members_two_dates(
+        self, *, household: str | None = None, days: tuple = (None, None, None, None)
+    ) -> dict:
+        """Two members, each with a complete no-travel day on two dates.
+
+        Days 1 and 2 are on the first date (members 1 and 2), days 3 and 4 on the second.
+        """
+        second = datetime(2023, 5, 2)
+        return {
+            "households": pl.DataFrame(
+                {"hh_id": [1], "survey_complete": [True], "exclusion_reason": [household]},
+                schema_overrides={"exclusion_reason": pl.String},
+            ),
+            "persons": pl.DataFrame(
+                {
+                    "person_id": [1, 2],
+                    "hh_id": [1, 1],
+                    "survey_complete": [True, True],
+                    "surveyable": [True, True],
+                }
+            ),
+            "person_days": pl.DataFrame(
+                {
+                    "person_day_id": [1, 2, 3, 4],
+                    "person_id": [1, 2, 1, 2],
+                    "hh_id": [1] * 4,
+                    "travel_date": [DATE, DATE, second, second],
+                    "survey_complete": [True] * 4,
+                    "exclusion_reason": list(days),
+                },
+                schema_overrides={"exclusion_reason": pl.String},
+            ),
+        }
+
+    def _usable_days(self, stamped: dict) -> list[bool]:
+        return stamped["person_days"].sort("person_day_id")["usable_test"].to_list()
+
+    @pytest.mark.parametrize("profile", [STRICT, LOOSE], ids=["all_members", "nothing"])
+    def test_an_excluded_household_is_unusable_with_every_day(self, profile):
+        """The household falls on its own reason, and every day in it with it."""
+        stamped = _stamp(self._two_members_two_dates(household=self.REASON), profile)
+
+        assert stamped["households"]["usable_test"].to_list() == [False]
+        assert self._usable_days(stamped) == [False] * 4
+
+    def test_an_excluded_day_alone_is_unusable_where_no_whole_date_is_needed(self):
+        """Without a whole-date rule, the other member's day on that date stands."""
+        tables = self._two_members_two_dates(days=(None, self.REASON, None, None))
+
+        stamped = _stamp(tables, self.LOOSE)
+
+        assert self._usable_days(stamped) == [True, False, True, True]
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+    def test_an_excluded_day_makes_its_date_incomplete_where_every_member_is_needed(self):
+        """The other member's day on that date falls; the other date is untouched."""
+        tables = self._two_members_two_dates(days=(None, self.REASON, None, None))
+
+        stamped = _stamp(tables, STRICT)
+
+        assert self._usable_days(stamped) == [False, False, True, True]
+        assert stamped["household_days"].sort("travel_date")["usable_test"].to_list() == [
+            False,
+            True,
+        ]
+        assert stamped["households"]["usable_test"].to_list() == [True]
+
+    def test_survey_complete_is_untouched(self):
+        """The vendor's verdict stays the vendor's; only usability narrows."""
+        tables = self._two_members_two_dates(
+            household=self.REASON, days=(None, self.REASON, None, None)
+        )
+
+        stamped = _stamp(tables, STRICT)
+
+        assert stamped["households"]["survey_complete"].to_list() == [True]
+        assert stamped["person_days"]["survey_complete"].to_list() == [True] * 4
+
+    def test_without_the_columns_nothing_is_excluded(self):
+        """The field defaults to null, so tables without it exclude nothing."""
+        tables = self._two_members_two_dates()
+        tables["households"] = tables["households"].drop("exclusion_reason")
+        tables["person_days"] = tables["person_days"].drop("exclusion_reason")
+
+        stamped = _stamp(tables, STRICT)
+
+        assert self._usable_days(stamped) == [True] * 4
+
+
 class TestATourNeedsEveryTrip:
     """One unusable trip fails its tour, which then takes the rest of its trips down."""
 

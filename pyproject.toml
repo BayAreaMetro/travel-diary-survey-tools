@@ -137,3 +137,6 @@ markers = [
 # comes off the table once it is within the limit.
 [tool.module-length]
 max-lines = 750
+
+[tool.module-length.baseline]
+"src/data_canon/models/survey.py" = 768

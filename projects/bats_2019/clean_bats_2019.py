@@ -902,6 +902,38 @@ def placeholder_survey_complete(
     )
 
 
+def exclude_as_vendor_weekday_weights(
+    households: pl.DataFrame, person_days: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Give an ``exclusion_reason`` to what the vendor's weekday weights left out.
+
+    The vendor weighted only days with a ``day_status`` of 9 or 10, and no
+    household without a ``subregion``. Excluding the same keeps these weights
+    backwards compatible; nothing else about these records is known to be wrong,
+    so a future weighting could keep them.
+    """
+    households = households.with_columns(
+        pl.when(pl.col("subregion").is_null())
+        .then(pl.lit("no subregion"))
+        .otherwise(None)
+        .alias("exclusion_reason")
+    )
+    person_days = person_days.with_columns(
+        pl.when(pl.col("day_status") < 9)  # noqa: PLR2004
+        .then(pl.lit("day_status below 9"))
+        .otherwise(None)
+        .alias("exclusion_reason")
+    )
+    logger.info(
+        "Excluded %d of %d households and %d of %d days as the vendor's weekday weights",
+        households["exclusion_reason"].is_not_null().sum(),
+        households.height,
+        person_days["exclusion_reason"].is_not_null().sum(),
+        person_days.height,
+    )
+    return households, person_days
+
+
 @step()
 def clean_2019_bats(
     households: pl.DataFrame,
@@ -928,6 +960,11 @@ def clean_2019_bats(
     # Only the measured leaf; cascade_completeness derives the rest.
     person_days, unlinked_trips = flag_measured_completeness(person_days, unlinked_trips)
     households, persons = placeholder_survey_complete(households, persons, person_days)
+
+    # EXCLUSIONS ==================================
+    # Follows the vendor's weekday weighting, for backwards compatibility; comment
+    # out to keep these records for future weighting.
+    households, person_days = exclude_as_vendor_weekday_weights(households, person_days)
 
     # HOUSEHOLD DAYS ==================================
     person_days, household_days = create_household_days(person_days)

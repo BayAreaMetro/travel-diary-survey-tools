@@ -139,3 +139,33 @@ def with_household_day(
         .otherwise(pl.col(column).fill_null(value=False))
         .alias(alias)
     ).drop("_hh_day_verdict", "_surveyable")
+
+
+def with_household_day_excluded(
+    person_days: pl.DataFrame,
+    persons: pl.DataFrame | None,
+    alias: str,
+) -> pl.DataFrame:
+    """Return *days* with *alias*: any surveyable member's day on its date was excluded.
+
+    An excluded day is one the project cleaner gave an ``exclusion_reason``. An
+    unsurveyable member's day takes no part in the household-day, so it answers
+    for its own exclusion only.
+    """
+    own = pl.col("exclusion_reason").is_not_null()
+    person_days = _join_surveyable(person_days, persons)
+    any_excluded = (
+        person_days.filter(pl.col("_surveyable"))
+        .group_by("hh_day_id")
+        .agg(own.any().alias("_hh_day_excluded"))
+    )
+    return (
+        person_days.join(any_excluded, on="hh_day_id", how="left")
+        .with_columns(
+            pl.when(pl.col("_surveyable"))
+            .then(pl.col("_hh_day_excluded").fill_null(value=False))
+            .otherwise(own)
+            .alias(alias)
+        )
+        .drop("_hh_day_excluded", "_surveyable")
+    )

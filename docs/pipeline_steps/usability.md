@@ -105,6 +105,18 @@ naming a profile the weighting was not asked to fit raises rather than falling
 back to an unsuffixed column, since that column describes some other universe, or
 none.
 
+## Exclusions
+
+A project cleaner drops a household, person or day by giving it an
+`exclusion_reason`. An excluded record is unusable under every profile, and so
+is everything below it; a household left with no usable day falls too.
+`survey_complete` is untouched, since it records what the survey collected.
+
+Under `household_day_needs: all_members`, an excluded day also makes its
+household-day incomplete, so the household's other days on that date are
+unusable. An excluded person's days fail the household-day's usable check, but
+the other members' days on that date keep their own verdict.
+
 ## Flag definitions
 
 ::: processing.completeness
