@@ -10,6 +10,19 @@ trained on complete PUMS data, implementing *fractional imputation*
 The max-entropy balancer accepts non-negative floats in the incidence
 matrix, so fractional entries are valid without modification.
 
+One forest per control, trained on PUMS split across the control zones by the
+crosswalk, each record counting by its PUMS weight. Its inputs are:
+
+* the record's answers to the other controls;
+* its zone, so each zone keeps its own mix;
+* for a person control, what the person's other household members are for that
+  control: their shares by category, how many are known, and how many there
+  are. PUMS knows every member, so it is trained on masked copies too, in which
+  only some members are known, as in the survey.
+
+A person whose housemates answered is imputed close to them; one with no
+known housemate falls back on zone and their own answers.
+
 This is not the survey ``imputation`` step (:mod:`processing.imputation`),
 and the two should not be read as versions of each other.  That step decides
 a value for a missing field and writes it into canonical data, where every
@@ -36,7 +49,7 @@ import numpy as np
 import polars as pl
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score, log_loss
-from sklearn.model_selection import cross_val_predict
+from sklearn.model_selection import GroupKFold, cross_val_predict
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
@@ -55,16 +68,21 @@ def _rf_cache_key(
     train_pivot: pl.DataFrame,
     feature_cols: list[str],
     member_cols: list[str],
+    weight_col: str,
+    group_col: str,
     n_estimators: int,
     random_state: int,
+    min_samples_leaf: int,
 ) -> str:
     """Deterministic hash of PUMS training data + hyperparameters."""
-    data_hash = str(train_pivot.select(feature_cols + member_cols).hash_rows().sum())
+    columns = [*feature_cols, *member_cols, weight_col, group_col]
+    data_hash = str(train_pivot.select(columns).hash_rows().sum())
     parts = [
         json.dumps(feature_cols),
         json.dumps(member_cols),
         str(n_estimators),
         str(random_state),
+        str(min_samples_leaf),
         data_hash,
         str(len(train_pivot)),
     ]
@@ -104,25 +122,38 @@ def _cv_diagnostics(
     clf: RandomForestClassifier,
     x_train: np.ndarray,
     y_train: np.ndarray,
+    w_train: np.ndarray,
+    groups: np.ndarray,
     n_features: int,
 ) -> tuple[float | None, float | None]:
-    """Stratified CV on training data → (log_loss, f1_macro).
+    """CV on training data → (log_loss, f1_macro), each record by its weight.
+
+    Each household's rows stay in one fold (*groups*), so no member's value
+    reaches the scoring of another member of the same household.
 
     Automatically reduces fold count when a class has fewer than 5
     samples, and skips CV entirely when any class has < 2  samples.
     """
     class_counts = np.bincount(y_train)
     min_per_class = int(class_counts[class_counts > 0].min())
-    cv_folds = min(5, min_per_class)
+    cv_folds = min(5, min_per_class, len(np.unique(groups)))
 
     if cv_folds < 2:  # noqa: PLR2004
         logger.info("  Skipping CV: smallest class has only %d sample(s)", min_per_class)
         return None, None
 
-    cv_proba = cross_val_predict(clf, x_train, y_train, cv=cv_folds, method="predict_proba")
+    cv_proba = cross_val_predict(
+        clf,
+        x_train,
+        y_train,
+        groups=groups,
+        cv=GroupKFold(n_splits=cv_folds),
+        method="predict_proba",
+        params={"sample_weight": w_train},
+    )
     cv_pred = cv_proba.argmax(axis=1)
-    cv_ll = float(log_loss(y_train, cv_proba))
-    cv_f1 = float(f1_score(y_train, cv_pred, average="macro"))
+    cv_ll = float(log_loss(y_train, cv_proba, sample_weight=w_train))
+    cv_f1 = float(f1_score(y_train, cv_pred, average="macro", sample_weight=w_train))
     logger.info(
         "  CV diagnostics: log_loss=%.4f, f1_macro=%.4f (%d rows, %d features, %d folds)",
         cv_ll,
@@ -176,17 +207,41 @@ def _train_and_predict(
     null_mask: pl.Series,
     member_cols: list[str],
     id_col: str,
+    weight_col: str,
+    group_col: str,
     *,
     n_estimators: int = 100,
     random_state: int = 42,
+    min_samples_leaf: int = 20,
     cache_dir: Path | None = None,
 ) -> tuple[pl.DataFrame, float | None, float | None]:
     """Train an RF on complete rows and predict probabilities for null rows.
 
+    The forest is ``n_estimators`` decision trees, each grown on a resample of
+    the PUMS training rows. A tree splits its rows by yes/no questions about the
+    inputs until no split is allowed; each final group (a leaf) answers with the
+    weighted category mix of its rows, and a prediction averages the leaves a
+    person lands in across all trees.
+
+    * Each training record counts by its *weight_col*, so the forest learns the
+      population's mix rather than the PUMS sample's.
+    * A split is made only if both sides keep at least *min_samples_leaf* rows.
+      Trees grow deep where data is plentiful and stop early where it is thin,
+      so every leaf's answer is a mix of several PUMS persons and no category
+      comes out exactly 0 for want of one.
+    * *group_col* names each record's household, which the CV scores keep in
+      one fold.
+
     Returns ``(proba_df, log_loss, f1_macro)``.  When *cache_dir* is
     provided the fitted model and CV metrics are persisted so subsequent
     runs with the same PUMS data skip training entirely.
+
+    Raises:
+        ValueError: If *train_pivot* carries no *weight_col*.
     """
+    if weight_col not in train_pivot.columns:
+        msg = f"PUMS training records for fractional imputation carry no {weight_col!r}."
+        raise ValueError(msg)
     feature_cols = sorted(c for c in train_pivot.columns if "__" in c and c not in member_cols)
     if not feature_cols:
         logger.warning("No feature columns for %s — skipping", member_cols)
@@ -194,10 +249,13 @@ def _train_and_predict(
 
     x_train = train_pivot.select(feature_cols).to_numpy().astype(np.float32)
     y_train = train_pivot.select(member_cols).to_numpy().argmax(axis=1)
+    w_train = train_pivot[weight_col].cast(pl.Float64).to_numpy()
+    groups = train_pivot[group_col].to_numpy()
     # The pivot's row order varies run to run, and the forest samples rows by
     # position. Sorting by the values fixes it; identical rows are interchangeable.
-    order = np.lexsort(np.column_stack([x_train, y_train]).T[::-1])
-    x_train, y_train = x_train[order], y_train[order]
+    order = np.lexsort(np.column_stack([x_train, y_train, w_train]).T[::-1])
+    x_train, y_train, w_train = x_train[order], y_train[order], w_train[order]
+    groups = groups[order]
 
     if len(np.unique(y_train)) < 2:  # noqa: PLR2004
         logger.warning("Only 1 class for %s — skipping", member_cols)
@@ -211,8 +269,11 @@ def _train_and_predict(
             train_pivot,
             feature_cols,
             member_cols,
+            weight_col,
+            group_col,
             n_estimators,
             random_state,
+            min_samples_leaf,
         )
         cached = _load_cached_rf(cache_dir, control_prefix, cache_key)
         if cached is not None:
@@ -231,10 +292,11 @@ def _train_and_predict(
     clf = RandomForestClassifier(
         n_estimators=n_estimators,
         random_state=random_state,
+        min_samples_leaf=min_samples_leaf,
         n_jobs=-1,
     )
-    clf.fit(x_train, y_train)
-    cv_ll, cv_f1 = _cv_diagnostics(clf, x_train, y_train, len(feature_cols))
+    clf.fit(x_train, y_train, sample_weight=w_train)
+    cv_ll, cv_f1 = _cv_diagnostics(clf, x_train, y_train, w_train, groups, len(feature_cols))
 
     if cache_dir is not None and cache_key is not None:
         _save_cached_rf(cache_dir, control_prefix, cache_key, clf, cv_ll, cv_f1)
@@ -249,6 +311,79 @@ def _train_and_predict(
         id_col,
     )
     return proba_df, cv_ll, cv_f1
+
+
+# Masked copies of each PUMS person trained on beside the original, so the model
+# sees households where only some members are known, as the survey has them.
+_MASKED_COPIES = 3
+_MASK_SEED = 0
+
+
+def _with_other_members(
+    df: pl.DataFrame,
+    member_cols: list[str],
+    control: str,
+    household: list[str],
+    known: pl.Expr,
+) -> pl.DataFrame:
+    """Add what each person's other household members are, for one control.
+
+    ``others__<category column>`` is the share of the other members whose value
+    is *known* that fall in that category, or 0 when none is known.
+    ``others_known__<control>`` counts those members, and
+    ``others_total__<control>`` every other member of the household.
+    """
+    seen = known.cast(pl.Int32)
+    n_known = seen.sum().over(household) - seen
+    shares = [
+        pl.when(n_known > 0)
+        .then(((pl.col(c) * seen).sum().over(household) - pl.col(c) * seen) / n_known)
+        .otherwise(0.0)
+        .alias(f"others__{c}")
+        for c in member_cols
+    ]
+    return df.with_columns(
+        *shares,
+        n_known.alias(f"others_known__{control}"),
+        (pl.len().over(household).cast(pl.Int32) - 1).alias(f"others_total__{control}"),
+    )
+
+
+def _masked_copies(
+    pums_persons: pl.DataFrame,
+    member_cols: list[str],
+    control: str,
+    weight_col: str,
+) -> pl.DataFrame:
+    """PUMS persons for one person control, as the original and masked copies.
+
+    The original row knows every other member of the household. Each of the
+    :data:`_MASKED_COPIES` copies keeps a random number of the household's
+    members known, from none to all, and treats the rest as unknown. Every row
+    carries an equal share of the person's weight, so each person still adds up
+    to their own weight. Seeded, so runs repeat.
+    """
+    household = ["SERIALNO", "ctrl_geoid"]
+    base = pums_persons.sort(*household, "SPORDER")
+    sizes = base.group_by(household, maintain_order=True).len()
+    rng = np.random.default_rng(_MASK_SEED)
+    rows = [_with_other_members(base, member_cols, control, household, pl.lit(value=True))]
+    for _ in range(_MASKED_COPIES):
+        keep = sizes.select(
+            *household, pl.Series("_keep", rng.integers(0, sizes["len"].to_numpy() + 1))
+        )
+        copy = (
+            base.with_columns(pl.Series("_draw", rng.random(base.height)))
+            .with_columns(pl.col("_draw").rank("ordinal").over(household).alias("_rank"))
+            .join(keep, on=household, how="left")
+        )
+        known = pl.col("_rank") <= pl.col("_keep")
+        rows.append(
+            _with_other_members(copy, member_cols, control, household, known).drop(
+                "_draw", "_rank", "_keep"
+            )
+        )
+    return pl.concat(rows).with_columns(pl.col(weight_col) / (_MASKED_COPIES + 1))
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +438,7 @@ def _impute_controls(
     hh_id_col: str,
     summaries: list[ImputationSummary],
     *,
+    weight_col: str,
     additive: bool,
     person_to_hh: pl.DataFrame | None = None,
     cache_dir: Path | None = None,
@@ -311,7 +447,10 @@ def _impute_controls(
 
     For person-level controls, *person_to_hh* provides the (person_id →
     hh_id) lookup used to aggregate per-person probabilities to the
-    household incidence row before overlay.
+    household incidence row before overlay. A person control's model also
+    takes what the person's other household members are for that control
+    (:func:`_with_other_members`), trained on masked PUMS copies
+    (:func:`_masked_copies`).
     """
     level_label = "person" if level == ControlLevel.PERSON else "household"
     controls = [c for c in resolve_targets(targets, level) if not c.structural]
@@ -349,12 +488,21 @@ def _impute_controls(
                 ctrl.name,
             )
 
+        train, predict = train_pivot, predict_pivot
+        if level == ControlLevel.PERSON:
+            # Built per control, so another control's members never feed this one.
+            train = _masked_copies(train_pivot, member_cols, ctrl.name, weight_col)
+            known = pl.sum_horizontal(member_cols) == 1
+            predict = _with_other_members(predict_pivot, member_cols, ctrl.name, [hh_id_col], known)
+
         proba_df, cv_ll, cv_f1 = _train_and_predict(
-            train_pivot,
-            predict_pivot,
+            train,
+            predict,
             null_mask,
             member_cols,
             id_col=id_col,
+            weight_col=weight_col,
+            group_col="SERIALNO",
             cache_dir=cache_dir,
         )
         summaries.append(
@@ -386,21 +534,43 @@ def _impute_controls(
 # ---------------------------------------------------------------------------
 
 
+def _with_zone_columns(df: pl.DataFrame, zone_ids: list[str]) -> pl.DataFrame:
+    """Add one 0/1 ``zone__<id>`` column per zone, read off ``ctrl_geoid``."""
+    return df.with_columns(
+        (pl.col("ctrl_geoid") == z).fill_null(value=False).cast(pl.Int32).alias(f"zone__{z}")
+        for z in zone_ids
+    )
+
+
 def fill_null_incidence(
     survey_bundle: IncidenceBundle,
-    pums_bundle: IncidenceBundle,
+    pums_households: pl.DataFrame,
+    pums_persons: pl.DataFrame,
+    survey_zones: pl.DataFrame,
     targets: list[str],
     *,
     cache_dir: Path | None = None,
 ) -> tuple[pl.DataFrame, list[ImputationSummary]]:
     """Replace null-induced zeros in survey incidence with RF-predicted fractions.
 
+    Every control's model also takes the record's zone, as one 0/1
+    ``zone__<id>`` column per zone, so it learns each zone's own mix. The
+    zone columns exist only while imputing and are not in the result.
+
     Parameters
     ----------
     survey_bundle : IncidenceBundle
         Survey incidence bundle (may have null-induced zeros).
-    pums_bundle : IncidenceBundle
-        PUMS incidence bundle (complete, no nulls — used as training data).
+    pums_households : pl.DataFrame
+        PUMS household incidence (complete, no nulls), trained on for the
+        household controls. Split across zones (``ctrl_geoid``), each record
+        counting by its ``WGTP``.
+    pums_persons : pl.DataFrame
+        PUMS person pivot (complete, no nulls), trained on for the person
+        controls. Split across zones (``ctrl_geoid``), each record counting by
+        its ``PWGTP``.
+    survey_zones : pl.DataFrame
+        Each survey household's zone: the household id and ``ctrl_geoid``.
     targets : list[str]
         Control registry names.
     cache_dir : Path | None
@@ -412,23 +582,50 @@ def fill_null_incidence(
     tuple[pl.DataFrame, list[ImputationSummary]]
         Modified survey incidence table with fractional values replacing
         zeros for null-deficient rows, plus per-control imputation metadata.
+
+    Raises:
+    -------
+    ValueError
+        If the PUMS frames carry no ``ctrl_geoid``, or a survey household has
+        no zone the PUMS covers.
     """
+    for name, frame in (("pums_households", pums_households), ("pums_persons", pums_persons)):
+        if "ctrl_geoid" not in frame.columns:
+            msg = f"{name} carries no ctrl_geoid; split PUMS across zones before imputing."
+            raise ValueError(msg)
+    zone_ids = sorted(pums_households["ctrl_geoid"].drop_nulls().unique().to_list())
+    zone_cols = [f"zone__{z}" for z in zone_ids]
+
     result = survey_bundle.incidence
     hh_id_col = "hh_id" if "hh_id" in result.columns else "SERIALNO"
     person_id_col = "person_id" if "person_id" in survey_bundle.person_pivot.columns else "SPORDER"
     summaries: list[ImputationSummary] = []
+
+    zones = survey_zones.select(hh_id_col, "ctrl_geoid")
+    result = result.join(zones, on=hh_id_col, how="left")
+    unzoned = result.filter(~pl.col("ctrl_geoid").is_in(zone_ids)).height
+    if unzoned:
+        msg = f"{unzoned} survey household(s) have no zone the PUMS covers, so none to impute by."
+        raise ValueError(msg)
+    result = _with_zone_columns(result, zone_ids)
+    survey_persons = _with_zone_columns(
+        survey_bundle.person_pivot.join(zones, on=hh_id_col, how="left"), zone_ids
+    )
+    pums_households = _with_zone_columns(pums_households, zone_ids)
+    pums_persons = _with_zone_columns(pums_persons, zone_ids)
 
     person_to_hh = survey_bundle.person_pivot.select(person_id_col, hh_id_col).unique()
 
     result = _impute_controls(
         result,
         ControlLevel.PERSON,
-        train_pivot=pums_bundle.person_pivot,
-        predict_pivot=survey_bundle.person_pivot,
+        train_pivot=pums_persons,
+        predict_pivot=survey_persons,
         targets=targets,
         id_col=person_id_col,
         hh_id_col=hh_id_col,
         summaries=summaries,
+        weight_col="PWGTP",
         additive=True,
         person_to_hh=person_to_hh,
         cache_dir=cache_dir,
@@ -436,14 +633,15 @@ def fill_null_incidence(
     result = _impute_controls(
         result,
         ControlLevel.HOUSEHOLD,
-        train_pivot=pums_bundle.incidence,
+        train_pivot=pums_households,
         predict_pivot=result,
         targets=targets,
         id_col=hh_id_col,
         hh_id_col=hh_id_col,
         summaries=summaries,
+        weight_col="WGTP",
         additive=False,
         cache_dir=cache_dir,
     )
 
-    return result, summaries
+    return result.drop(*zone_cols, "ctrl_geoid"), summaries

@@ -82,6 +82,7 @@ def pivot_person_controls(
     per_recoded: pl.DataFrame,
     targets: list[str],
     hh_id_col: str = "hh_id",
+    extra_cols: list[str] | None = None,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Pivot recoded person controls into per-person indicators and per-HH counts.
 
@@ -100,6 +101,9 @@ def pivot_person_controls(
         Control registry names.
     hh_id_col : str
         Household identifier column.
+    extra_cols : list[str] | None
+        Additional columns from *per_recoded* to carry onto the person pivot
+        (e.g. ``["PWGTP", "PUMA"]`` for PUMS). Never aggregated.
 
     Returns:
     -------
@@ -123,6 +127,7 @@ def pivot_person_controls(
     base_cols = [hh_id_col]
     if person_id_col and person_id_col not in base_cols:
         base_cols.append(person_id_col)
+    base_cols += [c for c in extra_cols or [] if c in per_recoded.columns and c not in base_cols]
     person_pivot = per_recoded.select(base_cols)
 
     member_cols: list[str] = []
@@ -156,6 +161,7 @@ def build_incidence_table(
     *,
     hh_id_col: str = "hh_id",
     extra_cols: list[str] | None = None,
+    person_extra_cols: list[str] | None = None,
 ) -> IncidenceBundle:
     """Build household-level incidence table with fully-pivoted control columns.
 
@@ -185,6 +191,9 @@ def build_incidence_table(
     extra_cols : list[str] | None
         Additional columns from *hh_recoded* to carry forward
         (e.g. ``["WGTP", "PUMA"]`` for PUMS).
+    person_extra_cols : list[str] | None
+        Additional columns from *per_recoded* to carry onto the person pivot
+        (e.g. ``["PWGTP", "PUMA"]`` for PUMS).
 
     Returns:
     -------
@@ -206,7 +215,9 @@ def build_incidence_table(
         incidence = incidence.join(hh_pivot, on=hh_id_col, how="left")
 
     # Person-level controls → per-HH counts
-    person_pivot, person_agg = pivot_person_controls(per_recoded, targets, hh_id_col)
+    person_pivot, person_agg = pivot_person_controls(
+        per_recoded, targets, hh_id_col, extra_cols=person_extra_cols
+    )
     person_agg_cols = [c for c in person_agg.columns if c != hh_id_col]
     if person_agg_cols:
         incidence = incidence.join(person_agg, on=hh_id_col, how="left").with_columns(

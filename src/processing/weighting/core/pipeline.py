@@ -310,15 +310,12 @@ class WeightingPipeline:
             names,
             hh_id_col="SERIALNO",
             extra_cols=["WGTP", "PUMA"],
+            person_extra_cols=["PWGTP", "PUMA"],
         )
         self.pums_incidence = self.pums_bundle.incidence
         check_incidence_sums(self.pums_incidence, names, source_label="pums")
         # Person targets sum person weights, so they are built from one row per person.
-        self.pums_person_incidence = self.pums_bundle.person_pivot.join(
-            self.pums_per.select("SERIALNO", "SPORDER", "PUMA", "PWGTP"),
-            on=["SERIALNO", "SPORDER"],
-            how="left",
-        )
+        self.pums_person_incidence = self.pums_bundle.person_pivot
 
         # ==============================================================
         # Survey stream — travel-diary seed (may contain nulls)
@@ -489,12 +486,16 @@ class WeightingPipeline:
         )
 
         # Null imputation -- RF-predicted fractional probabilities. Survey
-        # respondents with null demographics get zero incidence from the pivot;
-        # the complete PUMS bundle trains the fill.
+        # respondents with null demographics get zero incidence from the pivot.
+        # It trains on PUMS split across zones as the targets are, but unmerged, as the seed is.
         pre_imputation = bundle.incidence
         seed, imputation_summary = fill_null_incidence(
             bundle,
-            self.pums_bundle,
+            self.crosswalk.allocate_pums_incidence(self.pums_bundle.incidence),
+            self.crosswalk.allocate_pums_incidence(
+                self.pums_bundle.person_pivot, weight_col="PWGTP"
+            ),
+            geo.select("hh_id", "ctrl_geoid"),
             names,
             cache_dir=self.cache_dir,
         )

@@ -50,4 +50,11 @@
       show_root_toc_entry: true
       members: false
 
+::: processing.weighting.data_prep.fractional_impute
+    options:
+      show_root_heading: true
+      show_root_full_path: false
+      show_root_toc_entry: true
+      members: false
+
 Code: [processing.weighting.data_prep](../../reference/processing/weighting/data_prep.md)
