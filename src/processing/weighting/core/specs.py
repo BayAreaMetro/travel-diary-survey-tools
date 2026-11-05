@@ -443,14 +443,21 @@ class ControlRegistryConfig:
         crosstab_merges: list[MergeSpec] = []
         merges_1d: list[MergeSpec] = []
 
+        def lower(groups: dict[str, list[str]]) -> dict[str, list[str]]:
+            # Group names are lower case downstream, so a label written AAPI is aapi
+            return {
+                label.lower(): [m.lower() for m in members] for label, members in groups.items()
+            }
+
         for c in controls:
             # Cross-tab merges are applied at registration time, not here.
             # Only parse 1-D merges and zone-specific merges.
             global_labels: set[str] = set()
             if c.get("merge"):
-                merges_1d.append(MergeSpec(control=c["name"], groups=c["merge"]))
-                global_labels = set(c["merge"].keys())
-            for zone_id, groups in c.get("zone_merges", {}).items():
+                merges_1d.append(MergeSpec(control=c["name"], groups=lower(c["merge"])))
+                global_labels = set(lower(c["merge"]))
+            for zone_id, raw_groups in c.get("zone_merges", {}).items():
+                groups = lower(raw_groups)
                 overlap = set(groups.keys()) & global_labels
                 if overlap:
                     msg = (

@@ -380,24 +380,23 @@ class WeightingPipeline:
         )
 
     def apply_merges(self) -> None:
-        """Apply 1-D merges to the PUMS household and person incidence tables.
+        """Apply global 1-D merges to the PUMS household and person incidence tables.
 
         Cross-tab merges are applied at registration time (pre-merge into
         the enum), so only 1-D merges need post-pivot application here. The seed
         side is merged in `build_seed`, symmetrically and once per profile.
+
+        Zone merges are left to `aggregate_totals`, which makes each merged group a
+        target in its own areas only. Added here, its column would be a target in
+        every area, and twice in its own.
         """
-        if self.controls.merges_1d:
-            self.pums_incidence = apply_1d_merges(
-                self.pums_incidence,
-                self.controls.merges_1d,
-            )
-            self.pums_person_incidence = apply_1d_merges(
-                self.pums_person_incidence,
-                self.controls.merges_1d,
-            )
+        global_merges = [m for m in self.controls.merges_1d if m.zones is None]
+        if global_merges:
+            self.pums_incidence = apply_1d_merges(self.pums_incidence, global_merges)
+            self.pums_person_incidence = apply_1d_merges(self.pums_person_incidence, global_merges)
             logger.info(
-                "Applied %d 1-D merge specs to PUMS; incidence now %d columns",
-                len(self.controls.merges_1d),
+                "Applied %d global 1-D merge specs to PUMS; incidence now %d columns",
+                len(global_merges),
                 len(self.pums_incidence.columns),
             )
 

@@ -24,6 +24,7 @@ from processing.weighting.core.specs import (
     ProfileFit,
     ZoneStatus,
 )
+from processing.weighting.diagnostics.charts import fit_diverging_figure, fit_x_limit
 from processing.weighting.diagnostics.comparison import (
     MAX_POINTS,
     MIN_OVERLAP,
@@ -121,6 +122,91 @@ class TestFit:
 
         assert stats is not None
         assert stats.intercept + stats.slope * log_b.mean() == pytest.approx(log_a.mean())
+
+
+class TestFitBars:
+    """A bar is red outside its target's ACS 90% margin of error (1.645 SE) and 5%."""
+
+    @staticmethod
+    def _bars(rows: list[tuple[str, str, float, float | None]]) -> dict[tuple[str, str], tuple]:
+        """(panel, group) -> (color, whisker) from a fit table of (area, group, error %, SE %)."""
+        fit = pl.DataFrame(
+            {
+                "geo_id": [r[0] for r in rows],
+                "control_name": ["h_size"] * len(rows),
+                "category": [r[1] for r in rows],
+                "label": [r[1] for r in rows],
+                "target_total": [100.0] * len(rows),
+                "weighted_total": [100.0 + r[2] for r in rows],
+                "diff": [r[2] for r in rows],
+                "diff_pct": [r[2] for r in rows],
+                "moe_pct": pl.Series([r[3] for r in rows], dtype=pl.Float64),
+            }
+        )
+        fig = fit_diverging_figure(fit)
+        panels = [a.text for a in fig.layout.annotations]
+        bars = [t for t in fig.data if t.type == "bar"]
+        # A panel with no margin of error anywhere draws no whisker trace
+        whiskers = {t.xaxis: t.error_x.array for t in fig.data if t.type == "scatter"}
+        out = {}
+        for panel, bar in zip(panels, bars, strict=True):
+            margins = whiskers.get(bar.xaxis, [None] * len(bar.y))
+            for group, color, margin in zip(bar.y, bar.marker.color, margins, strict=True):
+                out[panel, group] = (color, margin)
+        return out
+
+    @pytest.mark.parametrize(
+        ("error", "se", "red"),
+        [
+            pytest.param(7.0, 4.0, True, id="outside_a_6.6pct_margin"),
+            pytest.param(6.0, 4.0, False, id="inside_a_6.6pct_margin"),
+            pytest.param(6.0, 1.0, True, id="outside_the_5pct_floor"),
+            pytest.param(3.0, 1.0, False, id="outside_a_1.6pct_margin_but_inside_5pct"),
+        ],
+    )
+    def test_red_outside_both_the_margin_of_error_and_5_percent(self, error, se, red):
+        """The whisker is the margin of error alone; the floor only decides the color."""
+        bars = self._bars([("A", "size_1", error, se)])
+        assert bars["A", "size_1"] == ("#c33" if red else "#999", pytest.approx(1.645 * se))
+
+    def test_no_standard_error_is_red_past_15_percent(self):
+        """With no margin of error to compare against, the 15% rule decides."""
+        bars = self._bars([("A", "size_1", 10.0, None), ("A", "size_2", 20.0, None)])
+        assert bars["A", "size_1"][0] == "#999"
+        assert bars["A", "size_2"][0] == "#c33"
+
+    def test_one_area_without_a_standard_error_leaves_the_region_without_one(self):
+        """Not 0%, which would turn any miss red; the region falls back to the 15% rule.
+
+        Area A alone would give the region a margin of 0.8%, and 8% would be red.
+        """
+        bars = self._bars([("A", "size_1", 8.0, 1.0), ("B", "size_1", 8.0, None)])
+        assert bars["A", "size_1"][0] == "#c33"
+        assert bars["Overall", "size_1"][0] == "#999"
+
+    def test_every_profile_shares_one_x_range(self):
+        """A 12% miss in one profile sets the range for both, so a 2% miss looks small."""
+
+        def fit(error: float) -> pl.DataFrame:
+            return pl.DataFrame(
+                {
+                    "geo_id": ["A"],
+                    "control_name": ["h_size"],
+                    "category": ["size_1"],
+                    "label": ["size_1"],
+                    "target_total": [100.0],
+                    "weighted_total": [100.0 + error],
+                    "diff": [error],
+                    "diff_pct": [error],
+                    "moe_pct": [1.0],
+                }
+            )
+
+        tight, loose = fit(2.0), fit(12.0)
+        assert fit_x_limit([tight]) == 5
+        limit = fit_x_limit([tight, loose])
+        assert limit == 20
+        assert tuple(fit_diverging_figure(tight, limit).layout.xaxis.range) == (-20, 20)
 
 
 class TestSummaries:

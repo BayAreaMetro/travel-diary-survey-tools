@@ -370,8 +370,9 @@ the model's estimates do not suit the survey population.</p>
 <h2>{{ nums.fit_bars }} &mdash; {{ titles.fit_bars }} &mdash; <span class="profile-name">{{ pane.profile }}</span></h2>
 <p class="lede">{{ term("pcterr", "Percent error") }} for every control category in every zone. Hover a bar for the absolute values.</p>
 <p class="note">
-  Bar: % error. Red: the error exceeds 1 {{ term("se") }} of the PUMS target. Whiskers: &plusmn;1 SE.
-  Grey bars are within the target's own sampling uncertainty, so the gap may be in the target rather than the weighting.
+  Bar: % error. Whiskers: the target's ACS 90% margin of error (1.645 &times; its {{ term("se") }} from the PUMS replicate weights).
+  Red: the error is outside both the margin of error and &plusmn;5%. Grey bars are within one of them: inside the margin of error the gap may be sampling error in the target rather than the weighting; inside &plusmn;5% it is small however tight the target.
+  A group with no margin of error is red past &plusmn;15%.
 </p>
 <div class="chart">{{ pane.fit_bars_html }}</div>
 </section>

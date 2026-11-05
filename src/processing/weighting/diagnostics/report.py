@@ -40,6 +40,7 @@ from processing.weighting.core.specs import ControlTotals, ProfileFit
 from .charts import (
     ef_tradeoff_figure,
     fit_diverging_figure,
+    fit_x_limit,
     imputation_distribution_figure,
     violins_figure,
 )
@@ -251,6 +252,7 @@ def _pane(
     merge_specs: list | None,
     pums_incidence: pl.DataFrame | None,
     max_expansion_factor: float | None,
+    fit_x_range: float,
 ) -> dict:
     """Everything one profile contributes to the document."""
     weighted = fit.seed_incidence.join(
@@ -266,7 +268,7 @@ def _pane(
         "balancer_performance_table": balancer_performance_table(fit.statuses, weighted, zone_fit),
         "weight_quality_table": weight_quality_table(weighted),
         "violins_html": violins_figure(weighted).to_html(**_PLOTLY_KWARGS),
-        "fit_bars_html": fit_diverging_figure(control_table).to_html(**_PLOTLY_KWARGS),
+        "fit_bars_html": fit_diverging_figure(control_table, fit_x_range).to_html(**_PLOTLY_KWARGS),
         "sparsity_html": unweighted_cell_counts(
             fit.seed_incidence, target_names, control_totals, merge_specs
         ),
@@ -333,6 +335,7 @@ def generate_report(  # noqa: PLR0913
         for profile, fit in fits.items()
     }
 
+    fit_x_range = fit_x_limit(list(control_tables.values()))
     panes = [
         _pane(
             fit,
@@ -342,6 +345,7 @@ def generate_report(  # noqa: PLR0913
             merge_specs,
             pums_incidence,
             max_expansion_factor,
+            fit_x_range,
         )
         for profile, fit in fits.items()
     ]
