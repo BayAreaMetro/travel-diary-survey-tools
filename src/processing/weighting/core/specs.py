@@ -287,10 +287,19 @@ class BalancingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_expansion_factor: float = Field(
-        description="Upper bound on a weight, as a multiple of its seed weight."
+        description="Upper bound on a weight, as a multiple of its base weight."
     )
     min_expansion_factor: float = Field(
-        description="Lower bound on a weight, as a multiple of its seed weight."
+        description="Lower bound on a weight, as a multiple of its base weight."
+    )
+    max_base_weight_gap: float = Field(
+        ge=0,
+        description=(
+            "Stop before balancing if a zone's base weights add up to more than this "
+            "share above or below its household target. The expansion factor limits "
+            "are multiples of the base weights, so they only mean what they say when "
+            "the base weights already add up to the target."
+        ),
     )
     min_weight: float | None = Field(description="Absolute weight floor; null for none.")
     max_weight: float | None = Field(
@@ -484,20 +493,21 @@ class SamplePlan:
     """Stratified sampling plan mapping Census block groups to segments.
 
     Each row represents a Census block group.  Block groups that share
-    the same ``sample_segment`` are treated as a single stratum for
-    initial-weight computation:
-    ``base_weight = segment_bg_pop / segment_n_responses``.
+    the same ``sample_segment`` form one stratum, split by balancing zone
+    for initial-weight computation:
+    ``base_weight = cell_households / cell_n_responses``.
 
-    Block-group population totals are sourced from the crosswalk
-    ([`PumaCrosswalk.block_group_populations`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.block_group_populations]), not from this table.
+    Household counts come from the decennial Census, grown to the PUMS year
+    ([`grow_block_households`][processing.weighting.balancing.base_weights.grow_block_households]),
+    not from this table.
 
     Attributes:
         strata: Required columns:
 
             * ``bg_geo_id``  (str) — 12-character Census block-group FIPS code.
             * ``sample_segment`` (str) — sampling-stratum label.  All block
-              groups sharing a segment get the same base weight.
-    """  # noqa: E501
+              groups sharing a segment, within one zone, get the same base weight.
+    """
 
     strata: pl.DataFrame
 

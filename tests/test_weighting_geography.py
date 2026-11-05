@@ -7,6 +7,8 @@ Beside it sit the two things that go wrong at the edges: households the control
 geography cannot place at all, and the Census API failing mid-run.
 """
 
+from typing import ClassVar
+
 import geopandas as gpd
 import numpy as np
 import polars as pl
@@ -100,6 +102,66 @@ def target_zone_file(three_target_zones, tmp_path) -> str:
 # ---------------------------------------------------------------------------
 # Tests: census_geo helpers
 # ---------------------------------------------------------------------------
+class TestBlockHouseholds:
+    """Sample-plan base weights count households, block by block."""
+
+    BLOCKS: ClassVar[dict[str, int]] = {
+        "060010001001001": 7,
+        "060010001001000": 3,
+        "060010001002000": 5,
+    }
+
+    def test_one_row_per_block(self, monkeypatch):
+        """Each block keeps its own count, sorted by GEOID."""
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", lambda *_: self.BLOCKS)
+
+        result = census_geo.get_block_households("06", 2023)
+
+        assert result.rows() == [
+            ("060010001001000", 3),
+            ("060010001001001", 7),
+            ("060010001002000", 5),
+        ]
+
+    @pytest.mark.parametrize(("pums_year", "variable"), [(2023, "H1_002N"), (2019, "H003002")])
+    def test_asks_for_occupied_units_not_population(self, monkeypatch, pums_year, variable):
+        """Each vintage names households in its own Census variable."""
+        asked = []
+
+        def fetch(_state, _vintage, requested):
+            asked.append(requested)
+            return self.BLOCKS
+
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", fetch)
+
+        census_geo.get_block_households("06", pums_year)
+
+        assert asked == [variable]
+
+    def test_a_second_call_reads_the_cache(self, monkeypatch, tmp_path):
+        """One statewide request is enough for every profile in a run."""
+        calls = []
+
+        def fetch(*_):
+            calls.append(1)
+            return self.BLOCKS
+
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", fetch)
+
+        first = census_geo.get_block_households("06", 2023, cache_dir=tmp_path)
+        second = census_geo.get_block_households("06", 2023, cache_dir=tmp_path)
+
+        assert first.equals(second)
+        assert len(calls) == 1
+
+    def test_an_empty_response_stops(self, monkeypatch):
+        """No counts means no base weights, so the run should not go on."""
+        monkeypatch.setattr(census_geo, "_fetch_block_counts", lambda *_: {})
+
+        with pytest.raises(ValueError, match="empty block households"):
+            census_geo.get_block_households("06", 2023)
+
+
 class TestPumaVintage:
     """Verify correct PUMA vintage is returned for a given PUMS year."""
 
@@ -246,6 +308,58 @@ class TestAssignHouseholds:
         assert assigned[3, "ctrl_geoid"] is None
         # the households' own columns come back untouched
         assert result.sort("hh_id")["extra_col"].to_list() == ["keep_me"] * 4
+
+
+class TestAssignBlocks:
+    """PumaCrosswalk.assign_blocks gives each Census block one PUMA and at most one zone."""
+
+    @staticmethod
+    def _make_xw(zone_groups: dict[str, list[str]] | None = None) -> PumaCrosswalk:
+        """PUMAs A (x 0-1000) and B (1000-2000); zones 1 (0-600) and 2 (600-1800)."""
+        zones = gpd.GeoDataFrame(
+            {"target_id": ["1", "2"]},
+            geometry=[box(0, 0, 600, 1000), box(600, 0, 1800, 1000)],
+            crs="EPSG:5070",
+        )
+        obj = object.__new__(PumaCrosswalk)
+        obj.target_gdf = _load_target_zones(zones, "target_id")
+        obj.puma_gdf = gpd.GeoDataFrame(
+            {"puma_id": ["A", "B"]},
+            geometry=[box(0, 0, 1000, 1000), box(1000, 0, 2000, 1000)],
+            crs="EPSG:5070",
+        )
+        obj.zone_groups = zone_groups or {}
+        obj._zone_remap = {z: g for g, zs in obj.zone_groups.items() for z in zs}
+        return obj
+
+    @staticmethod
+    def _blocks() -> gpd.GeoDataFrame:
+        """Ten 200 m blocks from x = 0 to 2000, after one far outside both PUMAs.
+
+        The outside block comes first, so dropping it shifts every row after it:
+        a block's ID must stay with its own geometry.
+        """
+        return gpd.GeoDataFrame(
+            {"block_id": ["OUT", *(f"B{i:02d}" for i in range(10))]},
+            geometry=[
+                box(5000, 0, 5200, 1000),
+                *(box(i * 200, 0, i * 200 + 200, 1000) for i in range(10)),
+            ],
+            crs="EPSG:5070",
+        )
+
+    def test_each_block_gets_its_puma_and_zone(self):
+        """A block outside every zone keeps its PUMA, so the PUMA's total counts it."""
+        result = self._make_xw().assign_blocks(self._blocks()).sort("block_id")
+        assert result["block_id"].to_list() == [f"B{i:02d}" for i in range(10)]
+        assert result["puma_id"].to_list() == ["A"] * 5 + ["B"] * 5
+        assert result["ctrl_geoid"].to_list() == ["1"] * 3 + ["2"] * 6 + [None]
+
+    def test_zone_groups_name_the_balancing_zone(self):
+        """Blocks take the group their zone balances in."""
+        xw = self._make_xw({"G": ["1", "2"]})
+        result = xw.assign_blocks(self._blocks()).sort("block_id")
+        assert result["ctrl_geoid"].to_list() == ["G"] * 9 + [None]
 
 
 class TestAssignBlockGroups:

@@ -133,6 +133,7 @@ seed, weights or diagnostics.
     balancing:
       max_expansion_factor: 5.0
       min_expansion_factor: 0.01
+      max_base_weight_gap: 0.005
       min_weight: 1
       max_iterations: 10000
       n_workers: 8

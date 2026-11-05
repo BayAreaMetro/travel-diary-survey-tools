@@ -29,8 +29,9 @@ The ``balancing:`` block of ``compute_weights`` (see ``BalancingConfig``):
 
 ```yaml
 balancing:
-  max_expansion_factor: 5.0     # upper bound = initial_weight x factor
-  min_expansion_factor: 0.01    # lower bound = initial_weight x factor
+  max_expansion_factor: 5.0     # upper bound = base_weight x factor
+  min_expansion_factor: 0.01    # lower bound = base_weight x factor
+  max_base_weight_gap: 0.005    # stop if a zone's base weights miss its target by more
   min_weight: 1                 # absolute floor
   # max_weight: null            # absolute ceiling (optional)
   max_iterations: 10000
@@ -114,6 +115,7 @@ def balance_weights(
                 default_importance=importance.default,
                 min_expansion_factor=balancing.min_expansion_factor,
                 max_expansion_factor=balancing.max_expansion_factor,
+                max_base_weight_gap=balancing.max_base_weight_gap,
                 min_weight=balancing.min_weight,
                 max_weight=balancing.max_weight,
                 max_iterations=balancing.max_iterations,
@@ -225,7 +227,7 @@ def grid_search_expansion_factor(
 # -- Zone preparation -------------------------------------------------------
 
 
-def _prepare_zone(
+def _prepare_zone(  # noqa: PLR0913
     zone_seed: pl.DataFrame,
     zone_totals: pl.DataFrame,
     targets: list[str],
@@ -235,12 +237,18 @@ def _prepare_zone(
     default_importance: float,
     min_expansion_factor: float,
     max_expansion_factor: float,
+    max_base_weight_gap: float,
     min_weight: float | None,
     max_weight: float | None,
     max_iterations: int,
     verbose: bool,
 ) -> ZoneInput:
-    """Build ``ZoneInput`` arrays for a single geography zone."""
+    """Build ``ZoneInput`` arrays for a single geography zone.
+
+    Raises:
+        ValueError: The zone's base weights miss its household target by more
+            than *max_base_weight_gap*.
+    """
     incidence, ctrl_targets, master_idx, row_labels = _build_incidence(
         zone_seed,
         zone_totals,
@@ -262,11 +270,21 @@ def _prepare_zone(
         raise ValueError(msg)
     initial = zone_seed["base_weight"].to_numpy().astype(np.float64)
 
-    # Bounds: expansion-factor scaling, then optional absolute clipping
-    total = initial.sum()
-    ratio = float(ctrl_targets[master_idx]) / total if total > 0 else 1.0
-    lb = np.maximum(initial * min_expansion_factor * ratio, 0.0)
-    ub = np.maximum(initial * max_expansion_factor * ratio, 1.0)
+    # The limits are multiples of the base weights, so those must add up to the target
+    total = float(initial.sum())
+    target = float(ctrl_targets[master_idx])
+    gap = abs(total / target - 1) if target > 0 else float("inf")
+    if gap > max_base_weight_gap:
+        msg = (
+            f"Zone {geo_id}: base weights add up to {total:,.0f} against a household "
+            f"target of {target:,.0f}, {gap:.2%} off, more than max_base_weight_gap "
+            f"({max_base_weight_gap:.2%}). Check the base weights for this zone."
+        )
+        raise ValueError(msg)
+
+    # Bounds: expansion factors of the base weight, then optional absolute clipping
+    lb = np.maximum(initial * min_expansion_factor, 0.0)
+    ub = np.maximum(initial * max_expansion_factor, 1.0)
     if min_weight is not None:
         lb = np.maximum(lb, min_weight)
     if max_weight is not None:

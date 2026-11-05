@@ -15,11 +15,13 @@ This module provides two paths:
 
 2. **Sample plan** — a [`SamplePlan`][processing.weighting.balancing.base_weights.SamplePlan]
    object mapping Census block groups
-   to sampling strata (segments).  Block-group populations are sourced
-   from the crosswalk (Census block population summed to BG level).
+   to sampling strata (segments).  Household counts come from the
+   decennial Census by block, grown to the PUMS year by PUMA
+   ([`grow_block_households`][processing.weighting.balancing.base_weights.grow_block_households]).
    Each household is assigned a block group (via spatial join), mapped
-   to a segment via the plan, and receives a segment-level initial
-   weight: ``segment_pop / segment_responses``.
+   to a segment via the plan, and receives the initial weight of its
+   segment x zone cell: ``cell_households / cell_responses``, so every
+   zone's base weights add up to its households.
 
 The public entry point is
 [`compute_base_weights`][processing.weighting.balancing.base_weights.compute_base_weights],
@@ -37,6 +39,9 @@ from processing.weighting.core.specs import ControlTotals, SamplePlan
 
 logger = logging.getLogger(__name__)
 
+# A block group's GEOID is the first 12 characters of its blocks' GEOIDs.
+_BLOCK_GROUP_ID_LENGTH = 12
+
 
 # ---------------------------------------------------------------------------
 # I/O
@@ -46,8 +51,8 @@ def load_sample_plan(path: str | Path) -> SamplePlan:
 
     Args:
         path: Path to a CSV file.  Must contain at minimum ``bg_geo_id``
-            and ``sample_segment``.  Block-group population totals are
-            sourced from the crosswalk, not from the CSV.
+            and ``sample_segment``.  Block-group household totals come
+            from the decennial Census, not from the CSV.
 
     Returns:
         [`SamplePlan`][processing.weighting.core.specs.SamplePlan].
@@ -79,7 +84,7 @@ def compute_base_weights(
     geo_col: str = "ctrl_geoid",
     *,
     sample_plan: str | Path | SamplePlan | None = None,
-    bg_populations: pl.DataFrame | None = None,
+    block_households: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Add ``base_weight`` column to the seed table.
 
@@ -98,27 +103,27 @@ def compute_base_weights(
             or an already-loaded
             [`SamplePlan`][processing.weighting.core.specs.SamplePlan].
             When ``None``, default response inversion is used.
-        bg_populations: Census block-group population totals with columns
-            ``[bg_geo_id, bg_population]``.  Required when *sample_plan*
-            is provided; sourced from
-            [`PumaCrosswalk.block_group_populations`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.block_group_populations].
+        block_households: Census households per block, grown to the PUMS year,
+            with columns ``[block_id, ctrl_geoid, households]``. Required when
+            *sample_plan* is provided; built by
+            [`grow_block_households`][processing.weighting.balancing.base_weights.grow_block_households].
 
     Returns:
         *seed* with an additional ``base_weight`` column (Float64).
 
     Raises:
         ValueError: If no household-level control is found in *targets*,
-            or if a zone has zero survey responses.
+            or if a zone, or a segment within a zone, has zero survey responses.
     """
     if sample_plan is not None:
         plan = sample_plan if isinstance(sample_plan, SamplePlan) else load_sample_plan(sample_plan)
-        if bg_populations is None:
+        if block_households is None:
             msg = (
-                "bg_populations is required when using a sample plan. "
-                "Pass PumaCrosswalk.block_group_populations from the crosswalk step."
+                "block_households is required when using a sample plan. "
+                "Pass the result of grow_block_households."
             )
             raise ValueError(msg)
-        hh_weights = _hh_weights_from_plan(seed, plan, bg_populations)
+        hh_weights = _hh_weights_from_plan(seed, plan, block_households, geo_col)
         return seed.join(hh_weights, on="hh_id", how="left")
 
     logger.info("Using PUMS-target response inversion for base weights")
@@ -234,26 +239,85 @@ def _zone_weights_from_response_inversion(
 # ---------------------------------------------------------------------------
 # Strategy: explicit sample plan (block-group level)
 # ---------------------------------------------------------------------------
+def grow_block_households(
+    blocks: pl.DataFrame,
+    pums_households: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Grow each block's decennial Census households to the PUMS year, by PUMA.
+
+    The Census counts households by block but only every ten years; the PUMS
+    counts them for the survey year but only by PUMA. Blocks nest in PUMAs, so
+    each PUMA's ``growth = PUMS households / Census households`` scales its blocks.
+
+    Args:
+        blocks: One row per block, with ``block_id``, ``puma_id``, ``ctrl_geoid``
+            (null outside the balancing zones) and ``households`` (Census count).
+        pums_households: PUMS households with ``PUMA`` and ``WGTP``, weighted as
+            the household targets are.
+
+    Returns:
+        ``(grown, growth)``: *grown* has ``[block_id, ctrl_geoid, households]``
+        for blocks inside the zones, counts grown; *growth* has one row per
+        PUMA holding such a block, with ``[puma_id, census_households,
+        pums_households, growth]``.
+
+    Raises:
+        ValueError: A PUMA holding zone blocks has no PUMS households.
+    """
+    census = blocks.group_by("puma_id").agg(pl.col("households").sum().alias("census_households"))
+    pums = pums_households.group_by(pl.col("PUMA").cast(pl.Utf8).alias("puma_id")).agg(
+        pl.col("WGTP").sum().cast(pl.Float64).alias("pums_households")
+    )
+    in_zones = blocks.filter(pl.col("ctrl_geoid").is_not_null())
+    growth = (
+        census.filter(pl.col("puma_id").is_in(in_zones["puma_id"].unique().implode()))
+        .join(pums, on="puma_id", how="left")
+        .with_columns((pl.col("pums_households") / pl.col("census_households")).alias("growth"))
+        .sort("puma_id")
+    )
+    missing = growth.filter(pl.col("pums_households").is_null())["puma_id"].to_list()
+    if missing:
+        msg = f"PUMAs inside the balancing zones have no PUMS households: {missing}"
+        raise ValueError(msg)
+
+    grown = in_zones.join(growth.select("puma_id", "growth"), on="puma_id", how="left").select(
+        "block_id",
+        pl.col("ctrl_geoid").cast(pl.Utf8),
+        (pl.col("households") * pl.col("growth").fill_null(0.0)).alias("households"),
+    )
+    logger.info(
+        "Census households grown to the PUMS year across %d PUMAs: growth min=%.3f, "
+        "median=%.3f, max=%.3f",
+        len(growth),
+        growth["growth"].min(),
+        growth["growth"].median(),
+        growth["growth"].max(),
+    )
+    return grown, growth
+
+
 def _hh_weights_from_plan(
     seed: pl.DataFrame,
     plan: SamplePlan,
-    bg_populations: pl.DataFrame,
+    block_households: pl.DataFrame,
+    geo_col: str,
 ) -> pl.DataFrame:
     """Return ``(hh_id, base_weight)`` from a block-group-level sample plan.
 
-    The sample plan maps Census block groups to sampling segments.
-    Block-group populations come from the crosswalk (Census blocks
-    summed to BG).  Each survey household must already have a
-    ``bg_geo_id`` column (from
+    The sample plan maps Census block groups to sampling segments. A segment
+    can span balancing zones, so the stratum is segment x zone: each cell's
+    households are spread over that cell's responses, and every zone's base
+    weights add up to its households. Each survey household must already have
+    a ``bg_geo_id`` column (from
     [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
 
     Steps:
 
-    1. Join BG populations onto the plan by ``bg_geo_id``.
-    2. Sum BG populations per segment → segment target population.
+    1. Map each block to a segment via its block group.
+    2. Sum block households per segment x zone.
     3. Map each HH to a segment via its ``bg_geo_id``.
-    4. Count survey responses per segment.
-    5. ``base_weight = segment_pop / segment_responses``.
+    4. Count survey responses per segment x zone.
+    5. ``base_weight = cell_households / cell_responses``.
     6. Return ``(hh_id, base_weight)``.
     """
     if "bg_geo_id" not in seed.columns:
@@ -268,26 +332,21 @@ def _hh_weights_from_plan(
         pl.col("bg_geo_id").cast(pl.Utf8),
         pl.col("sample_segment").cast(pl.Utf8),
     )
+    cell = ["sample_segment", geo_col]
 
-    # Attach BG populations
-    bg_with_pop = bg_segment.join(
-        bg_populations.with_columns(pl.col("bg_geo_id").cast(pl.Utf8)),
-        on="bg_geo_id",
-        how="left",
-    )
-    missing_pop = bg_with_pop.filter(pl.col("bg_population").is_null())
-    if len(missing_pop) > 0:
-        bad = missing_pop["bg_geo_id"].to_list()[:10]
-        msg = f"Block groups in sample plan have no Census population: {bad}"
-        raise ValueError(msg)
-
-    # Segment-level target population (sum BG pops within each segment)
-    seg_pop = bg_with_pop.group_by("sample_segment").agg(
-        pl.col("bg_population").sum().alias("_seg_target_pop")
+    # Households per segment x zone; blocks outside the plan belong to no cell
+    cell_households = (
+        block_households.with_columns(
+            pl.col("block_id").str.slice(0, _BLOCK_GROUP_ID_LENGTH).alias("bg_geo_id"),
+            pl.col("ctrl_geoid").cast(pl.Utf8).alias(geo_col),
+        )
+        .join(bg_segment, on="bg_geo_id", how="inner")
+        .group_by(cell)
+        .agg(pl.col("households").sum().alias("_cell_households"))
     )
 
     # Map each HH to its segment via bg_geo_id
-    seed_with_seg = seed.select("hh_id", "bg_geo_id").join(
+    seed_with_seg = seed.select("hh_id", "bg_geo_id", pl.col(geo_col).cast(pl.Utf8)).join(
         bg_segment,
         left_on=pl.col("bg_geo_id").cast(pl.Utf8),
         right_on="bg_geo_id",
@@ -303,38 +362,41 @@ def _hh_weights_from_plan(
             len(seed),
         )
 
-    # Count actual survey responses per segment
-    seg_counts = (
+    # Count actual survey responses per segment x zone
+    cell_counts = (
         seed_with_seg.filter(pl.col("sample_segment").is_not_null())
-        .group_by("sample_segment")
-        .agg(pl.len().alias("_seg_n_responses"))
+        .group_by(cell)
+        .agg(pl.len().alias("_cell_n_responses"))
     )
 
-    # Derive weight per segment
-    seg_weights = seg_pop.join(seg_counts, on="sample_segment", how="left")
-
-    zeros = seg_weights.filter(
-        pl.col("_seg_n_responses").is_null() | (pl.col("_seg_n_responses") == 0)
+    # Derive weight per cell; a cell with households but no responses, or
+    # responses but no households, cannot be weighted
+    cell_weights = cell_households.join(cell_counts, on=cell, how="full", coalesce=True)
+    bad = cell_weights.filter(
+        pl.col("_cell_n_responses").is_null() | (pl.col("_cell_households").fill_null(0) <= 0)
     )
-    if len(zeros) > 0:
-        bad = zeros["sample_segment"].to_list()
-        msg = f"Sample plan segments with zero survey responses: {bad}"
+    if len(bad) > 0:
+        rows = bad.sort(cell).select(*cell, "_cell_households", "_cell_n_responses").rows()
+        msg = (
+            f"{len(rows)} sample plan segments have zero survey responses, or responses but "
+            "no Census households, within a zone. First 10 (segment, zone, households, "
+            f"responses): {rows[:10]}"
+        )
         raise ValueError(msg)
 
-    seg_weights = seg_weights.with_columns(
-        (pl.col("_seg_target_pop") / pl.col("_seg_n_responses")).alias("base_weight")
-    ).select("sample_segment", "base_weight")
+    cell_weights = cell_weights.with_columns(
+        (pl.col("_cell_households") / pl.col("_cell_n_responses")).alias("base_weight")
+    ).select(*cell, "base_weight")
 
     logger.info(
-        "Base weights (sample plan): min=%.1f, mean=%.1f, median=%.1f, max=%.1f across %d segments",
-        seg_weights["base_weight"].min(),
-        seg_weights["base_weight"].mean(),
-        seg_weights["base_weight"].median(),
-        seg_weights["base_weight"].max(),
-        len(seg_weights),
+        "Base weights (sample plan): min=%.1f, mean=%.1f, median=%.1f, max=%.1f across "
+        "%d segment x zone cells",
+        cell_weights["base_weight"].min(),
+        cell_weights["base_weight"].mean(),
+        cell_weights["base_weight"].median(),
+        cell_weights["base_weight"].max(),
+        len(cell_weights),
     )
 
-    # HH → segment → weight
-    return seed_with_seg.join(seg_weights, on="sample_segment", how="left").select(
-        "hh_id", "base_weight"
-    )
+    # HH → cell → weight
+    return seed_with_seg.join(cell_weights, on=cell, how="left").select("hh_id", "base_weight")
