@@ -254,8 +254,6 @@ def compute_weights(  # noqa: PLR0913
         state_fips=census.state_fips,
         pums_year=census.pums_year,
         pums_weights=census.pums_weights,
-        pums_households=census.pums_households,  # local files take precedence over the API
-        pums_persons=census.pums_persons,
         sample_plan=sample_plan,
         census_dir=Path(census.census_dir),
         expansion_factor_grid=diagnostics.expansion_factor_grid,

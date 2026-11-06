@@ -23,7 +23,7 @@
 # -- Inputs (read only) ---------------------------------------------------------
 survey_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_2023/Versioned_Data/PreWeight_PreLink_MonToSun_20250610"
 weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"  # the vendor's weights
-census_dir: ".cache/2023/weighting"  # PUMS and Census geography
+census_dir: "{{ MTC_DATA }}/Data/Census/BATS Weighting"  # PUMS and Census geography
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 

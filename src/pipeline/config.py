@@ -156,6 +156,8 @@ def check_input_paths(config: dict[str, Any], used: set[str]) -> None:
 
     Only inputs a configured step refers to are checked. Output directories are
     created on demand, and a path nothing reads is not this function's business.
+    A missing input directory whose parent exists is offered for creation, since
+    some steps download their inputs into it; with no one to answer, it is missing.
 
     Args:
         config: The fully substituted configuration.
@@ -174,6 +176,7 @@ def check_input_paths(config: dict[str, Any], used: set[str]) -> None:
         and not key.startswith("output")
         and "{{" not in value  # unresolved: the template error covers it
         and not Path(value).exists()
+        and not _created_on_confirmation(key, Path(value))
     ]
     if not missing:
         return
@@ -188,6 +191,21 @@ def check_input_paths(config: dict[str, Any], used: set[str]) -> None:
         "automatically -- which keeps machine-specific paths out of the shared config."
     )
     raise ValueError(msg)
+
+
+def _created_on_confirmation(key: str, path: Path) -> bool:
+    """Ask whether to create a missing input directory, and create it if told to."""
+    if not path.parent.is_dir():
+        return False
+    try:
+        answer = input(f"{key} does not exist: {path}\nCreate it? [y/N] ")
+    except (EOFError, OSError):  # no one to answer: not interactive, or under pytest
+        return False
+    if answer.strip().lower() not in {"y", "yes"}:
+        return False
+    path.mkdir()
+    logger.info("Created %s", path)
+    return True
 
 
 def _resolve_variables(variables: dict[str, str]) -> dict[str, str]:
