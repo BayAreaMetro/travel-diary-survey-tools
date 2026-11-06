@@ -20,13 +20,16 @@
 #   ENVS:
 #     SOME_SHARED_ROOT: "/opt/shared"
 #
+# -- Inputs (read only) ---------------------------------------------------------
 survey_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_2023/Versioned_Data/PreWeight_PreLink_MonToSun_20250610"
-weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"
-pums_dir: "{{ MTC_DATA }}/Data/Census/PUMS/2023_1yr"
-output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"  # the vendor's weights
+census_dir: ".cache/2023/weighting"  # PUMS and Census geography
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
-log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
+
+# -- Outputs ------------------------------------------------------------------
+output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+log_file: "{{ output_dir }}/pipeline_2023.log"  # If not set, logs just to console
 # Distance within which a trip end is at a habitual location (home, work,
 # school). detect_habitual_locations and extract_tours each have their own
 # buffer_meters setting; both use this value here.
@@ -319,10 +322,7 @@ steps:
         state_fips: "06"
         pums_year: 2023
         pums_weights: independent
-        census_dir: ".cache/2023/weighting"
-        # PUMS microdata; downloaded from the Census if not given
-        # pums_households: "{{ pums_dir }}/psam_h06.csv"
-        # pums_persons: "{{ pums_dir }}/psam_p06.csv"
+        census_dir: "{{ census_dir }}"
 
       # -- Sample Plan Path ------------------------------------------------
       sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"

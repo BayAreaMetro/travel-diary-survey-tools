@@ -138,9 +138,8 @@ def shorthands_used_by_steps(raw_config: dict[str, Any]) -> set[str]:
     Read off the *unsubstituted* steps, so a shorthand is only in scope when a
     step names it as ``{{ key }}``. A commented-out parameter is not a
     reference: YAML drops comments before this sees them, which is what makes
-    the distinction free. ``pums_dir`` in bats_2023 is exactly that -- declared,
-    and used only by two commented lines -- so requiring it to exist would
-    refuse to start a run that never reads it.
+    the distinction free. A shorthand declared but used only by commented lines
+    is not required to exist, so a run that never reads it still starts.
     """
     rendered = yaml.safe_dump(raw_config.get("steps", []))
     return {key for key in raw_config if isinstance(key, str) and f"{{{{ {key} }}}}" in rendered}
