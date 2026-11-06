@@ -63,7 +63,7 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
     6. **Balancer Performance** *(per profile)* — per-zone convergence,
        target fit (MAPE, P90, Max), CV and ESS%.
     7. **Weight Quality** *(per profile)* — per-zone weight and expansion
-       factor statistics, with violin plots.
+       factor statistics, with a chart of each zone's household weights.
     8. **Expansion Factor Calibration** *(per profile, optional)* — MAPE vs
        CV across the ``expansion_factor_grid`` values. Only included when
        the grid was set in the weighting config.

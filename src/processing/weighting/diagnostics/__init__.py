@@ -38,7 +38,7 @@ one-line summary, with the longer guidance collapsed beneath it.
 6. **Balancer Performance** — per-zone convergence status, target fit (MAPE,
    P90, Max), CV and ESS%.
 7. **Weight Quality** — per-zone weight and expansion-factor statistics, with
-   violin plots of ``final_weight / base_weight``.
+   each zone's household weights as points spread by density, and their mean.
 8. **Expansion Factor Calibration** — MAPE vs CV across a grid of
    ``max_expansion_factor`` values. Enabled by setting ``expansion_factor_grid``
    in the weighting config.

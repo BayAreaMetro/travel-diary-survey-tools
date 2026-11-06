@@ -28,7 +28,7 @@ from processing.weighting.core.specs import (
 from processing.weighting.diagnostics.charts import (
     fit_diverging_figure,
     fit_x_limit,
-    violins_figure,
+    weight_distribution_figure,
 )
 from processing.weighting.diagnostics.comparison import (
     MAX_POINTS,
@@ -219,20 +219,46 @@ class TestFitBars:
 
 
 class TestWeightDistribution:
-    """Each zone shows its weights as a shape and as points, not a box as well."""
+    """Each zone's weights as points spread by density, never wider than the column."""
 
-    WEIGHTED = pl.DataFrame({"ctrl_geoid": ["1", "1", "2"], "hh_weight": [10.0, 20.0, 30.0]})
+    WEIGHTED = pl.DataFrame(
+        {
+            "ctrl_geoid": ["1"] * 40 + ["2"] * 3,
+            "hh_weight": [float(w) for w in range(10, 410, 10)] + [5.0, 50.0, 500.0],
+        }
+    )
 
-    def test_one_trace_per_zone(self):
-        """Every zone gets a violin named after it."""
-        assert [t.name for t in violins_figure(self.WEIGHTED).data] == ["1", "2"]
+    @staticmethod
+    def _points(fig):
+        return [t for t in fig.data if t.mode == "markers"]
 
-    def test_points_are_jittered_and_there_is_no_box(self):
-        """All points show, spread sideways so they do not stack."""
-        trace = violins_figure(self.WEIGHTED).data[0]
-        assert trace.points == "all"
-        assert trace.jitter > 0
-        assert not trace.box.visible
+    def test_one_point_trace_and_one_mean_line_per_zone(self):
+        """Every zone gets its points and a line at its mean."""
+        fig = weight_distribution_figure(self.WEIGHTED)
+        assert [t.name for t in self._points(fig)] == ["1", "2"]
+        means = {t.name: t.y[0] for t in fig.data if t.mode == "lines"}
+        assert means == {"1 mean": pytest.approx(205.0), "2 mean": pytest.approx(185.0)}
+
+    def test_points_stay_inside_their_column_on_both_scales(self):
+        """The densest weights reach the column edge and nothing goes past it."""
+        fig = weight_distribution_figure(self.WEIGHTED)
+        buttons = {b.label: b.args[0]["x"] for b in fig.layout.updatemenus[0].buttons}
+        for xs in buttons.values():
+            for i, x in enumerate(xs[0::2]):  # point traces, mean lines between them
+                assert all(abs(v - i) <= 0.42 + 1e-9 for v in x)
+
+    def test_buttons_switch_axis_and_spread_together(self):
+        """Log and Linear each set the axis and the matching sideways positions."""
+        fig = weight_distribution_figure(self.WEIGHTED)
+        log, linear = fig.layout.updatemenus[0].buttons
+        assert (log.args[1]["yaxis.type"], linear.args[1]["yaxis.type"]) == ("log", "linear")
+        assert log.args[0]["x"][0] != linear.args[0]["x"][0]
+        assert list(linear.args[0]["x"][0]) == list(self._points(fig)[0].x)
+
+    def test_same_weights_draw_the_same_chart(self):
+        """The spread is random but seeded, so a report can be reproduced."""
+        a = weight_distribution_figure(self.WEIGHTED).to_json()
+        assert a == weight_distribution_figure(self.WEIGHTED).to_json()
 
 
 class TestZoneTable:

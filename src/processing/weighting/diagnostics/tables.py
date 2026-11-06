@@ -205,7 +205,7 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
 
     Shows per-zone and total weight distribution statistics (mean, median, std,
     min, max) and expansion factor ratios (min/max/mean/median EF). This table
-    complements the violin plot that follows it in the report.
+    complements the weight chart that follows it in the report.
 
     Args:
         weighted: Household seed joined with final weights (must include `ctrl_geoid`,
