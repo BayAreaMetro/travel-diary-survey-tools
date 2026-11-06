@@ -70,6 +70,7 @@ from processing.weighting.core.specs import (
     DiagnosticsConfig,
     ImportanceConfig,
     WeightingConfig,
+    resolve_fitted_profiles,
 )
 from processing.weighting.data_prep.crosswalk import GeographyConfig
 from processing.weighting.validation.weight_checks import weight_sanity_checks
@@ -112,6 +113,11 @@ def _split_weighting_columns(
 # ===========================================================================
 # Pipeline step entry point
 # ===========================================================================
+
+
+def weight_columns(weight_profiles: list[str]) -> dict[str, dict]:
+    """The suffixed weight columns `compute_weights` writes, described, per table."""
+    return describe_weight_columns(resolve_fitted_profiles(weight_profiles))
 
 
 @step(
@@ -169,6 +175,7 @@ def _split_weighting_columns(
             "hh_weight_<profile>",
         },
     },
+    generated_columns=weight_columns,
 )
 def compute_weights(  # noqa: PLR0913
     # -- Settings (from YAML) -------------------------------------------
@@ -186,7 +193,6 @@ def compute_weights(  # noqa: PLR0913
     # -- Pipeline plumbing (auto-injected by @step decorator) -----------
     pipeline_cache: PipelineCache | None = None,
     # -- Canonical tables (auto-injected by pipeline) -------------------
-    canonical_data: CanonicalData | None = None,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
     person_days: pl.DataFrame | None = None,
@@ -221,7 +227,6 @@ def compute_weights(  # noqa: PLR0913
         strict_survey_nulls: Raise on survey nulls in control variables rather
             than imputing them.
         pipeline_cache: Supplied by the pipeline.
-        canonical_data: Supplied by the pipeline.
         households: Households.
         persons: Persons.
         person_days: Days.
@@ -320,12 +325,6 @@ def compute_weights(  # noqa: PLR0913
         )
 
     drop_unsuffixed_weights(result_tables)
-
-    # The suffixed names come from config, so they cannot be model fields; without
-    # registering them the delivered output would drop them.
-    if canonical_data is not None:
-        for table, described in describe_weight_columns(profiles).items():
-            canonical_data.register_generated_columns(table, described)
 
     # After the checks, which still read the seed off households.
     _split_weighting_columns(result_tables, profiles)

@@ -72,6 +72,7 @@ def step(
     cache: bool = False,
     requires: dict[str, set[str]] | None = None,
     produces: dict[str, set[str]] | None = None,
+    generated_columns: Callable[..., dict[str, Any]] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for pipeline steps with automatic validation and caching.
 
@@ -86,6 +87,14 @@ def step(
       be present before the step executes.
     - ``produces``: mapping of table name to set of field names that the
       step is responsible for after execution (newly created or updated).
+
+    A step whose output columns are named from its settings, such as one per
+    configured zone or profile, says which with ``generated_columns``: a function in the
+    step's own module that takes some of the step's settings, by name, and
+    returns ``{table: columns}`` in any form
+    [`register_generated_columns`][data_canon.core.dataclass.CanonicalData.register_generated_columns]
+    accepts. The decorator registers them on every call, before the cache is
+    checked, so ``write_data`` keeps them whether the step ran or was loaded.
 
     When caching is enabled, the decorator will check for cached outputs
     before executing the step function. If valid cache exists, outputs are
@@ -102,6 +111,8 @@ def step(
         cache: Whether to enable caching for this step. Defaults to False.
         requires: Mapping of table name to set of required input field names.
         produces: Mapping of table name to set of produced output field names.
+        generated_columns: Function from some of the step's settings to the config-named
+            columns it writes, per table.
 
     Example:
         >>> @step(
@@ -151,6 +162,8 @@ def step(
             else:
                 canonical_data: CanonicalData = kwargs.pop("canonical_data", CanonicalData())
 
+            _register_generated(generated_columns, func, args, kwargs, canonical_data)
+
             # Check cache if enabled
             if should_cache and pipeline_cache:
                 cached_result = _try_load_from_cache(
@@ -194,6 +207,25 @@ def step(
         return wrapper  # type: ignore[return-value]
 
     return decorator
+
+
+def _register_generated(
+    generated_columns: Callable[..., dict[str, Any]] | None,
+    func: Callable,
+    args: tuple,
+    kwargs: dict,
+    canonical_data: CanonicalData,
+) -> None:
+    """Register the config-named columns *generated_columns* lists for this call's settings."""
+    if generated_columns is None:
+        return
+    bound = inspect.signature(func).bind_partial(*args, **kwargs)
+    bound.apply_defaults()
+    wanted = inspect.signature(generated_columns).parameters
+    for table, cols in generated_columns(
+        **{k: v for k, v in bound.arguments.items() if k in wanted}
+    ).items():
+        canonical_data.register_generated_columns(table, cols)
 
 
 def _update_canonical_data(

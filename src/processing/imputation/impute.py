@@ -6,7 +6,6 @@ from typing import Any
 
 import polars as pl
 
-from data_canon.core.dataclass import CanonicalData
 from pipeline.decoration import step
 from processing.imputation.comparison import compare_imputation_methods
 from processing.imputation.flags import stash_preimputed_columns
@@ -18,6 +17,19 @@ from .generic_impute import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def preimputed_columns(
+    impute_columns: dict[str, list[dict[str, Any]]] | None = None,
+    stash_preimputed: bool = True,
+) -> dict[str, list[str]]:
+    """The ``{column}_preimputed`` columns `imputation` writes, per table."""
+    if not stash_preimputed or not impute_columns:
+        return {}
+    return {
+        table: [f"{c}_preimputed" for cfg in configs for c in cfg.get("columns") or [cfg["column"]]]
+        for table, configs in impute_columns.items()
+    }
 
 
 @step(
@@ -33,6 +45,7 @@ logger = logging.getLogger(__name__)
             "tours",
         )
     },
+    generated_columns=preimputed_columns,
 )
 def imputation(  # noqa: C901, PLR0912, PLR0915
     # Optional canonical tables
@@ -47,7 +60,6 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
     stash_preimputed: bool = True,
     random_state: int | None = None,
     validate_imputation: dict[str, Any] | None = None,
-    canonical_data: CanonicalData | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Impute missing values using KNN, Random Forest, and/or MICE methods.
 
@@ -189,9 +201,6 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
             At least one of ``numeric_features`` or ``categorical_features``
             is required in every config block.
 
-        canonical_data: Canonical data container. When present, each
-            ``{column}_preimputed`` stash is registered on it so the writer can
-            tell a column the pipeline created from vendor passthrough.
         stash_preimputed: Whether to create ``{column}_preimputed`` columns
             that preserve the original value before imputation (default: True).
             The stashed column retains sentinel codes (e.g. PNTA 999,
@@ -340,12 +349,6 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
             current_df = stash_preimputed_columns(
                 current_df, originals[table_name], imputed_columns
             )
-            # Named after whichever columns a project imputes, so no model can
-            # declare them. Register them as ours so the writer keeps them.
-            if canonical_data is not None:
-                canonical_data.register_generated_columns(
-                    table_name, [f"{c}_preimputed" for c in imputed_columns]
-                )
 
         result_tables[table_name] = current_df
 
