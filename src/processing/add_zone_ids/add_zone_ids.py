@@ -5,10 +5,26 @@ import logging
 import geopandas as gpd
 import polars as pl
 
-from data_canon.core.dataclass import CanonicalData
 from pipeline.decoration import step
 
 logger = logging.getLogger(__name__)
+
+# Standard locations: (table, table_index, lon_col, lat_col, location_prefix). An
+# empty prefix names the column after the zone alone, matching bare lat/lon.
+# joint_trips holds no coordinates of its own: it is a linking table, and its
+# members are zoned here.
+_STANDARD_LOCATIONS = [
+    ("households", "hh_id", "home_lon", "home_lat", "home"),
+    ("persons", "person_id", "work_lon", "work_lat", "work"),
+    ("persons", "person_id", "school_lon", "school_lat", "school"),
+    ("unlinked_trips", "unlinked_trip_id", "o_lon", "o_lat", "o"),
+    ("unlinked_trips", "unlinked_trip_id", "d_lon", "d_lat", "d"),
+    ("linked_trips", "linked_trip_id", "o_lon", "o_lat", "o"),
+    ("linked_trips", "linked_trip_id", "d_lon", "d_lat", "d"),
+    ("tours", "tour_id", "o_lon", "o_lat", "o"),
+    ("tours", "tour_id", "d_lon", "d_lat", "d"),
+    ("habitual_locations", "habitual_location_id", "lon", "lat", ""),
+]
 
 
 def prepare_zones(shp: gpd.GeoDataFrame, zone_id_field: str) -> gpd.GeoDataFrame:
@@ -194,6 +210,19 @@ def add_zone_to_dataframe(
     return df_joined
 
 
+def _zone_column(location_prefix: str, zone_name: str) -> str:
+    return f"{location_prefix}_{zone_name}" if location_prefix else zone_name
+
+
+def zone_columns(zone_geographies: list[dict]) -> dict[str, list[str]]:
+    """The ``{prefix}_{zone_name}`` columns `add_zone_ids` writes, per table."""
+    out: dict[str, list[str]] = {}
+    for zone_config in zone_geographies:
+        for table, _, _, _, prefix in _STANDARD_LOCATIONS:
+            out.setdefault(table, []).append(_zone_column(prefix, zone_config["zone_name"]))
+    return out
+
+
 @step(
     requires={
         "households": {"hh_id", "home_lon", "home_lat"},
@@ -212,6 +241,7 @@ def add_zone_to_dataframe(
         "tours": {"o_<zone>", "d_<zone>"},
         "habitual_locations": {"<zone>"},
     },
+    generated_columns=zone_columns,
 )
 def add_zone_ids(
     zone_geographies: list[dict],
@@ -224,7 +254,6 @@ def add_zone_ids(
     habitual_locations: pl.DataFrame | None = None,
     projected_crs: str | None = None,
     max_snap_distance: float | None = None,
-    canonical_data: CanonicalData | None = None,
 ) -> dict:
     """Add zone IDs for multiple geographic levels based on locations.
 
@@ -246,9 +275,6 @@ def add_zone_ids(
         tours: Tours dataframe
         joint_trips: Joint trips dataframe
         habitual_locations: Habitual locations dataframe
-        canonical_data: Canonical data container. When present, each generated
-            ``{prefix}_{zone_name}`` column is registered on it, so the writer
-            can tell a column the pipeline created from vendor passthrough.
         zone_geographies: List of dicts, each containing:
             - shapefile: Path to shapefile with zone boundaries (str)
             - zone_id_field: Field name in shapefile for zone ID
@@ -298,26 +324,9 @@ def add_zone_ids(
             prepare_snap_zones(shapefile, zone_id_field, projected_crs) if projected_crs else None
         )
 
-        # Standard location mappings: (table, table_index, lon_col, lat_col, location_prefix).
-        # An empty prefix names the column after the zone alone, matching bare lat/lon.
-        standard_locations = [
-            ("households", "hh_id", "home_lon", "home_lat", "home"),
-            ("persons", "person_id", "work_lon", "work_lat", "work"),
-            ("persons", "person_id", "school_lon", "school_lat", "school"),
-            ("unlinked_trips", "unlinked_trip_id", "o_lon", "o_lat", "o"),
-            ("unlinked_trips", "unlinked_trip_id", "d_lon", "d_lat", "d"),
-            ("linked_trips", "linked_trip_id", "o_lon", "o_lat", "o"),
-            ("linked_trips", "linked_trip_id", "d_lon", "d_lat", "d"),
-            ("tours", "tour_id", "o_lon", "o_lat", "o"),
-            ("tours", "tour_id", "d_lon", "d_lat", "d"),
-            ("habitual_locations", "habitual_location_id", "lon", "lat", ""),
-            # joint_trips holds no coordinates of its own: it is a linking table,
-            # and its members are zoned above.
-        ]
-
         # Apply this zone geography to all standard locations
-        for table, idx, lon_col, lat_col, location_prefix in standard_locations:
-            output_col = f"{location_prefix}_{zone_name}" if location_prefix else zone_name
+        for table, idx, lon_col, lat_col, location_prefix in _STANDARD_LOCATIONS:
+            output_col = _zone_column(location_prefix, zone_name)
 
             df = results.get(table)
 
@@ -360,11 +369,6 @@ def add_zone_ids(
                 snap_zones=snap_zones,
                 points=points_cache[points_key],
             )
-
-            # The name comes from config, so no model can declare it. Say what
-            # was created rather than leaving the writer to pattern-match it.
-            if canonical_data is not None:
-                canonical_data.register_generated_columns(table, [output_col])
 
             if table == "linked_trips":
                 _log_joint_members_split_across_zones(results[table], output_col, zone_name)

@@ -41,7 +41,6 @@ import logging
 
 import polars as pl
 
-from data_canon.core.dataclass import CanonicalData
 from pipeline.decoration import step
 from processing.completeness import usable_col_for
 from processing.weighting.core.hierarchy import (
@@ -87,6 +86,11 @@ from processing.weighting.validation.weight_checks import (
 logger = logging.getLogger(__name__)
 
 
+def weight_columns(existing: ExistingWeightsConfig) -> dict[str, dict]:
+    """The suffixed weight columns `add_existing_weights` writes, described, per table."""
+    return describe_weight_columns(resolve_fitted_profiles(existing.weight_profiles))
+
+
 @step(
     requires={
         "households": {"hh_id", "usable_<profile>"},
@@ -108,11 +112,11 @@ logger = logging.getLogger(__name__)
         "joint_trips": {"joint_trip_weight_<profile>"},
         "joint_tours": {"joint_tour_weight_<profile>"},
     },
+    generated_columns=weight_columns,
 )
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
     weights: dict[str, ExistingWeightConfig | dict],
     existing: ExistingWeightsConfig,
-    canonical_data: CanonicalData | None = None,
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
     person_days: pl.DataFrame | None = None,
@@ -192,9 +196,6 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
         existing: How supplied weights move onto usable records, per
             profile. See ``ExistingWeightsConfig``.
-        canonical_data: Canonical data container. When present, the suffixed
-            weight columns are registered on it, since names that come from
-            config cannot be model fields.
         households: Households DataFrame.
         persons: Persons DataFrame.
         person_days: Days DataFrame.
@@ -451,10 +452,6 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
         )
 
     drop_unsuffixed_weights(tables)
-
-    if canonical_data is not None:
-        for table, described in describe_weight_columns(profiles).items():
-            canonical_data.register_generated_columns(table, described)
 
     logger.info(
         "Weight attachment complete for %s. Tables with weights: %s",
