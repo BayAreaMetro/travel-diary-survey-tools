@@ -36,7 +36,7 @@ habitual_buffer_meters: "300"
 steps:
   - name: load_data
     validate_input: false  # overrides the step's @step() value; leave it out to keep that
-    cache: true
+    cache: false
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.tsv"
@@ -96,7 +96,7 @@ steps:
 
   - name: link_trips
     validate_input: true
-    cache: true
+    cache: false
     params:
       change_mode_enum: CHANGE_MODE
       transit_mode_enums: [FERRY, TRANSIT, LONG_DISTANCE]
@@ -109,7 +109,7 @@ steps:
 
   - name: detect_habitual_locations
     validate_input: true
-    cache: true
+    cache: false
     params:
       buffer_meters: "{{ habitual_buffer_meters }}"
       # Also add homes found where days were said to begin or end, beside the
@@ -119,7 +119,7 @@ steps:
 
   - name: detect_joint_trips
     validate_input: true
-    cache: true
+    cache: false
     params:
       method: "mahalanobis"
       # Covariance for Mahalanobis distance calculation
@@ -140,7 +140,7 @@ steps:
 
   - name: extract_tours
     validate_input: true
-    cache: true
+    cache: false
     params:
       # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
       # internal junction jumps more than this many meters between one trip's
@@ -152,7 +152,7 @@ steps:
 
   - name: add_zone_ids
     validate_input: true
-    cache: true
+    cache: false
     params:
       projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
       max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
@@ -175,7 +175,7 @@ steps:
   # derived here, so the rule lives in one place.
   - name: cascade_completeness
     validate_input: false
-    cache: true
+    cache: false
     params:
       # One boolean column per profile, on five axes, all answered explicitly.
       # See the bats_2023 config for the full vocabulary; the same three
@@ -241,7 +241,7 @@ steps:
 
   - name: compute_weights
     validate_input: true
-    cache: true
+    cache: false
     params:
       # -- Census controls ---------------------------------------------
       census:
