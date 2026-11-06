@@ -42,7 +42,7 @@ from .charts import (
     fit_diverging_figure,
     fit_x_limit,
     imputation_distribution_figure,
-    violins_figure,
+    weight_distribution_figure,
 )
 from .comparison import Comparison, payload
 from .crosswalk_map import crosswalk_figure
@@ -280,7 +280,7 @@ def _pane(
         "imputation_chart": imputation_chart,
         "balancer_performance_table": balancer_performance_table(fit.statuses, weighted, zone_fit),
         "weight_quality_table": weight_quality_table(weighted),
-        "violins_html": violins_figure(weighted).to_html(**_PLOTLY_KWARGS),
+        "weight_distribution_html": weight_distribution_figure(weighted).to_html(**_PLOTLY_KWARGS),
         "fit_bars_html": fit_diverging_figure(control_table, fit_x_range).to_html(**_PLOTLY_KWARGS),
         "sparsity_html": unweighted_cell_counts(
             fit.seed_incidence,

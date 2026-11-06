@@ -2,6 +2,7 @@
 
 import math
 
+import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
@@ -261,32 +262,75 @@ def fit_diverging_figure(
     return fig
 
 
-def violins_figure(weighted: pl.DataFrame) -> go.Figure:
-    """Half violin of ``hh_weight`` by zone, beside one jittered point per household."""
+_SINA_HALF_WIDTH = 0.42  # half a zone's column, reached by its densest weights
+_SINA_SEED = 0  # fixed, so the same weights always draw the same chart
+
+
+def _sina_offsets(values: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Sideways offsets for one zone's points, as wide as the weights are dense there.
+
+    Each point moves a uniform random share of the density at its own value, scaled
+    so the densest value fills ``_SINA_HALF_WIDTH``. A zone of under five
+    households has no density to speak of, so its points get a narrow even jitter.
+    """
+    if len(values) < 5:  # noqa: PLR2004
+        return rng.uniform(-0.1, 0.1, len(values))
+    bandwidth = 1.06 * float(values.std()) * len(values) ** -0.2 or 1e-9  # Silverman's rule
+    grid = np.linspace(values.min(), values.max(), 512)
+    density = np.exp(-0.5 * ((grid[:, None] - values[None, :]) / bandwidth) ** 2).sum(axis=1)
+    at_value = np.interp(values, grid, density)
+    return rng.uniform(-1, 1, len(values)) * at_value / density.max() * _SINA_HALF_WIDTH
+
+
+def weight_distribution_figure(weighted: pl.DataFrame) -> go.Figure:
+    """``hh_weight`` by zone: one point per household, spread by density, and the mean.
+
+    The spread follows the density on the scale shown: the Log and Linear buttons
+    switch the axis and the points' sideways positions together.
+    """
     zones = sorted(weighted["ctrl_geoid"].unique().to_list())
+    rng = np.random.default_rng(_SINA_SEED)
     fig = go.Figure()
-    for z in zones:
-        w = weighted.filter(pl.col("ctrl_geoid") == z)["hh_weight"].to_list()
+    x_linear: list[list[float]] = []
+    x_log: list[list[float]] = []
+    for i, z in enumerate(zones):
+        w = weighted.filter(pl.col("ctrl_geoid") == z)["hh_weight"].to_numpy()
+        on_linear = (i + _sina_offsets(w, rng)).tolist()
+        on_log = (i + _sina_offsets(np.log(np.maximum(w, 1e-9)), rng)).tolist()
         fig.add_trace(
-            go.Violin(
+            go.Scatter(
+                x=on_linear,
                 y=w,
+                mode="markers",
                 name=str(z),
-                side="positive",
-                points="all",
-                jitter=0.5,
-                pointpos=-0.5,
-                marker={"size": 3, "opacity": 0.4},
-                meanline_visible=True,
-                bandwidth=max(0.05, (max(w) - min(w)) / 40) if w else 0.1,
-                spanmode="manual",
-                span=[max(1e-6, min(w)), max(w)],
+                marker={"size": 3, "opacity": 0.45},
+                hovertemplate=f"{z}<br>weight %{{y:,.1f}}<extra></extra>",
             )
         )
+        mean = float(w.mean()) if len(w) else 0.0
+        edges = [i - _SINA_HALF_WIDTH, i + _SINA_HALF_WIDTH]
+        fig.add_trace(
+            go.Scatter(
+                x=edges,
+                y=[mean, mean],
+                mode="lines",
+                name=f"{z} mean",
+                line={"color": "black", "width": 2},
+                hovertemplate=f"{z}<br>mean %{{y:,.1f}}<extra></extra>",
+            )
+        )
+        x_linear += [on_linear, edges]
+        x_log += [on_log, edges]
     fig.update_layout(
         showlegend=False,
         title="Household Weight Distribution by Zone",
         yaxis_title="hh_weight",
         yaxis_type="linear",
+        xaxis={
+            "tickvals": list(range(len(zones))),
+            "ticktext": [str(z) for z in zones],
+            "range": [-0.6, len(zones) - 0.4],
+        },
         autosize=False,
         width=960,
         height=max(400, 60 * len(zones)),
@@ -300,8 +344,16 @@ def violins_figure(weighted: pl.DataFrame) -> go.Figure:
                 "xanchor": "right",
                 "yanchor": "bottom",
                 "buttons": [
-                    {"label": "Log", "method": "relayout", "args": [{"yaxis.type": "log"}]},
-                    {"label": "Linear", "method": "relayout", "args": [{"yaxis.type": "linear"}]},
+                    {
+                        "label": "Log",
+                        "method": "update",
+                        "args": [{"x": x_log}, {"yaxis.type": "log"}],
+                    },
+                    {
+                        "label": "Linear",
+                        "method": "update",
+                        "args": [{"x": x_linear}, {"yaxis.type": "linear"}],
+                    },
                 ],
             }
         ],

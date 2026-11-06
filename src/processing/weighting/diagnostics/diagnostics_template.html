@@ -349,14 +349,15 @@ the model's estimates do not suit the survey population.</p>
 <h2>{{ nums.quality }} &mdash; {{ titles.quality }} &mdash; <span class="profile-name">{{ pane.profile }}</span></h2>
 <p class="lede">How much the weights vary, and how far weighting moved them from their starting values.</p>
 <details class="more"><summary>How to read this</summary><div>
-  Weights should be roughly log-normal. The charts use a log scale, so they should look roughly
-  bell-shaped. Several peaks are not necessarily a problem, but suggest that a few variables, such as one
+  Weights should be roughly log-normal, so on the Log scale each zone's points should spread like a
+  bell turned on its side. Each point is a household; its sideways spread shows how many households
+  have about that weight, and the black line is the zone's mean. Several peaks are not necessarily a problem, but suggest that a few variables, such as one
   large control category, are driving the weights. {{ term("ef", "Expansion factors") }} at the configured
   limits mean weighting would have moved those households further if allowed. The sample is too small for
   the controls, and some categories or zones should be combined.
 </div></details>
 {{ pane.weight_quality_table }}
-<div class="chart">{{ pane.violins_html }}</div>
+<div class="chart">{{ pane.weight_distribution_html }}</div>
 </section>
 
 {% if pane.ef_tradeoff_section %}
