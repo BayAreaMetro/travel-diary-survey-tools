@@ -33,8 +33,6 @@ Example:
     ```
 """
 
-import hashlib
-import json
 import logging
 from pathlib import Path
 
@@ -110,34 +108,6 @@ class GeographyConfig(BaseModel):
         return v
 
 
-def _crosswalk_cache_key(
-    config: "GeographyConfig",
-    state_fips: str,
-    pums_year: int,
-    zone_groups: dict[str, list[str]] | None,
-) -> str:
-    """Compute a deterministic hash from all crosswalk inputs."""
-    h = hashlib.sha256()
-    # Target zones: hash file contents so edits invalidate the cache
-    target_path = Path(config.target_zones.file)
-    if target_path.exists():
-        h.update(target_path.read_bytes())
-    h.update(
-        json.dumps(
-            {
-                "id_field": config.target_zones.id_field,
-                "resolution": config.resolution,
-                "min_allocation": config.min_allocation,
-                "state_fips": state_fips,
-                "pums_year": pums_year,
-                "zone_groups": zone_groups or {},
-            },
-            sort_keys=True,
-        ).encode()
-    )
-    return h.hexdigest()[:12]
-
-
 # ---------------------------------------------------------------------------
 # PumaCrosswalk
 # ---------------------------------------------------------------------------
@@ -158,10 +128,10 @@ class PumaCrosswalk:
         config: GeographyConfig,
         state_fips: str,
         pums_year: int,
-        cache_dir: Path | None = None,
+        census_dir: Path | None = None,
         zone_groups: dict[str, list[str]] | None = None,
     ) -> None:
-        """Build crosswalk from *config* and Census geographies."""
+        """Build crosswalk from *config* and the Census geographies in *census_dir*."""
         logger.info("Initializing PumaCrosswalk with config: %s", config)
 
         # -- zone groups --------------------------------------------------
@@ -174,61 +144,42 @@ class PumaCrosswalk:
             config.target_zones.id_field,
         )
 
-        # -- cache check --------------------------------------------------
-        cache_key = _crosswalk_cache_key(config, state_fips, pums_year, zone_groups)
-        cache_dir_xw = (cache_dir / "crosswalk" / cache_key) if cache_dir else None
+        # -- Census geographies ---------------------------------------
+        puma_gdf = get_puma_gdf(state_fips, pums_year, cache_dir=census_dir)
+        block_gdf = get_block_gdf(state_fips, pums_year, cache_dir=census_dir)
 
-        if cache_dir_xw and (cache_dir_xw / "crosswalk.parquet").exists():
-            logger.info("Loading cached crosswalk from %s", cache_dir_xw)
-            self.crosswalk_df = pl.read_parquet(cache_dir_xw / "crosswalk.parquet")
-            self.puma_gdf = gpd.read_parquet(cache_dir_xw / "puma_clipped.parquet")
-            self.block_gdf = gpd.read_parquet(cache_dir_xw / "block_clipped.parquet")
-            self.puma_ids = sorted(self.puma_gdf["puma_id"].unique().tolist())
-        else:
-            # -- Census geographies ---------------------------------------
-            puma_gdf = get_puma_gdf(state_fips, pums_year, cache_dir=cache_dir)
-            block_gdf = get_block_gdf(state_fips, pums_year, cache_dir=cache_dir)
+        # -- clip to study area ---------------------------------------
+        logger.info("Clipping Census geographies to target zone extent")
+        study_crs = puma_gdf.crs or "EPSG:4326"
+        study_area = unary_union(self.target_gdf.to_crs(study_crs).geometry)
 
-            # -- clip to study area ---------------------------------------
-            logger.info("Clipping Census geographies to target zone extent")
-            study_crs = puma_gdf.crs or "EPSG:4326"
-            study_area = unary_union(self.target_gdf.to_crs(study_crs).geometry)
+        self.block_gdf = block_gdf[block_gdf.intersects(study_area)].copy()
+        self.puma_gdf = puma_gdf[puma_gdf.intersects(study_area)].copy()
+        self.puma_ids = sorted(self.puma_gdf["puma_id"].unique().tolist())
 
-            self.block_gdf = block_gdf[block_gdf.intersects(study_area)].copy()
-            self.puma_gdf = puma_gdf[puma_gdf.intersects(study_area)].copy()
-            self.puma_ids = sorted(self.puma_gdf["puma_id"].unique().tolist())
+        if not self.puma_ids:
+            msg = "No PUMAs overlap the target zone geometry."
+            raise ValueError(msg)
+        logger.info(
+            "Overlapping PUMAs: %d (number may be high due to some may just be touching)",
+            len(self.puma_ids),
+        )
 
-            if not self.puma_ids:
-                msg = "No PUMAs overlap the target zone geometry."
-                raise ValueError(msg)
-            logger.info(
-                "Overlapping PUMAs: %d (number may be high due to some may just be touching)",
-                len(self.puma_ids),
-            )
+        # -- rasterize & cross-tabulate -------------------------------
+        self.crosswalk_df = build_crosswalk(
+            source_gdf=self.puma_gdf,
+            target_gdf=self.target_gdf,
+            weight_gdf=self.block_gdf,
+            source_id_col="puma_id",
+            target_id_col="study_geoid",
+            weight_col="block_pop",
+            resolution=config.resolution,
+            min_allocation=config.min_allocation,
+        ).rename({"source_id": "puma_id", "target_id": "study_geoid"})
 
-            # -- rasterize & cross-tabulate -------------------------------
-            self.crosswalk_df = build_crosswalk(
-                source_gdf=self.puma_gdf,
-                target_gdf=self.target_gdf,
-                weight_gdf=self.block_gdf,
-                source_id_col="puma_id",
-                target_id_col="study_geoid",
-                weight_col="block_pop",
-                resolution=config.resolution,
-                min_allocation=config.min_allocation,
-            ).rename({"source_id": "puma_id", "target_id": "study_geoid"})
-
-            self.crosswalk_df = self.crosswalk_df.with_columns(
-                pl.col("study_geoid").replace(self._zone_remap).alias("ctrl_geoid")
-            )
-
-            # -- write cache ----------------------------------------------
-            if cache_dir_xw:
-                cache_dir_xw.mkdir(parents=True, exist_ok=True)
-                self.crosswalk_df.write_parquet(cache_dir_xw / "crosswalk.parquet")
-                self.puma_gdf.to_parquet(cache_dir_xw / "puma_clipped.parquet")
-                self.block_gdf.to_parquet(cache_dir_xw / "block_clipped.parquet")
-                logger.info("Cached crosswalk → %s", cache_dir_xw)
+        self.crosswalk_df = self.crosswalk_df.with_columns(
+            pl.col("study_geoid").replace(self._zone_remap).alias("ctrl_geoid")
+        )
 
         if self.zone_groups:
             logger.info(

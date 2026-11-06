@@ -201,7 +201,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "load_data": {
             "name": "load_data",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "input_paths": {
                     "households": f"{survey}/households.parquet",
@@ -216,7 +215,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "link_trips": {
             "name": "link_trips",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "change_mode_enum": "CHANGE_MODE",
                 "transit_mode_enums": ["FERRY", "TRANSIT", "LONG_DISTANCE"],
@@ -228,7 +226,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "detect_joint_trips": {
             "name": "detect_joint_trips",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "method": "mahalanobis",
                 "covariance": [10000, 10000, 100, 100],
@@ -238,7 +235,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "imputation": {
             "name": "imputation",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "impute_columns": {
                     "households": [
@@ -259,7 +255,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "detect_habitual_locations": {
             "name": "detect_habitual_locations",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "include_observed_homes": True,
                 "buffer_meters": HABITUAL_BUFFER_METERS,
@@ -268,7 +263,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "extract_tours": {
             "name": "extract_tours",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "spatial_gap_threshold_meters": 1000.0,
                 "buffer_meters": HABITUAL_BUFFER_METERS,
@@ -277,7 +271,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "cascade_completeness": {
             "name": "cascade_completeness",
             "validate_input": False,
-            "cache": False,
             # Two profiles so the e2e exercises the loop, not just one pass:
             # the strict gate the formatters read, and a relaxed one that has
             # to reach the delivered output as a registered generated column.
@@ -325,7 +318,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "add_existing_weights": {
             "name": "add_existing_weights",
             "validate_input": False,
-            "cache": False,
             # Only household weights are supplied; everything below is derived,
             # so the run exercises the copy rule down to persons and the split
             # rule from a person across their days. Gated on ctramp, the
@@ -351,7 +343,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "add_zone_ids": {
             "name": "add_zone_ids",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "zone_geographies": [
                     {
@@ -373,7 +364,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "format_ctramp": {
             "name": "format_ctramp",
             "validate_input": False,
-            "cache": False,
             "params": {
                 "usability_profile": "ctramp",
                 "income_low_threshold": 60000,
@@ -394,7 +384,6 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
             "name": "format_daysim",
             "validate_input": False,
             "validate_output": True,
-            "cache": False,
             "params": {"usability_profile": "daysim"},
         },
         "write_data": {
@@ -486,9 +475,7 @@ def _run_pipeline(enabled: frozenset):
             }
         )
 
-    pipeline = Pipeline(
-        config_path=config_path, steps=steps, caching=False, data_models=data_models
-    )
+    pipeline = Pipeline(config_path=config_path, steps=steps, data_models=data_models)
     result = pipeline.run()
     return result, output_dir, tmp
 

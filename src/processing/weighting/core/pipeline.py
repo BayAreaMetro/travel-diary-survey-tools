@@ -95,7 +95,7 @@ from processing.weighting.data_prep.control_data import (
     recode_pums_persons,
 )
 from processing.weighting.data_prep.crosswalk import PumaCrosswalk
-from processing.weighting.data_prep.fractional_impute import fill_null_incidence
+from processing.weighting.data_prep.fractional_impute import TrainedModel, fill_null_incidence
 from processing.weighting.data_prep.incidence import (
     IncidenceBundle,
     aggregate_control_totals,
@@ -228,11 +228,13 @@ class WeightingPipeline:
         self.fits = {}
         self.block_households: pl.DataFrame | None = None
         self.puma_growth: pl.DataFrame | None = None
+        # Forests trained this run, by control; every profile's imputation reuses them
+        self.rf_models: dict[str, TrainedModel] = {}
 
     @property
-    def cache_dir(self) -> Path | None:
-        """Weighting sub-directory of the pipeline cache (computed from config)."""
-        return self.config.cache_dir / "weighting" if self.config.cache_dir else None
+    def census_dir(self) -> Path | None:
+        """Folder of the census data the weighting reads (``census.census_dir``)."""
+        return self.config.census_dir
 
     # ------------------------------------------------------------------
     # Phase methods
@@ -248,7 +250,7 @@ class WeightingPipeline:
             self.config.geography,
             state_fips=self.config.state_fips,
             pums_year=self.config.pums_year,
-            cache_dir=self.cache_dir,
+            census_dir=self.census_dir,
             zone_groups=zone_groups,
         )
 
@@ -298,7 +300,7 @@ class WeightingPipeline:
             self.pums_hh, self.pums_per = fetch_pums_data(
                 source,
                 load_replicate_weights=load_reps,
-                cache_dir=self.cache_dir,
+                cache_dir=self.census_dir,
             )
         self.pums_hh, self.pums_per = clean_pums(
             self.pums_hh, self.pums_per, pums_weights=self.config.pums_weights
@@ -565,7 +567,7 @@ class WeightingPipeline:
             ),
             geo.select("hh_id", "ctrl_geoid"),
             names,
-            cache_dir=self.cache_dir,
+            models=self.rf_models,
         )
         # After imputation, every control must sum correctly (with tolerance
         # for floating-point fractions introduced by the RF predictions).
@@ -594,8 +596,8 @@ class WeightingPipeline:
         if self.block_households is None:
             state, year = self.config.state_fips, self.config.pums_year
             blocks = self.crosswalk.assign_blocks(
-                get_block_gdf(state, year, cache_dir=self.cache_dir)
-            ).join(get_block_households(state, year, cache_dir=self.cache_dir), on="block_id")
+                get_block_gdf(state, year, cache_dir=self.census_dir)
+            ).join(get_block_households(state, year, cache_dir=self.census_dir), on="block_id")
             self.block_households, self.puma_growth = grow_block_households(blocks, self.pums_hh)
         return self.block_households
 

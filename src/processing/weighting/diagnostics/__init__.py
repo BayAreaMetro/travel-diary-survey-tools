@@ -68,8 +68,7 @@ diagnostics:
       columns: {households: hh_weight, unlinked_trips: trip_weight}
 ```
 
-When `output_path` is omitted the report is written to
-``<cache_dir>/diagnostics.html``. One file per run, with no profile suffix.
+`output_path` is required. One file per run, with no profile suffix.
 """
 
 from .crosswalk_map import crosswalk_figure

@@ -2,14 +2,12 @@
 
 A step whose columns are named from its settings (one per zone, profile or imputed
 column) lists them with ``@step(generated_columns=...)``. The decorator registers them on
-every call, before the cache is checked, so ``write_data`` keeps them whether the
-step ran or was loaded from the cache (#176).
+every call, so ``write_data`` keeps them (#176).
 """
 
 import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
-from pipeline.cache import PipelineCache
 from pipeline.decoration import step
 from processing.add_zone_ids.add_zone_ids import zone_columns
 from processing.completeness.descriptions import profile_columns
@@ -28,7 +26,7 @@ PROFILE = {
 
 
 def _zone_step(calls: list[str]):
-    """A cacheable step that adds one zone column, counting the times its body runs."""
+    """A step that adds one zone column, recording what was registered when its body ran."""
 
     def columns(zone_name: str) -> dict[str, list[str]]:
         return {"households": [f"home_{zone_name}"]}
@@ -54,20 +52,6 @@ class TestDecoratorRegisters:
         data = CanonicalData()
         _zone_step(calls)(households=self.HOUSEHOLDS, zone_name="taz", canonical_data=data)
         assert calls == [["home_taz"]]
-
-    def test_registered_on_a_cache_hit(self, tmp_path):
-        """A step loaded from the cache never runs, and its columns are still kept."""
-        calls: list[list[str]] = []
-        zone_step = _zone_step(calls)
-        cache = PipelineCache(cache_dir=tmp_path)
-        kwargs = {"households": self.HOUSEHOLDS, "zone_name": "taz", "cache": True}
-        zone_step(**kwargs, canonical_data=CanonicalData(), pipeline_cache=cache)
-
-        second = CanonicalData()
-        zone_step(**kwargs, canonical_data=second, pipeline_cache=cache)
-
-        assert len(calls) == 1  # the second call came from the cache
-        assert "home_taz" in second.public_columns("households")
 
 
 class TestEachStepListsItsColumns:
