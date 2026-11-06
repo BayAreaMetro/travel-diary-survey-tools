@@ -1,13 +1,13 @@
 """PUMA-specific crosswalk wrapper.
 
-``PumaCrosswalk`` fetches Census PUMA and block geographies and
+``PumaCrosswalk`` reads Census PUMA and block geographies and
 delegates the heavy lifting to [`build_crosswalk`][utils.crosswalk.build_crosswalk].
 
 See ``docs/pipeline_steps/weighting/crosswalk.md`` for the detailed
 crosswalk explanation, diagrams, and worked example.
 
 1. Load target zone polygons; auto-discover overlapping PUMAs.
-2. Download/cache TIGER PUMA and block shapefiles (via ``census_geo``).
+2. Read the TIGER PUMA and block boundaries (via ``census_geo``).
 3. Rasterize block population into a density grid.
 4. Rasterize PUMA IDs into a categorical label grid.
 5. ``exactextract``: compute ``sum(population)`` per target zone, grouped by
@@ -27,7 +27,7 @@ Outputs:
 Example:
     ```python
 
-    xw = PumaCrosswalk(geo_cfg, state_fips="06", pums_year=2023)
+    xw = PumaCrosswalk(geo_cfg, state_fips="06", pums_year=2023, census_dir=census_dir)
     households = xw.assign_households(households)
     pums_hh, pums_per = xw.allocate_pums_weights(pums_hh, pums_per)
     ```
@@ -128,7 +128,7 @@ class PumaCrosswalk:
         config: GeographyConfig,
         state_fips: str,
         pums_year: int,
-        census_dir: Path | None = None,
+        census_dir: Path,
         zone_groups: dict[str, list[str]] | None = None,
     ) -> None:
         """Build crosswalk from *config* and the Census geographies in *census_dir*."""
@@ -145,8 +145,8 @@ class PumaCrosswalk:
         )
 
         # -- Census geographies ---------------------------------------
-        puma_gdf = get_puma_gdf(state_fips, pums_year, cache_dir=census_dir)
-        block_gdf = get_block_gdf(state_fips, pums_year, cache_dir=census_dir)
+        puma_gdf = get_puma_gdf(state_fips, pums_year, census_dir)
+        block_gdf = get_block_gdf(state_fips, pums_year, census_dir)
 
         # -- clip to study area ---------------------------------------
         logger.info("Clipping Census geographies to target zone extent")

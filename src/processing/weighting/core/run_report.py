@@ -110,7 +110,7 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         zone_groups=zone_groups,
         zone_counties=pipeline.crosswalk.zone_counties(
             get_county_names(
-                pipeline.config.state_fips, pipeline.config.pums_year, cache_dir=pipeline.census_dir
+                pipeline.config.state_fips, pipeline.config.pums_year, pipeline.census_dir
             )
         ),
         merge_specs=pipeline.controls.all_merges,

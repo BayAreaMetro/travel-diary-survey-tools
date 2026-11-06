@@ -24,7 +24,7 @@
 # -- Inputs (read only) ---------------------------------------------------------
 survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/Bay Area Travel Study 2018-2019/Data/Final Version with Imputations/Final Updated Dataset as of 10-18-2021"
 weights_dir: "{{ survey_dir }}/weights"  # the vendor's weights
-census_dir: ".cache/2019/weighting"  # PUMS and Census geography
+census_dir: "{{ MTC_DATA }}/Data/Census/BATS Weighting"  # PUMS and Census geography
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 
