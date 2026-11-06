@@ -82,11 +82,8 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         The ``diagnostics`` block of the weighting config.
 
         ``output_path`` is the destination for the HTML file, a string
-        (including template paths from the YAML). When null the file is
-        written to ``<cache_dir>/diagnostics.html`` (or
-        ``./weighting/diagnostics.html`` if no cache directory is
-        configured).  No profile suffix: a run writes one file however many
-        profiles it fits.
+        (including template paths from the YAML). No profile suffix: a run
+        writes one file however many profiles it fits.
 
         ``compare_weights`` names weight sets that arrived with the survey,
         to compare this run's fits against.  See
@@ -97,11 +94,7 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         logger.warning("No completed fits to report on; skipping diagnostics.")
         return
 
-    if diagnostics.output_path is not None:
-        resolved_path = Path(diagnostics.output_path)
-    else:
-        report_dir = pipeline.cache_dir or Path.cwd() / "weighting"
-        resolved_path = report_dir / "diagnostics.html"
+    resolved_path = Path(diagnostics.output_path)
 
     zone_groups = pipeline.config.geography.zone_groups
     generate_report(
@@ -117,7 +110,7 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         zone_groups=zone_groups,
         zone_counties=pipeline.crosswalk.zone_counties(
             get_county_names(
-                pipeline.config.state_fips, pipeline.config.pums_year, cache_dir=pipeline.cache_dir
+                pipeline.config.state_fips, pipeline.config.pums_year, cache_dir=pipeline.census_dir
             )
         ),
         merge_specs=pipeline.controls.all_merges,

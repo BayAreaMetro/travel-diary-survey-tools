@@ -283,6 +283,42 @@ class TestTrainAndPredict:
             assert abs(s - 1.0) < 1e-6, f"Row probability sum {s} != 1.0"
 
 
+class TestTrainedOncePerRun:
+    """Every profile imputes from the same PUMS, so a forest is trained once per run."""
+
+    def _call(self, models, train=None):
+        (survey_bundle, _), (pums_bundle, _) = _recode_survey(null_gender_rate=0.3), _recode_pums()
+        cols = ["p_gender__male", "p_gender__female"]
+        return _train_and_predict(
+            train if train is not None else pums_bundle.person_pivot,
+            survey_bundle.person_pivot,
+            _null_mask(survey_bundle.person_pivot, cols),
+            cols,
+            id_col="person_id",
+            weight_col="PWGTP",
+            group_col="SERIALNO",
+            models=models,
+        )
+
+    def test_a_later_profile_reuses_the_forest(self):
+        """The second call predicts with the first call's forest and its CV scores."""
+        models: dict = {}
+        first = self._call(models)
+        forest = models["p_gender"].model
+        second = self._call(models)
+        assert models["p_gender"].model is forest
+        assert second[1:] == first[1:]
+
+    def test_a_forest_with_other_inputs_is_refused(self):
+        """Reusing a forest trained on other inputs would predict from the wrong columns."""
+        models: dict = {}
+        self._call(models)
+        pums_bundle, _ = _recode_pums()
+        other = pums_bundle.person_pivot.with_columns(pl.lit(0).alias("zone__extra"))
+        with pytest.raises(ValueError, match="used other inputs"):
+            self._call(models, train=other)
+
+
 class TestTrainingCountsByWeight:
     """A PUMS record counts by its weight, not as one."""
 

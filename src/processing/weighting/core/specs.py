@@ -241,6 +241,12 @@ class CensusConfig(BaseModel):
         default=None,
         description="Local PUMS person file; fetched from the Census API when not given.",
     )
+    census_dir: str = Field(
+        description=(
+            "Folder holding the census data the weighting reads: PUMS and Census "
+            "geography, fetched into it on first use."
+        ),
+    )
 
 
 class ReferenceWeightSetConfig(BaseModel):
@@ -259,9 +265,7 @@ class DiagnosticsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    output_path: str | None = Field(
-        description="Where the HTML report is written; null for the cache directory."
-    )
+    output_path: str = Field(description="Where the HTML report is written.")
     expansion_factor_grid: list[float] | None = Field(
         description=(
             "max_expansion_factor values to re-run balancing at, charting fit "
@@ -397,7 +401,7 @@ class WeightingConfig:
     pums_households: str | None = None
     pums_persons: str | None = None
     sample_plan: str | None = None
-    cache_dir: Path | None = None
+    census_dir: Path | None = None
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
     _fitted_profiles: tuple[str, ...] = field(default=(), init=False, repr=False)

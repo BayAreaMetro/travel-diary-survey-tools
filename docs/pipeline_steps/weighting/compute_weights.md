@@ -122,6 +122,7 @@ seed, weights or diagnostics.
       state_fips: "06"
       pums_year: 2023
       pums_weights: independent
+      census_dir: data/census/2023
     geography:
       target_zones:
         file: zones/counties.shp

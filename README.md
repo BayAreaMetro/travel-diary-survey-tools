@@ -176,7 +176,6 @@ TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefile
 steps:
   - name: load_data
     validate_input: false  # overrides the step's @step() default; leave it out to keep that
-    cache: true
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
@@ -266,7 +265,6 @@ if __name__ == "__main__":
     pipeline = Pipeline(
         config_path=CONFIG_PATH,
         steps=processing_steps,
-        caching=Path(".cache/2023"),
     )
     result = pipeline.run()
 ```
@@ -275,9 +273,6 @@ To run, press the green arrow in your IDE, or run from command line:
 
 ```bash
 uv run python projects/bats_2023/run.py
-
-# Clear cache before running
-uv run python projects/bats_2023/run.py --clear-cache
 ```
 
 **Logging**: The pipeline automatically creates a log file in the output directory (e.g., `output/pipeline.log`) that contains all console output plus additional debugging information.
@@ -407,9 +402,8 @@ travel-diary-survey-tools/
 │   ├── pipeline/ <---------------- # Pipeline orchestration code.
 │   │   ├── pipeline.py             # Pipeline: runs the configured steps
 │   │   ├── config.py               # Config loading and {{ }} templates
-│   │   ├── decoration.py           # @step(): validation, caching, contracts
-│   │   ├── step_registry.py        # What each step requires and produces
-│   │   └── cache.py
+│   │   ├── decoration.py           # @step(): validation, contracts
+│   │   └── step_registry.py        # What each step requires and produces
 │   ├── processing/ <-------------- # Processing steps go here, one package each!
 │   │   ├── read_write/
 │   │   ├── imputation/
