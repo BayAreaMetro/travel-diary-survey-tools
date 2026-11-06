@@ -22,6 +22,7 @@ from processing.weighting.controls.household import (
     HHIncomeControl,
     HHPumaControl,
     HHSizeControl,
+    HHTargetZoneControl,
     HHTotalControl,
     HHVehiclesControl,
     HHVehiclesPerDriverControl,
@@ -93,6 +94,16 @@ def register_puma_control(puma_ids: list[str] | None) -> None:
     CONTROLS.pop(HHPumaControl.name, None)
     if puma_ids is not None:
         CONTROLS[HHPumaControl.name] = HHPumaControl(puma_ids)
+
+
+def register_target_zone_control(zone_ids: list[str] | None) -> None:
+    """Register ``h_target_zone`` for this run's target zones, or remove it when ``None``.
+
+    Always replaces, for the same reason as `register_puma_control`.
+    """
+    CONTROLS.pop(HHTargetZoneControl.name, None)
+    if zone_ids is not None:
+        CONTROLS[HHTargetZoneControl.name] = HHTargetZoneControl(zone_ids)
 
 
 def register_crosstab(

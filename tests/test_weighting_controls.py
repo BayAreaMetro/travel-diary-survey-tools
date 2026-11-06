@@ -37,7 +37,11 @@ from processing.weighting.data_prep.incidence import (
     aggregate_control_totals,
     build_incidence_table,
 )
-from processing.weighting.data_prep.merges import apply_1d_merges, apply_crosstab_merges
+from processing.weighting.data_prep.merges import (
+    apply_1d_merges,
+    apply_crosstab_merges,
+    merge_control_totals,
+)
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
@@ -656,6 +660,29 @@ class TestZoneMergeTargets:
         assert ("B", "w2_plus") not in got
         assert ("A", "workers_2") not in got
 
+    def test_a_group_of_one_renames_its_category(self):
+        """A one-member group, such as a county of one PUMA, is a target under its own name."""
+        incidence = pl.DataFrame({"ctrl_geoid": ["A"], "h_puma__puma_05500": [1.0]})
+        spec = MergeSpec(control="h_puma", groups={"napa": ["puma_05500"]}, zones=["A"])
+        assert "h_puma__napa" in apply_1d_merges(incidence, [spec]).columns
+
+        totals = ControlTotals(
+            totals=pl.DataFrame(
+                {
+                    "geo_id": ["A"],
+                    "control_name": ["h_puma"],
+                    "category": ["puma_05500"],
+                    "target_total": [51167.0],
+                }
+            ),
+            pums_hh_count=1,
+            pums_person_count=0,
+            geo_ids=["A"],
+        )
+        merged = merge_control_totals(totals, [spec]).totals
+        assert merged["category"].to_list() == ["napa"]
+        assert merged["target_total"].to_list() == [51167.0]
+
 
 # ---------------------------------------------------------------------------
 # apply_category_merges — targeted merge layered on global merge
@@ -858,6 +885,59 @@ class TestApplyFitMergesZoneAware:
         for z in ["Z1", "Z2"]:
             zone_labels = result.filter(pl.col("geo_id") == z)["label"].unique().sort().to_list()
             assert zone_labels == all_labels, f"Zone {z} missing some labels"
+
+
+class TestApplyFitMergesEmptyCategories:
+    """A category with no target and no weight anywhere gets no row."""
+
+    @staticmethod
+    def _fit(rows: list[tuple[str, str, float, float]]) -> pl.DataFrame:
+        return pl.DataFrame(
+            [
+                {
+                    "geo_id": z,
+                    "control_name": "h_size",
+                    "category": c,
+                    "target_total": t,
+                    "weighted_total": w,
+                    "diff": w - t,
+                    "diff_pct": 0.0,
+                }
+                for z, c, t, w in rows
+            ]
+        )
+
+    def test_category_merged_away_in_every_zone_is_dropped(self):
+        """Each zone merged size_3 into its own group, so size_3 is 0 everywhere."""
+        fit = self._fit(
+            [
+                ("Z1", "size_3", 0.0, 0.0),
+                ("Z1", "size_3_plus", 50.0, 51.0),
+                ("Z2", "size_3", 0.0, 0.0),
+                ("Z2", "size_3_plus", 40.0, 39.0),
+            ]
+        )
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert set(result["category"]) == {"size_3_plus"}
+
+    def test_category_with_a_target_in_one_zone_is_kept_and_padded(self):
+        """size_3 is a target in Z2 only, so Z1 keeps a placeholder row for it."""
+        fit = self._fit(
+            [
+                ("Z1", "size_3", 0.0, 0.0),
+                ("Z1", "size_3_plus", 50.0, 51.0),
+                ("Z2", "size_3", 30.0, 31.0),
+                ("Z2", "size_3_plus", 40.0, 39.0),
+            ]
+        )
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert result.filter(pl.col("category") == "size_3").height == 2
+
+    def test_weight_with_no_target_is_kept(self):
+        """Weight where the target is 0 is a miss, so the row stays."""
+        fit = self._fit([("Z1", "size_3", 0.0, 5.0), ("Z1", "size_3_plus", 50.0, 45.0)])
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert "size_3" in set(result["category"])
 
 
 # ===========================================================================

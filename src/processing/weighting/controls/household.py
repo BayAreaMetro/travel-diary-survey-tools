@@ -185,6 +185,40 @@ class HHPumaControl(ControlTarget):
         return pl.col("PUMA").replace_strict(self._codes, default=0, return_dtype=pl.Int16)
 
 
+class HHTargetZoneControl(ControlTarget):
+    """Home target zone: one category per zone of the ``target_zones`` file.
+
+    The categories depend on the geography, so the control is built at run time
+    by ``register_target_zone_control``. A PUMS record's zone is known only once
+    the crosswalk has allocated it, one copy per zone its PUMA reaches, so it is
+    recoded after allocation. It is never imputed: a household in no zone fails
+    the sum check.
+    """
+
+    name = "h_target_zone"
+    level = ControlLevel.HOUSEHOLD
+    description = "Home target zone"
+    survey_fields = ("study_geoid",)
+    pums_fields = ()  # allocation adds study_geoid; nothing is fetched for it
+    imputable = False
+    pums_after_allocation = True
+
+    def __init__(self, zone_ids: list[str]) -> None:
+        """Number the zones from 1, in the order given."""
+        self._codes = {zone: i for i, zone in enumerate(zone_ids, start=1)}
+        self.categories = IntEnum("HHTargetZoneCategory", dict(self._codes))
+
+    def survey_expr(self) -> pl.Expr:
+        return pl.col("study_geoid").replace_strict(
+            self._codes, default=None, return_dtype=pl.Int16
+        )
+
+    def pums_expr(self) -> pl.Expr:
+        return pl.col("study_geoid").replace_strict(
+            self._codes, default=None, return_dtype=pl.Int16
+        )
+
+
 class HHTotalControl(ControlTarget):
     """Structural control: total households (incidence = 1 per HH)."""
 

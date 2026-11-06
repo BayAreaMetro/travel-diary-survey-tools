@@ -63,12 +63,18 @@ def recode_pums_households(
         hh_df: PUMS household microdata.
         person_df: PUMS person microdata (used to derive hh-level aggregates).
         targets: Registry keys to recode.  ``None`` → all household controls.
+            Controls recoded only after allocation are skipped (see
+            `recode_allocated_pums`).
     """
-    hh_ctrls = (
-        resolve_targets(targets, ControlLevel.HOUSEHOLD)
-        if targets
-        else [c for c in CONTROLS.values() if c.level == ControlLevel.HOUSEHOLD]
-    )
+    hh_ctrls = [
+        c
+        for c in (
+            resolve_targets(targets, ControlLevel.HOUSEHOLD)
+            if targets
+            else [c for c in CONTROLS.values() if c.level == ControlLevel.HOUSEHOLD]
+        )
+        if not c.pums_after_allocation
+    ]
 
     # Pre-aggregate person → household counts for derived HH controls.
     # h_size uses NP directly from the HH table — no person aggregation.
@@ -112,6 +118,26 @@ def recode_pums_households(
         strict=True,
     )
     return hh
+
+
+def recode_allocated_pums(hh_df: pl.DataFrame, targets: list[str]) -> pl.DataFrame:
+    """Recode the household controls whose PUMS value comes from allocation.
+
+    *hh_df* is crosswalk-allocated (one row per record and zone), so it carries
+    the zone columns those controls read.
+    """
+    for ctrl in resolve_targets(targets, ControlLevel.HOUSEHOLD):
+        if ctrl.pums_after_allocation:
+            hh_df = hh_df.with_columns(ctrl.pums_expr().alias(ctrl.name))
+    check_recode_nulls(
+        hh_df,
+        [c for c in targets if CONTROLS[c].pums_after_allocation],
+        level=ControlLevel.HOUSEHOLD,
+        id_col="SERIALNO",
+        source_label="PUMS",
+        strict=True,
+    )
+    return hh_df
 
 
 def recode_pums_persons(

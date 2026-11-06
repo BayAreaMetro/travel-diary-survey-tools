@@ -154,6 +154,23 @@ def pivot_person_controls(
     return person_pivot, person_agg
 
 
+def pivot_allocated_controls(incidence: pl.DataFrame, targets: list[str]) -> pl.DataFrame:
+    """Add the ``{ctrl}__{member}`` columns of controls recoded after allocation.
+
+    *incidence* is the crosswalk-allocated PUMS incidence, one row per record
+    and zone; each copy gets its own zone's category.
+    """
+    for ctrl in resolve_targets(targets, ControlLevel.HOUSEHOLD):
+        if not ctrl.pums_after_allocation:
+            continue
+        code = ctrl.pums_expr()
+        incidence = incidence.with_columns(
+            (code == value).cast(pl.Int32).fill_null(0).alias(f"{ctrl.name}__{member.lower()}")
+            for value, member in ctrl.valid_members
+        )
+    return incidence
+
+
 def build_incidence_table(
     hh_recoded: pl.DataFrame,
     per_recoded: pl.DataFrame,
@@ -307,4 +324,23 @@ def aggregate_control_totals(
         pums_hh_count=pums_incidence["SERIALNO"].n_unique(),
         pums_person_count=pums_person_incidence.select("SERIALNO", "SPORDER").n_unique(),
         geo_ids=geo_ids,
+    )
+
+
+def drop_lone_target_zones(totals: ControlTotals, crosswalk_df: pl.DataFrame) -> ControlTotals:
+    """Drop ``h_target_zone`` in balancing zones made of one target zone.
+
+    There its target is the zone's household total, already ``h_total``.
+    """
+    lone = (
+        crosswalk_df.group_by("ctrl_geoid")
+        .agg(pl.col("study_geoid").n_unique())
+        .filter(pl.col("study_geoid") == 1)["ctrl_geoid"]
+    )
+    keep = ~((pl.col("control_name") == "h_target_zone") & pl.col("geo_id").is_in(lone.implode()))
+    return ControlTotals(
+        totals=totals.totals.filter(keep),
+        pums_hh_count=totals.pums_hh_count,
+        pums_person_count=totals.pums_person_count,
+        geo_ids=totals.geo_ids,
     )

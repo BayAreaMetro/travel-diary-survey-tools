@@ -416,6 +416,25 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
         for row in ct_total.iter_rows(named=True):
             pums_pct_total[(row["control_name"], row["category"])] = row["pct"]
 
+        # A category is shown if, in some zone where it is a target, it has a target or
+        # records. One zone merges replaced everywhere is a target nowhere with either.
+        targets = {
+            (r["geo_id"], r["control_name"], r["category"]): r["target_total"]
+            for r in ct.iter_rows(named=True)
+        }
+        ctrl_members = {
+            name: [
+                (col, key)
+                for col, key in members
+                if any(
+                    (z, name, key) in targets
+                    and (targets[(z, name, key)] or counts_by_zone.get(z, {}).get(col))
+                    for z in zones
+                )
+            ]
+            for name, members in ctrl_members.items()
+        }
+
     importance_cols: list[str] = []
     if importance_used is not None:
         importance_cols = ["Importance" if moe_importance is None else "Importance (MOE-computed)"]

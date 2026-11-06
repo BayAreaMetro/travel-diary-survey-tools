@@ -88,6 +88,9 @@ class ControlTarget:
         survey_fields: Canonical survey column names (metadata).
         pums_fields: PUMS column names (metadata).
         imputable: Whether fractional imputation may fill a missing value.
+        pums_after_allocation: Whether the PUMS value exists only once the
+            crosswalk has allocated each record to its zones, so it is recoded
+            then rather than with the other controls.
     """
 
     name: str
@@ -98,6 +101,7 @@ class ControlTarget:
     pums_fields: tuple[str, ...]
     structural: bool = False
     imputable: bool = True
+    pums_after_allocation: bool = False
 
     def survey_expr(self) -> pl.Expr:
         """Polars expression mapping survey columns → control int (Int16)."""

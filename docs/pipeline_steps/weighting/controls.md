@@ -40,6 +40,44 @@ controls:
 The merged group is a target only in the zones listed. Elsewhere the separate
 categories stay targets.
 
+## Households per PUMA
+
+`h_puma` is listed like any other control, but it is not in the table below: its
+categories are the crosswalk's PUMAs, found when the run starts, named
+`puma_<PUMA ID>` (such as `puma_01308`), plus `outside_region` for PUMS households
+outside every zone.
+
+- Each home's PUMA comes from the same PUMA boundaries the PUMS is allocated by, and
+  is written to `household_weights` as `home_puma`.
+- It is never imputed: a household with no PUMA stops the run.
+
+A survey rarely reaches enough homes in every PUMA to target each one. Merging a
+zone's PUMAs into groups, with `zone_merges`, targets the groups instead. Merging
+all of a zone's PUMAs into one group turns the target off in that zone. A category
+that merges replace in every zone is left out of the report's tables.
+
+## Households per target zone
+
+`h_target_zone` targets the households in each target zone, the polygons of
+`geography.target_zones`, within each balancing zone. Where `zone_groups` joins
+target zones to balance them together, it keeps each one's household total right
+without a balancing zone of its own. Where target zones are counties, these are the
+county totals.
+
+- Like `h_puma`, it is not in the table below: its categories are the target zone
+  IDs, found when the run starts, such as `001`.
+- A survey home's zone is the one its point falls in. A PUMS record's zone comes
+  from the crosswalk, which copies each record into every zone its PUMA reaches,
+  so each copy counts in its own zone.
+- In a balancing zone made of one target zone it has no target: there it would be
+  the zone's household total, already `h_total`.
+- It is never imputed: a household in no zone stops the run.
+
+```yaml
+controls:
+  - name: h_target_zone
+```
+
 ## Available controls
 
 <!-- weighting-controls -->

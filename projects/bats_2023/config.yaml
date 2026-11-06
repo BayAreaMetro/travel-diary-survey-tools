@@ -421,7 +421,7 @@ steps:
 
         # Household level controls
         - name: h_size
-          importance: 150
+          importance: 200
           merge:
             size_3_plus: [size_3, size_4, size_5, size_6, size_7, size_8, size_9, size_10_plus]
 
@@ -434,11 +434,9 @@ steps:
           merge:
             one_or_more: [one_to_one, more_than_drivers]
 
-        # - name: h_puma
-        #   zone_merges:
-        #     "Alameda/Contra Costa/San Mateo":
-        #       puma_east_central: [puma_01308, puma_01309, puma_01314, puma_01313]
-
+        # Households per target zone within each zone group, which in this case is a county
+        - name: h_target_zone
+        # - name: h_puma # Tends to be too granular and can make convergence difficult
 
         # We might need to turn off h_worker because it might clash with person-level employment controls.
         # Adds double constraints that make it hard to converge in places like SF.

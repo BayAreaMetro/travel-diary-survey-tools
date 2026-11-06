@@ -64,10 +64,11 @@ from processing.weighting.balancing.base_weights import (
     grow_block_households,
 )
 from processing.weighting.balancing.importance import compute_control_moe, compute_moe_importance
-from processing.weighting.controls.household import HHPumaControl
+from processing.weighting.controls.household import HHPumaControl, HHTargetZoneControl
 from processing.weighting.controls.registry import (
     register_crosstabs_from_config,
     register_puma_control,
+    register_target_zone_control,
     resolve_targets,
 )
 from processing.weighting.core.hierarchy import seed_col_for, weight_col_for
@@ -89,6 +90,7 @@ from processing.weighting.core.specs import (
 )
 from processing.weighting.data_prep.census_geo import get_block_gdf, get_block_households
 from processing.weighting.data_prep.control_data import (
+    recode_allocated_pums,
     recode_pums_households,
     recode_pums_persons,
 )
@@ -98,6 +100,8 @@ from processing.weighting.data_prep.incidence import (
     IncidenceBundle,
     aggregate_control_totals,
     build_incidence_table,
+    drop_lone_target_zones,
+    pivot_allocated_controls,
 )
 from processing.weighting.data_prep.merges import (
     apply_1d_merges,
@@ -254,6 +258,11 @@ class WeightingPipeline:
             if HHPumaControl.name in self.controls.target_names
             else None
         )
+        register_target_zone_control(
+            sorted(self.crosswalk.crosswalk_df["study_geoid"].unique().to_list())
+            if HHTargetZoneControl.name in self.controls.target_names
+            else None
+        )
         register_crosstabs_from_config(
             [
                 {
@@ -394,8 +403,9 @@ class WeightingPipeline:
 
     def allocate_pums(self) -> None:
         """Allocate the PUMS household and person incidence across zones through the crosswalk."""
-        self.pums_incidence = self.crosswalk.allocate_pums_incidence(
-            self.pums_incidence,
+        self.pums_incidence = pivot_allocated_controls(
+            self.crosswalk.allocate_pums_incidence(self.pums_incidence),
+            self.controls.target_names,
         )
         self.pums_person_incidence = self.crosswalk.allocate_pums_incidence(
             self.pums_person_incidence,
@@ -437,6 +447,10 @@ class WeightingPipeline:
                 self.control_totals,
                 self.controls.merges_1d,
             )
+        if HHTargetZoneControl.name in names:
+            self.control_totals = drop_lone_target_zones(
+                self.control_totals, self.crosswalk.crosswalk_df
+            )
         logger.info(
             "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
             len(self.control_totals.geo_ids),
@@ -453,6 +467,7 @@ class WeightingPipeline:
                 self.pums_hh,
                 self.pums_per,
             )
+            pums_hh_xw = recode_allocated_pums(pums_hh_xw, self.controls.target_names)
             moe_importance = compute_moe_importance(
                 pums_hh_xw,
                 pums_per_xw,

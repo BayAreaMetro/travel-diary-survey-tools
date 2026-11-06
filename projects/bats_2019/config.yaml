@@ -346,6 +346,10 @@ steps:
           merge:
             children_1_plus: [children_1, children_2, children_3, children_4, children_5_plus]
 
+        # Households per target zone within each zone group, which in this case is a county
+        - name: h_target_zone
+        # - name: h_puma # Tends to be too granular and can make convergence difficult
+
         # Person level controls (gets aggregated to household level, i.e., num age group per household)
         - name: p_gender
         - name: p_employment

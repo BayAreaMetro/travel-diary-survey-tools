@@ -7,6 +7,8 @@ also validates target-driven behaviour: only requested controls are produced,
 and a missing source field raises immediately.
 """
 
+from types import SimpleNamespace
+
 import polars as pl
 import pytest
 
@@ -24,13 +26,23 @@ from processing.weighting.controls.enums import (
     RaceEthnicityCategory,
     StudentCategory,
 )
-from processing.weighting.controls.registry import CONTROLS, register_puma_control
+from processing.weighting.controls.registry import (
+    CONTROLS,
+    register_puma_control,
+    register_target_zone_control,
+)
+from processing.weighting.core.pipeline import WeightingPipeline
+from processing.weighting.core.specs import ControlRegistryConfig
 from processing.weighting.data_prep.control_data import (
+    recode_allocated_pums,
     recode_pums_households,
     recode_pums_persons,
 )
 from processing.weighting.data_prep.fractional_impute import fill_null_incidence
-from processing.weighting.data_prep.incidence import build_incidence_table
+from processing.weighting.data_prep.incidence import (
+    build_incidence_table,
+    pivot_allocated_controls,
+)
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
@@ -865,3 +877,93 @@ class TestPumaControl:
         assert seed.sort("hh_id").select(pl.sum_horizontal(puma_cols))[:, 0].to_list() == [1, 1, 0]
         with pytest.raises(ValueError, match="h_puma"):
             check_incidence_sums(seed, names, source_label="survey", tolerance=0.01)
+
+
+# ===========================================================================
+# h_target_zone: categories built at run time from the crosswalk's target zones
+# ===========================================================================
+class TestTargetZoneControl:
+    """The home target-zone target: survey from the home, PUMS from each allocated copy."""
+
+    @pytest.fixture
+    def zone_ctrl(self, _clean_registry):
+        """``h_target_zone`` for three target zones."""
+        register_target_zone_control(["001", "013", "081"])
+        return CONTROLS["h_target_zone"]
+
+    def test_one_category_per_target_zone(self, zone_ctrl):
+        """Numbered from 1 in the order given, named by the zone ID."""
+        assert zone_ctrl.valid_members == [(1, "001"), (2, "013"), (3, "081")]
+
+    def test_survey_recode(self, zone_ctrl):
+        """A home's own zone; one in no zone has no category."""
+        hh = pl.DataFrame({"study_geoid": ["013", "001", None]})
+        assert hh.select(zone_ctrl.survey_expr()).to_series().to_list() == [2, 1, None]
+
+    @pytest.mark.usefixtures("zone_ctrl")
+    def test_pums_recode_leaves_it_for_after_allocation(self, pums_households, pums_persons):
+        """Before allocation a PUMS record has no zone, so recode skips the control."""
+        result = recode_pums_households(pums_households, pums_persons, ["h_total", "h_target_zone"])
+        assert "h_target_zone" not in result.columns
+
+    @pytest.mark.usefixtures("zone_ctrl")
+    def test_each_allocated_copy_gets_its_own_zone(self):
+        """A PUMA split across two zones: one record, two copies, one column each."""
+        allocated = pl.DataFrame(
+            {"SERIALNO": ["S1", "S1"], "study_geoid": ["013", "001"], "WGTP": [90.0, 10.0]}
+        )
+        out = pivot_allocated_controls(allocated, ["h_total", "h_target_zone"])
+        assert out.select(
+            "h_target_zone__001", "h_target_zone__013", "h_target_zone__081"
+        ).rows() == [
+            (0, 1, 0),
+            (1, 0, 0),
+        ]
+        coded = recode_allocated_pums(allocated, ["h_total", "h_target_zone"])
+        assert coded["h_target_zone"].to_list() == [2, 1]
+
+    @pytest.mark.usefixtures("zone_ctrl")
+    def test_targets_per_zone_and_none_where_a_group_is_one_zone(self):
+        """Group A holds zones 001 and 013; group B is zone 081 alone, so it gets none."""
+        pipeline = object.__new__(WeightingPipeline)
+        pipeline.controls = ControlRegistryConfig.from_yaml(
+            [{"name": "h_total"}, {"name": "p_total"}, {"name": "h_target_zone"}]
+        )
+        pipeline.crosswalk = SimpleNamespace(
+            crosswalk_df=pl.DataFrame(
+                {"study_geoid": ["001", "013", "081"], "ctrl_geoid": ["A", "A", "B"]}
+            )
+        )
+        allocated = pl.DataFrame(
+            {
+                "SERIALNO": ["S1", "S1", "S2"],
+                "study_geoid": ["013", "001", "081"],
+                "ctrl_geoid": ["A", "A", "B"],
+                "WGTP": [90.0, 10.0, 50.0],
+                "h_total": [1, 1, 1],
+            }
+        )
+        pipeline.pums_incidence = pivot_allocated_controls(
+            allocated, pipeline.controls.target_names
+        )
+        pipeline.pums_person_incidence = pl.DataFrame(
+            {
+                "SERIALNO": ["S1"],
+                "SPORDER": [1],
+                "ctrl_geoid": ["A"],
+                "PWGTP": [10.0],
+                "p_total": [1],
+            }
+        )
+        pipeline.aggregate_totals()
+
+        zones = pipeline.control_totals.totals.filter(
+            (pl.col("control_name") == "h_target_zone") & (pl.col("target_total") > 0)
+        )
+        assert {
+            (r["geo_id"], r["category"]): r["target_total"] for r in zones.iter_rows(named=True)
+        } == {
+            ("A", "001"): 10.0,
+            ("A", "013"): 90.0,
+        }
+        assert zones.filter(pl.col("geo_id") == "B").is_empty()

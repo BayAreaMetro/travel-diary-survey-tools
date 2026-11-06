@@ -122,7 +122,7 @@ def merge_control_moe(
                 is_match = is_match & pl.col("geo_id").is_in(spec.zones)
 
             to_merge = df.filter(is_match)
-            if to_merge.is_empty() or len(to_merge) < 2:  # noqa: PLR2004
+            if to_merge.is_empty():  # a group of one still merges, as a rename
                 continue
 
             keep = df.filter(~is_match)
@@ -159,6 +159,10 @@ def apply_fit_merges(
     incidence tables and control totals), the fit table already
     reflects the correct merged/unmerged categories per zone.
     This function only adds labels and pads missing rows.
+
+    A category with no target and no weight in any zone is dropped first, so
+    one that zone merges replaced everywhere, such as each PUMA once PUMAs are
+    grouped by county, does not get a row of placeholders.
     """
     # Build label lookup from registry + merge specs
     lmap = category_label_map(target_names, merges)
@@ -169,6 +173,10 @@ def apply_fit_merges(
     result = fit.join(label_df, on=["control_name", "category"], how="left").with_columns(
         pl.col("label").fill_null(pl.col("control_name") + ":" + pl.col("category"))
     )
+    empty = (pl.col("target_total").fill_null(0) == 0) & (
+        pl.col("weighted_total").fill_null(0) == 0
+    )
+    result = result.filter(~empty.all().over("control_name", "category"))
 
     result = _pad_missing_rows(result)
     return result.sort("control_name", "category", "label", "geo_id")
@@ -209,8 +217,9 @@ def zone_fit_summary(
 
     for z in zones:
         zf = fit.filter(pl.col("geo_id") == z)
-        mape = zf["diff_pct"].abs().mean() or 0.0
-        abs_errs = zf["diff_pct"].abs()
+        # A row with no target has no % error; counted as 0% it would dilute these.
+        abs_errs = zf.filter(pl.col("target_total") > 0)["diff_pct"].abs()
+        mape = abs_errs.mean() or 0.0
         p90 = abs_errs.quantile(0.9, interpolation="higher") or 0.0
         max_err = abs_errs.max() or 0.0
 
@@ -372,7 +381,7 @@ def profile_summary(
         ess_pct=float(ess_pct),
         cv=cv,
         max_over_median=max_over_median,
-        mape=float(fit_table_df["diff_pct"].abs().mean() or 0.0),
+        mape=float(fit_table_df.filter(pl.col("target_total") > 0)["diff_pct"].abs().mean() or 0.0),
         zones_converged=sum(1 for s in fit.statuses if s.converged),
         zones_total=len(fit.statuses),
     )

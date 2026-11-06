@@ -45,6 +45,7 @@ from processing.weighting.diagnostics.data import (
     exclusions,
     redistribution,
     weight_cascade,
+    zone_fit_summary,
 )
 from processing.weighting.diagnostics.report import generate_report
 from processing.weighting.diagnostics.tables import (
@@ -899,6 +900,83 @@ class TestCellCountImportance:
     def test_no_importance_columns_when_none_given(self):
         """A caller with no importance gets the counts alone."""
         assert "importance" not in self._table().lower()
+
+
+class TestMapeLeavesOutRowsWithNoTarget:
+    """A zero target has no % error, so it must not count as a perfect fit."""
+
+    def test_zero_target_rows_do_not_lower_mape(self):
+        """Two targets missed by 10% and 20%, plus a row with no target: MAPE is 15%."""
+        fit = pl.DataFrame(
+            {
+                "geo_id": [ZONE] * 3,
+                "control_name": ["h_total", "h_size", "h_size"],
+                "category": ["total", "size_1", "size_2"],
+                "target_total": [100.0, 50.0, 0.0],
+                "weighted_total": [110.0, 60.0, 0.0],
+                "diff_pct": [10.0, 20.0, 0.0],
+            }
+        )
+        assert zone_fit_summary(fit, ["h_total", "h_size"])["mape"].item() == 15.0
+
+
+class TestCellCountEmptyCategories:
+    """A category zone merges replaced in every zone gets no row."""
+
+    SEED = pl.DataFrame(
+        {
+            "hh_id": [1, 2],
+            "ctrl_geoid": [ZONE, ZONE],
+            "h_total": [1.0, 1.0],
+            "h_size__size_1": [1.0, 0.0],
+            "h_size__size_2": [0.0, 0.0],
+            "h_size__size_2_plus": [0.0, 1.0],
+        }
+    )
+
+    @staticmethod
+    def _totals(size_2_target: float) -> ControlTotals:
+        return ControlTotals(
+            totals=pl.DataFrame(
+                {
+                    "geo_id": [ZONE] * 4,
+                    "control_name": ["h_total", "h_size", "h_size", "h_size"],
+                    "category": ["total", "size_1", "size_2", "size_2_plus"],
+                    "target_total": [100.0, 40.0, size_2_target, 60.0],
+                }
+            ),
+            pums_hh_count=50,
+            pums_person_count=0,
+            geo_ids=[ZONE],
+        )
+
+    def test_no_records_and_no_target_is_left_out(self):
+        """size_2 was merged into size_2_plus, so it has nothing to show."""
+        html = unweighted_cell_counts(self.SEED, ["h_total", "h_size"], self._totals(0.0))
+        assert "Size 2 Plus" in html
+        assert ">Size 2<" not in html
+
+    def test_a_target_with_no_records_is_kept(self):
+        """A group the survey missed but the PUMS has is the row worth seeing."""
+        html = unweighted_cell_counts(self.SEED, ["h_total", "h_size"], self._totals(10.0))
+        assert ">Size 2<" in html
+
+    def test_records_only_where_it_is_not_a_target_are_left_out(self):
+        """The seed keeps a zone-merged category's own column, records and all.
+
+        Where the zone merge replaced it, it is no target, so those records
+        are already counted in the merged group's row.
+        """
+        seed = self.SEED.with_columns(pl.Series("h_size__size_2", [0.0, 1.0]))
+        totals = self._totals(0.0)
+        totals = ControlTotals(
+            totals=totals.totals.filter(pl.col("category") != "size_2"),
+            pums_hh_count=50,
+            pums_person_count=0,
+            geo_ids=[ZONE],
+        )
+        html = unweighted_cell_counts(seed, ["h_total", "h_size"], totals)
+        assert ">Size 2<" not in html
 
 
 class TestGenerateReport:
