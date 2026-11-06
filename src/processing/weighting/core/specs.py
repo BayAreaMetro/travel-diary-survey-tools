@@ -233,13 +233,12 @@ class CensusConfig(BaseModel):
             "person weights) or `independent` (each level keeps its own)."
         ),
     )
-    pums_households: str | None = Field(
-        default=None,
-        description="Local PUMS household file; fetched from the Census API when not given.",
-    )
-    pums_persons: str | None = Field(
-        default=None,
-        description="Local PUMS person file; fetched from the Census API when not given.",
+    census_dir: str = Field(
+        description=(
+            "Folder of the census data the weighting reads: the official PUMS files "
+            "in `pums_<year>/`, and Census geography and block counts in "
+            "`census_<vintage>/`. A missing file is downloaded there on first use."
+        ),
     )
 
 
@@ -259,9 +258,7 @@ class DiagnosticsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    output_path: str | None = Field(
-        description="Where the HTML report is written; null for the cache directory."
-    )
+    output_path: str = Field(description="Where the HTML report is written.")
     expansion_factor_grid: list[float] | None = Field(
         description=(
             "max_expansion_factor values to re-run balancing at, charting fit "
@@ -389,15 +386,13 @@ class WeightingConfig:
     pums_year: int
     pums_weights: PumsWeights
     use_imputed_values: bool
+    census_dir: Path
     # Which usability profiles decide who carries weight, one fit each. Required:
     # with several profiles stamped there is no defensible default, and picking
     # silently would weight a different universe than the formatters emit.
     weight_profiles: tuple[str, ...] = ()
     max_unplaceable_share: float = 0.01
-    pums_households: str | None = None
-    pums_persons: str | None = None
     sample_plan: str | None = None
-    cache_dir: Path | None = None
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
     _fitted_profiles: tuple[str, ...] = field(default=(), init=False, repr=False)

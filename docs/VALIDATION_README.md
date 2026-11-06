@@ -304,8 +304,7 @@ is only known at run time, and the step checks for the column itself.
 
 The step also lists the real names, with `generated_columns`: a function in the step's own
 module that takes some of the step's settings and returns the columns per table.
-The decorator registers them on every call, before checking the cache, so
-`write_data` keeps them whether the step ran or was loaded from the cache:
+The decorator registers them on every call, so `write_data` keeps them:
 
 ```python
 def zone_columns(zone_geographies: list[dict]) -> dict[str, list[str]]:

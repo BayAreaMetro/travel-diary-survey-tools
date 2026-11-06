@@ -107,11 +107,6 @@ if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="BATS 2019 DaySim Processing Pipeline")
     parser.add_argument(
-        "--clear-cache",
-        action="store_true",
-        help="Clear the pipeline cache before running",
-    )
-    parser.add_argument(
         "--config",
         default=None,
         help="Path to the YAML config file (default: config.yaml next to this script)",
@@ -123,12 +118,9 @@ if __name__ == "__main__":
     logger.info("Starting BATS 2019 DaySim Processing Pipeline")
     logger.info("Using config: %s", config_path)
 
-    cache_dir = Path(".cache/2019")
     pipeline = Pipeline(
         config_path=config_path,
         steps=processing_steps,
-        caching=cache_dir,
-        log_file_mode="w" if args.clear_cache else "a",
     )
 
     # Save a copy of the config used into the output directory
@@ -141,11 +133,6 @@ if __name__ == "__main__":
         # rather than a path and says nothing about what this run actually read.
         saved_config.write_text(yaml.safe_dump(pipeline.config, sort_keys=False), encoding="utf-8")
         logger.info("Saved config copy to %s", saved_config)
-
-    # Clear cache if requested
-    if args.clear_cache and pipeline.cache:
-        pipeline.cache.clear()
-        logger.info("Cleared pipeline cache at %s", cache_dir)
 
     result = pipeline.run()
 

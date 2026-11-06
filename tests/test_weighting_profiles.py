@@ -9,6 +9,8 @@ to a bare column, publishes expansion factors for a universe the output is not
 describing.
 """
 
+from pathlib import Path
+
 import polars as pl
 import pytest
 
@@ -35,6 +37,7 @@ def _config(**overrides) -> WeightingConfig:
         pums_year=2023,
         pums_weights=PumsWeights.INDEPENDENT,
         use_imputed_values=True,
+        census_dir=Path("census"),
         **overrides,
     )
 
