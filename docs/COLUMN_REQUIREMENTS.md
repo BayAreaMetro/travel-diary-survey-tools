@@ -295,8 +295,8 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | Field | Type | Constraints | compute_weights |
     | --- | --- | --- | --- |
     | `hh_id` | int | ≥ 1, UNIQUE, FK → `households.hh_id` | + |
-    | `study_geoid` | str or None |  | + |
-    | `ctrl_geoid` | str or None |  | + |
+    | `target_zone_id` | str or None |  | + |
+    | `zone_group_id` | str or None |  | + |
     | `home_puma` | str or None |  | + |
     | `bg_geo_id` | str or None |  | + |
     | `base_weight_<profile>` | named by config |  | + |

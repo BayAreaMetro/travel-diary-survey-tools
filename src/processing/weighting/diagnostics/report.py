@@ -217,8 +217,8 @@ def _fit_control_table(
     if control_moe is not None:
         merged_moe = merge_control_moe(control_moe, merge_specs)
         table = table.join(
-            merged_moe.select("geo_id", "control_name", "category", "moe_pct"),
-            on=["geo_id", "control_name", "category"],
+            merged_moe.select("zone_group_id", "control_name", "category", "moe_pct"),
+            on=["zone_group_id", "control_name", "category"],
             how="left",
         )
     return table

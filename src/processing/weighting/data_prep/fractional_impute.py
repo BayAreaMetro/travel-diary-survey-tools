@@ -10,7 +10,7 @@ trained on complete PUMS data, implementing *fractional imputation*
 The max-entropy balancer accepts non-negative floats in the incidence
 matrix, so fractional entries are valid without modification.
 
-One forest per control, trained on PUMS split across the control zones by the
+One forest per control, trained on PUMS split across the zone groups by the
 crosswalk, each record counting by its PUMS weight. Its inputs are:
 
 * the record's answers to the other controls;
@@ -298,7 +298,7 @@ def _masked_copies(
     carries an equal share of the person's weight, so each person still adds up
     to their own weight. Seeded, so runs repeat.
     """
-    household = ["SERIALNO", "ctrl_geoid"]
+    household = ["SERIALNO", "zone_group_id"]
     base = pums_persons.sort(*household, "SPORDER")
     sizes = base.group_by(household, maintain_order=True).len()
     rng = np.random.default_rng(_MASK_SEED)
@@ -470,9 +470,9 @@ def _impute_controls(
 
 
 def _with_zone_columns(df: pl.DataFrame, zone_ids: list[str]) -> pl.DataFrame:
-    """Add one 0/1 ``zone__<id>`` column per zone, read off ``ctrl_geoid``."""
+    """Add one 0/1 ``zone__<id>`` column per zone, read off ``zone_group_id``."""
     return df.with_columns(
-        (pl.col("ctrl_geoid") == z).fill_null(value=False).cast(pl.Int32).alias(f"zone__{z}")
+        (pl.col("zone_group_id") == z).fill_null(value=False).cast(pl.Int32).alias(f"zone__{z}")
         for z in zone_ids
     )
 
@@ -498,14 +498,14 @@ def fill_null_incidence(
         Survey incidence bundle (may have null-induced zeros).
     pums_households : pl.DataFrame
         PUMS household incidence (complete, no nulls), trained on for the
-        household controls. Split across zones (``ctrl_geoid``), each record
+        household controls. Split across zones (``zone_group_id``), each record
         counting by its ``WGTP``.
     pums_persons : pl.DataFrame
         PUMS person pivot (complete, no nulls), trained on for the person
-        controls. Split across zones (``ctrl_geoid``), each record counting by
+        controls. Split across zones (``zone_group_id``), each record counting by
         its ``PWGTP``.
     survey_zones : pl.DataFrame
-        Each survey household's zone: the household id and ``ctrl_geoid``.
+        Each survey household's zone: the household id and ``zone_group_id``.
     targets : list[str]
         Control registry names.
     models : dict[str, TrainedModel] | None
@@ -521,14 +521,14 @@ def fill_null_incidence(
     Raises:
     -------
     ValueError
-        If the PUMS frames carry no ``ctrl_geoid``, or a survey household has
+        If the PUMS frames carry no ``zone_group_id``, or a survey household has
         no zone the PUMS covers.
     """
     for name, frame in (("pums_households", pums_households), ("pums_persons", pums_persons)):
-        if "ctrl_geoid" not in frame.columns:
-            msg = f"{name} carries no ctrl_geoid; split PUMS across zones before imputing."
+        if "zone_group_id" not in frame.columns:
+            msg = f"{name} carries no zone_group_id; split PUMS across zones before imputing."
             raise ValueError(msg)
-    zone_ids = sorted(pums_households["ctrl_geoid"].drop_nulls().unique().to_list())
+    zone_ids = sorted(pums_households["zone_group_id"].drop_nulls().unique().to_list())
     zone_cols = [f"zone__{z}" for z in zone_ids]
 
     result = survey_bundle.incidence
@@ -536,9 +536,9 @@ def fill_null_incidence(
     person_id_col = "person_id" if "person_id" in survey_bundle.person_pivot.columns else "SPORDER"
     summaries: list[ImputationSummary] = []
 
-    zones = survey_zones.select(hh_id_col, "ctrl_geoid")
+    zones = survey_zones.select(hh_id_col, "zone_group_id")
     result = result.join(zones, on=hh_id_col, how="left")
-    unzoned = result.filter(~pl.col("ctrl_geoid").is_in(zone_ids)).height
+    unzoned = result.filter(~pl.col("zone_group_id").is_in(zone_ids)).height
     if unzoned:
         msg = f"{unzoned} survey household(s) have no zone the PUMS covers, so none to impute by."
         raise ValueError(msg)
@@ -579,4 +579,4 @@ def fill_null_incidence(
         models=models,
     )
 
-    return result.drop(*zone_cols, "ctrl_geoid"), summaries
+    return result.drop(*zone_cols, "zone_group_id"), summaries

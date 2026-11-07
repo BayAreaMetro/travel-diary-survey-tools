@@ -35,7 +35,7 @@ def compute_moe_importance(
     person_df: pl.DataFrame,
     target_names: list[str],
     *,
-    geo_col: str = "ctrl_geoid",
+    geo_col: str = "zone_group_id",
 ) -> dict[str, float]:
     """Compute per-control importance weights from PUMS replicate-weight MOE.
 
@@ -47,7 +47,7 @@ def compute_moe_importance(
             and ``_xw_PWGTP1`` … ``_xw_PWGTP80`` columns (plus recoded
             controls).
         target_names: Control registry names to compute importance for.
-        geo_col: Geography column (default ``"ctrl_geoid"``).
+        geo_col: Geography column (default ``"zone_group_id"``).
 
     Returns:
         ``{control_name: importance}`` for controls where MOE could be
@@ -86,11 +86,11 @@ def compute_control_moe(
     person_df: pl.DataFrame,
     target_names: list[str],
     *,
-    geo_col: str = "ctrl_geoid",
+    geo_col: str = "zone_group_id",
 ) -> pl.DataFrame:
     """Compute per-cell MOE from PUMS replicate weights for all controls.
 
-    Returns a DataFrame with columns ``[geo_id, control_name, category,
+    Returns a DataFrame with columns ``[zone_group_id, control_name, category,
     target_total, se, moe_pct]``.  Controls with no PUMS records are
     silently skipped.
     """
@@ -106,7 +106,7 @@ def compute_control_moe(
     if not frames:
         return pl.DataFrame(
             schema={
-                "geo_id": pl.Utf8,
+                "zone_group_id": pl.Utf8,
                 "control_name": pl.Utf8,
                 "category": pl.Utf8,
                 "target_total": pl.Float64,
@@ -130,7 +130,7 @@ def _control_cell_moe(
 ) -> pl.DataFrame | None:
     """Compute per-cell SE and MOE% for one control across all zones.
 
-    Returns a DataFrame with columns ``[geo_id, control_name, category,
+    Returns a DataFrame with columns ``[zone_group_id, control_name, category,
     target_total, se, moe_pct]``, or ``None`` if no PUMS records exist.
     """
     if ctrl.level == ControlLevel.HOUSEHOLD:
@@ -174,15 +174,15 @@ def _control_cell_moe(
     se = np.sqrt((4.0 / _N_REPLICATES) * np.sum(diff**2, axis=1))
 
     # Build result DataFrame with string category names
-    geo_ids = cells[geo_col].to_list()
+    zone_group_ids = cells[geo_col].to_list()
     cat_ints = cells[ctrl.name].to_list()
     cat_names = [value_to_name.get(v, str(v)) for v in cat_ints]
     moe_pct = np.where(estimates > 0, se / estimates * 100, 0.0)
 
     return pl.DataFrame(
         {
-            "geo_id": geo_ids,
-            "control_name": [ctrl.name] * len(geo_ids),
+            "zone_group_id": zone_group_ids,
+            "control_name": [ctrl.name] * len(zone_group_ids),
             "category": cat_names,
             "target_total": estimates.tolist(),
             "se": se.tolist(),

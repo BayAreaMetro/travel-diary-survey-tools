@@ -141,7 +141,7 @@ class TestFitBars:
         """(panel, group) -> (color, whisker) from a fit table of (area, group, error %, SE %)."""
         fit = pl.DataFrame(
             {
-                "geo_id": [r[0] for r in rows],
+                "zone_group_id": [r[0] for r in rows],
                 "control_name": ["h_size"] * len(rows),
                 "category": [r[1] for r in rows],
                 "label": [r[1] for r in rows],
@@ -199,7 +199,7 @@ class TestFitBars:
         def fit(error: float) -> pl.DataFrame:
             return pl.DataFrame(
                 {
-                    "geo_id": ["A"],
+                    "zone_group_id": ["A"],
                     "control_name": ["h_size"],
                     "category": ["size_1"],
                     "label": ["size_1"],
@@ -223,7 +223,7 @@ class TestWeightDistribution:
 
     WEIGHTED = pl.DataFrame(
         {
-            "ctrl_geoid": ["1"] * 40 + ["2"] * 3,
+            "zone_group_id": ["1"] * 40 + ["2"] * 3,
             "hh_weight": [float(w) for w in range(10, 410, 10)] + [5.0, 50.0, 500.0],
         }
     )
@@ -267,8 +267,8 @@ class TestZoneTable:
     CROSSWALK = pl.DataFrame(
         {
             "puma_id": ["A", "B", "C"],
-            "study_geoid": ["001", "013", "075"],
-            "ctrl_geoid": ["East Bay", "East Bay", "San Francisco"],
+            "target_zone_id": ["001", "013", "075"],
+            "zone_group_id": ["East Bay", "East Bay", "San Francisco"],
         }
     )
     COUNTIES: ClassVar[dict[str, str]] = {
@@ -285,7 +285,7 @@ class TestZoneTable:
 
     def test_groups_counties_and_totals(self):
         """Each group lists its zones and a subtotal; outside homes get their own row."""
-        seed = pl.DataFrame({"study_geoid": ["001", "001", "013", "075", None]})
+        seed = pl.DataFrame({"target_zone_id": ["001", "001", "013", "075", None]})
         rows = self._rows(crosswalk_summary_table(self.CROSSWALK, seed, self.COUNTIES))
         assert rows == [
             ["Zone group", "Zone", "Census county", "Households"],
@@ -299,8 +299,8 @@ class TestZoneTable:
 
     def test_without_groups_there_is_no_group_column(self):
         """Zones balanced on their own need no group column or subtotals."""
-        crosswalk = self.CROSSWALK.with_columns(pl.col("study_geoid").alias("ctrl_geoid"))
-        seed = pl.DataFrame({"study_geoid": ["001", "075"]})
+        crosswalk = self.CROSSWALK.with_columns(pl.col("target_zone_id").alias("zone_group_id"))
+        seed = pl.DataFrame({"target_zone_id": ["001", "075"]})
         rows = self._rows(crosswalk_summary_table(crosswalk, seed, self.COUNTIES))
         assert rows[0] == ["Zone", "Census county", "Households"]
         assert ["001", "Alameda County", "1"] in rows
@@ -805,7 +805,7 @@ def _control_totals() -> ControlTotals:
     return ControlTotals(
         totals=pl.DataFrame(
             {
-                "geo_id": [ZONE, ZONE],
+                "zone_group_id": [ZONE, ZONE],
                 "control_name": ["h_total", "p_total"],
                 "category": ["total", "total"],
                 "target_total": [1000.0, 2500.0],
@@ -813,7 +813,7 @@ def _control_totals() -> ControlTotals:
         ),
         pums_hh_count=500,
         pums_person_count=1200,
-        geo_ids=[ZONE],
+        zone_group_ids=[ZONE],
     )
 
 
@@ -823,8 +823,8 @@ def _fit(profile: str | None, *, n_hh: int = 4) -> ProfileFit:
     seed = pl.DataFrame(
         {
             "hh_id": hh_ids,
-            "ctrl_geoid": [ZONE] * n_hh,
-            "study_geoid": [ZONE] * n_hh,
+            "zone_group_id": [ZONE] * n_hh,
+            "target_zone_id": [ZONE] * n_hh,
             "h_total": [1.0] * n_hh,
             "p_total": [2.0] * n_hh,
             "base_weight": [200.0] * n_hh,
@@ -839,7 +839,9 @@ def _fit(profile: str | None, *, n_hh: int = 4) -> ProfileFit:
         coverage=GeographyCoverage(profile=profile, n_universe=n_hh, n_placed=n_hh),
         weights=pl.DataFrame({"hh_id": hh_ids, "hh_weight": [250.0] * n_hh}),
         statuses=[
-            ZoneStatus(geo_id=ZONE, converged=True, iterations=7, delta=1e-9, max_gamma_diff=1e-9)
+            ZoneStatus(
+                zone_group_id=ZONE, converged=True, iterations=7, delta=1e-9, max_gamma_diff=1e-9
+            )
         ],
     )
 
@@ -935,7 +937,7 @@ class TestMapeLeavesOutRowsWithNoTarget:
         """Two targets missed by 10% and 20%, plus a row with no target: MAPE is 15%."""
         fit = pl.DataFrame(
             {
-                "geo_id": [ZONE] * 3,
+                "zone_group_id": [ZONE] * 3,
                 "control_name": ["h_total", "h_size", "h_size"],
                 "category": ["total", "size_1", "size_2"],
                 "target_total": [100.0, 50.0, 0.0],
@@ -952,7 +954,7 @@ class TestCellCountEmptyCategories:
     SEED = pl.DataFrame(
         {
             "hh_id": [1, 2],
-            "ctrl_geoid": [ZONE, ZONE],
+            "zone_group_id": [ZONE, ZONE],
             "h_total": [1.0, 1.0],
             "h_size__size_1": [1.0, 0.0],
             "h_size__size_2": [0.0, 0.0],
@@ -965,7 +967,7 @@ class TestCellCountEmptyCategories:
         return ControlTotals(
             totals=pl.DataFrame(
                 {
-                    "geo_id": [ZONE] * 4,
+                    "zone_group_id": [ZONE] * 4,
                     "control_name": ["h_total", "h_size", "h_size", "h_size"],
                     "category": ["total", "size_1", "size_2", "size_2_plus"],
                     "target_total": [100.0, 40.0, size_2_target, 60.0],
@@ -973,7 +975,7 @@ class TestCellCountEmptyCategories:
             ),
             pums_hh_count=50,
             pums_person_count=0,
-            geo_ids=[ZONE],
+            zone_group_ids=[ZONE],
         )
 
     def test_no_records_and_no_target_is_left_out(self):
@@ -999,7 +1001,7 @@ class TestCellCountEmptyCategories:
             totals=totals.totals.filter(pl.col("category") != "size_2"),
             pums_hh_count=50,
             pums_person_count=0,
-            geo_ids=[ZONE],
+            zone_group_ids=[ZONE],
         )
         html = unweighted_cell_counts(seed, ["h_total", "h_size"], totals)
         assert ">Size 2<" not in html

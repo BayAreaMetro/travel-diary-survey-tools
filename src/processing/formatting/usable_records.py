@@ -164,8 +164,8 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
       the run on a usable record without a weight, so a zero here means the
       weights did not come from either step: supplied some other way, or edited
       after it.
-    * **null** -- no weight was ever estimated. Either the control geography could
-      not place the household, so it belonged to no balancing zone, or no
+    * **null** -- no weight was ever estimated. Either the target zones could
+      not place the household, so it belonged to no zone group, or no
       weighting step ran at all.
 
     Neither is an error and neither is a drop: expanding to nothing is recoverable,
@@ -191,8 +191,8 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
             )
         if n_null:
             logger.warning(
-                "%d %s admitted by %s have no %s at all: either the control geography "
-                "could not place the household, so it was in no balancing zone, or no "
+                "%d %s admitted by %s have no %s at all: either the target zones "
+                "could not place the household, so it was in no zone group, or no "
                 "weighting step ran.",
                 n_null,
                 name,

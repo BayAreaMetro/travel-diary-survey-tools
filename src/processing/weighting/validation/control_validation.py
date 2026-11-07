@@ -103,7 +103,7 @@ def validate_crosstab_margins(
     Parameters
     ----------
     totals_df : pl.DataFrame
-        Combined totals from all controls (geo_id, control_name, category, target_total).
+        Combined totals from all controls (zone_group_id, control_name, category, target_total).
     ctrl_instances : list[ControlTarget]
         List of ControlTarget instances.
     specs : list[ControlSpec]
@@ -194,19 +194,21 @@ def _validate_single_margin(
     )
 
     xtab_marginals = (
-        xtab_with_dim.group_by(["geo_id", "dim_value"])
+        xtab_with_dim.group_by(["zone_group_id", "dim_value"])
         .agg(pl.col("target_total").sum().alias("xtab_marginal"))
-        .sort(["geo_id", "dim_value"])
+        .sort(["zone_group_id", "dim_value"])
     )
 
     # Join with 1D dimension totals
     dim_totals_by_geo = (
         dim_data.rename({"category": "dim_value", "target_total": "dim_total"})
-        .select(["geo_id", "dim_value", "dim_total"])
-        .sort(["geo_id", "dim_value"])
+        .select(["zone_group_id", "dim_value", "dim_total"])
+        .sort(["zone_group_id", "dim_value"])
     )
 
-    comparison = xtab_marginals.join(dim_totals_by_geo, on=["geo_id", "dim_value"], how="outer")
+    comparison = xtab_marginals.join(
+        dim_totals_by_geo, on=["zone_group_id", "dim_value"], how="outer"
+    )
 
     # Check for mismatches (allowing small floating-point tolerance)
     tolerance = 1e-2  # 0.01 tolerance for floating-point rounding
@@ -225,7 +227,7 @@ def _validate_single_margin(
         # Format error message
         mismatch_summary = mismatches.head(10).to_dicts()
         mismatch_str = "\n".join(
-            f"  Zone {r['geo_id']}, dim_value {r['dim_value']}: "
+            f"  Zone {r['zone_group_id']}, dim_value {r['dim_value']}: "
             f"xtab={r['xtab_marginal']:.2f}, 1D={r['dim_total']:.2f}, "
             f"diff={r['abs_diff']:.2f}"
             for r in mismatch_summary
@@ -256,7 +258,7 @@ def warn_crosstab_sparsity(
     seed_incidence: pl.DataFrame,
     ctrl_instances: list[ControlTarget],
     *,
-    geo_col: str = "ctrl_geoid",
+    geo_col: str = "zone_group_id",
     threshold: int = _SPARSE_CELL_THRESHOLD,
 ) -> None:
     """Log warnings for cross-tab cells with low unweighted sample counts.
@@ -271,7 +273,7 @@ def warn_crosstab_sparsity(
     Parameters
     ----------
     seed_incidence : pl.DataFrame
-        Household-level incidence matrix with ``ctrl_geoid`` and
+        Household-level incidence matrix with ``zone_group_id`` and
         binary ``{control}__{category}`` columns.
     ctrl_instances : list[ControlTarget]
         Resolved control instances (may include both 1-D and cross-tab).

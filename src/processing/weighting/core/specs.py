@@ -52,16 +52,16 @@ class ControlTotals:
     """Result of PUMS control-total aggregation.
 
     Attributes:
-        totals: Tidy frame with columns: [geo_id, control_name, category, target_total]
+        totals: Tidy frame with columns: [zone_group_id, control_name, category, target_total]
         pums_hh_count: Total PUMS housing unit records (before weighting).
         pums_person_count: Total PUMS person records.
-        geo_ids: Unique geography IDs in the totals.
+        zone_group_ids: Unique geography IDs in the totals.
     """
 
     totals: pl.DataFrame
     pums_hh_count: int
     pums_person_count: int
-    geo_ids: list[str]
+    zone_group_ids: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +504,7 @@ class SamplePlan:
     """Stratified sampling plan mapping Census block groups to segments.
 
     Each row represents a Census block group.  Block groups that share
-    the same ``sample_segment`` form one stratum, split by balancing zone
+    the same ``sample_segment`` form one stratum, split by zone group
     for initial-weight computation:
     ``base_weight = cell_households / cell_n_responses``.
 
@@ -545,7 +545,7 @@ class SamplePlan:
 class ZoneStatus(NamedTuple):
     """Per-zone convergence diagnostics."""
 
-    geo_id: str
+    zone_group_id: str
     converged: bool
     iterations: int
     delta: float
@@ -564,7 +564,7 @@ class ZoneInput(NamedTuple):
     importance: np.ndarray
     master_idx: int
     max_iterations: int
-    geo_id: str
+    zone_group_id: str
     verbose: bool = True
 
 
@@ -581,9 +581,9 @@ class ZoneResult(NamedTuple):
 
 
 class GeographyCoverage(NamedTuple):
-    """How much of one profile's universe the control geography can place.
+    """How much of one profile's universe the target zones can place.
 
-    A household the control polygons do not contain belongs to no balancing zone,
+    A household the target zones do not contain belongs to no zone group,
     so no fit can give it a weight. That is a bound on what the weighting can
     answer, not a defect in the household, and it is counted so a reader sees the
     bound rather than inferring it from nulls.
@@ -595,7 +595,7 @@ class GeographyCoverage(NamedTuple):
 
     @property
     def n_unplaceable(self) -> int:
-        """Households in the profile that the control geography cannot place."""
+        """Households in the profile that the target zones cannot place."""
         return self.n_universe - self.n_placed
 
     @property
@@ -623,7 +623,7 @@ class ProfileFit:
         pre_imputation_incidence: The same seed before null imputation, for the
             diagnostics report.
         imputation_summary: Per-control imputation metadata for this seed.
-        coverage: How much of the profile's universe had a control geography.
+        coverage: How much of the profile's universe was in a target zone.
         weights: Balancer output, keyed by ``hh_id``, carrying the *base* weight
             column name -- the suffix is applied where it is joined on.
         statuses: Per-zone convergence diagnostics.

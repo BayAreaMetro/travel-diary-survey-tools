@@ -158,7 +158,7 @@ def _recode_pums(targets=TARGETS):
 
 def _impute(survey_bundle, pums_bundle, targets=TARGETS):
     """Impute with PUMS and the survey all in one zone, as the synthetic data is."""
-    one_zone = pl.lit("z1").alias("ctrl_geoid")
+    one_zone = pl.lit("z1").alias("zone_group_id")
     return fill_null_incidence(
         survey_bundle,
         pums_bundle.incidence.with_columns(one_zone),
@@ -383,12 +383,12 @@ class TestZoneIsAnInput:
                 "p_gender__male": [1] * 100 + [0] * 100,
                 "p_gender__female": [0] * 100 + [1] * 100,
                 "PWGTP": [1.0] * 200,
-                "ctrl_geoid": ["A"] * 100 + ["B"] * 100,
+                "zone_group_id": ["A"] * 100 + ["B"] * 100,
             }
         )
         pums_households = pums_persons.rename({"PWGTP": "WGTP"}).drop("SPORDER")
         if not pums_zoned:
-            pums_persons = pums_persons.drop("ctrl_geoid")
+            pums_persons = pums_persons.drop("zone_group_id")
         unknown = {"p_total": [1, 1], "p_gender__male": [0, 0], "p_gender__female": [0, 0]}
         survey = IncidenceBundle(
             incidence=pl.DataFrame({"hh_id": [1, 2], **unknown}),
@@ -396,7 +396,7 @@ class TestZoneIsAnInput:
             household_pivot=pl.DataFrame({"hh_id": [1, 2]}),
         )
         if survey_zones is None:
-            survey_zones = pl.DataFrame({"hh_id": [1, 2], "ctrl_geoid": ["A", "B"]})
+            survey_zones = pl.DataFrame({"hh_id": [1, 2], "zone_group_id": ["A", "B"]})
         result, _ = fill_null_incidence(
             survey, pums_households, pums_persons, survey_zones, self.TARGETS
         )
@@ -412,17 +412,17 @@ class TestZoneIsAnInput:
         """They exist only while imputing; the balancer never sees them."""
         columns = self._impute().columns
         assert not [c for c in columns if c.startswith("zone__")]
-        assert "ctrl_geoid" not in columns
+        assert "zone_group_id" not in columns
 
     def test_pums_without_zones_stops(self):
         """Training region-wide by mistake would be silent, so it is refused."""
-        with pytest.raises(ValueError, match="pums_persons carries no ctrl_geoid"):
+        with pytest.raises(ValueError, match="pums_persons carries no zone_group_id"):
             self._impute(pums_zoned=False)
 
     def test_a_survey_household_outside_every_zone_stops(self):
         """All-zero zone inputs would be a zone nobody trained on."""
         with pytest.raises(ValueError, match="1 survey household"):
-            self._impute(pl.DataFrame({"hh_id": [1, 2], "ctrl_geoid": ["A", "C"]}))
+            self._impute(pl.DataFrame({"hh_id": [1, 2], "zone_group_id": ["A", "C"]}))
 
 
 class TestOtherHouseholdMembers:
@@ -473,7 +473,7 @@ class TestMaskedCopies:
             {
                 "SERIALNO": [i // 4 for i in range(n)],
                 "SPORDER": [i % 4 for i in range(n)],
-                "ctrl_geoid": ["z1"] * n,
+                "zone_group_id": ["z1"] * n,
                 "p_gender__male": [i % 2 for i in range(n)],
                 "p_gender__female": [1 - i % 2 for i in range(n)],
                 "PWGTP": [8.0] * n,
@@ -515,11 +515,11 @@ class TestTheHouseholdMovesThePrediction:
                 "p_gender__male": [1] * 200 + [0] * 200,
                 "p_gender__female": [0] * 200 + [1] * 200,
                 "PWGTP": [1.0] * 400,
-                "ctrl_geoid": ["z1"] * 400,
+                "zone_group_id": ["z1"] * 400,
             }
         )
         pums_households = (
-            pums_persons.group_by("SERIALNO", "ctrl_geoid")
+            pums_persons.group_by("SERIALNO", "zone_group_id")
             .agg(pl.col("p_total", "p_gender__male", "p_gender__female").sum())
             .with_columns(pl.lit(1.0).alias("WGTP"))
         )
@@ -543,7 +543,7 @@ class TestTheHouseholdMovesThePrediction:
             ),
             household_pivot=pl.DataFrame({"hh_id": [1, 2]}),
         )
-        zones = pl.DataFrame({"hh_id": [1, 2], "ctrl_geoid": ["z1", "z1"]})
+        zones = pl.DataFrame({"hh_id": [1, 2], "zone_group_id": ["z1", "z1"]})
 
         result, _ = fill_null_incidence(
             survey, pums_households, pums_persons, zones, ["p_total", "p_gender"]

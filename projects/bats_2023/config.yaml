@@ -339,7 +339,7 @@ steps:
         min_allocation: 0.01   # drop PUMA slivers below 1%
         # -- Zone groups (optional) ------------------------------------
         # Merge small zones for weighting.
-        # Keys are group names, values are lists of zones combined into a single balancing zone.
+        # Keys are group names, values are lists of zones combined into a single zone group.
         # Also useful for applying names to things.
         zone_groups:
           "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]
@@ -380,9 +380,9 @@ steps:
       # whole valid survey, partial and overnight tours included.
       weight_profiles: [ctramp, daysim, analysis]
 
-      # Homes outside the control geography (region_county.shp, strict
+      # Homes outside the target zones (region_county.shp, strict
       # point-in-polygon -- no snap tolerance, unlike add_zone_ids) belong to no
-      # balancing zone and can carry no fitted weight. Error above this share
+      # zone group and can carry no fitted weight. Error above this share
       # rather than returning nulls quietly. Measured 0.00% on 2019 and 2023, so
       # this is a tripwire for a misconfigured geography, not a routine dial.
       max_unplaceable_share: 0.01

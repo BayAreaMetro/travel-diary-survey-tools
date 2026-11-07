@@ -35,7 +35,7 @@ flowchart TD
 
   subgraph shared_stage ["**Shared incidence transforms**"]
     direction TD
-    G1("Zone assignment\n• assign survey HHs\n• allocate PUMAs to control zones")
+    G1("Zone assignment\n• assign survey HHs\n• allocate PUMAs to zone groups")
     G2("Create cross-tab targets")
     G3("Apply merges\ncollapse merged categories")
     G1 --> G2
