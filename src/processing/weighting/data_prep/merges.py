@@ -88,20 +88,20 @@ def merge_control_totals(
             is_match = (
                 (pl.col("control_name") == spec.control)
                 & pl.col("category").is_in(member_names)
-                & pl.col("geo_id").is_in(spec.zones)
+                & pl.col("zone_group_id").is_in(spec.zones)
             )
             to_merge = totals.filter(is_match)
             if to_merge.is_empty():  # a group of one still merges, as a rename
                 continue
             keep = totals.filter(~is_match)
             merged_rows = (
-                to_merge.group_by("geo_id")
+                to_merge.group_by("zone_group_id")
                 .agg(pl.col("target_total").sum())
                 .with_columns(
                     pl.lit(spec.control).alias("control_name"),
                     pl.lit(merged_label.lower()).alias("category"),
                 )
-                .select("geo_id", "control_name", "category", "target_total")
+                .select("zone_group_id", "control_name", "category", "target_total")
             )
             totals = pl.concat([keep, merged_rows])
             logger.debug(
@@ -116,7 +116,7 @@ def merge_control_totals(
         totals=totals,
         pums_hh_count=control_totals.pums_hh_count,
         pums_person_count=control_totals.pums_person_count,
-        geo_ids=control_totals.geo_ids,
+        zone_group_ids=control_totals.zone_group_ids,
     )
 
 

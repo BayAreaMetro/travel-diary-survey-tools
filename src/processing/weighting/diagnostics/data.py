@@ -77,11 +77,11 @@ def category_label_map(
 
 def _pad_missing_rows(result: pl.DataFrame) -> pl.DataFrame:
     """Pad missing (control_name, label) pairs for every zone."""
-    all_zones = result["geo_id"].unique()
+    all_zones = result["zone_group_id"].unique()
     all_cl = result.select("control_name", "category", "label").unique()
-    full_grid = all_cl.join(all_zones.to_frame("geo_id"), how="cross")
-    existing = result.select("geo_id", "control_name", "label").unique()
-    missing = full_grid.join(existing, on=["geo_id", "control_name", "label"], how="anti")
+    full_grid = all_cl.join(all_zones.to_frame("zone_group_id"), how="cross")
+    existing = result.select("zone_group_id", "control_name", "label").unique()
+    missing = full_grid.join(existing, on=["zone_group_id", "control_name", "label"], how="anti")
 
     if missing.is_empty():
         return result
@@ -119,7 +119,7 @@ def merge_control_moe(
                 member_names
             )
             if spec.zones is not None:
-                is_match = is_match & pl.col("geo_id").is_in(spec.zones)
+                is_match = is_match & pl.col("zone_group_id").is_in(spec.zones)
 
             to_merge = df.filter(is_match)
             if to_merge.is_empty():  # a group of one still merges, as a rename
@@ -127,7 +127,7 @@ def merge_control_moe(
 
             keep = df.filter(~is_match)
             merged_rows = (
-                to_merge.group_by("geo_id")
+                to_merge.group_by("zone_group_id")
                 .agg(
                     pl.col("target_total").sum(),
                     (pl.col("se") ** 2).sum().sqrt().alias("se"),
@@ -141,7 +141,9 @@ def merge_control_moe(
                         .otherwise(0.0)
                     ).alias("moe_pct"),
                 )
-                .select("geo_id", "control_name", "category", "target_total", "se", "moe_pct")
+                .select(
+                    "zone_group_id", "control_name", "category", "target_total", "se", "moe_pct"
+                )
             )
             df = pl.concat([keep, merged_rows])
 
@@ -179,7 +181,7 @@ def apply_fit_merges(
     result = result.filter(~empty.all().over("control_name", "category"))
 
     result = _pad_missing_rows(result)
-    return result.sort("control_name", "category", "label", "geo_id")
+    return result.sort("control_name", "category", "label", "zone_group_id")
 
 
 def _first_control_name(target_names: list[str], level: ControlLevel) -> str | None:
@@ -197,7 +199,7 @@ def zone_fit_summary(
     Population totals are derived by summing categories of one representative
     control at each level (any control's categories partition the population).
 
-    Returns columns: geo_id, hh_target, hh_weighted, hh_pct_err,
+    Returns columns: zone_group_id, hh_target, hh_weighted, hh_pct_err,
     per_target, per_weighted, per_pct_err, mape.
     """
     hh_ctrl = _first_control_name(target_names, ControlLevel.HOUSEHOLD)
@@ -212,11 +214,11 @@ def zone_fit_summary(
         pct_err = (weighted - target) / target * 100 if target else 0.0  # pyright: ignore[reportOperatorIssue]
         return target, weighted, pct_err  # pyright: ignore[reportReturnType]
 
-    zones = sorted(fit["geo_id"].unique().to_list())
+    zones = sorted(fit["zone_group_id"].unique().to_list())
     rows: list[dict] = []
 
     for z in zones:
-        zf = fit.filter(pl.col("geo_id") == z)
+        zf = fit.filter(pl.col("zone_group_id") == z)
         # A row with no target has no % error; counted as 0% it would dilute these.
         abs_errs = zf.filter(pl.col("target_total") > 0)["diff_pct"].abs()
         mape = abs_errs.mean() or 0.0
@@ -227,7 +229,7 @@ def zone_fit_summary(
         pt, pw, pe = _pop(zf, per_ctrl)
         rows.append(
             {
-                "geo_id": z,
+                "zone_group_id": z,
                 "hh_target": ht,
                 "hh_weighted": hw,
                 "hh_pct_err": he,
@@ -248,7 +250,7 @@ def compute_weighted_totals(
     weights: pl.DataFrame,
     target_names: list[str],
 ) -> pl.DataFrame:
-    """Weighted totals per (geo_id, control_name, category).
+    """Weighted totals per (zone_group_id, control_name, category).
 
     Uses uniform column handling for all controls:
     - Structural controls: unpivoted column (e.g., `h_total`)
@@ -268,12 +270,12 @@ def compute_weighted_totals(
             member = ctrl.valid_members[0][1].lower()
             if col not in sw.columns:
                 continue
-            agg = sw.group_by("ctrl_geoid").agg(
+            agg = sw.group_by("zone_group_id").agg(
                 (pl.col(col) * pl.col("hh_weight")).sum().alias("weighted_total")
             )
             rows.extend(
                 {
-                    "geo_id": r["ctrl_geoid"],
+                    "zone_group_id": r["zone_group_id"],
                     "control_name": ctrl.name,
                     "category": member,
                     "weighted_total": r["weighted_total"],
@@ -286,12 +288,12 @@ def compute_weighted_totals(
             ctrl_cols = [c for c in sw.columns if c.startswith(prefix)]
             for col in ctrl_cols:
                 member = col[len(prefix) :]
-                agg = sw.group_by("ctrl_geoid").agg(
+                agg = sw.group_by("zone_group_id").agg(
                     (pl.col(col) * pl.col("hh_weight")).sum().alias("weighted_total")
                 )
                 rows.extend(
                     {
-                        "geo_id": r["ctrl_geoid"],
+                        "zone_group_id": r["zone_group_id"],
                         "control_name": ctrl.name,
                         "category": member,
                         "weighted_total": r["weighted_total"],
@@ -309,7 +311,7 @@ def fit_table(
     """Join targets to weighted totals; add ``diff`` and ``diff_pct`` columns."""
     return (
         control_totals.totals.join(
-            weighted_totals, on=["geo_id", "control_name", "category"], how="left"
+            weighted_totals, on=["zone_group_id", "control_name", "category"], how="left"
         )
         .with_columns(pl.col("weighted_total").fill_null(0))
         .with_columns((pl.col("weighted_total") - pl.col("target_total")).alias("diff"))

@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 # because zone assignment, balancing and diagnostics all read it, then moves to
 # its own table before the tables are handed back. Profile-independent: where a
 # household is does not depend on which universe was fitted.
-_GEOGRAPHY_COLUMNS = ("study_geoid", "ctrl_geoid", "home_puma", "bg_geo_id")
+_GEOGRAPHY_COLUMNS = ("target_zone_id", "zone_group_id", "home_puma", "bg_geo_id")
 
 
 def _split_weighting_columns(
@@ -167,8 +167,8 @@ def weight_columns(weight_profiles: list[str]) -> dict[str, dict]:
         "joint_tours": {"joint_tour_weight_<profile>"},
         "household_weights": {
             "hh_id",
-            "study_geoid",
-            "ctrl_geoid",
+            "target_zone_id",
+            "zone_group_id",
             "home_puma",
             "bg_geo_id",
             "base_weight_<profile>",
@@ -217,7 +217,7 @@ def compute_weights(  # noqa: PLR0913
         weight_profiles: Usability profiles to weight, one fit each; a single
             profile is a list of one.
         max_unplaceable_share: The most of the survey whose homes may fall
-            outside the control geography before the step raises.
+            outside the target zones before the step raises.
         sample_plan: Path to the sample plan for base weights; null for none.
         use_imputed_values: Fit to the imputation step's values. When false,
             weighting reads each ``<column>_preimputed`` instead and fills the

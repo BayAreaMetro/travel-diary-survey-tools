@@ -198,8 +198,8 @@ class HHTargetZoneControl(ControlTarget):
     name = "h_target_zone"
     level = ControlLevel.HOUSEHOLD
     description = "Home target zone"
-    survey_fields = ("study_geoid",)
-    pums_fields = ()  # allocation adds study_geoid; nothing is fetched for it
+    survey_fields = ("target_zone_id",)
+    pums_fields = ()  # allocation adds target_zone_id; nothing is fetched for it
     imputable = False
     pums_after_allocation = True
 
@@ -209,12 +209,12 @@ class HHTargetZoneControl(ControlTarget):
         self.categories = IntEnum("HHTargetZoneCategory", dict(self._codes))
 
     def survey_expr(self) -> pl.Expr:
-        return pl.col("study_geoid").replace_strict(
+        return pl.col("target_zone_id").replace_strict(
             self._codes, default=None, return_dtype=pl.Int16
         )
 
     def pums_expr(self) -> pl.Expr:
-        return pl.col("study_geoid").replace_strict(
+        return pl.col("target_zone_id").replace_strict(
             self._codes, default=None, return_dtype=pl.Int16
         )
 

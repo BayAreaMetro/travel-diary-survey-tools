@@ -24,8 +24,8 @@ controls:
 ## Merging in some zones only
 
 `zone_merges` joins categories in the zones it names and leaves the others as they
-are. Each key is a balancing zone: a zone group's name, or a zone ID where the zone
-is in no group. A zone merge can join groups the global `merge` already made:
+are. Each key is a zone group: a group's name from `zone_groups`, or the ID of a
+target zone in no group. A zone merge can join groups the global `merge` already made:
 
 ```yaml
 controls:
@@ -59,9 +59,9 @@ that merges replace in every zone is left out of the report's tables.
 ## Households per target zone
 
 `h_target_zone` targets the households in each target zone, the polygons of
-`geography.target_zones`, within each balancing zone. Where `zone_groups` joins
+`geography.target_zones`, within each zone group. Where `zone_groups` joins
 target zones to balance them together, it keeps each one's household total right
-without a balancing zone of its own. Where target zones are counties, these are the
+without a zone group of its own. Where target zones are counties, these are the
 county totals.
 
 - Like `h_puma`, it is not in the table below: its categories are the target zone
@@ -69,7 +69,7 @@ county totals.
 - A survey home's zone is the one its point falls in. A PUMS record's zone comes
   from the crosswalk, which copies each record into every zone its PUMA reaches,
   so each copy counts in its own zone.
-- In a balancing zone made of one target zone it has no target: there it would be
+- In a zone group made of one target zone it has no target: there it would be
   the zone's household total, already `h_total`.
 - It is never imputed: a household in no zone stops the run.
 
