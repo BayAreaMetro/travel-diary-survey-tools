@@ -17,7 +17,7 @@ def _seed(size_1: list[int], males: list[int]) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "hh_id": list(range(n)),
-            "ctrl_geoid": ["A"] * n,
+            "zone_group_id": ["A"] * n,
             "h_total": [1] * n,
             "p_total": [2] * n,
             "h_size__size_1": size_1,
@@ -43,7 +43,7 @@ def totals() -> ControlTotals:
     return ControlTotals(
         totals=pl.DataFrame(
             {
-                "geo_id": ["A"] * len(rows),
+                "zone_group_id": ["A"] * len(rows),
                 "control_name": [r[0] for r in rows],
                 "category": [r[1] for r in rows],
                 "target_total": [r[2] for r in rows],
@@ -51,7 +51,7 @@ def totals() -> ControlTotals:
         ),
         pums_hh_count=0,
         pums_person_count=0,
-        geo_ids=["A"],
+        zone_group_ids=["A"],
     )
 
 

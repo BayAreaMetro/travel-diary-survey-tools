@@ -11,10 +11,10 @@ Orchestrates the full weighting pipeline via
     expressions → same control-column schema.
 4.  **Incidence pivot** — unified pivoter produces identical
     ``{ctrl}__{member}`` column layout for both datasets.
-5.  **Zone assignment** — crosswalk assigns ``study_geoid`` and
-    ``ctrl_geoid`` to survey HHs (point-in-polygon) and allocates PUMS
+5.  **Zone assignment** — crosswalk assigns ``target_zone_id`` and
+    ``zone_group_id`` to survey HHs (point-in-polygon) and allocates PUMS
     weights to target zones.  Zone groups (if configured) are applied
-    inside the crosswalk so ``ctrl_geoid`` is ready for balancing.
+    inside the crosswalk so ``zone_group_id`` is ready for balancing.
 6.  **1-D merges** — global merges collapse incidence columns symmetrically
     on both tables (originals dropped).  Zone-specific merges add merged
     columns (originals kept) and modify control totals for the specified
@@ -28,10 +28,10 @@ Orchestrates the full weighting pipeline via
   vendored in ``balancing/_np_balancer.py``: a pure ``@njit`` function taking
   numpy arrays, so PopulationSim itself is not a dependency.
 * **Geography columns** — three distinct levels: ``PUMA`` (raw Census
-  PUMA), ``study_geoid`` (crosswalk target zones from the user's polygon
-  file), and ``ctrl_geoid`` (balancing geography, equal to ``study_geoid``
+  PUMA), ``target_zone_id`` (crosswalk target zones from the user's polygon
+  file), and ``zone_group_id`` (zone group, equal to ``target_zone_id``
   unless zone groups are configured).  Downstream balancing always uses
-  ``ctrl_geoid``; diagnostics/maps use ``study_geoid`` for spatial detail.
+  ``zone_group_id``; diagnostics/maps use ``target_zone_id`` for spatial detail.
 * **Symmetric incidence** — both the survey sample and the PUMS universe are
   first recoded and pivoted into incidence tables with identical column
   layouts.  Geography, merges, and crosstabs are applied *after* incidence
@@ -45,7 +45,7 @@ Orchestrates the full weighting pipeline via
     min Σᵢ wᵢ ln(wᵢ / w₀ᵢ)   s.t.  A w = t,  wᵢ ≥ 0
 
     where **A** is the incidence matrix and **t** is the target totals vector.
-    Runs independently per control geography zone (zones are parallelisable).
+    Runs independently per zone group (zone groups are parallelisable).
 """
 
 import logging
@@ -260,7 +260,7 @@ class WeightingPipeline:
             else None
         )
         register_target_zone_control(
-            sorted(self.crosswalk.crosswalk_df["study_geoid"].unique().to_list())
+            sorted(self.crosswalk.crosswalk_df["target_zone_id"].unique().to_list())
             if HHTargetZoneControl.name in self.controls.target_names
             else None
         )
@@ -378,7 +378,7 @@ class WeightingPipeline:
         seed only exists once a profile has been named.
         """
         hh = self.crosswalk.assign_households(self.data.households)  # pyright: ignore[reportArgumentType]
-        n_assigned = hh.filter(pl.col("study_geoid").is_not_null()).height
+        n_assigned = hh.filter(pl.col("target_zone_id").is_not_null()).height
         logger.info("Assigned %d / %d HHs to target zones", n_assigned, len(hh))
 
         if self.config.sample_plan is not None:
@@ -427,7 +427,7 @@ class WeightingPipeline:
             self.pums_incidence,
             self.pums_person_incidence,
             names,
-            geo_col="ctrl_geoid",
+            geo_col="zone_group_id",
         )
         if self.controls.merges_1d:
             self.control_totals = merge_control_totals(
@@ -440,7 +440,7 @@ class WeightingPipeline:
             )
         logger.info(
             "Control totals: %d zones, %d PUMS HHs, %d PUMS persons",
-            len(self.control_totals.geo_ids),
+            len(self.control_totals.zone_group_ids),
             self.control_totals.pums_hh_count,
             self.control_totals.pums_person_count,
         )
@@ -524,7 +524,7 @@ class WeightingPipeline:
 
         # Geography is a property of the household, but how much of a universe it
         # covers is a property of this seed, so it is counted per profile.
-        geo_names = ("study_geoid", "ctrl_geoid", "bg_geo_id")
+        geo_names = ("target_zone_id", "zone_group_id", "bg_geo_id")
         geo_cols = [c for c in geo_names if c in households.columns]
         geo = households.filter(pl.col("hh_id").is_in(admitted)).select("hh_id", *geo_cols)
         coverage = check_control_geography_coverage(
@@ -537,7 +537,7 @@ class WeightingPipeline:
             # weight it -- it only inflates the response count its sample segment
             # divides by. Dropped before imputation, which needs each household's zone
             # and never fills h_puma.
-            placed = geo.filter(pl.col("ctrl_geoid").is_not_null())["hh_id"]
+            placed = geo.filter(pl.col("zone_group_id").is_not_null())["hh_id"]
             bundle = bundle.filter_households(placed)
 
         # Null imputation -- RF-predicted fractional probabilities. Survey
@@ -550,7 +550,7 @@ class WeightingPipeline:
             self.crosswalk.allocate_pums_incidence(
                 self.pums_bundle.person_pivot, weight_col="PWGTP"
             ),
-            geo.select("hh_id", "ctrl_geoid"),
+            geo.select("hh_id", "zone_group_id"),
             names,
             models=self.rf_models,
         )
@@ -598,7 +598,7 @@ class WeightingPipeline:
             fit.seed_incidence,
             self.control_totals,
             names,
-            geo_col="ctrl_geoid",
+            geo_col="zone_group_id",
             sample_plan=self.config.sample_plan,
             block_households=self.grown_block_households() if self.config.sample_plan else None,
         )

@@ -106,7 +106,7 @@ def households() -> pl.DataFrame:
         {
             "hh_id": [1, 2, 3, 4],
             "income_bin": [1, 5, 3, 2],  # UNDER25, 100TO200, 50TO75, 25TO50
-            "ctrl_geoid": ["Z1", "Z1", "Z2", "Z2"],
+            "zone_group_id": ["Z1", "Z1", "Z2", "Z2"],
         }
     )
 
@@ -413,12 +413,12 @@ class TestCrosstabAggregation:
             pl.lit(1.0).alias("WGTP"),
             pl.col("hh_id").cast(pl.Utf8).alias("SERIALNO"),
         ).join(
-            households.select("hh_id", "ctrl_geoid"),
+            households.select("hh_id", "zone_group_id"),
             on="hh_id",
             how="left",
         )
 
-        totals = aggregate_control_totals(pums_inc, _NO_PERSONS, targets, geo_col="ctrl_geoid")
+        totals = aggregate_control_totals(pums_inc, _NO_PERSONS, targets, geo_col="zone_group_id")
         xtab_rows = totals.totals.filter(pl.col("control_name") == "h_size_x_income")
         assert len(xtab_rows) > 0
 
@@ -441,7 +441,7 @@ class TestCrosstabSparsity:
             for m in ctrl.categories
             if m.name not in ("MISSING", "PNTA")
         ]
-        data: dict[str, list] = {"ctrl_geoid": ["Z1"] * 50}
+        data: dict[str, list] = {"zone_group_id": ["Z1"] * 50}
         for col in cols:
             data[col] = [1] * 50  # 50 records per cell
         seed = pl.DataFrame(data)
@@ -457,7 +457,7 @@ class TestCrosstabSparsity:
         members = [m for m in ctrl.categories if m.name not in ("MISSING", "PNTA")]
         cols = [f"{prefix}{m.name.lower()}" for m in members]
 
-        data: dict[str, list] = {"ctrl_geoid": ["Z1"] * 5}
+        data: dict[str, list] = {"zone_group_id": ["Z1"] * 5}
         for i, col in enumerate(cols):
             # First cell has only 5 records (sparse), rest have 0
             data[col] = [1 if i == 0 else 0] * 5
@@ -472,7 +472,7 @@ class TestCrosstabSparsity:
         """1-D controls are not checked by warn_crosstab_sparsity."""
         ctrl = CONTROLS["h_size"]
         data: dict[str, list] = {
-            "ctrl_geoid": ["Z1"],
+            "zone_group_id": ["Z1"],
             "h_size__size_1": [1],
         }
         seed = pl.DataFrame(data)
@@ -513,7 +513,7 @@ class TestAggregateControlTotals:
     @staticmethod
     def _by_zone(totals: ControlTotals, control: str) -> dict[str, float]:
         rows = totals.totals.filter(pl.col("control_name") == control)
-        return dict(rows.group_by("geo_id").agg(pl.col("target_total").sum()).iter_rows())
+        return dict(rows.group_by("zone_group_id").agg(pl.col("target_total").sum()).iter_rows())
 
     @pytest.mark.parametrize("control", ["h_total", "h_size"])
     def test_household_targets_sum_household_weights(self, totals, control):
@@ -625,7 +625,7 @@ class TestZoneMergeTargets:
         pipeline.pums_incidence = pl.DataFrame(
             {
                 "SERIALNO": ["1", "2", "3", "4"],
-                "ctrl_geoid": ["A", "A", "B", "B"],
+                "zone_group_id": ["A", "A", "B", "B"],
                 "WGTP": [10.0, 20.0, 30.0, 40.0],
                 "h_total": [1, 1, 1, 1],
                 "h_workers__workers_0": [1, 0, 1, 0],
@@ -637,7 +637,7 @@ class TestZoneMergeTargets:
             {
                 "SERIALNO": ["1"],
                 "SPORDER": [1],
-                "ctrl_geoid": ["A"],
+                "zone_group_id": ["A"],
                 "PWGTP": [10.0],
                 "p_total": [1],
             }
@@ -648,7 +648,8 @@ class TestZoneMergeTargets:
 
         workers = pipeline.control_totals.totals.filter(pl.col("control_name") == "h_workers")
         got = {
-            (r["geo_id"], r["category"]): r["target_total"] for r in workers.iter_rows(named=True)
+            (r["zone_group_id"], r["category"]): r["target_total"]
+            for r in workers.iter_rows(named=True)
         }
         assert workers.height == len(got)
         assert {k: v for k, v in got.items() if v} == {
@@ -662,14 +663,14 @@ class TestZoneMergeTargets:
 
     def test_a_group_of_one_renames_its_category(self):
         """A one-member group, such as a county of one PUMA, is a target under its own name."""
-        incidence = pl.DataFrame({"ctrl_geoid": ["A"], "h_puma__puma_05500": [1.0]})
+        incidence = pl.DataFrame({"zone_group_id": ["A"], "h_puma__puma_05500": [1.0]})
         spec = MergeSpec(control="h_puma", groups={"napa": ["puma_05500"]}, zones=["A"])
         assert "h_puma__napa" in apply_1d_merges(incidence, [spec]).columns
 
         totals = ControlTotals(
             totals=pl.DataFrame(
                 {
-                    "geo_id": ["A"],
+                    "zone_group_id": ["A"],
                     "control_name": ["h_puma"],
                     "category": ["puma_05500"],
                     "target_total": [51167.0],
@@ -677,7 +678,7 @@ class TestZoneMergeTargets:
             ),
             pums_hh_count=1,
             pums_person_count=0,
-            geo_ids=["A"],
+            zone_group_ids=["A"],
         )
         merged = merge_control_totals(totals, [spec]).totals
         assert merged["category"].to_list() == ["napa"]
@@ -783,7 +784,7 @@ def _make_fit(zones: list[str], categories: list[str], control: str = "h_size") 
             w = t + 1.0  # small diff
             rows.append(
                 {
-                    "geo_id": z,
+                    "zone_group_id": z,
                     "control_name": control,
                     "category": cat,
                     "target_total": t,
@@ -846,19 +847,21 @@ class TestApplyFitMergesZoneAware:
         result = apply_fit_merges(fit, [global_merge, zone_merge], ["h_size"])
 
         # Z1 should have the merged label
-        z1 = result.filter((pl.col("geo_id") == "Z1") & pl.col("target_total").is_not_null())
+        z1 = result.filter((pl.col("zone_group_id") == "Z1") & pl.col("target_total").is_not_null())
         z1_labels = z1["label"].to_list()
         assert "Size 4 Plus" in z1_labels
         assert "Size 3" in z1_labels
 
         # Z2 should have the original labels
-        z2 = result.filter((pl.col("geo_id") == "Z2") & pl.col("target_total").is_not_null())
+        z2 = result.filter((pl.col("zone_group_id") == "Z2") & pl.col("target_total").is_not_null())
         z2_labels = z2["label"].to_list()
         assert "Size 4" in z2_labels
         assert "Size 5 Plus" in z2_labels
 
         # and the merged row keeps the target total the upstream merge gave it
-        z1_merged = result.filter((pl.col("geo_id") == "Z1") & (pl.col("label") == "Size 4 Plus"))
+        z1_merged = result.filter(
+            (pl.col("zone_group_id") == "Z1") & (pl.col("label") == "Size 4 Plus")
+        )
         assert z1_merged.height == 1
         assert z1_merged["target_total"].item() is not None
 
@@ -883,7 +886,9 @@ class TestApplyFitMergesZoneAware:
 
         all_labels = result["label"].unique().sort().to_list()
         for z in ["Z1", "Z2"]:
-            zone_labels = result.filter(pl.col("geo_id") == z)["label"].unique().sort().to_list()
+            zone_labels = (
+                result.filter(pl.col("zone_group_id") == z)["label"].unique().sort().to_list()
+            )
             assert zone_labels == all_labels, f"Zone {z} missing some labels"
 
 
@@ -895,7 +900,7 @@ class TestApplyFitMergesEmptyCategories:
         return pl.DataFrame(
             [
                 {
-                    "geo_id": z,
+                    "zone_group_id": z,
                     "control_name": "h_size",
                     "category": c,
                     "target_total": t,

@@ -46,7 +46,7 @@ def weight_sanity_checks(
     specs: list[ControlSpec],
     usability_flag_col: str,
     *,
-    geo_col: str = "ctrl_geoid",
+    geo_col: str = "zone_group_id",
     profile: str | None = None,
 ) -> None:
     """Run weight sanity checks: log the fit to the controls, raise on a broken identity.
@@ -286,9 +286,9 @@ def _compare_and_log(
     survey_by_zone = df.group_by(geo_col).agg(agg_exprs)
 
     target_by_zone = (
-        target_df.group_by("geo_id")
+        target_df.group_by("zone_group_id")
         .agg(pl.col("target_total").sum().alias("target_total"))
-        .rename({"geo_id": geo_col})
+        .rename({"zone_group_id": geo_col})
     )
 
     comp = survey_by_zone.join(target_by_zone, on=geo_col, how="left").with_columns(

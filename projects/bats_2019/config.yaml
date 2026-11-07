@@ -249,7 +249,7 @@ steps:
       # different universe than the formatters emit.
       weight_profiles: [ctramp, analysis]
 
-      # Homes outside the control geography belong to no balancing zone and can
+      # Homes outside the target zones belong to no zone group and can
       # carry no fitted weight. Error above this share rather than returning
       # nulls quietly. A tripwire for a misconfigured geography.
       max_unplaceable_share: 0.01
@@ -272,7 +272,7 @@ steps:
         min_allocation: 0.01   # drop PUMA slivers below 1%
         # -- Zone groups (optional) ------------------------------------
         # Merge small zones for weighting.
-        # Keys are group names, values are lists of zones combined into a single balancing zone.
+        # Keys are group names, values are lists of zones combined into a single zone group.
         # Also useful for applying names to things.
         zone_groups:
           "Marin/Napa/Solano/Sonoma": ["041", "097", "095", "055"]

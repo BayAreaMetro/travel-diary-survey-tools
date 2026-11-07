@@ -40,7 +40,12 @@ def survey_share_table(
     Groups with no target are left out.
     """
     totals = control_totals.totals.filter(pl.col("target_total") > 0).rename(
-        {"geo_id": "area", "control_name": "target", "category": "group", "target_total": "pums"}
+        {
+            "zone_group_id": "area",
+            "control_name": "target",
+            "category": "group",
+            "target_total": "pums",
+        }
     )
     is_total = pl.col("target").is_in(list(_AREA_TOTALS.values()))
     level_total = {t: _AREA_TOTALS[CONTROLS[t].level] for t in totals["target"].unique()}
@@ -60,7 +65,7 @@ def survey_share_table(
     for seed in seeds.values():
         present = [c for c in columns if c in seed.columns]
         survey = (
-            seed.group_by(pl.col("ctrl_geoid").alias("area"))
+            seed.group_by(pl.col("zone_group_id").alias("area"))
             .agg(pl.col(c).cast(pl.Float64).sum() for c in present)
             .unpivot(index="area", variable_name="column", value_name="survey")
             .with_columns(
