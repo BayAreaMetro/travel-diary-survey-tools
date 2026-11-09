@@ -15,6 +15,7 @@ import pytest
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.codebook.trips import PurposeCategory
 from processing.completeness import (
+    NO_ZONE_COVERAGE,
     HouseholdDayNeeds,
     JointTours,
     TourClosesAt,
@@ -22,22 +23,27 @@ from processing.completeness import (
     cascade_complete,
     stamp_usable,
 )
-from processing.completeness.kept_records import keep_records, select_profile_columns
+from processing.completeness.profiles import ALL_DAYS
+from processing.formatting.kept_records import keep_records, select_profile_columns
 from processing.joint_trips.aggregation import build_joint_trips_table
 from processing.tours.joint_tour_helpers import build_joint_tours_table
-from tests.fixtures.schema_utils import add_household_days
+from tests.fixtures.schema_utils import add_missing_tables
 
 STRICT = UsabilityProfile(
     "strict",
     TourClosesAt.PRIMARY_HOME,
     HouseholdDayNeeds.ALL_MEMBERS,
     joint_tours=JointTours.FULLY_JOINT,
+    zone_coverage=NO_ZONE_COVERAGE,
+    travel_days=ALL_DAYS,
 )
 LOOSE = UsabilityProfile(
     "loose",
     TourClosesAt.PRIMARY_HOME,
     HouseholdDayNeeds.ALL_MEMBERS,
     joint_tours=JointTours.PARTIAL,
+    zone_coverage=NO_ZONE_COVERAGE,
+    travel_days=ALL_DAYS,
 )
 
 SHOP = PurposeCategory.SHOP.value
@@ -105,19 +111,20 @@ def _household(
         "joint_trips": pl.DataFrame(
             {
                 "joint_trip_id": joint_trip_ids,
+                "hh_id": [1] * len(joint_trip_ids),
                 "person_day_id": [1] * len(joint_trip_ids),
                 "survey_complete": [True] * len(joint_trip_ids),
             }
         ),
         "joint_tours": pl.DataFrame(
-            {"joint_tour_id": [100], "person_day_id": [1], "survey_complete": [True]}
+            {"joint_tour_id": [100], "hh_id": [1], "person_day_id": [1], "survey_complete": [True]}
         ),
     }
 
 
 def _stamp(profile: UsabilityProfile, tables: dict) -> dict[str, pl.DataFrame]:
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(add_household_days(working))
+    cascade_complete(add_missing_tables(working))
     stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
 
@@ -266,8 +273,28 @@ class TestPartial:
             .otherwise(pl.col("tour_data_quality"))
             .alias("tour_data_quality")
         )
-        out = _stamp(UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, "nothing"), tables)
-        on = _on_tour(out, UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, "nothing"))
+        out = _stamp(
+            UsabilityProfile(
+                "loose_days",
+                TourClosesAt.PRIMARY_HOME,
+                "nothing",
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
+            tables,
+        )
+        on = _on_tour(
+            out,
+            UsabilityProfile(
+                "loose_days",
+                TourClosesAt.PRIMARY_HOME,
+                "nothing",
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
+        )
         assert on == {1: True, 2: True, 3: False}
 
 
@@ -278,7 +305,7 @@ class TestTheColumnIsPerProfile:
         """Strict drops person 3; partial keeps them; the id itself never moves."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
         working: dict[str, pl.DataFrame | None] = dict(tables)
-        cascade_complete(add_household_days(working))
+        cascade_complete(add_missing_tables(working))
         stamp_usable(working, STRICT)
         stamp_usable(working, LOOSE)
         tours = working["tours"]
@@ -301,7 +328,14 @@ class TestAGroupOfOneDissolves:
             .otherwise(pl.col("tour_data_quality"))
             .alias("tour_data_quality")
         )
-        loose = UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, "nothing")
+        loose = UsabilityProfile(
+            "loose_days",
+            TourClosesAt.PRIMARY_HOME,
+            "nothing",
+            zone_coverage=NO_ZONE_COVERAGE,
+            joint_tours=JointTours.PARTIAL,
+            travel_days=ALL_DAYS,
+        )
         out = _stamp(loose, tables)
         assert out["tours"][loose.joint_tour_id].to_list() == [None, None]
         assert out["linked_trips"][loose.joint_trip_id].to_list() == [None, None]

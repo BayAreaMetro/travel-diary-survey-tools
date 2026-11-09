@@ -11,7 +11,7 @@ the output. Filtering on the same verdict the weighting used, and checking that
 the records kept carry every weight that came in, makes the two agree.
 
 Which records survive is decided by
-[`keep_records`][processing.completeness.kept_records.keep_records], which lives
+[`keep_records`][processing.formatting.kept_records.keep_records], which lives
 beside the cascade so the weighting can read the same answer.
 
 Weights and joint ids are read for the profile this consumer names, so its
@@ -28,9 +28,8 @@ import polars as pl
 
 from data_canon.codebook.tours import TourDataQuality
 from processing.completeness import usable_col_for
-from processing.completeness.kept_records import (
+from processing.formatting.kept_records import (
     GATED_TABLES,
-    KeepLedger,
     keep_records,
     select_profile_columns,
 )
@@ -66,7 +65,7 @@ _MAX_NAMED = 10
 
 
 def _log_ledger(
-    ledger: KeepLedger,
+    excluded: dict[str, int],
     kept: dict[str, pl.DataFrame],
     usability_flag_col: str,
 ) -> None:
@@ -78,10 +77,8 @@ def _log_ledger(
         f"Records kept for the model, gated on {usability_flag_col}:",
         "",
         f"  {'table':<16}{'not ' + usability_flag_col:>22}{'kept':>12}",
+        *(f"  {name:<16}{-excluded.get(name, 0):>22,}{kept[name].height:>12,}" for name in rows),
     ]
-    for name in rows:
-        excluded = ledger.excluded.get(name, 0)
-        lines.append(f"  {name:<16}{-excluded:>22,}{kept[name].height:>12,}")
     logger.info("\n".join(lines))
 
 
@@ -108,9 +105,9 @@ def keep_usable(
     tables = select_profile_columns(tables, usability_profile)
     usability_flag_col = usable_col_for(usability_profile)
 
-    kept, ledger = keep_records(tables, usability_flag_col)
+    kept, excluded = keep_records(tables, usability_flag_col)
     _check_totals_kept(tables, kept, usability_flag_col)
-    _log_ledger(ledger, kept, usability_flag_col)
+    _log_ledger(excluded, kept, usability_flag_col)
     _log_exclusion_summary(tables.get("tours"), tables.get("linked_trips"), usability_flag_col)
     _warn_zero_weight(kept, usability_flag_col)
     return kept

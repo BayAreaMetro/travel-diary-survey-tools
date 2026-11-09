@@ -31,20 +31,34 @@ from processing.completeness import (
     cascade_complete,
     parse_usability_profiles,
     stamp_usable,
-    suggest_usability_columns,
 )
-from processing.completeness.usable_tours import _flag_tours
-from tests.fixtures.schema_utils import add_household_days
+from processing.completeness.profiles import ALL_DAYS
+from processing.formatting.kept_records import suggest_usability_columns
+from tests.fixtures.schema_utils import add_missing_tables
 
-STRICT = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
-WIDEST = UsabilityProfile("widest", TourClosesAt.ANYWHERE, HouseholdDayNeeds.NOTHING)
+STRICT = UsabilityProfile(
+    "test",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
+WIDEST = UsabilityProfile(
+    "widest",
+    TourClosesAt.ANYWHERE,
+    HouseholdDayNeeds.NOTHING,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
 
 DATE = datetime(2023, 5, 1)
 
 
 def _stamp(tables: dict, profile: UsabilityProfile = STRICT) -> dict[str, pl.DataFrame]:
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(add_household_days(working))
+    cascade_complete(add_missing_tables(working))
     stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
 
@@ -108,7 +122,7 @@ class TestAVerdictIsAlwaysABoolean:
 
     def test_no_table_carries_a_null_verdict(self):
         """The property itself, over every table the cascade touches."""
-        tables = _one_person(tour_data_quality=[None], tour_category=[None])
+        tables = _one_person(tour_data_quality=[None], tour_category=[None], joint_tour_id=[1])
         tables["linked_trips"] = pl.DataFrame(
             {
                 "linked_trip_id": [100],
@@ -118,7 +132,7 @@ class TestAVerdictIsAlwaysABoolean:
             }
         )
         tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1], "person_day_id": [1], "survey_complete": [None]}
+            {"joint_tour_id": [1], "hh_id": [1], "person_day_id": [1], "survey_complete": [None]}
         )
 
         stamped = _stamp(tables)
@@ -129,44 +143,6 @@ class TestAVerdictIsAlwaysABoolean:
             if "usable_test" in df.columns
         }
         assert nulls == dict.fromkeys(nulls, 0)
-
-
-class TestDescriptorsThatAreNotThere:
-    """A frame may predate tour extraction and carry neither descriptor.
-
-    Each term is skipped rather than assumed, so the verdict falls back to
-    ``survey_complete`` alone. That is the honest answer -- the cascade cannot judge a
-    structure it was given no column for -- but it is *looser*, so the absence
-    must never be silent at the point a consumer reads the result. That guard
-    lives in the formatters; here we only pin what the cascade does.
-    """
-
-    def test_without_quality_the_quality_term_is_skipped(self):
-        """No column means no judgement to make, not a judgement of False."""
-        tables = _one_person()
-        tables["tours"] = tables["tours"].drop("tour_data_quality")
-
-        stamped = _stamp(tables)
-
-        assert stamped["tours"]["usable_test"].to_list() == [True]
-
-    def test_without_either_descriptor_the_verdict_is_complete_alone(self):
-        """With both terms gone, the floor is all that is left -- and it still bites."""
-        tables = _one_person(survey_complete=[False])
-        tables["tours"] = tables["tours"].drop("tour_data_quality", "tour_category")
-
-        stamped = _stamp(tables)
-
-        assert stamped["tours"]["usable_test"].to_list() == [False]
-
-    def test_a_bad_quality_still_bites_without_the_category_column(self):
-        """The terms are independent: losing one does not disarm the other."""
-        tables = _one_person(tour_data_quality=[TourDataQuality.SPATIAL_GAP.value])
-        tables["tours"] = tables["tours"].drop("tour_category")
-
-        stamped = _stamp(tables)
-
-        assert stamped["tours"]["usable_test"].to_list() == [False]
 
 
 class TestTheCategoryTermOnlyAppliesAtPrimaryHome:
@@ -364,6 +340,8 @@ class TestTravelDays:
         TourClosesAt.PRIMARY_HOME,
         HouseholdDayNeeds.ALL_MEMBERS,
         travel_days=(TravelDow.TUESDAY, TravelDow.WEDNESDAY, TravelDow.THURSDAY),
+        zone_coverage=NO_ZONE_COVERAGE,
+        joint_tours=JointTours.PARTIAL,
     )
 
     def _days_on(self, dows: list[int | None]) -> dict:
@@ -461,19 +439,18 @@ class TestTravelDays:
 
         assert stamped["person_days"]["usable_test"].to_list() == [True]
 
-    def test_a_limit_without_travel_dow_raises(self):
-        """A limit with nothing to read must stop, not pass every day."""
-        tables = self._days_on([TravelDow.TUESDAY.value])
-        tables["person_days"] = tables["person_days"].drop("travel_dow")
-
-        with pytest.raises(ValueError, match="no travel_dow"):
-            _stamp(tables, self.TUE_THU)
-
 
 class TestExcludedPersons:
     """A person the cleaner excluded has no usable day, under any profile."""
 
-    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+    LOOSE = UsabilityProfile(
+        "test",
+        TourClosesAt.PRIMARY_HOME,
+        HouseholdDayNeeds.NOTHING,
+        zone_coverage=NO_ZONE_COVERAGE,
+        joint_tours=JointTours.PARTIAL,
+        travel_days=ALL_DAYS,
+    )
 
     def _two_members(self, reasons: list[str | None]) -> dict:
         """Two members on one date, each with one complete tour and trip."""
@@ -571,7 +548,14 @@ class TestExcludedPersons:
 class TestExcludedHouseholdsAndDays:
     """A household or day the cleaner excluded is unusable, under any profile."""
 
-    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+    LOOSE = UsabilityProfile(
+        "test",
+        TourClosesAt.PRIMARY_HOME,
+        HouseholdDayNeeds.NOTHING,
+        zone_coverage=NO_ZONE_COVERAGE,
+        joint_tours=JointTours.PARTIAL,
+        travel_days=ALL_DAYS,
+    )
     REASON = "excluded"
 
     def _two_members_two_dates(
@@ -713,13 +697,6 @@ class TestATourNeedsEveryTrip:
 
         assert stamped["tours"].sort("tour_id")["usable_test"].to_list() == [True, True]
 
-    def test_unflagged_trips_raise_rather_than_pass_every_tour(self):
-        """Calling the fuse before the trips are flagged must not read as 'all trips fine'."""
-        tables = self._two_tours("linked_trips", on_tour_10=[True, False])
-
-        with pytest.raises(ValueError, match="Flag the trips first"):
-            _flag_tours(tables, STRICT)
-
 
 class TestJointQuorum:
     """A grouping is joint only while enough members survive."""
@@ -758,7 +735,12 @@ class TestJointQuorum:
                 }
             ),
             "joint_tours": pl.DataFrame(
-                {"joint_tour_id": [1], "person_day_id": [1], "survey_complete": [True]}
+                {
+                    "joint_tour_id": [1],
+                    "hh_id": [1],
+                    "person_day_id": [1],
+                    "survey_complete": [True],
+                }
             ),
         }
 
@@ -778,17 +760,6 @@ class TestJointQuorum:
         stamped = _stamp(self._joint_tour(qualities), WIDEST)
 
         assert stamped["joint_tours"]["usable_widest"].to_list() == [False]
-
-    def test_a_grouping_with_no_members_at_all_falls_to_its_own_complete(self):
-        """A member table that was never supplied is a legitimate partial call."""
-        tables = _one_person()
-        tables["joint_tours"] = pl.DataFrame(
-            {"joint_tour_id": [1, 2], "person_day_id": [1, 1], "survey_complete": [True, False]}
-        )
-
-        stamped = _stamp(tables)
-
-        assert stamped["joint_tours"]["usable_test"].to_list() == [True, False]
 
 
 class TestStampingTwice:

@@ -16,10 +16,12 @@ The rule is therefore an ALL over the tour's trips -- the same shape as
 """
 
 import polars as pl
+import pytest
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
-from processing.completeness import UsabilityProfile, compute_usability
-from tests.fixtures.schema_utils import add_household_days
+from processing.completeness import JointTours, UsabilityProfile, cascade_complete, stamp_usable
+from processing.completeness.profiles import ALL_DAYS
+from tests.fixtures.schema_utils import add_missing_tables
 
 ZONE = "taz"
 VALID, COMPLETE = TourDataQuality.VALID.value, TourCategory.COMPLETE.value
@@ -76,8 +78,16 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
 
 def _verdict(trip_zones, *, coverage: str) -> bool:
     tables = _tables(trip_zones)
-    profile = UsabilityProfile("u", "primary_home", "all_members", zone_coverage=coverage)
-    compute_usability(add_household_days(tables), profile=profile)
+    profile = UsabilityProfile(
+        "u",
+        "primary_home",
+        "all_members",
+        zone_coverage=coverage,
+        joint_tours=JointTours.PARTIAL,
+        travel_days=ALL_DAYS,
+    )
+    cascade_complete(add_missing_tables(tables))
+    stamp_usable(tables, profile)
     return bool(tables["tours"]["usable_u"][0])
 
 
@@ -107,3 +117,24 @@ class TestCoverageIsStillOptional:
     def test_a_profile_asking_nothing_of_geography_admits_it(self):
         """The term is inert where it is not asked for."""
         assert _verdict([(100, None), (None, 100)], coverage="none") is True
+
+
+class TestMissingZoneColumnsRaise:
+    """Linked trips without their zone columns fail as tours without theirs do."""
+
+    @pytest.mark.parametrize("table", ["tours", "linked_trips"])
+    def test_the_missing_columns_are_named(self, table):
+        """Passing them silently would admit every leg the zone step never placed."""
+        tables = _tables([(100, 200), (200, 100)])
+        tables[table] = tables[table].drop(f"o_{ZONE}", f"d_{ZONE}")
+        profile = UsabilityProfile(
+            "u",
+            "primary_home",
+            "all_members",
+            zone_coverage=ZONE,
+            joint_tours=JointTours.PARTIAL,
+            travel_days=ALL_DAYS,
+        )
+        cascade_complete(add_missing_tables(tables))
+        with pytest.raises(ValueError, match=f"{table} carries no o_{ZONE}, d_{ZONE}"):
+            stamp_usable(tables, profile)

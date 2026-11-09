@@ -27,23 +27,6 @@ _CLOSURE_TEXT = {
 }
 
 
-def suggest_usability_columns(frame: pl.DataFrame) -> str:
-    """A "did you mean" line naming the boolean columns *frame* actually has.
-
-    For a consumer that was pointed at a usability column which is not there.
-    The names come from config, so there is no pattern to match on: a rule like
-    "ends in _usable" only holds until a project picks a name that does not fit
-    it, and then the hint reports none rather than admitting it cannot tell.
-    Every boolean column is offered instead. Some will be unrelated, which costs
-    a reader one glance; a confident empty answer costs them a debugging session
-    in the wrong step.
-    """
-    boolean = sorted(name for name, dtype in frame.schema.items() if dtype == pl.Boolean)
-    if not boolean:
-        return "It carries no boolean columns at all."
-    return f"Did you mean one of these boolean columns? {', '.join(boolean)}."
-
-
 def _describe(profile: UsabilityProfile) -> dict[str, str]:
     """Column descriptions for one profile, for the generated-column registry."""
     household = (
@@ -123,7 +106,7 @@ def _describe_household_day(profile: UsabilityProfile) -> str:
     )
 
 
-def _log_gate_summary(
+def log_gate_summary(
     tables: dict[str, pl.DataFrame | None],
     profiles: list[UsabilityProfile],
 ) -> None:
@@ -137,16 +120,19 @@ def _log_gate_summary(
             f"{profile.flag:>18}{'newly unusable':>16}",
         ]
         for name, df in tables.items():
-            if df is None or profile.flag not in df.columns:
+            if df is None:
                 continue
-            n = df.height
-            n_complete = df.filter(pl.col("survey_complete").fill_null(value=False)).height
             n_usable = df.filter(pl.col(profile.flag)).height
+            # A joint table built from members without survey_complete has none.
+            if "survey_complete" not in df.columns:
+                lines.append(f"  {name:<16}{df.height:>10,}{'-':>12}{n_usable:>18,}{'-':>16}")
+                continue
+            n_complete = df.filter(pl.col("survey_complete").fill_null(value=False)).height
             # Survey data that reported fine and the model still cannot use,
             # which is the column worth reading: the loss this gate adds alone.
             newly_unusable = n_complete - n_usable
             lines.append(
-                f"  {name:<16}{n:>10,}{n_complete:>12,}{n_usable:>18,}{newly_unusable:>16,}"
+                f"  {name:<16}{df.height:>10,}{n_complete:>12,}{n_usable:>18,}{newly_unusable:>16,}"
             )
         logger.info("\n".join(lines))
 

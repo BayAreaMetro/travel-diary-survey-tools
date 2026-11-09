@@ -18,15 +18,12 @@ a record the filter excludes is weight the output would lose.
 """
 
 import logging
-from dataclasses import dataclass, field
 
 import polars as pl
 
 from data_canon.core.dataclass import CANONICAL_MODELS
 from data_canon.validation.relational import foreign_key_edges
-
-from .descriptions import suggest_usability_columns
-from .joint_groupings import MIN_JOINT_PARTICIPANTS
+from processing.completeness import MIN_JOINT_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
 
@@ -74,21 +71,27 @@ _PROFILE_COLUMNS: dict[str, tuple[str, ...]] = {
 _MAX_REPORTED = 5
 
 
-@dataclass
-class KeepLedger:
-    """How many rows each table lost to the profile's verdict."""
+def suggest_usability_columns(frame: pl.DataFrame) -> str:
+    """A "did you mean" line naming the boolean columns *frame* actually has.
 
-    excluded: dict[str, int] = field(default_factory=dict)
-
-    def add(self, bucket: dict[str, int], key: str, n: int) -> None:
-        """Add *n* to *key* in *bucket*."""
-        bucket[key] = bucket.get(key, 0) + n
+    For a consumer that was pointed at a usability column which is not there.
+    The names come from config, so there is no pattern to match on: a rule like
+    "ends in _usable" only holds until a project picks a name that does not fit
+    it, and then the hint reports none rather than admitting it cannot tell.
+    Every boolean column is offered instead. Some will be unrelated, which costs
+    a reader one glance; a confident empty answer costs them a debugging session
+    in the wrong step.
+    """
+    boolean = sorted(name for name, dtype in frame.schema.items() if dtype == pl.Boolean)
+    if not boolean:
+        return "It carries no boolean columns at all."
+    return f"Did you mean one of these boolean columns? {', '.join(boolean)}."
 
 
 def keep_records(
     tables: dict[str, pl.DataFrame],
     usability_flag_col: str,
-) -> tuple[dict[str, pl.DataFrame], KeepLedger]:
+) -> tuple[dict[str, pl.DataFrame], dict[str, int]]:
     """Keep the records *usability_flag_col* admits, and prove nothing dangles.
 
     Args:
@@ -97,7 +100,7 @@ def keep_records(
         usability_flag_col: The stamped verdict to gate on.
 
     Returns:
-        The kept tables, and a ledger of what each lost. Tables absent from the
+        The kept tables, and how many rows each lost. Tables absent from the
         input stay absent.
 
     Raises:
@@ -124,17 +127,17 @@ def keep_records(
     # licence to guess a criterion of our own.
     keep = pl.col(usability_flag_col).fill_null(value=False)
 
-    ledger = KeepLedger()
+    excluded: dict[str, int] = {}
     kept: dict[str, pl.DataFrame] = dict(tables)
     for name in GATED_TABLES:
         if name not in kept:
             continue
         before = kept[name]
         kept[name] = before.filter(keep)
-        ledger.add(ledger.excluded, name, before.height - kept[name].height)
+        excluded[name] = before.height - kept[name].height
 
     check_kept_records_agree(kept, usability_flag_col)
-    return kept, ledger
+    return kept, excluded
 
 
 def select_profile_columns(

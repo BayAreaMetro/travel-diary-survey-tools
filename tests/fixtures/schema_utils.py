@@ -19,6 +19,8 @@ from data_canon.models.survey import (
     TourModel,
     UnlinkedTripModel,
 )
+from pipeline.step_registry import STEP_REGISTRY
+from processing.completeness import cascade_completeness  # noqa: F401 - registers its contract
 from processing.weighting.core.hierarchy import WEIGHT_COLUMNS
 from utils.create_ids import create_household_days
 
@@ -273,4 +275,38 @@ def add_household_days(tables: dict) -> dict:
         )
     person_days, tables["household_days"] = create_household_days(person_days)
     tables["person_days"] = person_days.drop("day_num") if numbered else person_days
+    return tables
+
+
+# The tables the cascade reads whatever the profile, in the order a test would build them.
+_CASCADE_TABLES = (
+    "households",
+    "persons",
+    "household_days",
+    "person_days",
+    "unlinked_trips",
+    "linked_trips",
+    "tours",
+)
+
+
+def add_missing_tables(tables: dict) -> dict:
+    """Give *tables* an empty frame for every table the cascade reads and the test left out.
+
+    A household with no unlinked trips, say, is a valid input, but the cascade
+    reads every core table, so it needs the empty table rather than none. Each
+    empty frame has the columns ``cascade_completeness`` requires of it. Builds
+    ``household_days`` from the person-days first (see :func:`add_household_days`).
+    Returns *tables*, in place.
+    """
+    add_household_days(tables)
+    contract = STEP_REGISTRY["cascade_completeness"].tables
+    for name in _CASCADE_TABLES:
+        if tables.get(name) is None:
+            tables[name] = pl.DataFrame(
+                schema={
+                    column: pl.Boolean if column == "survey_complete" else pl.Int64
+                    for column in sorted(contract[name].requires)
+                }
+            )
     return tables

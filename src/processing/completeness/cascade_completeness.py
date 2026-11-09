@@ -4,17 +4,37 @@ import polars as pl
 
 from pipeline.decoration import step
 
-from .descriptions import _log_gate_summary, profile_columns
+from .descriptions import log_gate_summary, profile_columns
 from .profiles import parse_usability_profiles
 from .survey_complete import cascade_complete
-from .usable_cascade import stamp_usable
+from .usable import stamp_usable
 
 
 @step(
     requires={
+        "households": {"hh_id"},
+        "persons": {"person_id", "hh_id"},
         "household_days": {"hh_day_id", "hh_id"},
-        "person_days": {"person_day_id", "hh_id", "hh_day_id", "survey_complete", "travel_dow"},
-        "tours": {"tour_id", "person_day_id", "survey_complete"},
+        "person_days": {
+            "person_day_id",
+            "person_id",
+            "hh_id",
+            "hh_day_id",
+            "survey_complete",
+            "travel_dow",
+        },
+        "tours": {
+            "tour_id",
+            "person_day_id",
+            "parent_tour_id",
+            "survey_complete",
+            "tour_data_quality",
+            "tour_category",
+        },
+        "linked_trips": {"tour_id", "person_day_id", "survey_complete"},
+        "unlinked_trips": {"tour_id", "person_day_id", "survey_complete"},
+        "joint_trips": {"joint_trip_id", "hh_id"},
+        "joint_tours": {"joint_tour_id", "hh_id"},
     },
     produces={
         "households": {"survey_complete", "usable_<profile>"},
@@ -35,14 +55,14 @@ from .usable_cascade import stamp_usable
     generated_columns=profile_columns,
 )
 def cascade_completeness(
-    households: pl.DataFrame | None = None,
-    persons: pl.DataFrame | None = None,
-    household_days: pl.DataFrame | None = None,
-    person_days: pl.DataFrame | None = None,
-    unlinked_trips: pl.DataFrame | None = None,
-    linked_trips: pl.DataFrame | None = None,
+    households: pl.DataFrame,
+    persons: pl.DataFrame,
+    household_days: pl.DataFrame,
+    person_days: pl.DataFrame,
+    unlinked_trips: pl.DataFrame,
+    linked_trips: pl.DataFrame,
+    tours: pl.DataFrame,
     joint_trips: pl.DataFrame | None = None,
-    tours: pl.DataFrame | None = None,
     joint_tours: pl.DataFrame | None = None,
     usability_profiles: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, pl.DataFrame]:
@@ -59,12 +79,12 @@ def cascade_completeness(
     * one column per usability profile -- the subset of ``survey_complete`` that
       profile admits.
 
-    A profile states its standard on four axes: which home has to close a tour,
+    A profile states its standard on five axes: which home has to close a tour,
     what the household-date has to show, which zone system must hold every
-    location, and what a joint tour has to be. Several can be stamped in one run
-    so different consumers can hold different standards -- a joint-tour model
-    needs whole households and fully joint tours, a trip-level estimation does
-    not:
+    location, what a joint tour has to be, and which days of the week it takes.
+    Several can be stamped in one run so different consumers can hold different
+    standards -- a joint-tour model needs whole households and fully joint
+    tours, a trip-level estimation does not:
 
     ```yaml
     usability_profiles:
@@ -73,11 +93,13 @@ def cascade_completeness(
         household_day_needs: all_members
         zone_coverage: taz
         joint_tours: fully_joint
+        travel_days: [tuesday, wednesday, thursday]
       analysis:
         tour_closes_at: anywhere
         household_day_needs: nothing
         zone_coverage: none
         joint_tours: partial
+        travel_days: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
     ```
 
     Nothing is implicit: every column stamped is named in config and every
@@ -99,18 +121,18 @@ def cascade_completeness(
         person_days: Canonical person-days.
         unlinked_trips: Canonical unlinked trips.
         linked_trips: Canonical linked trips.
-        joint_trips: Aggregated joint trips.
         tours: Canonical tours (with ``tour_data_quality`` / ``tour_category``).
-        joint_tours: Aggregated joint tours.
+        joint_trips: Aggregated joint trips; absent where no joint travel was detected.
+        joint_tours: Aggregated joint tours; absent likewise.
         usability_profiles: Profile name -> ``{tour_closes_at, household_day_needs,
-            zone_coverage, joint_tours}``.
+            zone_coverage, joint_tours, travel_days}``.
             Required, and every profile answers every axis: there is no default
             at either level, so a verdict never appears unasked and a column's
             meaning is never implicit.
 
     Returns:
-        The provided tables, each with ``survey_complete`` reconciled and one column
-        per profile added.
+        The tables, each with ``survey_complete`` reconciled and one column per
+        profile added; the joint tables only where given.
 
     Raises:
         ValueError: If ``usability_profiles`` is missing or malformed.
@@ -140,6 +162,6 @@ def cascade_completeness(
     cascade_complete(tables)
     for profile in profiles:
         stamp_usable(tables, profile)
-    _log_gate_summary(tables, profiles)
+    log_gate_summary(tables, profiles)
 
     return {name: df for name, df in tables.items() if df is not None}

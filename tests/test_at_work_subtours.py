@@ -31,11 +31,15 @@ from data_canon.codebook.tours import (
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.completeness import (
+    NO_ZONE_COVERAGE,
     HouseholdDayNeeds,
+    JointTours,
     TourClosesAt,
     UsabilityProfile,
-    compute_usability,
+    cascade_complete,
+    stamp_usable,
 )
+from processing.completeness.profiles import ALL_DAYS
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_tours import format_individual_tour
 from processing.formatting.daysim.format_days import format_days as format_days_daysim
@@ -49,7 +53,7 @@ from tests.fixtures import (
 )
 from tests.fixtures.fixtures import process_scenario_through_pipeline
 from tests.fixtures.scenario_builders import multi_stop_tour
-from tests.fixtures.schema_utils import add_household_days
+from tests.fixtures.schema_utils import add_missing_tables
 from tests.fixtures.tour_pipeline import locate_and_extract_tours
 from tests.fixtures.tour_records import get_tour_schema
 
@@ -239,6 +243,8 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
     exactly how #85 reached the formatters.
     """
     tables = {
+        "households": pl.DataFrame({"hh_id": [1]}),
+        "persons": pl.DataFrame({"person_id": [1], "hh_id": [1]}),
         "person_days": pl.DataFrame(
             {
                 "person_day_id": tours["person_day_id"].unique().sort(),
@@ -250,9 +256,17 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
         ),
         "tours": tours.with_columns(pl.lit(value=True).alias("survey_complete")),
     }
-    compute_usability(
-        add_household_days(tables),
-        profile=UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+    cascade_complete(add_missing_tables(tables))
+    stamp_usable(
+        tables,
+        UsabilityProfile(
+            "test",
+            TourClosesAt.PRIMARY_HOME,
+            HouseholdDayNeeds.ALL_MEMBERS,
+            zone_coverage=NO_ZONE_COVERAGE,
+            joint_tours=JointTours.PARTIAL,
+            travel_days=ALL_DAYS,
+        ),
     )
     return dict(zip(*tables["tours"].select("tour_id", "usable_test"), strict=True))
 
