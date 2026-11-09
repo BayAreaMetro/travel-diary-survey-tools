@@ -84,18 +84,10 @@ def _flag_joint_ids(
     it only if it is usable, not work, work-related, school or escort, and made the same
     joint trips as the others (see :func:`_fully_joint_tours`). A linked trip
     is on its joint trip only while its tour is on its joint tour, and both
-    trip tables carry the tour's answer too.
-
-    Requires the usable flag on tours and linked trips; a linked trips table
-    present but unflagged raises rather than silently passing every leg.
-
-    Raises:
-        ValueError: If linked trips are present but not yet flagged.
+    trip tables carry the tour's answer too. A survey with no joint travel
+    detected need not write ``joint_tour_id``, and then no tour is on one.
     """
-    tours = tables.get("tours")
-    trips = tables.get("linked_trips")
-    if tours is None or profile.flag not in tours.columns:
-        return
+    tours = tables["tours"]
     tour_col = profile.joint_tour_id
     usable = pl.col(profile.flag).fill_null(value=False)
 
@@ -106,13 +98,7 @@ def _flag_joint_ids(
             pl.when(usable).then(pl.col("joint_tour_id")).otherwise(None).alias(tour_col)
         )
     else:
-        if trips is not None and profile.flag not in trips.columns:
-            msg = (
-                f"Cannot decide joint tours: linked_trips has no {profile.flag} column "
-                "yet. Flag linked trips first, otherwise every leg silently counts."
-            )
-            raise ValueError(msg)
-        tables["tours"] = _fully_joint_tours(tours, trips, profile)
+        tables["tours"] = _fully_joint_tours(tours, tables["linked_trips"], profile)
 
     # A joint tour with one tour left on it is nobody's joint tour.
     tables["tours"] = _dissolve_undersized(tables["tours"], tour_col)
@@ -122,7 +108,7 @@ def _flag_joint_ids(
 
 def _fully_joint_tours(
     tours: pl.DataFrame,
-    trips: pl.DataFrame | None,
+    trips: pl.DataFrame,
     profile: UsabilityProfile,
 ) -> pl.DataFrame:
     """Return *tours* with ``joint_tour_id_<profile>`` under the fully-joint rule.
@@ -136,16 +122,16 @@ def _fully_joint_tours(
     trip went somewhere alone and is in no class. A group then needs two tours
     and one purpose, or it is no group and everyone on it travels alone.
 
-    Without a linked trips table there are no legs to compare, so the answer
-    stops at the tour's own standing: usable, in a group, and never work,
-    work-related, school or escort.
+    Without ``joint_trip_id`` on the linked trips there are no legs to compare,
+    so the answer stops at the tour's own standing: usable, in a group, and
+    never work, work-related, school or escort.
     """
     tour_col = profile.joint_tour_id
     on_tour = pl.col(profile.flag).fill_null(value=False) & pl.col("joint_tour_id").is_not_null()
     if "tour_purpose" in tours.columns:
         on_tour = on_tour & ~pl.col("tour_purpose").is_in(_NEVER_JOINT_PURPOSES)
 
-    if trips is not None and {"tour_id", "joint_trip_id"} <= set(trips.columns):
+    if "joint_trip_id" in trips.columns:
         signatures = (
             trips.filter(pl.col(profile.flag).fill_null(value=False))
             .group_by("tour_id")
@@ -199,15 +185,13 @@ def _flag_joint_trip_ids(
     A usable trip in a joint trip is on it; under ``fully_joint`` only while its
     tour is on its joint tour, which ``joint_tour_id_<profile>`` already says.
     """
-    trips = tables.get("linked_trips")
-    if trips is None or profile.flag not in trips.columns:
-        return
+    trips = tables["linked_trips"]
     trip_col = profile.joint_trip_id
     if "joint_trip_id" not in trips.columns:
         tables["linked_trips"] = trips.with_columns(pl.lit(None, dtype=pl.Int64).alias(trip_col))
         return
     on_trip = pl.col(profile.flag).fill_null(value=False)
-    if profile.requires_fully_joint and profile.joint_tour_id in trips.columns:
+    if profile.requires_fully_joint:
         on_trip = on_trip & pl.col(profile.joint_tour_id).is_not_null()
     trips = trips.with_columns(
         pl.when(on_trip).then(pl.col("joint_trip_id")).otherwise(None).alias(trip_col)
@@ -232,58 +216,35 @@ def _flag_joint_groupings(
     The grouping's own ``survey_complete`` (every traveller complete) is no veto.
     A member is on it only while usable, which already needs that member's
     record complete, so an incomplete traveller is pruned from the grouping
-    rather than rejecting it for everyone else.
-
-    A member table that was never supplied is a legitimate partial call and the
-    grouping falls back to its own ``survey_complete``. A member table that *is*
-    present but carries no verdict column is a caller ordering error and raises:
-    the fallback would silently pass every grouping, which is exactly the
-    behaviour this rule exists to replace.
-
-    Raises:
-        ValueError: If a member table is present but has not been flagged yet.
+    rather than rejecting it for everyone else. A project that detects no joint
+    travel has no joint tables, and there is nothing to judge.
     """
     for joint_table, member_table, key in _JOINT_GROUPINGS:
         df = tables.get(joint_table)
-        if df is None or "survey_complete" not in df.columns:
+        if df is None:
             continue
-        members = tables.get(member_table)
-
-        if members is not None and profile.flag not in members.columns:
-            msg = (
-                f"Cannot flag {joint_table}: {member_table} has no {profile.flag} column yet. "
-                f"Flag the member table before the groupings that count it, otherwise "
-                f"every {joint_table} record silently passes."
-            )
-            raise ValueError(msg)
-
-        if members is None or key not in members.columns or key not in df.columns:
-            df = df.with_columns(
-                pl.col("survey_complete").fill_null(value=False).alias(profile.flag)
-            )
-        else:
-            # The profile's own copy of the id, where decided, is the stricter count:
-            # a usable tour that left its group for a leg is not on it.
-            own = profile.joint_tour_id if key == "joint_tour_id" else profile.joint_trip_id
-            on_it = pl.col(own).is_not_null() if own in members.columns else pl.col(profile.flag)
-            df = and_reduced(
-                df.drop(profile.flag, strict=False),
-                members.filter(pl.col(key).is_not_null() & on_it),
-                key,
-                pl.len() >= MIN_JOINT_PARTICIPANTS,
-                fill=False,
-                into=profile.flag,
-            )
-
+        # The profile's own copy of the id is the stricter count: a usable tour
+        # that left its group for a leg is not on it.
+        own = profile.joint_tour_id if key == "joint_tour_id" else profile.joint_trip_id
+        df = and_reduced(
+            df.drop(profile.flag, strict=False),
+            tables[member_table].filter(pl.col(own).is_not_null()),
+            key,
+            pl.len() >= MIN_JOINT_PARTICIPANTS,
+            fill=False,
+            into=profile.flag,
+        )
         # The household is the only record a grouping belongs to. The person_day_id
         # a joint table carries is one traveller's, picked as a representative, so
         # it is not inherited: the count of usable members already decides.
-        households = tables.get("households")
-        if households is not None and profile.flag in households.columns and "hh_id" in df.columns:
-            df = and_reduced(
-                df, households, "hh_id", pl.col(profile.flag).first(), fill=False, into=profile.flag
-            )
-        tables[joint_table] = df
+        tables[joint_table] = and_reduced(
+            df,
+            tables["households"],
+            "hh_id",
+            pl.col(profile.flag).first(),
+            fill=False,
+            into=profile.flag,
+        )
 
 
 # -- Voiding what a rejected grouping left behind -----------------------------------
@@ -305,7 +266,7 @@ def _void_ids_of_rejected_groupings(
     changed = False
     for joint_table, _member_table, key in _JOINT_GROUPINGS:
         groups = tables.get(joint_table)
-        if groups is None or profile.flag not in groups.columns or key not in groups.columns:
+        if groups is None:
             continue
         rejected = groups.filter(~pl.col(profile.flag).fill_null(value=False))[key]
         own = profile.joint_tour_id if key == "joint_tour_id" else profile.joint_trip_id
@@ -313,20 +274,17 @@ def _void_ids_of_rejected_groupings(
     if not changed:
         return False
 
-    tours = tables.get("tours")
-    if tours is not None and profile.joint_tour_id in tours.columns:
-        tables["tours"] = _dissolve_undersized(tours, profile.joint_tour_id)
-        _copy_tour_answer(tables, profile)
-    trips = tables.get("linked_trips")
-    if trips is not None and profile.joint_trip_id in trips.columns:
-        if profile.requires_fully_joint and profile.joint_tour_id in trips.columns:
-            trips = trips.with_columns(
-                pl.when(pl.col(profile.joint_tour_id).is_null())
-                .then(None)
-                .otherwise(pl.col(profile.joint_trip_id))
-                .alias(profile.joint_trip_id)
-            )
-        tables["linked_trips"] = _dissolve_undersized(trips, profile.joint_trip_id)
+    tables["tours"] = _dissolve_undersized(tables["tours"], profile.joint_tour_id)
+    _copy_tour_answer(tables, profile)
+    trips = tables["linked_trips"]
+    if profile.requires_fully_joint:
+        trips = trips.with_columns(
+            pl.when(pl.col(profile.joint_tour_id).is_null())
+            .then(None)
+            .otherwise(pl.col(profile.joint_trip_id))
+            .alias(profile.joint_trip_id)
+        )
+    tables["linked_trips"] = _dissolve_undersized(trips, profile.joint_trip_id)
     return True
 
 
@@ -337,9 +295,10 @@ def _void_on_tables(
     if rejected.is_empty():
         return False
     changed = False
+    # Only linked trips carry the joint trip ids.
     for name in ("tours", *_TOUR_MEMBER_TABLES):
-        df = tables.get(name)
-        if df is None or id_col not in df.columns:
+        df = tables[name]
+        if id_col not in df.columns:
             continue
         names_it = pl.col(id_col).is_in(rejected.implode())
         if df.filter(names_it).is_empty():
@@ -356,22 +315,15 @@ def _void_on_tables(
 
 def _copy_tour_answer(tables: dict[str, pl.DataFrame | None], profile: UsabilityProfile) -> None:
     """Give both trip tables their tour's ``joint_tour_id_<profile>``, in place."""
-    tours = tables.get("tours")
-    if tours is None or profile.joint_tour_id not in tours.columns:
-        return
-    on_tour = tours.select("tour_id", pl.col(profile.joint_tour_id).alias("_on_tour"))
+    on_tour = tables["tours"].select("tour_id", pl.col(profile.joint_tour_id).alias("_on_tour"))
     for name in _TOUR_MEMBER_TABLES:
-        df = tables.get(name)
-        if df is None or profile.flag not in df.columns:
-            continue
-        if "tour_id" in df.columns:
-            df = df.drop(profile.joint_tour_id, strict=False).join(
-                on_tour, on="tour_id", how="left"
-            )
-            df = df.rename({"_on_tour": profile.joint_tour_id})
-        else:
-            df = df.with_columns(pl.lit(None, dtype=pl.Int64).alias(profile.joint_tour_id))
-        tables[name] = df
+        # Written in place, so a second pass leaves the columns where they were.
+        tables[name] = (
+            tables[name]
+            .join(on_tour, on="tour_id", how="left")
+            .with_columns(pl.col("_on_tour").alias(profile.joint_tour_id))
+            .drop("_on_tour")
+        )
 
 
 def _dissolve_undersized(df: pl.DataFrame, id_col: str) -> pl.DataFrame:

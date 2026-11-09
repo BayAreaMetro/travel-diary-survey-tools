@@ -30,7 +30,7 @@ def cascade_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     usability passes follow.
 
     Args:
-        tables: Mutable dict of table_name -> DataFrame (or None).
+        tables: Mutable dict of table_name -> DataFrame; the joint tables may be None.
     """
     # -- Completeness rolls UP from days (person = >=1 complete day) and each
     #    day-record inherits its day's complete.
@@ -58,32 +58,25 @@ def _rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
       day-records; see ``_DAY_RECORDS``.
 
     ``households.survey_complete`` is a household-day rollup and is set separately by
-    :func:`_rollup_household_complete` (it needs ``household_days`` judged first). Tables
-    lacking ``survey_complete`` or the join key are left unchanged. Idempotent.
+    :func:`_rollup_household_complete` (it needs ``household_days`` judged first).
+    Idempotent.
     """
-    person_days = tables.get("person_days")
-    if person_days is None or "survey_complete" not in person_days.columns:
-        return
+    person_days = tables["person_days"]
     day_complete = pl.col("survey_complete").fill_null(value=False)
 
-    persons = tables.get("persons")
-    if persons is not None and "person_id" in person_days.columns:
-        tables["persons"] = and_reduced(
-            persons.drop("survey_complete", strict=False),
-            person_days,
-            "person_id",
-            day_complete.any(),
-            fill=False,
-            into="survey_complete",
-        )
+    tables["persons"] = and_reduced(
+        tables["persons"].drop("survey_complete", strict=False),
+        person_days,
+        "person_id",
+        day_complete.any(),
+        fill=False,
+        into="survey_complete",
+    )
 
     for name in _DAY_RECORDS:
-        df = tables.get(name)
-        if df is None or "survey_complete" not in df.columns or "person_day_id" not in df.columns:
-            continue
         # A null own verdict defers to the day's.
         tables[name] = and_reduced(
-            df.with_columns(pl.col("survey_complete").fill_null(value=True)),
+            tables[name].with_columns(pl.col("survey_complete").fill_null(value=True)),
             person_days,
             "person_day_id",
             day_complete.first(),
@@ -104,9 +97,6 @@ def _flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None
     reflects ancestry; the reduction then flows the other way, up from members to
     the shared date. Idempotent.
     """
-    person_days = tables.get("person_days")
-    if person_days is None or "survey_complete" not in person_days.columns:
-        return
     reduce_to_household_days(tables, pl.col("survey_complete"), "survey_complete")
 
 
@@ -114,16 +104,12 @@ def _rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     """Set ``households.survey_complete`` = has at least one complete household-day, in place.
 
     A household is complete when at least one date was coherently observed (every
-    member complete). Requires ``household_days.survey_complete`` (from
-    :func:`_flag_household_day_complete`). Left unchanged if either is absent.
+    member complete). Reads ``household_days.survey_complete``, from
+    :func:`_flag_household_day_complete`.
     """
-    households = tables.get("households")
-    household_days = tables.get("household_days")
-    if households is None or household_days is None or "survey_complete" not in household_days:
-        return
     tables["households"] = and_reduced(
-        households.drop("survey_complete", strict=False),
-        household_days,
+        tables["households"].drop("survey_complete", strict=False),
+        tables["household_days"],
         "hh_id",
         pl.col("survey_complete").fill_null(value=False).any(),
         fill=False,
@@ -134,20 +120,16 @@ def _rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
 # -- The household-date reduction -----------------------------------------------
 
 
-def _join_surveyable(person_days: pl.DataFrame, persons: pl.DataFrame | None) -> pl.DataFrame:
+def _join_surveyable(person_days: pl.DataFrame, persons: pl.DataFrame) -> pl.DataFrame:
     """Return *days* with a ``_surveyable`` bool column joined from persons.
 
     A person is *surveyable* when the survey could collect their travel at all;
     unrelated household members (e.g. roommates) are not, file no trips, and
     must not veto the household-day reductions -- the vendor gives them no day
-    rows whatsoever. When the persons table (or its ``surveyable`` column) is
-    absent, every member-day counts, preserving the plain ALL reduction.
+    rows whatsoever. A survey that marks no one unsurveyable need not write the
+    column, and then every member-day counts.
     """
-    if (
-        persons is None
-        or "surveyable" not in persons.columns
-        or "person_id" not in person_days.columns
-    ):
+    if "surveyable" not in persons.columns:
         return person_days.with_columns(pl.lit(value=True).alias("_surveyable"))
     flag = persons.select(
         "person_id",
@@ -156,28 +138,6 @@ def _join_surveyable(person_days: pl.DataFrame, persons: pl.DataFrame | None) ->
     return person_days.join(flag, on="person_id", how="left").with_columns(
         pl.col("_surveyable").fill_null(value=True)
     )
-
-
-def _require_household_days(tables: dict[str, pl.DataFrame | None]) -> pl.DataFrame:
-    """Return ``household_days``, raising if person-days arrive without it.
-
-    The table is canonical and every cleaner builds it, so its absence is a
-    caller error. Judging dates some other way would give a different answer
-    silently.
-
-    Raises:
-        ValueError: If ``household_days`` is missing, or days carry no ``hh_day_id``.
-    """
-    household_days = tables.get("household_days")
-    person_days = tables.get("person_days")
-    if household_days is None or person_days is None or "hh_day_id" not in person_days.columns:
-        msg = (
-            "The household-day reductions need the household_days table and hh_day_id "
-            "on days. Build them in the project cleaner with "
-            "utils.create_ids.create_household_days."
-        )
-        raise ValueError(msg)
-    return household_days
 
 
 def reduce_to_household_days(
@@ -189,10 +149,9 @@ def reduce_to_household_days(
     the survey meant to observe was observed on it, so it is False rather than
     vacuously True.
     """
-    household_days = _require_household_days(tables)
-    person_days = _join_surveyable(tables["person_days"], tables.get("persons"))
+    person_days = _join_surveyable(tables["person_days"], tables["persons"])
     tables["household_days"] = and_reduced(
-        household_days.drop(column, strict=False),
+        tables["household_days"].drop(column, strict=False),
         person_days.filter(pl.col("_surveyable")),
         "hh_day_id",
         own.fill_null(value=False).all(),
@@ -212,9 +171,8 @@ def with_household_day(
     An unsurveyable member's day takes no part in the household-day, so it is
     not judged by it either: it keeps its own *column*.
     """
-    household_days = _require_household_days(tables)
-    verdict = household_days.select("hh_day_id", pl.col(column).alias("_hh_day_verdict"))
-    person_days = _join_surveyable(person_days, tables.get("persons")).join(
+    verdict = tables["household_days"].select("hh_day_id", pl.col(column).alias("_hh_day_verdict"))
+    person_days = _join_surveyable(person_days, tables["persons"]).join(
         verdict, on="hh_day_id", how="left"
     )
     return person_days.with_columns(
@@ -227,7 +185,7 @@ def with_household_day(
 
 def with_household_day_excluded(
     person_days: pl.DataFrame,
-    persons: pl.DataFrame | None,
+    persons: pl.DataFrame,
     alias: str,
 ) -> pl.DataFrame:
     """Return *days* with *alias*: any surveyable member's day on its date was excluded.

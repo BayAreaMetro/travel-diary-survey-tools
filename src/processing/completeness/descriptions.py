@@ -120,16 +120,19 @@ def log_gate_summary(
             f"{profile.flag:>18}{'newly unusable':>16}",
         ]
         for name, df in tables.items():
-            if df is None or profile.flag not in df.columns:
+            if df is None:
                 continue
-            n = df.height
-            n_complete = df.filter(pl.col("survey_complete").fill_null(value=False)).height
             n_usable = df.filter(pl.col(profile.flag)).height
+            # A joint table built from members without survey_complete has none.
+            if "survey_complete" not in df.columns:
+                lines.append(f"  {name:<16}{df.height:>10,}{'-':>12}{n_usable:>18,}{'-':>16}")
+                continue
+            n_complete = df.filter(pl.col("survey_complete").fill_null(value=False)).height
             # Survey data that reported fine and the model still cannot use,
             # which is the column worth reading: the loss this gate adds alone.
             newly_unusable = n_complete - n_usable
             lines.append(
-                f"  {name:<16}{n:>10,}{n_complete:>12,}{n_usable:>18,}{newly_unusable:>16,}"
+                f"  {name:<16}{df.height:>10,}{n_complete:>12,}{n_usable:>18,}{newly_unusable:>16,}"
             )
         logger.info("\n".join(lines))
 

@@ -53,7 +53,7 @@ from tests.fixtures import (
 )
 from tests.fixtures.fixtures import process_scenario_through_pipeline
 from tests.fixtures.scenario_builders import multi_stop_tour
-from tests.fixtures.schema_utils import add_household_days
+from tests.fixtures.schema_utils import add_missing_tables
 from tests.fixtures.tour_pipeline import locate_and_extract_tours
 from tests.fixtures.tour_records import get_tour_schema
 
@@ -243,6 +243,8 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
     exactly how #85 reached the formatters.
     """
     tables = {
+        "households": pl.DataFrame({"hh_id": [1]}),
+        "persons": pl.DataFrame({"person_id": [1], "hh_id": [1]}),
         "person_days": pl.DataFrame(
             {
                 "person_day_id": tours["person_day_id"].unique().sort(),
@@ -254,7 +256,7 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
         ),
         "tours": tours.with_columns(pl.lit(value=True).alias("survey_complete")),
     }
-    cascade_complete(add_household_days(tables))
+    cascade_complete(add_missing_tables(tables))
     stamp_usable(
         tables,
         UsabilityProfile(

@@ -38,7 +38,7 @@ from processing.completeness import (
     stamp_usable,
 )
 from processing.completeness.profiles import ALL_DAYS
-from tests.fixtures.schema_utils import add_household_days
+from tests.fixtures.schema_utils import add_missing_tables
 
 STRICT = UsabilityProfile(
     "strict",
@@ -156,7 +156,7 @@ def _one_household(quality: TourDataQuality, category: TourCategory) -> dict:
 def _stamp(profiles: list[UsabilityProfile], tables: dict) -> dict[str, pl.DataFrame]:
     """Run the reporting cascade once, then every profile over it."""
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(add_household_days(working))
+    cascade_complete(add_missing_tables(working))
     for profile in profiles:
         stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
@@ -459,10 +459,10 @@ def _household_with_joint_records() -> dict[str, pl.DataFrame]:
         }
     )
     tables["joint_tours"] = pl.DataFrame(
-        {"joint_tour_id": [100], "person_day_id": [1], "survey_complete": [True]}
+        {"joint_tour_id": [100], "hh_id": [1], "person_day_id": [1], "survey_complete": [True]}
     )
     tables["joint_trips"] = pl.DataFrame(
-        {"joint_trip_id": [500], "person_day_id": [1], "survey_complete": [True]}
+        {"joint_trip_id": [500], "hh_id": [1], "person_day_id": [1], "survey_complete": [True]}
     )
     return tables
 
@@ -526,7 +526,7 @@ class TestCompleteIsUntouched:
     def test_a_second_usable_pass_does_not_rewrite_complete(self):
         """Only ``cascade_complete`` writes ``survey_complete``."""
         tables: dict[str, pl.DataFrame | None] = dict(_household_with_joint_records())
-        cascade_complete(add_household_days(tables))
+        cascade_complete(add_missing_tables(tables))
         before = {
             name: df["survey_complete"].to_list() for name, df in tables.items() if df is not None
         }

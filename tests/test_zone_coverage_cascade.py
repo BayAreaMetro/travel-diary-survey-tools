@@ -21,7 +21,7 @@ import pytest
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import JointTours, UsabilityProfile, cascade_complete, stamp_usable
 from processing.completeness.profiles import ALL_DAYS
-from tests.fixtures.schema_utils import add_household_days
+from tests.fixtures.schema_utils import add_missing_tables
 
 ZONE = "taz"
 VALID, COMPLETE = TourDataQuality.VALID.value, TourCategory.COMPLETE.value
@@ -86,7 +86,7 @@ def _verdict(trip_zones, *, coverage: str) -> bool:
         joint_tours=JointTours.PARTIAL,
         travel_days=ALL_DAYS,
     )
-    cascade_complete(add_household_days(tables))
+    cascade_complete(add_missing_tables(tables))
     stamp_usable(tables, profile)
     return bool(tables["tours"]["usable_u"][0])
 
@@ -135,6 +135,6 @@ class TestMissingZoneColumnsRaise:
             joint_tours=JointTours.PARTIAL,
             travel_days=ALL_DAYS,
         )
-        cascade_complete(add_household_days(tables))
+        cascade_complete(add_missing_tables(tables))
         with pytest.raises(ValueError, match=f"{table} carries no o_{ZONE}, d_{ZONE}"):
             stamp_usable(tables, profile)

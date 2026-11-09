@@ -27,7 +27,7 @@ from processing.completeness.profiles import ALL_DAYS
 from processing.formatting.kept_records import keep_records, select_profile_columns
 from processing.joint_trips.aggregation import build_joint_trips_table
 from processing.tours.joint_tour_helpers import build_joint_tours_table
-from tests.fixtures.schema_utils import add_household_days
+from tests.fixtures.schema_utils import add_missing_tables
 
 STRICT = UsabilityProfile(
     "strict",
@@ -111,19 +111,20 @@ def _household(
         "joint_trips": pl.DataFrame(
             {
                 "joint_trip_id": joint_trip_ids,
+                "hh_id": [1] * len(joint_trip_ids),
                 "person_day_id": [1] * len(joint_trip_ids),
                 "survey_complete": [True] * len(joint_trip_ids),
             }
         ),
         "joint_tours": pl.DataFrame(
-            {"joint_tour_id": [100], "person_day_id": [1], "survey_complete": [True]}
+            {"joint_tour_id": [100], "hh_id": [1], "person_day_id": [1], "survey_complete": [True]}
         ),
     }
 
 
 def _stamp(profile: UsabilityProfile, tables: dict) -> dict[str, pl.DataFrame]:
     working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(add_household_days(working))
+    cascade_complete(add_missing_tables(working))
     stamp_usable(working, profile)
     return {name: df for name, df in working.items() if df is not None}
 
@@ -304,7 +305,7 @@ class TestTheColumnIsPerProfile:
         """Strict drops person 3; partial keeps them; the id itself never moves."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
         working: dict[str, pl.DataFrame | None] = dict(tables)
-        cascade_complete(add_household_days(working))
+        cascade_complete(add_missing_tables(working))
         stamp_usable(working, STRICT)
         stamp_usable(working, LOOSE)
         tours = working["tours"]
