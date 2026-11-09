@@ -627,10 +627,12 @@ def _trips_with_zones_per_tour(
     unusable -- the same shape as ``survey_complete``, which is an ALL over the tour's
     trips rather than a property of its endpoints.
 
-    Returns None when the profile asks nothing of geography, or when the trips
-    are absent or carry no zone columns. That last case is a judgement this
-    cannot make rather than one it should guess: a caller supplying tours without
-    their trips is not asserting that every leg has one.
+    Returns None when the profile asks nothing of geography, or when there are
+    no linked trips.
+
+    Raises:
+        ValueError: If the linked trips carry no zone columns for the profile's
+            geography, as tours without theirs do (see :func:`_zone_expr`).
     """
     if not profile.requires_zones:
         return None
@@ -639,12 +641,6 @@ def _trips_with_zones_per_tour(
     if trips is None or "tour_id" not in trips.columns:
         return None
 
-    wanted = [f"{prefix}_{profile.zone_coverage}" for prefix in _ZONE_PREFIXES["linked_trips"]]
-    if any(column not in trips.columns for column in wanted):
-        return None
-
-    has_zone = pl.lit(value=True)
-    for column in wanted:
-        has_zone = has_zone & _has_zone(column)
-
-    return trips.select("tour_id", has_zone.alias("_trip_has_zone"))
+    return trips.select(
+        "tour_id", _zone_expr(trips, "linked_trips", profile).alias("_trip_has_zone")
+    )
