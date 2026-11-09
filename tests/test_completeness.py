@@ -522,7 +522,7 @@ class TestUnflaggedMemberTablesRaise:
         with pytest.raises(ValueError, match="no usable_test column yet"):
             _flag_joint_groupings(
                 tables,
-                cols=UsabilityProfile(
+                profile=UsabilityProfile(
                     "test",
                     TourClosesAt.PRIMARY_HOME,
                     HouseholdDayNeeds.ALL_MEMBERS,
@@ -543,7 +543,7 @@ class TestUnflaggedMemberTablesRaise:
         with pytest.raises(ValueError, match="household_days has no usable_test column yet"):
             _flag_households(
                 tables,
-                cols=UsabilityProfile(
+                profile=UsabilityProfile(
                     "test",
                     TourClosesAt.PRIMARY_HOME,
                     HouseholdDayNeeds.ALL_MEMBERS,
