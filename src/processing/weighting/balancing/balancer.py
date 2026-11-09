@@ -78,7 +78,7 @@ def balance_weights(
     """Balance household weights to match control totals per zone.
 
     Args:
-        seed: Incidence table with ``hh_id``, ``ctrl_geoid``,
+        seed: Incidence table with ``hh_id``, ``zone_group_id``,
             ``base_weight``, and pivoted control columns
             (``{ctrl}__{member}`` or structural).  All merges (global
             and zone-specific) must already be applied.
@@ -90,27 +90,27 @@ def balance_weights(
 
     Returns:
         Tuple of ``(weights, statuses)`` where *weights* is a DataFrame
-        with columns ``hh_id``, ``hh_weight``, ``geo_id``, and
+        with columns ``hh_id``, ``hh_weight``, ``zone_group_id``, and
         *statuses* is one [`ZoneStatus`][processing.weighting.core.specs.ZoneStatus]
         entry per zone with convergence info.
     """
-    geo_col = "ctrl_geoid"
+    geo_col = "zone_group_id"
 
     # Build per-zone inputs
     zone_inputs: list[ZoneInput] = []
-    for geo_id in control_totals.geo_ids:
-        zone_seed = seed.filter(pl.col(geo_col).cast(pl.Utf8) == geo_id)
+    for zone_group_id in control_totals.zone_group_ids:
+        zone_seed = seed.filter(pl.col(geo_col).cast(pl.Utf8) == zone_group_id)
         if len(zone_seed) == 0:
-            logger.warning("Zone %s: no seed records, skipping", geo_id)
+            logger.warning("Zone %s: no seed records, skipping", zone_group_id)
             continue
 
-        zone_totals = control_totals.totals.filter(pl.col("geo_id") == geo_id)
+        zone_totals = control_totals.totals.filter(pl.col("zone_group_id") == zone_group_id)
         zone_inputs.append(
             _prepare_zone(
                 zone_seed,
                 zone_totals,
                 targets,
-                geo_id,
+                zone_group_id,
                 importance=importance.explicit or None,
                 default_importance=importance.default,
                 min_expansion_factor=balancing.min_expansion_factor,
@@ -137,7 +137,9 @@ def balance_weights(
     weights = (
         pl.concat(weight_frames)
         if weight_frames
-        else pl.DataFrame(schema={"hh_id": pl.Int64, "hh_weight": pl.Float64, "geo_id": pl.Utf8})
+        else pl.DataFrame(
+            schema={"hh_id": pl.Int64, "hh_weight": pl.Float64, "zone_group_id": pl.Utf8}
+        )
     )
 
     n_fail = sum(not s.converged for s in statuses)
@@ -231,7 +233,7 @@ def _prepare_zone(  # noqa: PLR0913
     zone_seed: pl.DataFrame,
     zone_totals: pl.DataFrame,
     targets: list[str],
-    geo_id: str,
+    zone_group_id: str,
     *,
     importance: dict[str, float] | None,
     default_importance: float,
@@ -276,7 +278,7 @@ def _prepare_zone(  # noqa: PLR0913
     gap = abs(total / target - 1) if target > 0 else float("inf")
     if gap > max_base_weight_gap:
         msg = (
-            f"Zone {geo_id}: base weights add up to {total:,.0f} against a household "
+            f"Zone {zone_group_id}: base weights add up to {total:,.0f} against a household "
             f"target of {target:,.0f}, {gap:.2%} off, more than max_base_weight_gap "
             f"({max_base_weight_gap:.2%}). Check the base weights for this zone."
         )
@@ -300,7 +302,7 @@ def _prepare_zone(  # noqa: PLR0913
         importance=imp_vec,
         master_idx=master_idx,
         max_iterations=max_iterations,
-        geo_id=geo_id,
+        zone_group_id=zone_group_id,
         verbose=verbose,
     )
 
@@ -326,14 +328,14 @@ def _balance_zone(zone: ZoneInput) -> ZoneResult:
     )
 
     converged, iters, delta, gamma = status
-    zs = ZoneStatus(zone.geo_id, bool(converged), int(iters), float(delta), float(gamma))
+    zs = ZoneStatus(zone.zone_group_id, bool(converged), int(iters), float(delta), float(gamma))
 
     if zone.verbose:
         level = logging.INFO if converged else logging.WARNING
         logger.log(
             level,
             "Zone %s: %s in %d iters (delta=%.2e)",
-            zone.geo_id,
+            zone.zone_group_id,
             "converged" if converged else "NOT CONVERGED",
             iters,
             delta,
@@ -343,7 +345,7 @@ def _balance_zone(zone: ZoneInput) -> ZoneResult:
         {
             "hh_id": zone.hh_ids,
             "hh_weight": w_final,
-            "geo_id": [zone.geo_id] * n,
+            "zone_group_id": [zone.zone_group_id] * n,
         }
     )
     return ZoneResult(frame, zs)

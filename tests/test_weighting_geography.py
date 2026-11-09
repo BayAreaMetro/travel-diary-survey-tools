@@ -271,14 +271,14 @@ class TestLoadTargetZones:
         """Zones load the same from a GeoDataFrame and from a file path."""
         for source in (three_target_zones, target_zone_file):
             gdf = _load_target_zones(source, "target_id")
-            assert "study_geoid" in gdf.columns
+            assert "target_zone_id" in gdf.columns
             assert len(gdf) == 3
 
     def test_single_boundary_mode(self, three_target_zones):
-        """When id_field is None, should dissolve to a single geometry with study_geoid=1."""
+        """When id_field is None, should dissolve to a single geometry with target_zone_id=1."""
         gdf = _load_target_zones(three_target_zones, None)
         assert len(gdf) == 1
-        assert gdf["study_geoid"].iloc[0] == "1"
+        assert gdf["target_zone_id"].iloc[0] == "1"
 
     def test_missing_id_field_raises(self, three_target_zones):
         """Test that a missing ID field raises a ValueError."""
@@ -380,7 +380,7 @@ class TestAssignHouseholds:
         pumas = two_pumas.copy().set_crs("EPSG:4326", allow_override=True)
 
         result = self._make_xw(target, pumas).assign_households(hh).sort("hh_id")
-        assert result["ctrl_geoid"].to_list() == ["1", "2", "2", "3", None]
+        assert result["zone_group_id"].to_list() == ["1", "2", "2", "3", None]
         assert result["home_puma"].to_list() == ["A", "A", "B", "B", None]
 
     def test_assigns_correct_zones(self, three_target_zones, two_pumas):
@@ -398,14 +398,14 @@ class TestAssignHouseholds:
 
         xw = self._make_xw(target, pumas)
         result = xw.assign_households(hh)
-        assert "ctrl_geoid" in result.columns
+        assert "zone_group_id" in result.columns
         assert result.height == 4
 
-        assigned = result.select("hh_id", "ctrl_geoid").sort("hh_id")
-        assert assigned[0, "ctrl_geoid"] == "1"
-        assert assigned[1, "ctrl_geoid"] == "2"
-        assert assigned[2, "ctrl_geoid"] == "3"
-        assert assigned[3, "ctrl_geoid"] is None
+        assigned = result.select("hh_id", "zone_group_id").sort("hh_id")
+        assert assigned[0, "zone_group_id"] == "1"
+        assert assigned[1, "zone_group_id"] == "2"
+        assert assigned[2, "zone_group_id"] == "3"
+        assert assigned[3, "zone_group_id"] is None
         # the households' own columns come back untouched
         assert result.sort("hh_id")["extra_col"].to_list() == ["keep_me"] * 4
 
@@ -453,13 +453,13 @@ class TestAssignBlocks:
         result = self._make_xw().assign_blocks(self._blocks()).sort("block_id")
         assert result["block_id"].to_list() == [f"B{i:02d}" for i in range(10)]
         assert result["puma_id"].to_list() == ["A"] * 5 + ["B"] * 5
-        assert result["ctrl_geoid"].to_list() == ["1"] * 3 + ["2"] * 6 + [None]
+        assert result["zone_group_id"].to_list() == ["1"] * 3 + ["2"] * 6 + [None]
 
     def test_zone_groups_name_the_balancing_zone(self):
         """Blocks take the group their zone balances in."""
         xw = self._make_xw({"G": ["1", "2"]})
         result = xw.assign_blocks(self._blocks()).sort("block_id")
-        assert result["ctrl_geoid"].to_list() == ["G"] * 9 + [None]
+        assert result["zone_group_id"].to_list() == ["G"] * 9 + [None]
 
     def test_zones_are_named_by_their_census_counties(self):
         """A zone in one county takes its name; one across counties lists each share."""
@@ -745,8 +745,8 @@ class TestControlDataCrosswalk:
         xw.crosswalk_df = pl.DataFrame(
             {
                 "puma_id": ["A", "A", "B"],
-                "study_geoid": ["T1", "T2", "T2"],
-                "ctrl_geoid": ["T1", "T2", "T2"],
+                "target_zone_id": ["T1", "T2", "T2"],
+                "zone_group_id": ["T1", "T2", "T2"],
                 "allocation_weight": [0.7, 0.3, 1.0],
             }
         )
@@ -756,7 +756,7 @@ class TestControlDataCrosswalk:
             targets,
         )
 
-        assert set(result.geo_ids) == {"T1", "T2"}
+        assert set(result.zone_group_ids) == {"T1", "T2"}
         by_zone = {
             (ctrl, geo): total
             for geo, ctrl, _, total in result.totals.filter(
@@ -784,16 +784,16 @@ class TestPlotCrosswalk:
             target_gdf=target_gdf,
             weight_gdf=uniform_blocks,
             source_id_col="puma_id",
-            target_id_col="study_geoid",
+            target_id_col="target_zone_id",
             weight_col="pop20",
             resolution=50,
-        ).rename({"source_id": "puma_id", "target_id": "study_geoid"})
+        ).rename({"source_id": "puma_id", "target_id": "target_zone_id"})
         return two_pumas, target_gdf, xw_df
 
     def test_produces_html(self, crosswalk_data):
         """The figure renders, with per-profile seeds and named zone groups on it."""
         puma_gdf, target_gdf, xw_df = crosswalk_data
-        hh = pl.DataFrame({"hh_id": [1, 2, 3], "ctrl_geoid": ["1", "2", "3"]})
+        hh = pl.DataFrame({"hh_id": [1, 2, 3], "zone_group_id": ["1", "2", "3"]})
         fig = crosswalk_figure(
             puma_gdf=puma_gdf,
             target_gdf=target_gdf,
@@ -831,9 +831,9 @@ class TestPlotCrosswalk:
 # The bound on what the weighting can answer: households it cannot place.
 #
 # Two region tests exist and are allowed to disagree. The model zones a usability
-# profile reads are assigned with a snap tolerance; the control geography is a
+# profile reads are assigned with a snap tolerance; the target zones are a
 # strict point-in-polygon. A household that passes the first and fails the second is
-# admitted by the profile and belongs to no balancing zone, so no fit can weight it.
+# admitted by the profile and belongs to no zone group, so no fit can weight it.
 #
 # Left alone that produces a column of nulls and no explanation. These tests pin
 # that it is counted, and that a share large enough to mean a misconfigured
@@ -847,7 +847,7 @@ def _seed(placed: int, unplaceable: int) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "hh_id": list(range(1, n + 1)),
-            "ctrl_geoid": ["06001"] * placed + [None] * unplaceable,
+            "zone_group_id": ["06001"] * placed + [None] * unplaceable,
         }
     )
 
@@ -901,7 +901,7 @@ class TestTheTolerance:
         The message names both layers, so the reader knows which to go and look
         at, and names the setting that tolerates it.
         """
-        with pytest.raises(ValueError, match="have no control geography") as excinfo:
+        with pytest.raises(ValueError, match="are in no target zone") as excinfo:
             check_control_geography_coverage(_seed(5, 5), profile="p", max_unplaceable_share=0.01)
         message = str(excinfo.value)
         assert "point-in-polygon" in message

@@ -103,7 +103,7 @@ def balancer_performance_table(
 
     Args:
         statuses: Per-zone convergence results from the balancer.
-        weighted: Household seed joined with final weights (must include `ctrl_geoid`,
+        weighted: Household seed joined with final weights (must include `zone_group_id`,
             `hh_weight`, `base_weight` columns).
         zone_fit: Zone-level target fit summary (output of `zone_fit_summary()`).
 
@@ -115,8 +115,8 @@ def balancer_performance_table(
         Uses `html_table()` with a two-tier grouped header. The "Household" and
         "Person" columns span their respective Target/% Error sub-columns.
     """
-    status_map = {s.geo_id: s for s in statuses}
-    fit_map = {r["geo_id"]: r for r in zone_fit.iter_rows(named=True)}
+    status_map = {s.zone_group_id: s for s in statuses}
+    fit_map = {r["zone_group_id"]: r for r in zone_fit.iter_rows(named=True)}
     zones = sorted(status_map)
 
     group_row = [
@@ -139,7 +139,7 @@ def balancer_performance_table(
     for z in zones:
         s = status_map[z]
         f = fit_map.get(z, {})
-        zone_df = weighted.filter(pl.col("ctrl_geoid") == z)
+        zone_df = weighted.filter(pl.col("zone_group_id") == z)
         n = zone_df.height
 
         w = zone_df["hh_weight"]
@@ -208,7 +208,7 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
     complements the weight chart that follows it in the report.
 
     Args:
-        weighted: Household seed joined with final weights (must include `ctrl_geoid`,
+        weighted: Household seed joined with final weights (must include `zone_group_id`,
             `hh_weight`, `base_weight` columns).
 
     Returns:
@@ -249,8 +249,8 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
             s["median_ef"],
         ]
 
-    zones = sorted(weighted["ctrl_geoid"].unique().to_list())
-    rows = [_row(str(z), weighted.filter(pl.col("ctrl_geoid") == z)) for z in zones]
+    zones = sorted(weighted["zone_group_id"].unique().to_list())
+    rows = [_row(str(z), weighted.filter(pl.col("zone_group_id") == z)) for z in zones]
     rows.append(_row("TOTAL", weighted))
     return html_table(headers, rows)
 
@@ -347,7 +347,7 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     """
     labels = category_label_map(target_names)
     merged_zones, absorbed_zones = _build_zone_merge_lookups(merge_specs)
-    zones = sorted(seed["ctrl_geoid"].unique().to_list())
+    zones = sorted(seed["zone_group_id"].unique().to_list())
     n_zone_cols = len(zones)
 
     # Pre-compute counts for all controls across all zones with single aggregation.
@@ -379,12 +379,12 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
 
     # Single group_by aggregation to get all zone x control counts
     if control_cols:
-        zone_counts = seed.group_by("ctrl_geoid").agg(
+        zone_counts = seed.group_by("zone_group_id").agg(
             [pl.col(c).sum().alias(c) for c in control_cols]
         )
         counts_by_zone: dict[str, dict[str, int]] = {}
         for row in zone_counts.iter_rows(named=True):
-            zone_id = row["ctrl_geoid"]
+            zone_id = row["zone_group_id"]
             counts_by_zone[zone_id] = {col: int(row[col]) for col in control_cols}
     else:
         counts_by_zone = {}
@@ -394,15 +394,15 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     pums_pct_total: dict[tuple[str, str], float] = {}
     if control_totals is not None:
         ct = control_totals.totals
-        zone_ctrl_totals = ct.group_by(["geo_id", "control_name"]).agg(
+        zone_ctrl_totals = ct.group_by(["zone_group_id", "control_name"]).agg(
             pl.col("target_total").sum().alias("zone_ctrl_total")
         )
-        ct_with_pct = ct.join(zone_ctrl_totals, on=["geo_id", "control_name"], how="left")
+        ct_with_pct = ct.join(zone_ctrl_totals, on=["zone_group_id", "control_name"], how="left")
         ct_with_pct = ct_with_pct.with_columns(
             (pl.col("target_total") / pl.col("zone_ctrl_total") * 100).alias("pct")
         )
         for row in ct_with_pct.iter_rows(named=True):
-            pums_pct[(row["geo_id"], row["control_name"], row["category"])] = row["pct"]
+            pums_pct[(row["zone_group_id"], row["control_name"], row["category"])] = row["pct"]
 
         all_ctrl_totals = ct.group_by("control_name").agg(
             pl.col("target_total").sum().alias("all_ctrl_total")
@@ -419,7 +419,7 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
         # A category is shown if, in some zone where it is a target, it has a target or
         # records. One zone merges replaced everywhere is a target nowhere with either.
         targets = {
-            (r["geo_id"], r["control_name"], r["category"]): r["target_total"]
+            (r["zone_group_id"], r["control_name"], r["category"]): r["target_total"]
             for r in ct.iter_rows(named=True)
         }
         ctrl_members = {
@@ -506,34 +506,37 @@ def crosswalk_summary_table(
     Households outside every zone get their own row: they cannot be weighted.
 
     Args:
-        crosswalk_df: The PUMA-to-zone allocation, with ``study_geoid`` and
-            ``ctrl_geoid``.
-        seed: One profile's household seed, with ``study_geoid``.
+        crosswalk_df: The PUMA-to-zone allocation, with ``target_zone_id`` and
+            ``zone_group_id``.
+        seed: One profile's household seed, with ``target_zone_id``.
         counties: Zone ID to its Census county name or names.
     """
     counts = dict(
-        seed.filter(pl.col("study_geoid").is_not_null()).group_by("study_geoid").len().iter_rows()
+        seed.filter(pl.col("target_zone_id").is_not_null())
+        .group_by("target_zone_id")
+        .len()
+        .iter_rows()
     )
-    outside = seed.filter(pl.col("study_geoid").is_null()).height
+    outside = seed.filter(pl.col("target_zone_id").is_null()).height
     zones = (
-        crosswalk_df.select("study_geoid", "ctrl_geoid")
+        crosswalk_df.select("target_zone_id", "zone_group_id")
         .unique()
-        .filter(pl.col("study_geoid").is_not_null())
-        .sort("ctrl_geoid", "study_geoid")
+        .filter(pl.col("target_zone_id").is_not_null())
+        .sort("zone_group_id", "target_zone_id")
     )
-    grouped = zones.filter(pl.col("study_geoid") != pl.col("ctrl_geoid")).height > 0
+    grouped = zones.filter(pl.col("target_zone_id") != pl.col("zone_group_id")).height > 0
 
     headers = (["Zone group"] if grouped else []) + ["Zone", "Census county", "Households"]
     pad = [""] if grouped else []
     body: list[list[str]] = []
-    for (group,), members in zones.group_by("ctrl_geoid", maintain_order=True):
-        for i, zone in enumerate(members["study_geoid"].to_list()):
+    for (group,), members in zones.group_by("zone_group_id", maintain_order=True):
+        for i, zone in enumerate(members["target_zone_id"].to_list()):
             name = [str(group) if i == 0 else ""] if grouped else []
             body.append(
                 [*name, _left(zone), _left(counties.get(zone, "")), f"{counts.get(zone, 0):,}"]
             )
         if grouped and members.height > 1:
-            total = sum(counts.get(z, 0) for z in members["study_geoid"].to_list())
+            total = sum(counts.get(z, 0) for z in members["target_zone_id"].to_list())
             body.append(["", "", _left("<b>Group</b>"), f"<b>{total:,}</b>"])
     body.append(["<b>Outside all zones</b>", *pad, "", f"<b>{outside:,}</b>"])
     body.append(["<b>Total</b>", *pad, "", f"<b>{seed.height:,}</b>"])

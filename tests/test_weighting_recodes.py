@@ -82,7 +82,7 @@ def survey_households() -> pl.DataFrame:
             "hh_id": [1, 2, 3],
             "income_bin": [1, 5, 3],  # Under 25k, $100-200k, $50-75k
             "hh_weight": [1.5, 2.0, 1.0],
-            "ctrl_geoid": ["00100", "00100", "00200"],
+            "zone_group_id": ["00100", "00100", "00200"],
         }
     )
 
@@ -566,12 +566,12 @@ class TestBuildIncidenceTable:
         """One row per household, hh_id kept, and extra_cols carried through."""
         hh_recoded, per_recoded = recoded
         seed = build_incidence_table(
-            hh_recoded, per_recoded, ALL_TARGETS, extra_cols=["ctrl_geoid"]
+            hh_recoded, per_recoded, ALL_TARGETS, extra_cols=["zone_group_id"]
         ).incidence
 
         assert seed.height == 3  # one row per household
         assert seed.sort("hh_id")["hh_id"].to_list() == [1, 2, 3]
-        assert seed.sort("hh_id")["ctrl_geoid"].to_list() == ["00100", "00100", "00200"]
+        assert seed.sort("hh_id")["zone_group_id"].to_list() == ["00100", "00100", "00200"]
 
     def test_incidence_sums_match_hh_size(self, recoded):
         """Gender incidence sums to the household's size, and every value is a count."""
@@ -865,7 +865,7 @@ class TestPumaControl:
             extra_cols=["WGTP", "PUMA"],
             person_extra_cols=["PWGTP", "PUMA"],
         )
-        one_zone = pl.lit("z1").alias("ctrl_geoid")
+        one_zone = pl.lit("z1").alias("zone_group_id")
         seed, _ = fill_null_incidence(
             survey,
             pums.incidence.with_columns(one_zone),
@@ -897,7 +897,7 @@ class TestTargetZoneControl:
 
     def test_survey_recode(self, zone_ctrl):
         """A home's own zone; one in no zone has no category."""
-        hh = pl.DataFrame({"study_geoid": ["013", "001", None]})
+        hh = pl.DataFrame({"target_zone_id": ["013", "001", None]})
         assert hh.select(zone_ctrl.survey_expr()).to_series().to_list() == [2, 1, None]
 
     @pytest.mark.usefixtures("zone_ctrl")
@@ -910,7 +910,7 @@ class TestTargetZoneControl:
     def test_each_allocated_copy_gets_its_own_zone(self):
         """A PUMA split across two zones: one record, two copies, one column each."""
         allocated = pl.DataFrame(
-            {"SERIALNO": ["S1", "S1"], "study_geoid": ["013", "001"], "WGTP": [90.0, 10.0]}
+            {"SERIALNO": ["S1", "S1"], "target_zone_id": ["013", "001"], "WGTP": [90.0, 10.0]}
         )
         out = pivot_allocated_controls(allocated, ["h_total", "h_target_zone"])
         assert out.select(
@@ -931,14 +931,14 @@ class TestTargetZoneControl:
         )
         pipeline.crosswalk = SimpleNamespace(
             crosswalk_df=pl.DataFrame(
-                {"study_geoid": ["001", "013", "081"], "ctrl_geoid": ["A", "A", "B"]}
+                {"target_zone_id": ["001", "013", "081"], "zone_group_id": ["A", "A", "B"]}
             )
         )
         allocated = pl.DataFrame(
             {
                 "SERIALNO": ["S1", "S1", "S2"],
-                "study_geoid": ["013", "001", "081"],
-                "ctrl_geoid": ["A", "A", "B"],
+                "target_zone_id": ["013", "001", "081"],
+                "zone_group_id": ["A", "A", "B"],
                 "WGTP": [90.0, 10.0, 50.0],
                 "h_total": [1, 1, 1],
             }
@@ -950,7 +950,7 @@ class TestTargetZoneControl:
             {
                 "SERIALNO": ["S1"],
                 "SPORDER": [1],
-                "ctrl_geoid": ["A"],
+                "zone_group_id": ["A"],
                 "PWGTP": [10.0],
                 "p_total": [1],
             }
@@ -961,9 +961,10 @@ class TestTargetZoneControl:
             (pl.col("control_name") == "h_target_zone") & (pl.col("target_total") > 0)
         )
         assert {
-            (r["geo_id"], r["category"]): r["target_total"] for r in zones.iter_rows(named=True)
+            (r["zone_group_id"], r["category"]): r["target_total"]
+            for r in zones.iter_rows(named=True)
         } == {
             ("A", "001"): 10.0,
             ("A", "013"): 90.0,
         }
-        assert zones.filter(pl.col("geo_id") == "B").is_empty()
+        assert zones.filter(pl.col("zone_group_id") == "B").is_empty()

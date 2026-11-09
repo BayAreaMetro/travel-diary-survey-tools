@@ -81,7 +81,7 @@ def compute_base_weights(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
-    geo_col: str = "ctrl_geoid",
+    geo_col: str = "zone_group_id",
     *,
     sample_plan: str | Path | SamplePlan | None = None,
     block_households: pl.DataFrame | None = None,
@@ -104,7 +104,7 @@ def compute_base_weights(
             [`SamplePlan`][processing.weighting.core.specs.SamplePlan].
             When ``None``, default response inversion is used.
         block_households: Census households per block, grown to the PUMS year,
-            with columns ``[block_id, ctrl_geoid, households]``. Required when
+            with columns ``[block_id, zone_group_id, households]``. Required when
             *sample_plan* is provided; built by
             [`grow_block_households`][processing.weighting.balancing.base_weights.grow_block_households].
 
@@ -132,7 +132,7 @@ def compute_base_weights(
     return seed.join(
         zone_weights,
         left_on=pl.col(geo_col).cast(pl.Utf8),
-        right_on="geo_id",
+        right_on="zone_group_id",
         how="left",
     )
 
@@ -146,7 +146,7 @@ def _zone_weights_from_response_inversion(
     targets: list[str],
     geo_col: str,
 ) -> pl.DataFrame:
-    """Return ``(geo_id, base_weight)`` via zone_target_hh_pop / zone_n_responses.
+    """Return ``(zone_group_id, base_weight)`` via zone_target_hh_pop / zone_n_responses.
 
     Uses the first household-level control to derive the total-HH
     population target per zone — the same logic that ``_build_incidence``
@@ -167,7 +167,7 @@ def _zone_weights_from_response_inversion(
     # Total HH population target per zone (sum across categories)
     zone_targets = (
         control_totals.totals.filter(pl.col("control_name") == ref_var_name)
-        .group_by("geo_id")
+        .group_by("zone_group_id")
         .agg(pl.col("target_total").sum().alias("_zone_target_hh"))
     )
 
@@ -175,16 +175,16 @@ def _zone_weights_from_response_inversion(
     zone_counts = (
         seed.group_by(geo_col)
         .agg(pl.len().alias("_zone_n_responses"))
-        .rename({geo_col: "geo_id"})
-        .with_columns(pl.col("geo_id").cast(pl.Utf8))
+        .rename({geo_col: "zone_group_id"})
+        .with_columns(pl.col("zone_group_id").cast(pl.Utf8))
     )
 
     # Join and derive base weight
-    zone_weights = zone_targets.join(zone_counts, on="geo_id", how="inner")
+    zone_weights = zone_targets.join(zone_counts, on="zone_group_id", how="inner")
 
     zeros = zone_weights.filter(pl.col("_zone_n_responses") == 0)
     if len(zeros) > 0:
-        bad = zeros["geo_id"].to_list()
+        bad = zeros["zone_group_id"].to_list()
         msg = f"Zones with zero survey responses: {bad}"
         raise ValueError(msg)
 
@@ -197,17 +197,21 @@ def _zone_weights_from_response_inversion(
     region_responses = zone_weights["_zone_n_responses"].sum()
     region_weighted = (zone_weights["base_weight"] * zone_weights["_zone_n_responses"]).sum()
 
-    zw = zone_weights.sort("geo_id").with_columns(
+    zw = zone_weights.sort("zone_group_id").with_columns(
         (pl.col("base_weight") * pl.col("_zone_n_responses")).alias("_init_total")
     )
     zw_wide = pl.concat(
         [
             zw.select(
-                "geo_id", "_zone_target_hh", "_zone_n_responses", "base_weight", "_init_total"
+                "zone_group_id",
+                "_zone_target_hh",
+                "_zone_n_responses",
+                "base_weight",
+                "_init_total",
             ),
             pl.DataFrame(
                 {
-                    "geo_id": ["REGION"],
+                    "zone_group_id": ["REGION"],
                     "_zone_target_hh": [region_target],
                     "_zone_n_responses": [region_responses],
                     "base_weight": [None],
@@ -218,7 +222,7 @@ def _zone_weights_from_response_inversion(
         how="diagonal_relaxed",
     ).rename(
         {
-            "geo_id": "Zone",
+            "zone_group_id": "Zone",
             "_zone_target_hh": "Target HH",
             "_zone_n_responses": "Responses",
             "base_weight": "Base Wt",
@@ -231,7 +235,7 @@ def _zone_weights_from_response_inversion(
         zw_wide,
     )
 
-    zone_weights = zone_weights.select("geo_id", "base_weight")
+    zone_weights = zone_weights.select("zone_group_id", "base_weight")
 
     return zone_weights
 
@@ -250,13 +254,13 @@ def grow_block_households(
     each PUMA's ``growth = PUMS households / Census households`` scales its blocks.
 
     Args:
-        blocks: One row per block, with ``block_id``, ``puma_id``, ``ctrl_geoid``
-            (null outside the balancing zones) and ``households`` (Census count).
+        blocks: One row per block, with ``block_id``, ``puma_id``, ``zone_group_id``
+            (null outside the zone groups) and ``households`` (Census count).
         pums_households: PUMS households with ``PUMA`` and ``WGTP``, weighted as
             the household targets are.
 
     Returns:
-        ``(grown, growth)``: *grown* has ``[block_id, ctrl_geoid, households]``
+        ``(grown, growth)``: *grown* has ``[block_id, zone_group_id, households]``
         for blocks inside the zones, counts grown; *growth* has one row per
         PUMA holding such a block, with ``[puma_id, census_households,
         pums_households, growth]``.
@@ -268,7 +272,7 @@ def grow_block_households(
     pums = pums_households.group_by(pl.col("PUMA").cast(pl.Utf8).alias("puma_id")).agg(
         pl.col("WGTP").sum().cast(pl.Float64).alias("pums_households")
     )
-    in_zones = blocks.filter(pl.col("ctrl_geoid").is_not_null())
+    in_zones = blocks.filter(pl.col("zone_group_id").is_not_null())
     growth = (
         census.filter(pl.col("puma_id").is_in(in_zones["puma_id"].unique().implode()))
         .join(pums, on="puma_id", how="left")
@@ -277,12 +281,12 @@ def grow_block_households(
     )
     missing = growth.filter(pl.col("pums_households").is_null())["puma_id"].to_list()
     if missing:
-        msg = f"PUMAs inside the balancing zones have no PUMS households: {missing}"
+        msg = f"PUMAs inside the zone groups have no PUMS households: {missing}"
         raise ValueError(msg)
 
     grown = in_zones.join(growth.select("puma_id", "growth"), on="puma_id", how="left").select(
         "block_id",
-        pl.col("ctrl_geoid").cast(pl.Utf8),
+        pl.col("zone_group_id").cast(pl.Utf8),
         (pl.col("households") * pl.col("growth").fill_null(0.0)).alias("households"),
     )
     logger.info(
@@ -305,7 +309,7 @@ def _hh_weights_from_plan(
     """Return ``(hh_id, base_weight)`` from a block-group-level sample plan.
 
     The sample plan maps Census block groups to sampling segments. A segment
-    can span balancing zones, so the stratum is segment x zone: each cell's
+    can span zone groups, so the stratum is segment x zone: each cell's
     households are spread over that cell's responses, and every zone's base
     weights add up to its households. Each survey household must already have
     a ``bg_geo_id`` column (from
@@ -338,7 +342,7 @@ def _hh_weights_from_plan(
     cell_households = (
         block_households.with_columns(
             pl.col("block_id").str.slice(0, _BLOCK_GROUP_ID_LENGTH).alias("bg_geo_id"),
-            pl.col("ctrl_geoid").cast(pl.Utf8).alias(geo_col),
+            pl.col("zone_group_id").cast(pl.Utf8).alias(geo_col),
         )
         .join(bg_segment, on="bg_geo_id", how="inner")
         .group_by(cell)

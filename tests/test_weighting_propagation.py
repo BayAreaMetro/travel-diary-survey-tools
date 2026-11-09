@@ -940,7 +940,7 @@ def _empty_totals() -> ControlTotals:
     return ControlTotals(
         totals=pl.DataFrame(
             schema={
-                "ctrl_geoid": pl.String,
+                "zone_group_id": pl.String,
                 "control_name": pl.String,
                 "category": pl.String,
                 "target_total": pl.Float64,
@@ -948,7 +948,7 @@ def _empty_totals() -> ControlTotals:
         ),
         pums_hh_count=0,
         pums_person_count=0,
-        geo_ids=[],
+        zone_group_ids=[],
     )
 
 
@@ -964,7 +964,7 @@ def _nothing_usable() -> dict[str, pl.DataFrame]:
     """
     return {
         "households": pl.DataFrame(
-            {"hh_id": [1], "hh_weight": [100.0], "ctrl_geoid": ["a"], "base_weight": [100.0]}
+            {"hh_id": [1], "hh_weight": [100.0], "zone_group_id": ["a"], "base_weight": [100.0]}
         ),
         "persons": pl.DataFrame(
             {"person_id": [1], "hh_id": [1], "person_weight": [100.0], FLAG: [True]}
@@ -990,7 +990,7 @@ def _coherent_tables(*, usable: list[bool] | None = None) -> dict[str, pl.DataFr
     n_usable = sum(usable) or 1
     return {
         "households": pl.DataFrame(
-            {"hh_id": [1], "hh_weight": [100.0], "ctrl_geoid": ["a"], "base_weight": [100.0]}
+            {"hh_id": [1], "hh_weight": [100.0], "zone_group_id": ["a"], "base_weight": [100.0]}
         ),
         "persons": pl.DataFrame(
             {

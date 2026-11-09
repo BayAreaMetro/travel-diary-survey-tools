@@ -261,7 +261,7 @@ def aggregate_control_totals(
     pums_person_incidence: pl.DataFrame,
     targets: list[str],
     *,
-    geo_col: str = "ctrl_geoid",
+    geo_col: str = "zone_group_id",
 ) -> ControlTotals:
     """Aggregate PUMS incidence into per-zone control totals.
 
@@ -280,7 +280,7 @@ def aggregate_control_totals(
     targets : list[str]
         Control registry names.
     geo_col : str
-        Geography column (default ``"ctrl_geoid"``).
+        Geography column (default ``"zone_group_id"``).
     """
     sources = {
         ControlLevel.HOUSEHOLD: (pums_incidence, "WGTP"),
@@ -304,11 +304,11 @@ def aggregate_control_totals(
                     (pl.col(col).cast(pl.Float64) * pl.col(weight_col)).sum().alias("target_total")
                 )
                 .with_columns(
-                    pl.col(geo_col).cast(pl.Utf8).alias("geo_id"),
+                    pl.col(geo_col).cast(pl.Utf8).alias("zone_group_id"),
                     pl.lit(ctrl.name).alias("control_name"),
                     pl.lit(member).alias("category"),
                 )
-                .select("geo_id", "control_name", "category", "target_total")
+                .select("zone_group_id", "control_name", "category", "target_total")
             )
             all_totals.append(totals)
 
@@ -317,30 +317,32 @@ def aggregate_control_totals(
         raise ValueError(msg)
 
     combined = pl.concat(all_totals)
-    geo_ids = combined["geo_id"].unique().sort().to_list()
+    zone_group_ids = combined["zone_group_id"].unique().sort().to_list()
 
     return ControlTotals(
         totals=combined,
         pums_hh_count=pums_incidence["SERIALNO"].n_unique(),
         pums_person_count=pums_person_incidence.select("SERIALNO", "SPORDER").n_unique(),
-        geo_ids=geo_ids,
+        zone_group_ids=zone_group_ids,
     )
 
 
 def drop_lone_target_zones(totals: ControlTotals, crosswalk_df: pl.DataFrame) -> ControlTotals:
-    """Drop ``h_target_zone`` in balancing zones made of one target zone.
+    """Drop ``h_target_zone`` in zone groups made of one target zone.
 
     There its target is the zone's household total, already ``h_total``.
     """
     lone = (
-        crosswalk_df.group_by("ctrl_geoid")
-        .agg(pl.col("study_geoid").n_unique())
-        .filter(pl.col("study_geoid") == 1)["ctrl_geoid"]
+        crosswalk_df.group_by("zone_group_id")
+        .agg(pl.col("target_zone_id").n_unique())
+        .filter(pl.col("target_zone_id") == 1)["zone_group_id"]
     )
-    keep = ~((pl.col("control_name") == "h_target_zone") & pl.col("geo_id").is_in(lone.implode()))
+    keep = ~(
+        (pl.col("control_name") == "h_target_zone") & pl.col("zone_group_id").is_in(lone.implode())
+    )
     return ControlTotals(
         totals=totals.totals.filter(keep),
         pums_hh_count=totals.pums_hh_count,
         pums_person_count=totals.pums_person_count,
-        geo_ids=totals.geo_ids,
+        zone_group_ids=totals.zone_group_ids,
     )

@@ -197,7 +197,7 @@ def fit_diverging_figure(
     the range either side of zero, from `fit_x_limit`; ``None`` fits this chart alone.
     """
     has_moe = "moe_pct" in fit.columns
-    zones = sorted(fit["geo_id"].unique().to_list())
+    zones = sorted(fit["zone_group_id"].unique().to_list())
     overall = _overall_fit(fit)
 
     panels = [*zones, "Overall"]
@@ -224,7 +224,9 @@ def fit_diverging_figure(
         pdf = (
             overall
             if panel == "Overall"
-            else fit.filter(pl.col("geo_id") == panel).sort("control_name", "category", "label")
+            else fit.filter(pl.col("zone_group_id") == panel).sort(
+                "control_name", "category", "label"
+            )
         )
         _add_panel_traces(fig, pdf, has_moe, row=r_idx + 1, col=c_idx + 1)
 
@@ -288,13 +290,13 @@ def weight_distribution_figure(weighted: pl.DataFrame) -> go.Figure:
     The spread follows the density on the scale shown: the Log and Linear buttons
     switch the axis and the points' sideways positions together.
     """
-    zones = sorted(weighted["ctrl_geoid"].unique().to_list())
+    zones = sorted(weighted["zone_group_id"].unique().to_list())
     rng = np.random.default_rng(_SINA_SEED)
     fig = go.Figure()
     x_linear: list[list[float]] = []
     x_log: list[list[float]] = []
     for i, z in enumerate(zones):
-        w = weighted.filter(pl.col("ctrl_geoid") == z)["hh_weight"].to_numpy()
+        w = weighted.filter(pl.col("zone_group_id") == z)["hh_weight"].to_numpy()
         on_linear = (i + _sina_offsets(w, rng)).tolist()
         on_log = (i + _sina_offsets(np.log(np.maximum(w, 1e-9)), rng)).tolist()
         fig.add_trace(
