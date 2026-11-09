@@ -124,13 +124,11 @@ def _flag_tours(
 ) -> None:
     """Stamp the usable flag on tours, in place.
 
-    A tour is usable when its structure is admissible, it sits on a coherent
-    household-date, every trip on it is usable, and -- where the profile names a
-    geography -- every one of its trips can be addressed in it, not merely its
-    own endpoints. Without the coherence term CT-RAMP (which reads the tour's
-    flag) would keep a tour the weighting has zeroed.
-    ``household_days.survey_complete`` is available because the completeness
-    cascade runs before this.
+    A tour is usable when its structure is admissible, every trip on it is
+    usable, and -- where the profile names a geography -- every one of its
+    trips can be addressed in it, not merely its own endpoints. The
+    household-date and the household's home zone are its day's terms, and the
+    tour takes them from its day on the way down.
 
     Subtours then take their parent's verdict on top of their own: an at-work
     subtour is travel *within* its parent tour, so keeping one whose parent was
@@ -167,31 +165,6 @@ def _flag_tours(
     if trips_ok is not None and "tour_id" in tours.columns:
         tours = and_reduced(
             tours, trips_ok, "tour_id", pl.col("_trips_usable").all(), fill=True, into=profile.flag
-        )
-
-    # The household's own home has to have a zone too, or the tour belongs to
-    # a household the consumer cannot write. See _home_zone_ok on why this is
-    # joined in rather than rolled down.
-    home = _home_zone_ok(tables, profile)
-    if home is not None and "hh_id" in tours.columns:
-        tours = and_reduced(
-            tours, home, "hh_id", pl.col("_home_zone_ok").first(), fill=False, into=profile.flag
-        )
-
-    person_days = tables.get("person_days")
-    if (
-        profile.needs_whole_household_day
-        and person_days is not None
-        and "person_day_id" in tours.columns
-    ):
-        coherence = with_household_day(person_days, tables, "survey_complete", "_hh_day_complete")
-        tours = and_reduced(
-            tours,
-            coherence,
-            "person_day_id",
-            pl.col("_hh_day_complete").first(),
-            fill=False,
-            into=profile.flag,
         )
 
     tables["tours"] = _flag_subtours_from_parent(tours, profile)
