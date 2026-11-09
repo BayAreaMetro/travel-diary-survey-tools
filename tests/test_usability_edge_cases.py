@@ -32,12 +32,27 @@ from processing.completeness import (
     parse_usability_profiles,
     stamp_usable,
 )
+from processing.completeness.profiles import ALL_DAYS
 from processing.completeness.usable import _flag_tours
 from processing.formatting.kept_records import suggest_usability_columns
 from tests.fixtures.schema_utils import add_household_days
 
-STRICT = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
-WIDEST = UsabilityProfile("widest", TourClosesAt.ANYWHERE, HouseholdDayNeeds.NOTHING)
+STRICT = UsabilityProfile(
+    "test",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
+WIDEST = UsabilityProfile(
+    "widest",
+    TourClosesAt.ANYWHERE,
+    HouseholdDayNeeds.NOTHING,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
 
 DATE = datetime(2023, 5, 1)
 
@@ -364,6 +379,8 @@ class TestTravelDays:
         TourClosesAt.PRIMARY_HOME,
         HouseholdDayNeeds.ALL_MEMBERS,
         travel_days=(TravelDow.TUESDAY, TravelDow.WEDNESDAY, TravelDow.THURSDAY),
+        zone_coverage=NO_ZONE_COVERAGE,
+        joint_tours=JointTours.PARTIAL,
     )
 
     def _days_on(self, dows: list[int | None]) -> dict:
@@ -473,7 +490,14 @@ class TestTravelDays:
 class TestExcludedPersons:
     """A person the cleaner excluded has no usable day, under any profile."""
 
-    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+    LOOSE = UsabilityProfile(
+        "test",
+        TourClosesAt.PRIMARY_HOME,
+        HouseholdDayNeeds.NOTHING,
+        zone_coverage=NO_ZONE_COVERAGE,
+        joint_tours=JointTours.PARTIAL,
+        travel_days=ALL_DAYS,
+    )
 
     def _two_members(self, reasons: list[str | None]) -> dict:
         """Two members on one date, each with one complete tour and trip."""
@@ -571,7 +595,14 @@ class TestExcludedPersons:
 class TestExcludedHouseholdsAndDays:
     """A household or day the cleaner excluded is unusable, under any profile."""
 
-    LOOSE = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
+    LOOSE = UsabilityProfile(
+        "test",
+        TourClosesAt.PRIMARY_HOME,
+        HouseholdDayNeeds.NOTHING,
+        zone_coverage=NO_ZONE_COVERAGE,
+        joint_tours=JointTours.PARTIAL,
+        travel_days=ALL_DAYS,
+    )
     REASON = "excluded"
 
     def _two_members_two_dates(

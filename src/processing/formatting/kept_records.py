@@ -18,7 +18,6 @@ a record the filter excludes is weight the output would lose.
 """
 
 import logging
-from dataclasses import dataclass, field
 
 import polars as pl
 
@@ -89,21 +88,10 @@ def suggest_usability_columns(frame: pl.DataFrame) -> str:
     return f"Did you mean one of these boolean columns? {', '.join(boolean)}."
 
 
-@dataclass
-class KeepLedger:
-    """How many rows each table lost to the profile's verdict."""
-
-    excluded: dict[str, int] = field(default_factory=dict)
-
-    def add(self, bucket: dict[str, int], key: str, n: int) -> None:
-        """Add *n* to *key* in *bucket*."""
-        bucket[key] = bucket.get(key, 0) + n
-
-
 def keep_records(
     tables: dict[str, pl.DataFrame],
     usability_flag_col: str,
-) -> tuple[dict[str, pl.DataFrame], KeepLedger]:
+) -> tuple[dict[str, pl.DataFrame], dict[str, int]]:
     """Keep the records *usability_flag_col* admits, and prove nothing dangles.
 
     Args:
@@ -112,7 +100,7 @@ def keep_records(
         usability_flag_col: The stamped verdict to gate on.
 
     Returns:
-        The kept tables, and a ledger of what each lost. Tables absent from the
+        The kept tables, and how many rows each lost. Tables absent from the
         input stay absent.
 
     Raises:
@@ -139,17 +127,17 @@ def keep_records(
     # licence to guess a criterion of our own.
     keep = pl.col(usability_flag_col).fill_null(value=False)
 
-    ledger = KeepLedger()
+    excluded: dict[str, int] = {}
     kept: dict[str, pl.DataFrame] = dict(tables)
     for name in GATED_TABLES:
         if name not in kept:
             continue
         before = kept[name]
         kept[name] = before.filter(keep)
-        ledger.add(ledger.excluded, name, before.height - kept[name].height)
+        excluded[name] = before.height - kept[name].height
 
     check_kept_records_agree(kept, usability_flag_col)
-    return kept, ledger
+    return kept, excluded
 
 
 def select_profile_columns(

@@ -5,7 +5,9 @@ import pytest
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from processing.completeness import (
+    NO_ZONE_COVERAGE,
     HouseholdDayNeeds,
+    JointTours,
     TourClosesAt,
     UsabilityProfile,
     cascade_complete,
@@ -13,6 +15,7 @@ from processing.completeness import (
     stamp_usable,
 )
 from processing.completeness.joint_groupings import _flag_joint_groupings
+from processing.completeness.profiles import ALL_DAYS
 from processing.completeness.usable import _flag_households
 from tests.fixtures.schema_utils import add_household_days
 
@@ -173,7 +176,14 @@ class TestComputeModelUsable:
         cascade_complete(add_household_days(tables))
         stamp_usable(
             tables,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         assert tables["tours"].sort("tour_id")["usable_test"].to_list() == [True, False, False]
 
@@ -183,7 +193,14 @@ class TestComputeModelUsable:
         cascade_complete(add_household_days(tables))
         stamp_usable(
             tables,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         assert tables["person_days"]["usable_test"].to_list() == [True]
 
@@ -196,7 +213,14 @@ class TestComputeModelUsable:
         cascade_complete(add_household_days(tables))
         stamp_usable(
             tables,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         assert tables["person_days"]["usable_test"].to_list() == [False]
         # ...but it is still valid survey data
@@ -210,7 +234,14 @@ class TestComputeModelUsable:
         cascade_complete(add_household_days(tables))
         stamp_usable(
             tables,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         assert tables["person_days"]["usable_test"].to_list() == [True]
 
@@ -234,7 +265,14 @@ class TestComputeModelUsable:
         cascade_complete(add_household_days(tables))
         stamp_usable(
             tables,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         assert tables["persons"]["usable_test"].to_list() == [False]
         assert tables["person_days"]["usable_test"].to_list() == [False]
@@ -304,7 +342,14 @@ class TestJointGroupingsNeedTwoMembers:
         cascade_complete(add_household_days(tables))
         stamp_usable(
             tables,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         assert tables["joint_trips"]["survey_complete"].to_list() == [True]
         assert tables["joint_trips"]["usable_test"].to_list() == [False]
@@ -380,7 +425,14 @@ class TestHouseholdDayCoherence:
         cascade_complete(add_household_days(t))
         stamp_usable(
             t,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         assert t["household_days"]["survey_complete"].to_list() == [True]
         assert t["person_days"]["usable_test"].to_list() == [True, True]
@@ -409,7 +461,14 @@ class TestHouseholdDayCoherence:
         cascade_complete(add_household_days(t))
         stamp_usable(
             t,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         # member 1 reported a complete day, but member 2 did not, so the whole
         # household-date is incoherent and neither day is usable
@@ -432,7 +491,14 @@ class TestHouseholdDayCoherence:
         cascade_complete(add_household_days(t))
         stamp_usable(
             t,
-            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+            UsabilityProfile(
+                "test",
+                TourClosesAt.PRIMARY_HOME,
+                HouseholdDayNeeds.ALL_MEMBERS,
+                zone_coverage=NO_ZONE_COVERAGE,
+                joint_tours=JointTours.PARTIAL,
+                travel_days=ALL_DAYS,
+            ),
         )
         # date A (days 1,3) coherent; date B (days 2,4) not
         assert t["household_days"].sort("travel_date")["survey_complete"].to_list() == [True, False]
@@ -457,7 +523,12 @@ class TestUnflaggedMemberTablesRaise:
             _flag_joint_groupings(
                 tables,
                 cols=UsabilityProfile(
-                    "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
+                    "test",
+                    TourClosesAt.PRIMARY_HOME,
+                    HouseholdDayNeeds.ALL_MEMBERS,
+                    zone_coverage=NO_ZONE_COVERAGE,
+                    joint_tours=JointTours.PARTIAL,
+                    travel_days=ALL_DAYS,
                 ),
             )
 
@@ -473,7 +544,12 @@ class TestUnflaggedMemberTablesRaise:
             _flag_households(
                 tables,
                 cols=UsabilityProfile(
-                    "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
+                    "test",
+                    TourClosesAt.PRIMARY_HOME,
+                    HouseholdDayNeeds.ALL_MEMBERS,
+                    zone_coverage=NO_ZONE_COVERAGE,
+                    joint_tours=JointTours.PARTIAL,
+                    travel_days=ALL_DAYS,
                 ),
             )
 

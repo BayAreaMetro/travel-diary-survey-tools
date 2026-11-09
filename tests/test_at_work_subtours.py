@@ -31,12 +31,15 @@ from data_canon.codebook.tours import (
 from data_canon.codebook.trips import Driver, ModeType, Purpose, PurposeCategory
 from processing import link_trips
 from processing.completeness import (
+    NO_ZONE_COVERAGE,
     HouseholdDayNeeds,
+    JointTours,
     TourClosesAt,
     UsabilityProfile,
     cascade_complete,
     stamp_usable,
 )
+from processing.completeness.profiles import ALL_DAYS
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_tours import format_individual_tour
 from processing.formatting.daysim.format_days import format_days as format_days_daysim
@@ -254,7 +257,14 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
     cascade_complete(add_household_days(tables))
     stamp_usable(
         tables,
-        UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+        UsabilityProfile(
+            "test",
+            TourClosesAt.PRIMARY_HOME,
+            HouseholdDayNeeds.ALL_MEMBERS,
+            zone_coverage=NO_ZONE_COVERAGE,
+            joint_tours=JointTours.PARTIAL,
+            travel_days=ALL_DAYS,
+        ),
     )
     return dict(zip(*tables["tours"].select("tour_id", "usable_test"), strict=True))
 

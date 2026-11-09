@@ -37,15 +37,49 @@ from processing.completeness import (
     parse_usability_profiles,
     stamp_usable,
 )
+from processing.completeness.profiles import ALL_DAYS
 from tests.fixtures.schema_utils import add_household_days
 
-STRICT = UsabilityProfile("strict", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
-SECOND_HOMES = UsabilityProfile(
-    "second_homes", TourClosesAt.ANY_HOME, HouseholdDayNeeds.ALL_MEMBERS
+STRICT = UsabilityProfile(
+    "strict",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
 )
-OPEN_ENDS = UsabilityProfile("open_ends", TourClosesAt.ANYWHERE, HouseholdDayNeeds.ALL_MEMBERS)
-LOOSE_DAYS = UsabilityProfile("loose_days", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.NOTHING)
-WIDEST = UsabilityProfile("widest", TourClosesAt.ANYWHERE, HouseholdDayNeeds.NOTHING)
+SECOND_HOMES = UsabilityProfile(
+    "second_homes",
+    TourClosesAt.ANY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
+OPEN_ENDS = UsabilityProfile(
+    "open_ends",
+    TourClosesAt.ANYWHERE,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
+LOOSE_DAYS = UsabilityProfile(
+    "loose_days",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.NOTHING,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
+WIDEST = UsabilityProfile(
+    "widest",
+    TourClosesAt.ANYWHERE,
+    HouseholdDayNeeds.NOTHING,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
 
 # Codes marking a hole in the tour rather than an unexpected end. No setting of
 # either axis admits these.
@@ -380,8 +414,22 @@ class TestProfilesAreIndependent:
 # ---------------------------------------------------------------------------
 
 # Same standard, two names. Any hardcoded column would make them disagree.
-FIRST = UsabilityProfile("first_name", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
-ALIAS = UsabilityProfile("second_name", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)
+FIRST = UsabilityProfile(
+    "first_name",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
+ALIAS = UsabilityProfile(
+    "second_name",
+    TourClosesAt.PRIMARY_HOME,
+    HouseholdDayNeeds.ALL_MEMBERS,
+    zone_coverage=NO_ZONE_COVERAGE,
+    joint_tours=JointTours.PARTIAL,
+    travel_days=ALL_DAYS,
+)
 
 
 def _household_with_joint_records() -> dict[str, pl.DataFrame]:
