@@ -112,11 +112,11 @@ per profile; every downstream consumer only *reads* the resulting flags.
 Modules:
 
 - ``profiles``: what a profile is, and how config states one.
-- ``survey_complete``: the reporting cascade, once per run.
-- ``household_day``: the household-date reduction, for both kinds of flag.
-- ``zone_coverage``: whether a record's locations have a zone.
-- ``usable_tours``: the tour fuse, where a verdict is decided.
-- ``usable_cascade``: that verdict, walked up and then down every table.
+- ``reduce``: the one reduce-and-join every level is built from.
+- ``survey_complete``: the completeness cascade, once per run, with the
+  household-date reduction both kinds of flag use.
+- ``usable``: one profile's verdict, from the tour fuse up and then down every
+  table, with the zone checks.
 - ``joint_groupings``: which records are on a joint tour or joint trip, per profile.
 - ``kept_records``: which records survive a verdict once references are restored.
 - ``descriptions``: what each stamped column means, in words.
@@ -125,7 +125,6 @@ Modules:
 
 from .cascade_completeness import cascade_completeness
 from .descriptions import suggest_usability_columns
-from .household_day import flag_household_day_complete, flag_household_day_usable
 from .joint_groupings import MIN_JOINT_PARTICIPANTS
 from .profiles import (
     NO_ZONE_COVERAGE,
@@ -139,8 +138,13 @@ from .profiles import (
     profile_of,
     usable_col_for,
 )
-from .survey_complete import cascade_complete, rollup_completeness, rollup_household_complete
-from .usable_cascade import compute_usability, stamp_usable
+from .survey_complete import (
+    cascade_complete,
+    flag_household_day_complete,
+    rollup_completeness,
+    rollup_household_complete,
+)
+from .usable import compute_usability, stamp_usable
 
 __all__ = [
     "MIN_JOINT_PARTICIPANTS",
@@ -155,7 +159,6 @@ __all__ = [
     "cascade_completeness",
     "compute_usability",
     "flag_household_day_complete",
-    "flag_household_day_usable",
     "parse_usability_profiles",
     "profile_of",
     "rollup_completeness",

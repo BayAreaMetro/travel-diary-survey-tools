@@ -4,10 +4,10 @@ import polars as pl
 
 from pipeline.decoration import step
 
-from .descriptions import _log_gate_summary, profile_columns
+from .descriptions import log_gate_summary, profile_columns
 from .profiles import parse_usability_profiles
 from .survey_complete import cascade_complete
-from .usable_cascade import stamp_usable
+from .usable import stamp_usable
 
 
 @step(
@@ -140,6 +140,6 @@ def cascade_completeness(
     cascade_complete(tables)
     for profile in profiles:
         stamp_usable(tables, profile)
-    _log_gate_summary(tables, profiles)
+    log_gate_summary(tables, profiles)
 
     return {name: df for name, df in tables.items() if df is not None}

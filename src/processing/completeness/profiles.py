@@ -111,7 +111,7 @@ def profile_of(usability_flag_col: str) -> str | None:
 # SPATIAL_GAP appear nowhere: they are not open ends but missing data -- no
 # tolerance for a tour that stops somewhere unexpected makes a missing leg
 # present, or an activity that never happened happen.
-_ADMITTED_QUALITY: dict[TourClosesAt, tuple[TourDataQuality, ...]] = {
+ADMITTED_QUALITY: dict[TourClosesAt, tuple[TourDataQuality, ...]] = {
     TourClosesAt.PRIMARY_HOME: (TourDataQuality.VALID,),
     TourClosesAt.ANY_HOME: (TourDataQuality.VALID, TourDataQuality.OTHER_HOME),
     TourClosesAt.ANYWHERE: (
@@ -186,7 +186,7 @@ class UsabilityProfile:
     @property
     def admitted_quality(self) -> tuple[TourDataQuality, ...]:
         """Tour quality codes this profile's closure setting admits."""
-        return _ADMITTED_QUALITY[TourClosesAt(self.tour_closes_at)]
+        return ADMITTED_QUALITY[TourClosesAt(self.tour_closes_at)]
 
     @property
     def needs_whole_household_day(self) -> bool:

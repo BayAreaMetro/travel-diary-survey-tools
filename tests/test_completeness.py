@@ -15,7 +15,7 @@ from processing.completeness import (
     rollup_household_complete,
 )
 from processing.completeness.joint_groupings import _flag_joint_groupings
-from processing.completeness.usable_cascade import _flag_households
+from processing.completeness.usable import _flag_households
 from tests.fixtures.schema_utils import add_household_days
 
 

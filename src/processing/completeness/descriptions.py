@@ -123,7 +123,7 @@ def _describe_household_day(profile: UsabilityProfile) -> str:
     )
 
 
-def _log_gate_summary(
+def log_gate_summary(
     tables: dict[str, pl.DataFrame | None],
     profiles: list[UsabilityProfile],
 ) -> None:
