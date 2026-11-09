@@ -20,13 +20,16 @@
 #   ENVS:
 #     SOME_SHARED_ROOT: "/opt/shared"
 #
+# -- Inputs (read only) ---------------------------------------------------------
 survey_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_2023/Versioned_Data/PreWeight_PreLink_MonToSun_20250610"
-weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"
-pums_dir: "{{ MTC_DATA }}/Data/Census/PUMS/2023_1yr"
-output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+weights_dir: "{{ MODEL3A_SHARE }}/survey_repos/ProjRoot_Mon-Thu20251201/WgtRoot_Mon-Thu20251201_nocommutemode/output/"  # the vendor's weights
+census_dir: "{{ MTC_DATA }}/Data/Census/BATS Weighting"  # PUMS and Census geography
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
-log_file: "{{ output_dir }}/pipeline_2023.log" # If not set, logs just to console, if not absolute saves to .cache directory
+
+# -- Outputs ------------------------------------------------------------------
+output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+log_file: "{{ output_dir }}/pipeline_2023.log"  # If not set, logs just to console
 # Distance within which a trip end is at a habitual location (home, work,
 # school). detect_habitual_locations and extract_tours each have their own
 # buffer_meters setting; both use this value here.
@@ -36,7 +39,6 @@ habitual_buffer_meters: "300"
 steps:
   - name: load_data
     validate_input: false  # overrides the step's @step() value; leave it out to keep that
-    cache: false
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
@@ -46,7 +48,6 @@ steps:
 
   - name: clean_2023_bats
     validate_input: false
-    cache: false
     params:
       # How a child's day counts as complete. "vendor": only with the adult's proxy
       # report, as the vendor decides. "observed_trips": also from the trips copied
@@ -60,7 +61,6 @@ steps:
 
   - name: imputation
     validate_input: false
-    cache: false
     params:
       impute_columns:
         # KNN/RF: impute single columns using similar records
@@ -125,7 +125,6 @@ steps:
 
   - name: link_trips
     validate_input: false
-    cache: false
     params:
       change_mode_enum: CHANGE_MODE
       transit_mode_enums: [FERRY, TRANSIT, LONG_DISTANCE]
@@ -138,7 +137,6 @@ steps:
 
   - name: detect_habitual_locations
     validate_input: false
-    cache: false
     params:
       buffer_meters: "{{ habitual_buffer_meters }}"
       # Also add homes found where days were said to begin or end, beside the
@@ -148,7 +146,6 @@ steps:
 
   - name: detect_joint_trips
     validate_input: false
-    cache: false
     params:
       method: "mahalanobis"
       # Covariance for Mahalanobis distance calculation
@@ -169,7 +166,6 @@ steps:
 
   - name: extract_tours
     validate_input: false
-    cache: false
     params:
       # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
       # internal junction jumps more than this many meters between one trip's
@@ -181,7 +177,6 @@ steps:
 
   - name: add_zone_ids
     validate_input: false
-    cache: false
     params:
       projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
       max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
@@ -202,7 +197,6 @@ steps:
   # usability column per profile declared below.
   - name: cascade_completeness
     validate_input: false
-    cache: false
     params:
       # One boolean column per profile. A profile states its standard on five
       # axes, and every profile answers all of them, so a column's meaning reads off
@@ -292,7 +286,6 @@ steps:
 # -- Existing weights ----------
   - name: add_existing_weights
     validate_input: false
-    cache: false
     params:
       # Required. true: a kept day's dropped trips hand their weight to its kept
       # trips. false: kept trips keep their own. Trips always follow their day.
@@ -323,16 +316,13 @@ steps:
 
   - name: compute_weights
     validate_input: false
-    cache: false
     params:
       # -- Census controls ---------------------------------------------
       census:
         state_fips: "06"
         pums_year: 2023
         pums_weights: independent
-        # PUMS microdata; downloaded from the Census if not given
-        # pums_households: "{{ pums_dir }}/psam_h06.csv"
-        # pums_persons: "{{ pums_dir }}/psam_p06.csv"
+        census_dir: "{{ census_dir }}"
 
       # -- Sample Plan Path ------------------------------------------------
       sample_plan: "{{ survey_dir }}/prepared_sample_plan.csv"
@@ -519,7 +509,6 @@ steps:
 
   - name: format_ctramp
     validate_input: false
-    cache: false
     params:
       usability_profile: ctramp_rsg
       # Income thresholds (in year 2000 dollars, per CT-RAMP convention).
@@ -547,7 +536,6 @@ steps:
   - name: format_daysim
     validate_input: false
     validate_output: true
-    cache: false
     params:
       # Which profile decides the tour universe. DaySim and CT-RAMP name their
       # own, so a project can let them differ -- but while both say the same

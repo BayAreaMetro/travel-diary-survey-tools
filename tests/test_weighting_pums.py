@@ -1,35 +1,26 @@
-"""PUMS records must belong to the record they are attached to.
+"""PUMS: reading the official files, and checking the records belong together.
 
-The Census API caps a request at ~50 variables, so a PUMS table is assembled
-from several requests and stitched back together. That stitch used to be
-positional -- ``hstack`` -- while the API does not return a stable row order
-across requests. The result was a table of real values and real keys with most
-values on the wrong record, which nothing downstream could detect: every row
-carried exactly one key, inherited from the first chunk, and every number was
-plausible.
-
-It went unnoticed for months. 65% of the replicate weights in the working cache
-were misattributed, and they feed ``moe_based_importance``, so the balancer's
-per-control importance was derived from other households' weights.
-
-Two things are tested here. The join is keyed, so row order cannot matter. And
-``check_pums_integrity`` catches misattribution independently of the join, using
-facts that are true of any correct Census extract -- because the join is not the
-only way records can end up mismatched, and the cache outlives the run that
-wrote it.
+The official files are read from the census folder, downloaded there when
+missing, and written in the Census API's coding (#184). The records are then
+checked for misattribution with facts true of any correct Census extract: a
+damaged file is still a table of real keys and plausible numbers, which nothing
+downstream could detect. 65% of the replicate weights once sat on the wrong
+households for months, and they feed ``moe_based_importance``.
 """
 
-from typing import ClassVar
+import io
+import zipfile
 
 import polars as pl
 import pytest
 
-from processing.weighting.data_prep import pums_api
+from processing.weighting.data_prep import pums_data
 from processing.weighting.data_prep.pums_data import (
     _cast_pums_types,
     check_pums_complete,
     check_pums_integrity,
-    load_pums_from_files,
+    pums_files,
+    read_pums,
 )
 
 rng = __import__("random").Random(20260831)
@@ -218,249 +209,149 @@ class TestReplicatesMustAgreeWithEachOther:
             check_pums_integrity(hh, persons)
 
 
-class TestChunksAreJoinedNotStacked:
-    """The fix itself: assembling a table from several requests.
+# ===========================================================================
+# Reading the official files
+# ===========================================================================
+def _official_zip(rows: list[dict[str, str]]) -> bytes:
+    """An official-style zip: one CSV, every value text, blanks left blank."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("psam.csv", pl.DataFrame(rows).write_csv())
+    return buf.getvalue()
 
-    The Census API returns the same rows in different orders for different
-    column sets -- measured at 110,255 of 167,075 positions differing between
-    two 48-column requests. These drive the real assembly with chunks
-    deliberately ordered differently, which is the condition the old positional
-    stack could not survive.
-    """
 
-    ROWS = 60
-
-    def _fake_api(self, monkeypatch, *, shuffle_after_first: bool) -> None:
-        """Serve each requested column set as its own 'response'."""
-        serials = [f"2023HU{i:07d}" for i in range(self.ROWS)]
-        truth = {
-            s: {"A": i, "B": i * 10, "C": i * 100, "D": i * 1000} for i, s in enumerate(serials)
+def _write_official(census_dir, pums_year: int, *, pre2020: bool = False) -> None:
+    """Two households (one person, two persons) in the official files' coding."""
+    state, kind = ("ST", "TYPE") if pre2020 else ("STATE", "TYPEHUGQ")
+    hh_vars = {
+        state if v == "STATE" else kind if v == "TYPEHUGQ" else v for v in pums_data._HH_VARS
+    }
+    per_vars = {state if v == "STATE" else v for v in pums_data._PERSON_VARS}
+    households = [
+        dict.fromkeys(sorted(hh_vars), "1")
+        | {
+            "SERIALNO": f"S{i}",
+            "PUMA": "00101",
+            state: "06",
+            "NP": str(np),
+            "WGTP": "100",
+            kind: "1",
+            "ADJINC": "1019518",
+            "HINCP": hincp,
         }
-        calls = {"n": 0}
+        for i, (np, hincp) in enumerate([(1, "50000"), (2, "")])
+    ]
+    persons = [
+        dict.fromkeys(sorted(per_vars), "1")
+        | {
+            "SERIALNO": f"S{i}",
+            "SPORDER": str(k),
+            "PUMA": "00101",
+            state: "06",
+            "PWGTP": "90",
+            "ESR": esr,
+        }
+        for i, n in enumerate([1, 2])
+        for k, esr in zip(range(1, n + 1), ["1", ""], strict=False)
+    ]
+    hh_path, per_path = pums_files(census_dir, "06", pums_year)
+    hh_path.parent.mkdir(parents=True)
+    hh_path.write_bytes(_official_zip(households))
+    per_path.write_bytes(_official_zip(persons))
 
-        def fake_get(_base, cols, _state, _puma, *, label="", keys=()):  # noqa: ARG001
-            order = list(serials)
-            if shuffle_after_first and calls["n"] > 0:
-                order.reverse()
-            calls["n"] += 1
-            header = list(cols)
-            rows = [[s if c == "SERIALNO" else str(truth[s][c]) for c in header] for s in order]
-            return [header, *rows]
 
-        monkeypatch.setattr(pums_api, "_census_get", fake_get)
-        monkeypatch.setattr(pums_api, "MAX_COLS_PER_REQUEST", 3)
-        monkeypatch.setattr(pums_api, "_MAX_API_WORKERS", 2)
-        return truth
+class TestReadingTheOfficialFiles:
+    """The official files read as the API data they were checked against."""
 
-    def test_values_follow_their_key_when_chunks_are_reordered(self, monkeypatch):
-        """The regression. Positional stacking put these on the wrong records."""
-        truth = self._fake_api(monkeypatch, shuffle_after_first=True)
-
-        out = pums_api.fetch_table(
-            "u", ["SERIALNO", "A", "B", "C", "D"], "06", "*", label="t", keys=("SERIALNO",)
+    def test_files_are_named_as_the_census_names_them(self, tmp_path):
+        """California 2023 is pums_2023/csv_hca.zip and csv_pca.zip."""
+        assert pums_files(tmp_path, "06", 2023) == (
+            tmp_path / "pums_2023" / "csv_hca.zip",
+            tmp_path / "pums_2023" / "csv_pca.zip",
         )
 
-        assert out.height == self.ROWS
-        for row in out.iter_rows(named=True):
-            expected = truth[row["SERIALNO"]]
-            for col in ("A", "B", "C", "D"):
-                assert int(row[col]) == expected[col], f"{col} on {row['SERIALNO']}"
+    def test_not_applicable_is_written_as_the_api_code(self, tmp_path):
+        """A blank income is -60000 and a blank employment status 0, as the API sends."""
+        _write_official(tmp_path, 2023)
 
-    def test_a_non_unique_key_is_refused(self, monkeypatch):
-        """Joining persons on SERIALNO alone would multiply rows, not misalign them."""
-        serials = ["2023HU0000001", "2023HU0000001", "2023HU0000002"]
+        hh, per = read_pums(tmp_path, "06", 2023)
 
-        def fake_get(_base, cols, _state, _puma, *, label="", keys=()):  # noqa: ARG001
-            return [list(cols), *[[s, "1", "2", "3", "4"][: len(cols)] for s in serials]]
+        assert hh.sort("SERIALNO")["HINCP"].to_list() == [50000.0, -60000.0]
+        assert sorted(per["ESR"].to_list()) == [0, 1, 1]
 
-        monkeypatch.setattr(pums_api, "_census_get", fake_get)
-        monkeypatch.setattr(pums_api, "MAX_COLS_PER_REQUEST", 3)
-        monkeypatch.setattr(pums_api, "_MAX_API_WORKERS", 2)
+    def test_adjinc_has_its_six_implied_decimals(self, tmp_path):
+        """The file writes 1019518 for the factor the API sends as 1.019518."""
+        _write_official(tmp_path, 2023)
 
-        with pytest.raises(ValueError, match="does not uniquely identify a row"):
-            pums_api.fetch_table(
-                "u", ["SERIALNO", "A", "B", "C"], "06", "*", label="t", keys=("SERIALNO",)
-            )
+        hh, _ = read_pums(tmp_path, "06", 2023)
 
-    def test_a_key_missing_from_the_request_is_refused(self, monkeypatch):
-        """Every chunk must carry the key, so the key has to be requested."""
-        monkeypatch.setattr(pums_api, "MAX_COLS_PER_REQUEST", 3)
+        assert hh["ADJINC"].unique().to_list() == [1.019518]
 
-        with pytest.raises(ValueError, match="cannot chunk without SPORDER"):
-            pums_api.fetch_table(
-                "u",
-                ["SERIALNO", "A", "B", "C"],
-                "06",
-                "*",
-                label="t",
-                keys=("SERIALNO", "SPORDER"),
-            )
+    def test_pre_2020_names_are_read_as_the_current_ones(self, tmp_path):
+        """2019 files say ST and TYPE where later ones say STATE and TYPEHUGQ."""
+        _write_official(tmp_path, 2019, pre2020=True)
 
+        hh, per = read_pums(tmp_path, "06", 2019)
 
-class TestTheResponseIsCheckedBeforeItIsTrusted:
-    """Guards at the point of parsing, where a bad response is still legible.
+        assert {"STATE", "TYPEHUGQ"} <= set(hh.columns)
+        assert "STATE" in per.columns
 
-    The join protects against chunks disagreeing with each other. These protect
-    against a single response being wrong on its own -- which happened here, in
-    one chunk, past a sharp row boundary, and which no join can prevent.
-    """
+    def test_a_missing_variable_is_named(self, tmp_path):
+        """A file without a variable the controls need stops the read."""
+        _write_official(tmp_path, 2023)
+        hh_path, _ = pums_files(tmp_path, "06", 2023)
+        with zipfile.ZipFile(hh_path) as zf:
+            table = pl.read_csv(zf.read("psam.csv"), infer_schema_length=0)
+        hh_path.write_bytes(_official_zip(table.drop("VEH").to_dicts()))
 
-    HEADER: ClassVar[list[str]] = ["SERIALNO", "NP", "TYPEHUGQ"]
-
-    def test_a_sound_response_passes(self):
-        """Rectangular and complete: nothing to say."""
-        rows = [self.HEADER, ["2023HU0000001", "2", "1"], ["2023HU0000002", "3", "1"]]
-
-        pums_api._check_response_shape(rows, self.HEADER, "u")
-
-    @pytest.mark.parametrize(
-        ("bad_row", "match"),
-        [
-            # One missing field shifts every value after it into the next
-            # column.  This is the shape of the corruption that put 12 and 3213
-            # into TYPEHUGQ where the API returns 2 and 3.
-            pytest.param(["2023HU0000002", "3"], "row 2 has 2", id="short"),
-            # An extra field is equally disqualifying, and would be dropped.
-            pytest.param(
-                ["2023HU0000002", "3", "1", "surplus"],
-                "row 2 has 4",
-                id="long",
-            ),
-        ],
-    )
-    def test_a_row_of_the_wrong_width_is_refused(self, bad_row, match):
-        """And the message names the row, which is what makes it investigable."""
-        rows = [self.HEADER, ["2023HU0000001", "2", "1"], bad_row]
-
-        with pytest.raises(RuntimeError, match=match):
-            pums_api._check_response_shape(rows, self.HEADER, "u")
-
-    def test_a_silently_omitted_column_is_refused(self):
-        """Asking for a variable and not getting it must not pass unnoticed."""
-        rows = [["SERIALNO", "NP"], ["2023HU0000001", "2"]]
-
-        with pytest.raises(RuntimeError, match="omits requested column"):
-            pums_api._check_response_shape(rows, self.HEADER, "u")
-
-    def test_an_empty_response_is_refused(self):
-        """No header means nothing can be positioned at all."""
-        with pytest.raises(RuntimeError, match="no rows at all"):
-            pums_api._check_response_shape([], self.HEADER, "u")
+        with pytest.raises(ValueError, match=r"lacks \['VEH'\]"):
+            read_pums(tmp_path, "06", 2023)
 
 
-class TestAnUnsoundResponseIsRetried:
-    """Detection alone would turn an intermittent fault into an intermittent outage.
+class TestAMissingFileIsDownloaded:
+    """A fresh clone runs without fetching anything by hand."""
 
-    The corruption is not reproducible: the same request returns sound data on a
-    later attempt. Observed live, a person chunk came back with 6 duplicate
-    (SERIALNO, SPORDER) pairs where a narrow request for the same columns had
-    none. Retrying is what makes the guard usable rather than merely correct.
-    """
+    def _serve(self, monkeypatch, files: dict[str, bytes]) -> list[str]:
+        asked: list[str] = []
 
-    HEADER: ClassVar[list[str]] = ["SERIALNO", "SPORDER", "AGEP"]
-    SOUND: ClassVar[list[list[str]]] = [
-        HEADER,
-        ["2023HU0000001", "1", "40"],
-        ["2023HU0000001", "2", "38"],
-    ]
-    DUPLICATED: ClassVar[list[list[str]]] = [
-        HEADER,
-        ["2023HU0000001", "1", "40"],
-        ["2023HU0000001", "1", "38"],
-    ]
+        class Response:
+            def __init__(self, content):
+                self.content = content
 
-    def _serve(self, monkeypatch, responses):
-        served = iter(responses)
-        calls = {"n": 0}
+            def raise_for_status(self):
+                pass
 
-        def once(*_args, **_kwargs):
-            calls["n"] += 1
-            return next(served)
+        def fake_get(url, timeout):  # noqa: ARG001
+            asked.append(url)
+            return Response(files[url.rsplit("/", 1)[1]])
 
-        monkeypatch.setattr(pums_api, "_census_get_once", once)
-        return calls
+        monkeypatch.setattr(pums_data.requests, "get", fake_get)
+        return asked
 
-    def test_a_transient_fault_is_retried_and_recovers(self, monkeypatch):
-        """One bad response then a good one: the caller never sees the fault."""
-        calls = self._serve(monkeypatch, [self.DUPLICATED, self.SOUND])
+    def test_it_is_fetched_from_the_official_location_and_kept(self, monkeypatch, tmp_path):
+        """Both files come from the year's 1-Year folder; a second read asks for nothing."""
+        source = tmp_path / "source"
+        _write_official(source, 2023)
+        hh_path, per_path = pums_files(source, "06", 2023)
+        census_dir = tmp_path / "census"
+        asked = self._serve(
+            monkeypatch,
+            {"csv_hca.zip": hh_path.read_bytes(), "csv_pca.zip": per_path.read_bytes()},
+        )
 
-        rows = pums_api._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
+        read_pums(census_dir, "06", 2023)
+        read_pums(census_dir, "06", 2023)
 
-        assert rows == self.SOUND
-        assert calls["n"] == 2
-
-    def test_a_sound_response_is_not_retried(self, monkeypatch):
-        """Retrying good data would double every fetch."""
-        calls = self._serve(monkeypatch, [self.SOUND])
-
-        pums_api._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
-
-        assert calls["n"] == 1
-
-    def test_persistent_corruption_gives_up_and_says_so(self, monkeypatch):
-        """Repeated failure is systematic, and looping only delays reporting it.
-
-        The last failure's own message has to survive the give-up, or the report
-        says only that it failed.
-        """
-        self._serve(monkeypatch, [self.DUPLICATED] * pums_api.MAX_FETCH_ATTEMPTS)
-
-        with pytest.raises(RuntimeError, match="times running") as excinfo:
-            pums_api._census_get("u", self.HEADER, "06", "*", keys=("SERIALNO", "SPORDER"))
-        assert "duplicate SERIALNO, SPORDER" in str(excinfo.value)
-
-    def test_no_keys_means_no_uniqueness_requirement(self, monkeypatch):
-        """Some requests legitimately carry no full key; they must not be rejected."""
-        calls = self._serve(monkeypatch, [self.DUPLICATED])
-
-        pums_api._census_get("u", self.HEADER, "06", "*")
-
-        assert calls["n"] == 1
+        base = "https://www2.census.gov/programs-surveys/acs/data/pums/2023/1-Year/"
+        assert asked == [base + "csv_hca.zip", base + "csv_pca.zip"]
+        assert not list(census_dir.rglob("*.part"))
 
 
 # ===========================================================================
-# Reading PUMS off disk instead of the API
-# ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# load_pums_from_files
-# ---------------------------------------------------------------------------
-class TestLoadPumsFromFiles:
-    """Tests for loading PUMS data from files."""
-
-    @pytest.mark.parametrize("suffix", ["csv", "parquet"])
-    def test_load_round_trip(self, tmp_path, pums_households, pums_persons, suffix):
-        """Both on-disk formats come back with every row and the ids intact."""
-        hh_path = tmp_path / f"hh.{suffix}"
-        per_path = tmp_path / f"per.{suffix}"
-        if suffix == "csv":
-            pums_households.write_csv(hh_path)
-            pums_persons.write_csv(per_path)
-        else:
-            pums_households.write_parquet(hh_path)
-            pums_persons.write_parquet(per_path)
-
-        hh, per = load_pums_from_files(str(hh_path), str(per_path))
-        assert hh.sort("SERIALNO")["SERIALNO"].to_list() == ["HH1", "HH2", "HH3"]
-        assert per.height == 7
-
-    def test_puma_filter(self, tmp_path, pums_households, pums_persons):
-        """Filtering by PUMA should return only matching records."""
-        hh_path = tmp_path / "hh.csv"
-        per_path = tmp_path / "per.csv"
-        pums_households.write_csv(hh_path)
-        pums_persons.write_csv(per_path)
-
-        hh, _ = load_pums_from_files(str(hh_path), str(per_path), puma_ids=["00100"])
-        assert all(hh["PUMA"].cast(pl.Utf8) == "00100")
-
-
-# ===========================================================================
-# What the API sends is read exactly, or the fetch stops
+# Values are read exactly, or the read stops
 # ===========================================================================
 class TestConversionIsStrict:
-    """A value that is not a number stops the fetch instead of becoming blank."""
+    """A value that is not a number stops the read instead of becoming blank."""
 
     def test_adjinc_reads_as_the_decimal_the_api_sends(self):
         """The API sends ADJINC as "1.019518", which once became blank as an integer."""
@@ -475,8 +366,8 @@ class TestConversionIsStrict:
             _cast_pums_types(df, {"VEH"})
 
 
-class TestApiPumsHasNoBlanks:
-    """The API writes "not applicable" as a code, so a blank is a lost value."""
+class TestPumsHasNoBlanks:
+    """After translation "not applicable" is a code, so a blank is a lost value."""
 
     def test_complete_records_pass(self, sound):
         """Nothing blank, nothing raised."""

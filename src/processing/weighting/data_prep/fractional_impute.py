@@ -39,11 +39,8 @@ Public API
     Top-level orchestrator called from the weighting pipeline.
 """
 
-import hashlib
-import json
 import logging
-import pickle
-from pathlib import Path
+from dataclasses import dataclass
 
 import numpy as np
 import polars as pl
@@ -58,59 +55,20 @@ from processing.weighting.data_prep.incidence import IncidenceBundle
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# RF model caching
-# ---------------------------------------------------------------------------
-
-
-def _rf_cache_key(
-    train_pivot: pl.DataFrame,
-    feature_cols: list[str],
-    member_cols: list[str],
-    weight_col: str,
-    group_col: str,
-    n_estimators: int,
-    random_state: int,
-    min_samples_leaf: int,
-) -> str:
-    """Deterministic hash of PUMS training data + hyperparameters."""
-    columns = [*feature_cols, *member_cols, weight_col, group_col]
-    data_hash = str(train_pivot.select(columns).hash_rows().sum())
-    parts = [
-        json.dumps(feature_cols),
-        json.dumps(member_cols),
-        str(n_estimators),
-        str(random_state),
-        str(min_samples_leaf),
-        data_hash,
-        str(len(train_pivot)),
-    ]
-    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+# Masked copies of each PUMS person trained on beside the original, so the model
+# sees households where only some members are known, as the survey has them.
+_MASKED_COPIES = 3
+_MASK_SEED = 0
 
 
-def _load_cached_rf(cache_dir: Path, control: str, key: str) -> dict | None:
-    """Load a cached RF model + CV metrics.  Returns None on miss."""
-    path = cache_dir / "rf_models" / f"{control}_{key}.pkl"
-    if not path.exists():
-        return None
-    with path.open("rb") as f:
-        return pickle.load(f)  # noqa: S301
+@dataclass(frozen=True)
+class TrainedModel:
+    """A forest trained in this run for one control, with its CV scores."""
 
-
-def _save_cached_rf(
-    cache_dir: Path,
-    control: str,
-    key: str,
-    clf: RandomForestClassifier,
-    cv_ll: float | None,
-    cv_f1: float | None,
-) -> None:
-    """Persist a fitted RF + CV metrics to disk."""
-    rf_dir = cache_dir / "rf_models"
-    rf_dir.mkdir(parents=True, exist_ok=True)
-    with (rf_dir / f"{control}_{key}.pkl").open("wb") as f:
-        pickle.dump({"model": clf, "cv_ll": cv_ll, "cv_f1": cv_f1}, f)
+    model: RandomForestClassifier
+    feature_cols: list[str]
+    cv_ll: float | None
+    cv_f1: float | None
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +171,7 @@ def _train_and_predict(
     n_estimators: int = 100,
     random_state: int = 42,
     min_samples_leaf: int = 20,
-    cache_dir: Path | None = None,
+    models: dict[str, TrainedModel] | None = None,
 ) -> tuple[pl.DataFrame, float | None, float | None]:
     """Train an RF on complete rows and predict probabilities for null rows.
 
@@ -232,12 +190,16 @@ def _train_and_predict(
     * *group_col* names each record's household, which the CV scores keep in
       one fold.
 
-    Returns ``(proba_df, log_loss, f1_macro)``.  When *cache_dir* is
-    provided the fitted model and CV metrics are persisted so subsequent
-    runs with the same PUMS data skip training entirely.
+    *models* holds the forests already trained in this run, by control. Every
+    profile's seed is imputed from the same PUMS, so a later profile reuses the
+    first one's forest and its CV scores instead of training it again. Nothing
+    outlives the run.
+
+    Returns ``(proba_df, log_loss, f1_macro)``.
 
     Raises:
-        ValueError: If *train_pivot* carries no *weight_col*.
+        ValueError: If *train_pivot* carries no *weight_col*, or a forest
+            already trained for this control used other inputs.
     """
     if weight_col not in train_pivot.columns:
         msg = f"PUMS training records for fractional imputation carry no {weight_col!r}."
@@ -261,45 +223,24 @@ def _train_and_predict(
         logger.warning("Only 1 class for %s — skipping", member_cols)
         return pl.DataFrame(), None, None
 
-    # --- cache probe -----------------------------------------------------
-    cache_key: str | None = None
-    control_prefix = member_cols[0].split("__")[0]
-    if cache_dir is not None:
-        cache_key = _rf_cache_key(
-            train_pivot,
-            feature_cols,
-            member_cols,
-            weight_col,
-            group_col,
-            n_estimators,
-            random_state,
-            min_samples_leaf,
+    control = member_cols[0].split("__")[0]
+    trained = (models or {}).get(control)
+    if trained is not None and trained.feature_cols != feature_cols:
+        msg = f"The forest trained for {control} in this run used other inputs."
+        raise ValueError(msg)
+    if trained is None:
+        clf = RandomForestClassifier(
+            n_estimators=n_estimators,
+            random_state=random_state,
+            min_samples_leaf=min_samples_leaf,
+            n_jobs=-1,
         )
-        cached = _load_cached_rf(cache_dir, control_prefix, cache_key)
-        if cached is not None:
-            logger.info("  Loaded cached RF %s (key=%s)", control_prefix, cache_key)
-            proba_df = _predict_null_rows(
-                cached["model"],
-                predict_pivot,
-                null_mask,
-                feature_cols,
-                member_cols,
-                id_col,
-            )
-            return proba_df, cached["cv_ll"], cached["cv_f1"]
-
-    # --- train ---------------------------------------------------------
-    clf = RandomForestClassifier(
-        n_estimators=n_estimators,
-        random_state=random_state,
-        min_samples_leaf=min_samples_leaf,
-        n_jobs=-1,
-    )
-    clf.fit(x_train, y_train, sample_weight=w_train)
-    cv_ll, cv_f1 = _cv_diagnostics(clf, x_train, y_train, w_train, groups, len(feature_cols))
-
-    if cache_dir is not None and cache_key is not None:
-        _save_cached_rf(cache_dir, control_prefix, cache_key, clf, cv_ll, cv_f1)
+        clf.fit(x_train, y_train, sample_weight=w_train)
+        cv_ll, cv_f1 = _cv_diagnostics(clf, x_train, y_train, w_train, groups, len(feature_cols))
+        trained = TrainedModel(clf, feature_cols, cv_ll, cv_f1)
+        if models is not None:
+            models[control] = trained
+    clf, cv_ll, cv_f1 = trained.model, trained.cv_ll, trained.cv_f1
 
     # --- predict ---------------------------------------------------------
     proba_df = _predict_null_rows(
@@ -311,12 +252,6 @@ def _train_and_predict(
         id_col,
     )
     return proba_df, cv_ll, cv_f1
-
-
-# Masked copies of each PUMS person trained on beside the original, so the model
-# sees households where only some members are known, as the survey has them.
-_MASKED_COPIES = 3
-_MASK_SEED = 0
 
 
 def _with_other_members(
@@ -441,7 +376,7 @@ def _impute_controls(
     weight_col: str,
     additive: bool,
     person_to_hh: pl.DataFrame | None = None,
-    cache_dir: Path | None = None,
+    models: dict[str, TrainedModel] | None = None,
 ) -> pl.DataFrame:
     """Impute all non-structural controls for one level (person or HH).
 
@@ -503,7 +438,7 @@ def _impute_controls(
             id_col=id_col,
             weight_col=weight_col,
             group_col="SERIALNO",
-            cache_dir=cache_dir,
+            models=models,
         )
         summaries.append(
             ImputationSummary(ctrl.name, level_label, n_total, n_null, cv_ll, cv_f1),
@@ -549,7 +484,7 @@ def fill_null_incidence(
     survey_zones: pl.DataFrame,
     targets: list[str],
     *,
-    cache_dir: Path | None = None,
+    models: dict[str, TrainedModel] | None = None,
 ) -> tuple[pl.DataFrame, list[ImputationSummary]]:
     """Replace null-induced zeros in survey incidence with RF-predicted fractions.
 
@@ -573,9 +508,9 @@ def fill_null_incidence(
         Each survey household's zone: the household id and ``ctrl_geoid``.
     targets : list[str]
         Control registry names.
-    cache_dir : Path | None
-        When set, fitted RF models and CV metrics are cached here so that
-        repeated runs with the same PUMS data skip training entirely.
+    models : dict[str, TrainedModel] | None
+        The forests trained so far in this run, by control. Pass the same dict
+        for every profile so each forest is trained once per run.
 
     Returns:
     -------
@@ -628,7 +563,7 @@ def fill_null_incidence(
         weight_col="PWGTP",
         additive=True,
         person_to_hh=person_to_hh,
-        cache_dir=cache_dir,
+        models=models,
     )
     result = _impute_controls(
         result,
@@ -641,7 +576,7 @@ def fill_null_incidence(
         summaries=summaries,
         weight_col="WGTP",
         additive=False,
-        cache_dir=cache_dir,
+        models=models,
     )
 
     return result.drop(*zone_cols, "ctrl_geoid"), summaries

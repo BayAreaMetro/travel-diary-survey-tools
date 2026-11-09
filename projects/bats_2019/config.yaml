@@ -21,12 +21,16 @@
 #   ENVS:
 #     SOME_SHARED_ROOT: "/opt/shared"
 #
+# -- Inputs (read only) ---------------------------------------------------------
 survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/Bay Area Travel Study 2018-2019/Data/Final Version with Imputations/Final Updated Dataset as of 10-18-2021"
-weights_dir: "{{ survey_dir }}/weights"
-output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+weights_dir: "{{ survey_dir }}/weights"  # the vendor's weights
+census_dir: "{{ MTC_DATA }}/Data/Census/BATS Weighting"  # PUMS and Census geography
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
-log_file: "{{ output_dir }}/pipeline_2019.log" # If not set, logs just to console, if not absolute saves to .cache directory
+
+# -- Outputs ------------------------------------------------------------------
+output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+log_file: "{{ output_dir }}/pipeline_2019.log"  # If not set, logs just to console
 # Distance within which a trip end is at a habitual location (home, work,
 # school). detect_habitual_locations and extract_tours each have their own
 # buffer_meters setting; both use this value here.
@@ -36,7 +40,6 @@ habitual_buffer_meters: "300"
 steps:
   - name: load_data
     validate_input: false  # overrides the step's @step() value; leave it out to keep that
-    cache: false
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.tsv"
@@ -47,7 +50,6 @@ steps:
   - name: clean_2019_bats
     validate_input: false
     validate_output: true
-    cache: false
     params:
       weight_col_suffix: sphone_wkday  # This will look for weight columns with the suffix "_sphone_wkday" in each dataframe, e.g. "daywt_sphone_wkday"
       weights_dir: "{{ weights_dir }}"
@@ -63,7 +65,6 @@ steps:
   # collect occupation, industry, can_drive or num_trips.
   - name: imputation
     validate_input: false
-    cache: false
     params:
       impute_columns:
         households:
@@ -96,7 +97,6 @@ steps:
 
   - name: link_trips
     validate_input: true
-    cache: false
     params:
       change_mode_enum: CHANGE_MODE
       transit_mode_enums: [FERRY, TRANSIT, LONG_DISTANCE]
@@ -109,7 +109,6 @@ steps:
 
   - name: detect_habitual_locations
     validate_input: true
-    cache: false
     params:
       buffer_meters: "{{ habitual_buffer_meters }}"
       # Also add homes found where days were said to begin or end, beside the
@@ -119,7 +118,6 @@ steps:
 
   - name: detect_joint_trips
     validate_input: true
-    cache: false
     params:
       method: "mahalanobis"
       # Covariance for Mahalanobis distance calculation
@@ -140,7 +138,6 @@ steps:
 
   - name: extract_tours
     validate_input: true
-    cache: false
     params:
       # A tour is flagged SPATIAL_GAP (and dropped by the formatters) when any
       # internal junction jumps more than this many meters between one trip's
@@ -152,7 +149,6 @@ steps:
 
   - name: add_zone_ids
     validate_input: true
-    cache: false
     params:
       projected_crs: "EPSG:26910"  # UTM Zone 10N (Bay Area metric CRS for nearest-zone fallback)
       max_snap_distance: 500  # metres; points farther from all zone boundaries remain null (out-of-region)
@@ -175,7 +171,6 @@ steps:
   # derived here, so the rule lives in one place.
   - name: cascade_completeness
     validate_input: false
-    cache: false
     params:
       # One boolean column per profile, on five axes, all answered explicitly.
       # See the bats_2023 config for the full vocabulary; the same three
@@ -216,7 +211,6 @@ steps:
 
   - name: add_existing_weights
     validate_input: false
-    cache: false
     params:
       # Required. true: a kept day's dropped trips hand their weight to its kept
       # trips. false: kept trips keep their own. Trips always follow their day.
@@ -241,16 +235,13 @@ steps:
 
   - name: compute_weights
     validate_input: true
-    cache: false
     params:
       # -- Census controls ---------------------------------------------
       census:
         state_fips: "06"
         pums_year: 2019
         pums_weights: independent
-        # PUMS microdata; downloaded from the Census if not given
-        # pums_households: "{{ pums_dir }}/psam_h06.csv"
-        # pums_persons: "{{ pums_dir }}/psam_p06.csv"
+        census_dir: "{{ census_dir }}"
 
       # Which profiles decide who carries weight, one weight set each, suffixed
       # with the profile name. Named rather than defaulted: with several stamped

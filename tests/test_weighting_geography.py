@@ -102,6 +102,23 @@ def target_zone_file(three_target_zones, tmp_path) -> str:
 # ---------------------------------------------------------------------------
 # Tests: census_geo helpers
 # ---------------------------------------------------------------------------
+def _serve_census(monkeypatch, blocks: dict[str, int], counties=("001",)) -> list[dict]:
+    """Answer Census API requests from *blocks*, recording each request's params."""
+    asked: list[dict] = []
+
+    def fake_get(_url, params, timeout):  # noqa: ARG001
+        asked.append(params)
+        if params["get"] == "NAME":
+            return [["NAME", "state", "county"]] + [
+                [f"County {c}, California", "06", c] for c in counties
+            ]
+        header = [params["get"], "state", "county", "tract", "block"]
+        return [header] + [[str(n), g[:2], g[2:5], g[5:11], g[11:]] for g, n in blocks.items()]
+
+    monkeypatch.setattr(census_geo, "_census_get", fake_get)
+    return asked
+
+
 class TestBlockHouseholds:
     """Sample-plan base weights count households, block by block."""
 
@@ -111,11 +128,11 @@ class TestBlockHouseholds:
         "060010001002000": 5,
     }
 
-    def test_one_row_per_block(self, monkeypatch):
+    def test_one_row_per_block(self, monkeypatch, tmp_path):
         """Each block keeps its own count, sorted by GEOID."""
-        monkeypatch.setattr(census_geo, "_fetch_block_counts", lambda *_: self.BLOCKS)
+        _serve_census(monkeypatch, self.BLOCKS)
 
-        result = census_geo.get_block_households("06", 2023)
+        result = census_geo.get_block_households("06", 2023, tmp_path)
 
         assert result.rows() == [
             ("060010001001000", 3),
@@ -123,62 +140,108 @@ class TestBlockHouseholds:
             ("060010001002000", 5),
         ]
 
-    @pytest.mark.parametrize(("pums_year", "variable"), [(2023, "H1_002N"), (2019, "H003002")])
-    def test_asks_for_occupied_units_not_population(self, monkeypatch, pums_year, variable):
-        """Each vintage names households in its own Census variable."""
-        asked = []
+    @pytest.mark.parametrize(
+        ("pums_year", "variable", "file"),
+        [
+            (2023, "H1_002N", "census_2020/block_households_06.parquet"),
+            (2019, "H003002", "census_2010/block_households_06.parquet"),
+        ],
+    )
+    def test_asks_for_occupied_units_and_saves_them_by_vintage(
+        self, monkeypatch, tmp_path, pums_year, variable, file
+    ):
+        """Each vintage names households in its own Census variable and folder."""
+        asked = _serve_census(monkeypatch, self.BLOCKS)
 
-        def fetch(_state, _vintage, requested):
-            asked.append(requested)
-            return self.BLOCKS
+        census_geo.get_block_households("06", pums_year, tmp_path)
 
-        monkeypatch.setattr(census_geo, "_fetch_block_counts", fetch)
+        assert [p["get"] for p in asked if p["get"] != "NAME"] == [variable]
+        assert (tmp_path / file).exists()
 
-        census_geo.get_block_households("06", pums_year)
+    def test_2010_is_fetched_one_county_at_a_time(self, monkeypatch, tmp_path):
+        """The 2010 endpoint has no statewide block query."""
+        asked = _serve_census(monkeypatch, self.BLOCKS, counties=("001", "075"))
 
-        assert asked == [variable]
+        census_geo.get_block_households("06", 2019, tmp_path)
 
-    def test_a_second_call_reads_the_cache(self, monkeypatch, tmp_path):
-        """One statewide request is enough for every profile in a run."""
-        calls = []
+        assert sorted(p["in"] for p in asked if p["get"] != "NAME") == [
+            "state:06 county:001",
+            "state:06 county:075",
+        ]
 
-        def fetch(*_):
-            calls.append(1)
-            return self.BLOCKS
+    def test_a_saved_file_is_read_not_fetched(self, monkeypatch, tmp_path):
+        """Once downloaded, later runs read the file and ask the API nothing."""
+        asked = _serve_census(monkeypatch, self.BLOCKS)
+        first = census_geo.get_block_households("06", 2023, tmp_path)
+        n_asked = len(asked)
 
-        monkeypatch.setattr(census_geo, "_fetch_block_counts", fetch)
-
-        first = census_geo.get_block_households("06", 2023, cache_dir=tmp_path)
-        second = census_geo.get_block_households("06", 2023, cache_dir=tmp_path)
+        second = census_geo.get_block_households("06", 2023, tmp_path)
 
         assert first.equals(second)
-        assert len(calls) == 1
+        assert len(asked) == n_asked
 
-    def test_an_empty_response_stops(self, monkeypatch):
+    def test_an_empty_response_stops(self, monkeypatch, tmp_path):
         """No counts means no base weights, so the run should not go on."""
-        monkeypatch.setattr(census_geo, "_fetch_block_counts", lambda *_: {})
+        _serve_census(monkeypatch, {})
 
-        with pytest.raises(ValueError, match="empty block households"):
-            census_geo.get_block_households("06", 2023)
+        with pytest.raises(ValueError, match="returned no H1_002N blocks"):
+            census_geo.get_block_households("06", 2023, tmp_path)
+        assert not list(tmp_path.rglob("*.parquet*"))
+
+
+class TestBlockPopulation:
+    """Every block gets its own population, or the files do not belong together."""
+
+    def _write(self, folder, blocks, population):
+        folder.mkdir(parents=True)
+        gpd.GeoDataFrame(
+            {"GEOID20": blocks}, geometry=[box(0, 0, 1, 1)] * len(blocks), crs="EPSG:4326"
+        ).to_parquet(folder / "tl_2020_06_tabblock20.parquet")
+        pl.DataFrame(
+            {"block_id": list(population), "block_pop": list(population.values())}
+        ).write_parquet(folder / "block_population_06.parquet")
+
+    def test_population_is_joined_by_block(self, tmp_path):
+        """Each block carries its own count."""
+        self._write(
+            tmp_path / "census_2020",
+            ["060010001001000", "060010001001001"],
+            {"060010001001001": 4, "060010001001000": 9},
+        )
+
+        gdf = census_geo.get_block_gdf("06", 2023, tmp_path)
+
+        assert dict(zip(gdf["block_id"], gdf["block_pop"], strict=True)) == {
+            "060010001001000": 9,
+            "060010001001001": 4,
+        }
+
+    def test_a_block_without_population_stops(self, tmp_path):
+        """A missing count is not a zero: the files are mismatched or damaged."""
+        self._write(
+            tmp_path / "census_2020", ["060010001001000", "060010001001001"], {"060010001001000": 9}
+        )
+
+        with pytest.raises(ValueError, match="1 of 2 blocks"):
+            census_geo.get_block_gdf("06", 2023, tmp_path)
 
 
 class TestCountyNames:
     """County names come from the Census, without the state the API appends."""
 
-    def test_names_drop_the_state(self, monkeypatch):
+    def test_names_drop_the_state(self, monkeypatch, tmp_path):
         """'Alameda County, California' is shown as 'Alameda County'."""
         payload = [
             ["NAME", "state", "county"],
             ["Alameda County, California", "06", "001"],
             ["San Francisco County, California", "06", "075"],
         ]
-        monkeypatch.setattr(census_geo, "_census_api_key", lambda: "k")
-        monkeypatch.setattr(census_geo.requests, "get", lambda *_a, **_k: payload)
-        monkeypatch.setattr(census_geo, "_census_json", lambda resp: resp)
+        monkeypatch.setattr(census_geo, "_census_get", lambda *_a, **_k: payload)
 
-        result = census_geo.get_county_names("06", 2023)
+        result = census_geo.get_county_names("06", 2023, tmp_path)
 
         assert result.rows() == [("06001", "Alameda County"), ("06075", "San Francisco County")]
+        assert (tmp_path / "census_2020" / "county_names_06.parquet").exists()
 
 
 class TestPumaVintage:
@@ -905,8 +968,8 @@ class TestOnlyServerFaultsAreRetried:
         assert not census_geo._is_transient(ValueError("bad payload"))
 
 
-class TestACountyRequestRetries:
-    """One 500 among 58 counties must not end the run."""
+class TestACensusRequestRetries:
+    """One 500 among 58 county requests must not end the run."""
 
     def _serve(self, monkeypatch, outcomes):
         """Each call raises or returns the next outcome; sleeping is skipped."""
@@ -920,26 +983,28 @@ class TestACountyRequestRetries:
                 raise outcome
             return outcome
 
+        monkeypatch.setenv("CENSUS_KEY", "k")
         monkeypatch.setattr(census_geo.requests, "get", fake_get)
         monkeypatch.setattr(census_geo, "_census_json", lambda resp: resp)
-        monkeypatch.setattr(census_geo, "_parse_block_response", lambda payload, _var: payload)
         monkeypatch.setattr(census_geo.time, "sleep", lambda _s: None)
         return calls
 
+    PARAMS: ClassVar[dict[str, str]] = {"get": "P1_001N", "in": "state:06 county:001"}
+
     def test_it_recovers_after_a_server_error(self, monkeypatch):
         """The case that ended a real run at step 8 of 12."""
-        calls = self._serve(monkeypatch, [_http_error(500), {"060010001": 42}])
+        calls = self._serve(monkeypatch, [_http_error(500), [["P1_001N"], ["42"]]])
 
-        result = census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+        result = census_geo._census_get("u", self.PARAMS, timeout=1)
 
-        assert result == {"060010001": 42}
+        assert result == [["P1_001N"], ["42"]]
         assert calls["n"] == 2
 
     def test_a_sound_response_is_not_retried(self, monkeypatch):
         """Retrying success would double 58 requests for nothing."""
-        calls = self._serve(monkeypatch, [{"060010001": 42}])
+        calls = self._serve(monkeypatch, [[["P1_001N"], ["42"]]])
 
-        census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+        census_geo._census_get("u", self.PARAMS, timeout=1)
 
         assert calls["n"] == 1
 
@@ -949,7 +1014,7 @@ class TestACountyRequestRetries:
         calls = self._serve(monkeypatch, [_http_error(503)] * attempts)
 
         with pytest.raises(requests.HTTPError):
-            census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+            census_geo._census_get("u", self.PARAMS, timeout=1)
 
         assert calls["n"] == attempts
 
@@ -958,6 +1023,6 @@ class TestACountyRequestRetries:
         calls = self._serve(monkeypatch, [_http_error(404)])
 
         with pytest.raises(requests.HTTPError):
-            census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+            census_geo._census_get("u", self.PARAMS, timeout=1)
 
         assert calls["n"] == 1

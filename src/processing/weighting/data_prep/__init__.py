@@ -8,14 +8,13 @@ survey seed data.
 # Modules
 
 1. **Census geography** ([`census_geo`][processing.weighting.data_prep.census_geo]) --
-   download and cache TIGER PUMA and block shapefiles via pygris, including block-level
-   population inputs.
+   TIGER PUMA and block boundaries (via pygris) and decennial block counts (via the
+   Census API), downloaded to the census folder when missing.
 2. **Geography crosswalk** ([`crosswalk`][processing.weighting.data_prep.crosswalk]) --
    construct a population-weighted PUMA-to-target-zone allocation table and assign/allocate
    records across project geographies.
-3. **PUMS data** ([`pums_data`][processing.weighting.data_prep.pums_data]) -- fetch
-   ACS 1-year PUMS microdata from the Census API or load local extracts, with
-   chunking and caching helpers.
+3. **PUMS data** ([`pums_data`][processing.weighting.data_prep.pums_data]) -- read
+   the official ACS 1-year PUMS files, downloaded to the census folder when missing.
 4. **Control data** ([`control_data`][processing.weighting.data_prep.control_data]) --
    recode PUMS variables into weighting control categories and aggregate them into
    zone-level control totals.

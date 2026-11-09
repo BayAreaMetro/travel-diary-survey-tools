@@ -193,6 +193,50 @@ class TestMissingInputsFailBeforeTheRun:
         )
 
 
+class TestAMissingInputDirectoryCanBeCreated:
+    """Steps that download their inputs need somewhere to put them on a first run."""
+
+    def _answer(self, monkeypatch, reply: str | None) -> list[str]:
+        asked: list[str] = []
+
+        def fake_input(prompt):
+            asked.append(prompt)
+            if reply is None:
+                raise EOFError
+            return reply
+
+        monkeypatch.setattr("builtins.input", fake_input)
+        return asked
+
+    def test_yes_creates_it_and_the_run_goes_on(self, monkeypatch, tmp_path):
+        """The user confirms, so the folder is made and nothing is raised."""
+        asked = self._answer(monkeypatch, "y")
+        path = tmp_path / "census"
+
+        check_input_paths({"census_dir": str(path)}, used={"census_dir"})
+
+        assert path.is_dir()
+        assert len(asked) == 1
+
+    @pytest.mark.parametrize("reply", ["n", "", None])
+    def test_anything_else_leaves_it_missing(self, monkeypatch, tmp_path, reply):
+        """No, a bare Enter, or no one to ask: the run stops as before."""
+        self._answer(monkeypatch, reply)
+        path = tmp_path / "census"
+
+        with pytest.raises(ValueError, match="census_dir"):
+            check_input_paths({"census_dir": str(path)}, used={"census_dir"})
+        assert not path.exists()
+
+    def test_a_missing_parent_is_not_offered(self, monkeypatch, tmp_path):
+        """A wrong root or drive is a mistake to report, not a folder to make."""
+        asked = self._answer(monkeypatch, "y")
+
+        with pytest.raises(ValueError, match="census_dir"):
+            check_input_paths({"census_dir": str(tmp_path / "no" / "census")}, used={"census_dir"})
+        assert asked == []
+
+
 class TestTheShippedConfigs:
     """What the repository actually contains has to satisfy all of this."""
 

@@ -1,31 +1,26 @@
 """PUMS microdata I/O.
 
-Downloads ACS PUMS 1-year microdata from the Census Bureau API (through
-``pums_api``) or loads it from local CSV / Parquet files, checks it, and casts
-the API's string responses to proper numeric dtypes. Downloads are cached as
-Parquet at ``<cache_dir>/pums/{state}_{year}_{hh|person}.parquet``.
+Reads the Census Bureau's official ACS PUMS 1-year files, kept in the census
+folder as ``pums_<year>/csv_h<st>.zip`` and ``pums_<year>/csv_p<st>.zip``,
+translates their coding to the Census API's, checks them, and casts them to
+numeric dtypes. A file missing from the folder is downloaded there first, so a
+fresh clone runs without any manual step; after that every run reads it as it is.
 
 Records come back as the Census published them: which ones count is decided by
 ``pums_cleaning``, and transformation (recoding, aggregation) lives in ``control_data``.
 """
 
-import difflib
-import hashlib
+import io
 import logging
+import zipfile
 from pathlib import Path
 
 import polars as pl
+import pygris
+import requests
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import pums_variables
-from processing.weighting.core.specs import PUMSSource
-from processing.weighting.data_prep.pums_api import (
-    CENSUS_BASE,
-    MAX_COLS_PER_REQUEST,
-    MAX_FETCH_ATTEMPTS,
-    available_variables,
-    fetch_table,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -65,101 +60,21 @@ _HH_VARS = _HH_INFRA | pums_variables(ControlLevel.HOUSEHOLD)
 _PERSON_VARS = _PERSON_INFRA | pums_variables(ControlLevel.PERSON)
 
 
-def _apply_vintage_aliases(
-    variables: list[str],
-    available: set[str],
-    pums_year: int,
-) -> tuple[list[str], dict[str, str]]:
-    """Swap canonical variable names for their pre-2020 equivalents when needed.
+#: Where the Census Bureau publishes each year's official 1-year files.
+_OFFICIAL_URL = "https://www2.census.gov/programs-surveys/acs/data/pums/{year}/1-Year/{name}"
 
-    Returns ``(api_vars, rename_map)`` where *api_vars* contains the names
-    to actually request from the Census API and *rename_map* maps
-    ``old_name -> canonical_name`` for post-fetch renaming.
-    """
-    if pums_year >= 2020 or not available:  # noqa: PLR2004
-        return variables, {}
-
-    rename_map: dict[str, str] = {}  # old -> canonical
-    out: list[str] = []
-    for var in variables:
-        alias = _PRE2020_ALIASES.get(var)
-        if alias and var not in available and alias in available:
-            out.append(alias)
-            rename_map[alias] = var
-        else:
-            out.append(var)
-    if rename_map:
-        logger.info(
-            "Vintage aliases applied (pre-2020): %s",
-            {v: k for k, v in rename_map.items()},
-        )
-    return out, rename_map
-
-
-def _validate_variables(
-    requested: list[str],
-    available: set[str],
-    label: str,
-    *,
-    optional: set[str] | None = None,
-    aliases: dict[str, str] | None = None,
-) -> list[str]:
-    """Check *requested* variables against *available* from the Census API.
-
-    If *available* is empty (pre-flight failed), returns *requested*
-    unchanged as a fallback.
-
-    Variables in *optional* (e.g. replicate weights) are silently dropped
-    with a log message if missing.  Variables in *aliases* whose alias
-    **is** present are accepted (they will be swapped later).  All other
-    missing variables are **required** — the function raises ``ValueError``
-    with the closest matching variable names as suggestions (likely a rename
-    across Census vintages).
-    """
-    if not available:
-        return requested
-
-    optional = optional or set()
-    aliases = aliases or {}
-    valid: list[str] = []
-    dropped_optional: list[str] = []
-    missing_required: list[tuple[str, list[str]]] = []
-
-    for var in requested:
-        if var in available:
-            valid.append(var)
-        elif var in aliases and aliases[var] in available:
-            # Known vintage alias — keep the canonical name; will be
-            # swapped for the actual API name in _apply_vintage_aliases.
-            valid.append(var)
-        elif var in optional:
-            dropped_optional.append(var)
-        else:
-            # Find similar names as suggestions
-            similar = difflib.get_close_matches(var, sorted(available), n=5, cutoff=0.5)
-            missing_required.append((var, similar))
-
-    if dropped_optional:
-        logger.info(
-            "%s: %d optional variable(s) not in this vintage (dropped): %s",
-            label,
-            len(dropped_optional),
-            dropped_optional[:10],
-        )
-
-    if missing_required:
-        lines = []
-        for var, similar in missing_required:
-            hint = f"  similar: {similar}" if similar else "  (no similar names found)"
-            lines.append(f"  - {var}\n{hint}")
-        msg = (
-            f"{label}: {len(missing_required)} required variable(s) not found in "
-            f"this PUMS vintage.  This usually means the variable was renamed "
-            f"across Census years.\n" + "\n".join(lines)
-        )
-        raise ValueError(msg)
-
-    return valid
+#: The official files leave "not applicable" blank where the API writes a code.
+#: Checked record by record against the API for California 2023.
+_NOT_APPLICABLE = {
+    "HINCP": -60000,  # vacant homes and group quarters
+    "VEH": -1,  # vacant homes and group quarters
+    "ESR": 0,  # under 16
+    "WKHP": 0,  # did not work
+    "JWTRNS": 0,  # not a worker
+    "JWRIP": 0,  # not a worker, or did not drive
+    "SCHG": 0,  # not in school
+    "SCHL": 0,  # under 3
+}
 
 
 #: Columns identifying one row of each table. SERIALNO alone repeats once per
@@ -241,11 +156,11 @@ def _replicate_weight_problems(
 
 
 def check_pums_complete(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
-    """Raise if any variable is blank on any record of API data.
+    """Raise if any variable is blank on any record, after the coding translation.
 
-    The API writes every "not applicable" as a code (0, -1, -60000), so a blank
-    is a value lost in the fetch or the conversion, never an answer. Downloaded
-    files leave "not applicable" blank, so they are not checked here (#184).
+    The official files leave "not applicable" blank, and ``_to_api_coding``
+    writes it as the API's code (0, -1, -60000). A blank left after that is a
+    variable the translation does not cover, never an answer (#184).
 
     Raises:
         ValueError: Naming each variable with blanks and how many.
@@ -257,7 +172,7 @@ def check_pums_complete(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
         if (n := df[col].null_count())
     ]
     if blanks:
-        msg = "PUMS from the Census API has blank values, which it never sends:\n  - " + (
+        msg = "PUMS has blank values the coding translation does not cover:\n  - " + (
             "\n  - ".join(blanks)
         )
         raise ValueError(msg)
@@ -266,8 +181,7 @@ def check_pums_complete(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
 def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
     """Verify PUMS records are internally consistent, or raise.
 
-    Fetching assembles each table from several API requests, so a record can end
-    up carrying another record's values while still looking well formed -- right
+    A record carrying another record's values still looks well formed -- right
     keys, plausible numbers, correct row count. These checks look for the
     disagreements that misattribution produces and that nothing downstream can
     see:
@@ -338,9 +252,9 @@ def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
             "PUMS records are not internally consistent, so values are attached to "
             "the wrong records:\n  - "
             + "\n  - ".join(problems)
-            + "\n\nThis is a fetch or cache defect, not a data-quality question: "
-            "these facts are true of the Census extract by construction. If a cache "
-            "is in play, delete it and re-fetch."
+            + "\n\nThis is a damaged file, not a data-quality question: these facts are "
+            "true of the Census extract by construction. Delete the file to have it "
+            "downloaded again."
         )
         raise ValueError(msg)
 
@@ -348,284 +262,103 @@ def check_pums_integrity(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def _cache_paths(
-    cache_dir: Path | None,
-    source: "PUMSSource",
-    hh_vars: list[str],
-    person_vars: list[str],
-) -> tuple[Path | None, Path | None]:
-    """Cache file paths for this variable set, or ``(None, None)`` if uncached.
+def pums_files(census_dir: str | Path, state_fips: str, pums_year: int) -> tuple[Path, Path]:
+    """Where the official household and person files live in the census folder.
 
-    The filename carries a hash of the requested variables so a query with
-    replicate weights cannot be served the cache of one without them.
+    Named as the Census names them, such as ``csv_hca.zip`` and ``csv_pca.zip``
+    for California.
     """
-    if cache_dir is None:
-        return None, None
-    var_key = f"{','.join(hh_vars)}|{','.join(person_vars)}"
-    digest = hashlib.sha256(var_key.encode()).hexdigest()[:10]
-    tag = f"{source.state_fips}_{source.pums_year}_{digest}"
-    pums_dir = cache_dir / "pums"
-    return pums_dir / f"{tag}_hh.parquet", pums_dir / f"{tag}_person.parquet"
+    states = pygris.fips_codes()
+    (abbr,) = states.loc[states["state_code"] == state_fips, "state"].unique()
+    folder = Path(census_dir) / f"pums_{pums_year}"
+    return folder / f"csv_h{abbr.lower()}.zip", folder / f"csv_p{abbr.lower()}.zip"
 
 
-def _load_cached_pums(
-    hh_cache: Path | None, per_cache: Path | None
-) -> tuple[pl.DataFrame, pl.DataFrame] | None:
-    """Load and verify a cached PUMS pair, or ``None`` if there is no cache.
-
-    The cache is verified on the way out, not just on the way in. It outlives
-    the run that wrote it, so an unchecked one lets a single bad fetch be
-    believed indefinitely -- which is exactly how misattributed replicate
-    weights persisted here across months of runs.
-    """
-    if hh_cache is None or per_cache is None:
-        return None
-    if not (hh_cache.exists() and per_cache.exists()):
-        return None
-    hh_df = pl.read_parquet(hh_cache)
-    person_df = pl.read_parquet(per_cache)
-    logger.info("Loaded PUMS from cache (%d HH, %d persons)", len(hh_df), len(person_df))
-    check_pums_integrity(hh_df, person_df)
-    check_pums_complete(hh_df, person_df)
-    return hh_df, person_df
+def _ensure_file(path: Path, pums_year: int) -> None:
+    """Download the official file to *path* when it is not there yet."""
+    if path.exists():
+        return
+    url = _OFFICIAL_URL.format(year=pums_year, name=path.name)
+    logger.info("Downloading %s to %s", url, path)
+    resp = requests.get(url, timeout=600)
+    resp.raise_for_status()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(path.name + ".part")
+    partial.write_bytes(resp.content)
+    partial.replace(path)
 
 
-def _fetch_verified_pums(
-    base_url: str,
-    hh_vars: list[str],
-    person_vars: list[str],
-    source: "PUMSSource",
-    puma_geo: str,
+def _read_official(path: Path, wanted: set[str]) -> pl.DataFrame:
+    """Read the *wanted* columns present in an official PUMS zip, as text."""
+    with zipfile.ZipFile(path) as zf:
+        (inner,) = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+        source = io.BytesIO(zf.read(inner))
+    header = pl.read_csv(source, n_rows=0).columns
+    source.seek(0)
+    renamed = {old: new for new, old in _PRE2020_ALIASES.items() if old in header}
+    columns = [c for c in header if c in wanted or renamed.get(c) in wanted]
+    df = pl.read_csv(source, columns=columns, infer_schema_length=0)
+    return df.rename(renamed)
+
+
+def _to_api_coding(df: pl.DataFrame) -> pl.DataFrame:
+    """Write the official file's values as the API does, so cleaning reads one coding."""
+    fills = [
+        pl.col(c).str.strip_chars().replace("", None).fill_null(str(code)).alias(c)
+        for c, code in _NOT_APPLICABLE.items()
+        if c in df.columns
+    ]
+    if "ADJINC" in df.columns:  # six implied decimals: 1019518 is a factor of 1.019518
+        fills.append((pl.col("ADJINC").cast(pl.Float64) / 1_000_000).round(6).cast(pl.Utf8))
+    return df.with_columns(fills) if fills else df
+
+
+def read_pums(
+    census_dir: str | Path,
+    state_fips: str,
+    pums_year: int,
     *,
-    hh_rename: dict[str, str],
-    per_rename: dict[str, str],
-    hh_expected: set[str],
-    person_expected: set[str],
+    load_replicate_weights: bool = False,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Fetch both tables and return them only once they verify, retrying if not.
+    """Read the official PUMS household and person files, downloading any that are missing.
 
-    The keyed join guarantees the chunks agree with each other, but it cannot
-    see a chunk whose own response is internally wrong -- correct SERIALNOs with
-    values shuffled beneath them. Joining on the key then propagates that
-    faithfully, and the tables are self-consistent right up until
-    :func:`check_pums_integrity` compares facts across them.
+    Args:
+        census_dir: The census folder; the files are in its ``pums_<year>``.
+        state_fips: Two-digit state FIPS code.
+        pums_year: ACS 1-year vintage.
+        load_replicate_weights: Also keep ``WGTP1``-``WGTP80`` and
+            ``PWGTP1``-``PWGTP80``, for MOE-based importance.
 
-    So integrity is a retry condition, not just a failure. The fault is
-    transient: the same request returns sound data on a later attempt. Without
-    this the check turns an intermittent corruption into an intermittent
-    outage, which is what it did the first time it fired in a real run.
+    Returns:
+        ``(households, persons)`` with every record, typed; vacant homes and
+        group quarters are dropped later by ``clean_pums``.
 
     Raises:
-        ValueError: If the data is still inconsistent after
-            :data:`MAX_FETCH_ATTEMPTS` whole-fetch attempts, which means the
-            fault is not the transient one a retry clears.
+        ValueError: If a file lacks a variable the controls need, or fails the
+            completeness or integrity checks.
     """
-    last_error: ValueError | None = None
-    for attempt in range(1, MAX_FETCH_ATTEMPTS + 1):
-        hh_df = fetch_table(
-            base_url, hh_vars, source.state_fips, puma_geo, label="households", keys=_HH_KEYS
-        )
-        person_df = fetch_table(
-            base_url, person_vars, source.state_fips, puma_geo, label="persons", keys=_PERSON_KEYS
-        )
-        # Canonical names first, so the checks below can name real columns.
-        if hh_rename:
-            hh_df = hh_df.rename(hh_rename)
-        if per_rename:
-            person_df = person_df.rename(per_rename)
-        hh_df = _cast_pums_types(hh_df, hh_expected)
-        person_df = _cast_pums_types(person_df, person_expected)
-
-        try:
-            check_pums_integrity(hh_df, person_df)
-        except ValueError as err:
-            last_error = err
-            logger.warning(
-                "PUMS failed its integrity check on attempt %d/%d, re-fetching. %s",
-                attempt,
-                MAX_FETCH_ATTEMPTS,
-                err,
-            )
-            continue
-        if attempt > 1:
-            logger.info("PUMS verified on attempt %d", attempt)
-        return hh_df, person_df
-
-    msg = (
-        f"PUMS failed its integrity check on {MAX_FETCH_ATTEMPTS} independent fetches, "
-        f"so this is not the transient fault a retry clears.\n\n{last_error}"
-    )
-    raise ValueError(msg) from last_error
-
-
-def fetch_pums_data(
-    source: PUMSSource,
-    extra_hh_vars: set[str] | None = None,
-    extra_person_vars: set[str] | None = None,
-    load_replicate_weights: bool = False,
-    cache_dir: Path | None = None,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Download PUMS household and person microdata from the Census API.
-
-    Args:
-        source: State, year, and optional PUMA filter.
-        extra_hh_vars: Additional household PUMS variable names to fetch
-            beyond the defaults.
-        extra_person_vars: Additional person PUMS variable names to fetch
-            beyond the defaults.
-        load_replicate_weights: If ``True``, also fetch the 80 replicate
-            weight columns per table (``WGTP1`` to ``WGTP80`` and
-            ``PWGTP1`` to ``PWGTP80``).  Required for MOE-based importance
-            calculation.
-        cache_dir: If set, raw PUMS data is cached as Parquet files under
-            ``cache_dir/pums/``.  Subsequent calls with the same state/year
-            load from cache instead of hitting the API.
-
-    Returns:
-        Tuple of ``(households, persons)`` Polars DataFrames with PUMS
-        data typed to appropriate dtypes, every record kept: vacant homes and
-        group quarters are dropped by ``clean_pums``.
-    """
-    hh_extra = extra_hh_vars or set()
-    person_extra = extra_person_vars or set()
-    if load_replicate_weights:
-        hh_extra = hh_extra | _HH_REPLICATE_WEIGHTS
-        person_extra = person_extra | _PERSON_REPLICATE_WEIGHTS
-    hh_vars = sorted(_HH_VARS | hh_extra)
-    person_vars = sorted(_PERSON_VARS | person_extra)
-
-    # Check cache first — filename includes a hash of the requested
-    # variable set so different queries (e.g. with/without replicate
-    # weights) get independent cache entries.
-    hh_cache, per_cache = _cache_paths(cache_dir, source, hh_vars, person_vars)
-    cached = _load_cached_pums(hh_cache, per_cache)
-    if cached is not None:
-        return cached
-
-    dataset_name = f"ACSPUMS1Y{source.pums_year}"
-    base_url = f"{CENSUS_BASE}/{source.pums_year}/acs/acs1/pums"
-    puma_geo = ",".join(source.puma_ids) if source.puma_ids else "*"
-    if source.puma_ids and len(puma_geo) >= MAX_COLS_PER_REQUEST:
-        puma_label = f"{len(source.puma_ids)} PUMAs"
-    else:
-        puma_label = puma_geo
-    logger.info(
-        "Fetching PUMS from Census API: %s (PUMAs: %s)",
-        dataset_name,
-        puma_label,
-    )
-
-    # Pre-flight: check which variables the API actually exposes for
-    # this year.  Raises ValueError for missing control variables (likely
-    # renamed across Census vintages) with similar-name suggestions.
-    # Replicate weights are optional — silently dropped if absent.
-    api_vars = available_variables(base_url)
-    optional_vars = _HH_REPLICATE_WEIGHTS | _PERSON_REPLICATE_WEIGHTS
-    aliases = _PRE2020_ALIASES if source.pums_year < 2020 else {}  # noqa: PLR2004
-    hh_vars = _validate_variables(
-        hh_vars,
-        api_vars,
-        "households",
-        optional=optional_vars,
-        aliases=aliases,
-    )
-    person_vars = _validate_variables(
-        person_vars,
-        api_vars,
-        "persons",
-        optional=optional_vars,
-        aliases=aliases,
-    )
-
-    # Swap canonical 2020+ names for their pre-2020 equivalents when needed.
-    hh_vars, hh_rename = _apply_vintage_aliases(hh_vars, api_vars, source.pums_year)
-    person_vars, per_rename = _apply_vintage_aliases(person_vars, api_vars, source.pums_year)
-
-    hh_df, person_df = _fetch_verified_pums(
-        base_url,
-        hh_vars,
-        person_vars,
-        source,
-        puma_geo,
-        hh_rename=hh_rename,
-        per_rename=per_rename,
-        hh_expected=_HH_VARS | hh_extra,
-        person_expected=_PERSON_VARS | person_extra,
-    )
+    hh_wanted = _HH_VARS | (_HH_REPLICATE_WEIGHTS if load_replicate_weights else set())
+    per_wanted = _PERSON_VARS | (_PERSON_REPLICATE_WEIGHTS if load_replicate_weights else set())
+    households, persons = pums_files(census_dir, state_fips, pums_year)
+    frames = []
+    tables = (("households", households, hh_wanted), ("persons", persons, per_wanted))
+    for label, path, wanted in tables:
+        _ensure_file(path, pums_year)
+        df = _to_api_coding(_read_official(path, wanted))
+        missing = sorted(wanted - set(df.columns))
+        if missing:
+            msg = f"PUMS {label} file {path} lacks {missing}"
+            raise ValueError(msg)
+        frames.append(_cast_pums_types(df, wanted))
+    hh_df, person_df = frames
     check_pums_complete(hh_df, person_df)
-
-    # Save raw data to cache (before any filtering)
-    if cache_dir is not None:
-        hh_cache.parent.mkdir(parents=True, exist_ok=True)
-        hh_df.write_parquet(hh_cache)
-        person_df.write_parquet(per_cache)
-        logger.info("Cached PUMS data to %s", hh_cache.parent)
-
+    check_pums_integrity(hh_df, person_df)
     logger.info(
-        "Fetched %d household records, %d person records",
-        len(hh_df),
-        len(person_df),
-    )
-    return hh_df, person_df
-
-
-def load_pums_from_files(
-    hh_path: str,
-    person_path: str,
-    state_fips: str | None = None,
-    puma_ids: list[str] | None = None,
-    load_replicate_weights: bool = False,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Load PUMS data from local CSV/Parquet files.
-
-    Args:
-        hh_path: Path to household PUMS file (CSV or Parquet).
-        person_path: Path to person PUMS file (CSV or Parquet).
-        state_fips: Optional filter to a specific state FIPS code.
-        puma_ids: Optional filter to specific PUMAs.
-        load_replicate_weights: If ``True``, retain ``WGTP1`` to ``WGTP80``
-            and ``PWGTP1`` to ``PWGTP80`` replicate weight columns.
-
-    Returns:
-        Tuple of ``(households, persons)`` Polars DataFrames, every record kept:
-        vacant homes and group quarters are dropped by ``clean_pums``.
-    """
-    hh_ext = hh_path.rsplit(".", 1)[-1].lower()
-    person_ext = person_path.rsplit(".", 1)[-1].lower()
-
-    if hh_ext == "parquet":
-        hh_df = pl.read_parquet(hh_path)
-    else:
-        hh_df = pl.read_csv(hh_path, infer_schema_length=10_000)
-
-    if person_ext == "parquet":
-        person_df = pl.read_parquet(person_path)
-    else:
-        person_df = pl.read_csv(person_path, infer_schema_length=10_000)
-
-    # Determine expected vars for type casting
-    hh_known = set(hh_df.columns) & _HH_VARS
-    person_known = set(person_df.columns) & _PERSON_VARS
-    if load_replicate_weights:
-        hh_known |= set(hh_df.columns) & _HH_REPLICATE_WEIGHTS
-        person_known |= set(person_df.columns) & _PERSON_REPLICATE_WEIGHTS
-
-    # Cast types
-    hh_df = _cast_pums_types(hh_df, hh_known)
-    person_df = _cast_pums_types(person_df, person_known)
-
-    if state_fips is not None and "ST" in hh_df.columns:
-        hh_df = hh_df.filter(pl.col("ST") == state_fips)
-        person_df = person_df.filter(pl.col("ST") == state_fips)
-
-    if puma_ids is not None and "PUMA" in hh_df.columns:
-        hh_df = hh_df.filter(pl.col("PUMA").is_in(puma_ids))
-        person_df = person_df.filter(pl.col("PUMA").is_in(puma_ids))
-
-    logger.info(
-        "Loaded %d household records, %d person records from files",
-        len(hh_df),
-        len(person_df),
+        "Read %d household and %d person records from %s and %s",
+        hh_df.height,
+        person_df.height,
+        households,
+        persons,
     )
     return hh_df, person_df
 

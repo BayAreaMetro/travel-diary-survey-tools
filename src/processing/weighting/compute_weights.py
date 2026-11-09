@@ -50,11 +50,11 @@ Orchestrates the full weighting pipeline in the following stages:
 """
 
 import logging
+from pathlib import Path
 
 import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
-from pipeline.cache import PipelineCache
 from pipeline.decoration import step
 from processing.weighting.core.hierarchy import (
     describe_weight_columns,
@@ -190,8 +190,6 @@ def compute_weights(  # noqa: PLR0913
     use_imputed_values: bool,
     strict_survey_nulls: bool = False,
     *,
-    # -- Pipeline plumbing (auto-injected by @step decorator) -----------
-    pipeline_cache: PipelineCache | None = None,
     # -- Canonical tables (auto-injected by pipeline) -------------------
     households: pl.DataFrame | None = None,
     persons: pl.DataFrame | None = None,
@@ -226,7 +224,6 @@ def compute_weights(  # noqa: PLR0913
             blanks itself; the published columns stay imputed.
         strict_survey_nulls: Raise on survey nulls in control variables rather
             than imputing them.
-        pipeline_cache: Supplied by the pipeline.
         households: Households.
         persons: Persons.
         person_days: Days.
@@ -257,10 +254,8 @@ def compute_weights(  # noqa: PLR0913
         state_fips=census.state_fips,
         pums_year=census.pums_year,
         pums_weights=census.pums_weights,
-        pums_households=census.pums_households,  # local files take precedence over the API
-        pums_persons=census.pums_persons,
         sample_plan=sample_plan,
-        cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
+        census_dir=Path(census.census_dir),
         expansion_factor_grid=diagnostics.expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
         use_imputed_values=use_imputed_values,
