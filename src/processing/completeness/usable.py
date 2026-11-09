@@ -127,10 +127,10 @@ def _flag_tours(
     A tour is usable when its structure is admissible, it sits on a coherent
     household-date, every trip on it is usable, and -- where the profile names a
     geography -- every one of its trips can be addressed in it, not merely its
-    own endpoints. Without the coherence term
-    CT-RAMP (which reads the tour's flag) would keep a tour the weighting has
-    zeroed. ``household_days.survey_complete`` is available because the reverse cascade runs
-    before this.
+    own endpoints. Without the coherence term CT-RAMP (which reads the tour's
+    flag) would keep a tour the weighting has zeroed.
+    ``household_days.survey_complete`` is available because the completeness
+    cascade runs before this.
 
     Subtours then take their parent's verdict on top of their own: an at-work
     subtour is travel *within* its parent tour, so keeping one whose parent was
@@ -312,7 +312,7 @@ def _tour_usable_expr(
     return pl.col("survey_complete").fill_null(value=False) & structural
 
 
-def _flag_days(  # noqa: C901, PLR0912 # This needs fixing in next issue
+def _flag_days(
     tables: dict[str, pl.DataFrame | None],
     profile: UsabilityProfile,
 ) -> None:
@@ -369,27 +369,10 @@ def _flag_days(  # noqa: C901, PLR0912 # This needs fixing in next issue
         taken = [day.value for day in profile.travel_days]
         base = base & pl.col("travel_dow").is_in(taken).fill_null(value=False)
 
-    # What the cleaner excluded has no usable day under any profile.
-    persons = tables.get("persons")
-    if "exclusion_reason" in person_days.columns:
-        if profile.needs_whole_household_day:
-            person_days = with_household_day_excluded(person_days, persons, "_date_excluded")
-            base = base & ~pl.col("_date_excluded")
-        else:
-            base = base & pl.col("exclusion_reason").is_null()
     person_days = person_days.with_columns(base.alias(profile.flag)).drop(
-        "_hh_day_complete", "_date_excluded", strict=False
+        "_hh_day_complete", strict=False
     )
-    not_excluded = pl.col("exclusion_reason").is_null().first()
-    if persons is not None and "exclusion_reason" in persons.columns:
-        person_days = and_reduced(
-            person_days, persons, "person_id", not_excluded, fill=True, into=profile.flag
-        )
-    households = tables.get("households")
-    if households is not None and "exclusion_reason" in households.columns:
-        person_days = and_reduced(
-            person_days, households, "hh_id", not_excluded, fill=True, into=profile.flag
-        )
+    person_days = _without_excluded(person_days, tables, profile)
 
     # A no-travel day has no tour to carry the household's home zone, so it
     # takes the term directly or it would outlive its own household.
@@ -415,6 +398,37 @@ def _flag_days(  # noqa: C901, PLR0912 # This needs fixing in next issue
             into=profile.flag,
         )
     tables["person_days"] = person_days
+
+
+def _without_excluded(
+    person_days: pl.DataFrame,
+    tables: dict[str, pl.DataFrame | None],
+    profile: UsabilityProfile,
+) -> pl.DataFrame:
+    """Return *person_days* with excluded days unusable under every profile.
+
+    A day is excluded when the project cleaner gave it, its person or its
+    household an ``exclusion_reason``. A profile needing every member's day
+    takes the whole household-date down with an excluded day.
+    """
+    persons = tables.get("persons")
+    if "exclusion_reason" in person_days.columns:
+        if profile.needs_whole_household_day:
+            person_days = with_household_day_excluded(person_days, persons, "_date_excluded")
+            own = ~pl.col("_date_excluded")
+        else:
+            own = pl.col("exclusion_reason").is_null()
+        person_days = person_days.with_columns(
+            (pl.col(profile.flag) & own).alias(profile.flag)
+        ).drop("_date_excluded", strict=False)
+    not_excluded = pl.col("exclusion_reason").is_null().first()
+    for table, key in (("persons", "person_id"), ("households", "hh_id")):
+        df = tables.get(table)
+        if df is not None and "exclusion_reason" in df.columns:
+            person_days = and_reduced(
+                person_days, df, key, not_excluded, fill=True, into=profile.flag
+            )
+    return person_days
 
 
 def _flag_persons(

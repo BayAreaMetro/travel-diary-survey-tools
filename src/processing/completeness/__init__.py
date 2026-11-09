@@ -1,29 +1,8 @@
-"""Canonical completeness and model-usability logic.
+"""Canonical completeness and model-usability flags: how each is derived.
 
-Two kinds of flag roll **up** from two atomic facts -- whether each **day** was
-surveyed (``person_days.survey_complete``, which the project cleaner takes from the
-survey vendor's own day verdict), and each tour's structural validity:
-
-* ``survey_complete`` -- was it reported? Rolls up from complete days. One answer per
-  run, never narrowed by model criteria and never configurable: if it is wrong,
-  the fix belongs upstream in the project cleaner.
-* one column per **usability profile** -- can the model consume it? Fuses each
-  tour's structure with its household-day coherence, then gates the rest.
-
-A profile states a standard on five axes -- which home has to close a tour,
-what the household-date has to show, which zone system has to be able to
-address the record, what a joint tour has to be, and which days of the week
-it takes -- and a run may stamp
-several, so different consumers can hold different standards. A joint-tour
-model needs whole households and fully joint tours; a trip-level estimation
-does not, and needs no model geography at all.
-
-Every profile is named in config and answers every axis, so a column's meaning
-reads off the config without knowing a base rule, and no verdict appears that
-nobody asked for. Consumers name the profiles they read (a formatter's
-``usability_profile``, the weighting's ``weight_profiles``), and ``survey_complete``
-is always available as the floor
-beneath all of them.
+Both kinds of flag start from two atomic facts: whether each **day** was
+surveyed (``person_days.survey_complete``, which the project cleaner takes from
+the survey vendor's own day verdict), and each tour's structural validity.
 
 Each flag comes from one place in the tree -- its **direction** -- via a counting
 **operation** (the ``op`` column below). Naming the direction makes it clear that

@@ -93,7 +93,7 @@ def _rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
 
 
 def _flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
-    """Stamp ``household_days.survey_complete``, in place (the reverse cascade).
+    """Stamp ``household_days.survey_complete``, in place.
 
     A household-day is complete only when every *surveyable* member's day is
     complete: an ALL reduction over those person-days, which are the vendor's
