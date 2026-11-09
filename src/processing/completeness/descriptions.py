@@ -10,11 +10,21 @@ import logging
 
 import polars as pl
 
-from data_canon.core.dataclass import CanonicalData
-
-from .profiles import TourClosesAt, UsabilityProfile
+from .profiles import TourClosesAt, UsabilityProfile, parse_usability_profiles
 
 logger = logging.getLogger(__name__)
+
+_CLOSURE_TEXT = {
+    TourClosesAt.PRIMARY_HOME: "returning to the home it left",
+    TourClosesAt.ANY_HOME: (
+        "returning to any home this person is known to have, so a tour closing "
+        "at a second residence counts"
+    ),
+    TourClosesAt.ANYWHERE: (
+        "ending anywhere, so a tour cut by the diary edge or resuming the next "
+        "day counts; its trips are whole even though it does not close"
+    ),
+}
 
 
 def suggest_usability_columns(frame: pl.DataFrame) -> str:
@@ -32,19 +42,6 @@ def suggest_usability_columns(frame: pl.DataFrame) -> str:
     if not boolean:
         return "It carries no boolean columns at all."
     return f"Did you mean one of these boolean columns? {', '.join(boolean)}."
-
-
-_CLOSURE_TEXT = {
-    TourClosesAt.PRIMARY_HOME: "returning to the home it left",
-    TourClosesAt.ANY_HOME: (
-        "returning to any home this person is known to have, so a tour closing "
-        "at a second residence counts"
-    ),
-    TourClosesAt.ANYWHERE: (
-        "ending anywhere, so a tour cut by the diary edge or resuming the next "
-        "day counts; its trips are whole even though it does not close"
-    ),
-}
 
 
 def _describe(profile: UsabilityProfile) -> dict[str, str]:
@@ -154,23 +151,29 @@ def _log_gate_summary(
         logger.info("\n".join(lines))
 
 
-def _register_profile_columns(
-    tables: dict[str, pl.DataFrame | None],
-    profiles: list[UsabilityProfile],
-    canonical_data: CanonicalData,
-) -> None:
-    """Declare each stamped column to the writer, with what it means."""
-    for profile in profiles:
+def profile_columns(usability_profiles: dict | None) -> dict[str, dict[str, str]]:
+    """The per-profile columns `cascade_completeness` writes, with what each admits.
+
+    Every profile column is listed for every stamped table, a few more than any one
+    table carries; the writer keeps only those a table has.
+    """
+    if usability_profiles is None:
+        return {}  # the step itself raises, with the reason
+    # household_days gets only each profile's flag, below
+    stamped = (
+        "households",
+        "persons",
+        "person_days",
+        "unlinked_trips",
+        "linked_trips",
+        "joint_trips",
+        "tours",
+        "joint_tours",
+    )
+    out: dict[str, dict[str, str]] = {}
+    for profile in parse_usability_profiles(usability_profiles):
         described = _describe(profile)
-        for name, df in tables.items():
-            if df is None:
-                continue
-            if name == "household_days":
-                if profile.flag in df.columns:
-                    canonical_data.register_generated_columns(
-                        name, {profile.flag: _describe_household_day(profile)}
-                    )
-                continue
-            present = {col: text for col, text in described.items() if col in df.columns}
-            if present:
-                canonical_data.register_generated_columns(name, present)
+        for table in stamped:
+            out.setdefault(table, {}).update(described)
+        out.setdefault("household_days", {})[profile.flag] = _describe_household_day(profile)
+    return out

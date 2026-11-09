@@ -302,6 +302,19 @@ A column whose name comes from the config is written as a pattern, such as
 `usable_<profile>` or `home_<zone>`. Validation skips patterns, since the real name
 is only known at run time, and the step checks for the column itself.
 
+The step also lists the real names, with `generated_columns`: a function in the step's own
+module that takes some of the step's settings and returns the columns per table.
+The decorator registers them on every call, before checking the cache, so
+`write_data` keeps them whether the step ran or was loaded from the cache:
+
+```python
+def zone_columns(zone_geographies: list[dict]) -> dict[str, list[str]]:
+    return {"households": [f"home_{z['zone_name']}" for z in zone_geographies]}
+
+@step(produces={"households": {"home_<zone>"}}, generated_columns=zone_columns)
+def add_zone_ids(zone_geographies: list[dict], households: pl.DataFrame, ...): ...
+```
+
 Every step in `processing` declares a contract, except the few listed with their
 reason in `tests/test_step_validation.py` (`load_data`, `write_data`, `final_check`).
 The [Column Requirements](COLUMN_REQUIREMENTS.md) page is generated from these

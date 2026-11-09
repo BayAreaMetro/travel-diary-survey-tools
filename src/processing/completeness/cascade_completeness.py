@@ -2,10 +2,9 @@
 
 import polars as pl
 
-from data_canon.core.dataclass import CanonicalData
 from pipeline.decoration import step
 
-from .descriptions import _log_gate_summary, _register_profile_columns
+from .descriptions import _log_gate_summary, profile_columns
 from .profiles import parse_usability_profiles
 from .survey_complete import cascade_complete
 from .usable_cascade import stamp_usable
@@ -33,6 +32,7 @@ from .usable_cascade import stamp_usable
         "joint_trips": {"usable_<profile>"},
         "joint_tours": {"usable_<profile>"},
     },
+    generated_columns=profile_columns,
 )
 def cascade_completeness(
     households: pl.DataFrame | None = None,
@@ -45,7 +45,6 @@ def cascade_completeness(
     tours: pl.DataFrame | None = None,
     joint_tours: pl.DataFrame | None = None,
     usability_profiles: dict[str, dict[str, str]] | None = None,
-    canonical_data: CanonicalData | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Cascade ``survey_complete`` through the hierarchy and stamp one column per profile.
 
@@ -108,10 +107,6 @@ def cascade_completeness(
             Required, and every profile answers every axis: there is no default
             at either level, so a verdict never appears unasked and a column's
             meaning is never implicit.
-        canonical_data: Injected by the pipeline. Profile columns are named from
-            config and so cannot be model fields; they are registered here with
-            a description of what each admits, which keeps them in the delivered
-            output and documented rather than silently dropped.
 
     Returns:
         The provided tables, each with ``survey_complete`` reconciled and one column
@@ -146,8 +141,5 @@ def cascade_completeness(
     for profile in profiles:
         stamp_usable(tables, profile)
     _log_gate_summary(tables, profiles)
-
-    if canonical_data is not None:
-        _register_profile_columns(tables, profiles, canonical_data)
 
     return {name: df for name, df in tables.items() if df is not None}
