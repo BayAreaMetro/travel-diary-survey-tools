@@ -22,7 +22,7 @@ from processing.completeness import (
     cascade_complete,
     stamp_usable,
 )
-from processing.completeness.kept_records import keep_records, select_profile_columns
+from processing.formatting.kept_records import keep_records, select_profile_columns
 from processing.joint_trips.aggregation import build_joint_trips_table
 from processing.tours.joint_tour_helpers import build_joint_tours_table
 from tests.fixtures.schema_utils import add_household_days

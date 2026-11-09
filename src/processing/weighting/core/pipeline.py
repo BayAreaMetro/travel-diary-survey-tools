@@ -54,7 +54,7 @@ from pathlib import Path
 import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
-from processing.completeness import suggest_usability_columns
+from processing.formatting.kept_records import suggest_usability_columns
 from processing.weighting.balancing.balancer import (
     balance_weights,
     grid_search_expansion_factor,

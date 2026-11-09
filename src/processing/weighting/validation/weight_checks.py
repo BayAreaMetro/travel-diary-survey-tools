@@ -10,7 +10,7 @@ from collections.abc import Collection
 import polars as pl
 
 from processing.completeness import profile_of
-from processing.completeness.kept_records import (
+from processing.formatting.kept_records import (
     GATED_TABLES,
     keep_records,
     select_profile_columns,
@@ -132,7 +132,7 @@ def check_weight_placement(
        onto the usable records moved the vendor's total rather than shrinking
        it. Checked only where the caller supplies totals (the vendor path).
     4. What the formatter will keep carries the whole total. [`keep_records`]
-       [processing.completeness.kept_records.keep_records] is the formatter's
+       [processing.formatting.kept_records.keep_records] is the formatter's
        own answer, so running it here and comparing totals proves the weighting
        and the formatter agree before any file is written. Skipped only when a
        table present carries no verdict, which is a partial call rather than

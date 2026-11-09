@@ -118,13 +118,11 @@ Modules:
 - ``usable``: one profile's verdict, from the tour fuse up and then down every
   table, with the zone checks.
 - ``joint_groupings``: which records are on a joint tour or joint trip, per profile.
-- ``kept_records``: which records survive a verdict once references are restored.
 - ``descriptions``: what each stamped column means, in words.
 - ``cascade_completeness``: the pipeline step.
 """
 
 from .cascade_completeness import cascade_completeness
-from .descriptions import suggest_usability_columns
 from .joint_groupings import MIN_JOINT_PARTICIPANTS
 from .profiles import (
     NO_ZONE_COVERAGE,
@@ -164,6 +162,5 @@ __all__ = [
     "rollup_completeness",
     "rollup_household_complete",
     "stamp_usable",
-    "suggest_usability_columns",
     "usable_col_for",
 ]

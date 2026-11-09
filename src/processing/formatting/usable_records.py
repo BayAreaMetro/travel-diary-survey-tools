@@ -11,7 +11,7 @@ the output. Filtering on the same verdict the weighting used, and checking that
 the records kept carry every weight that came in, makes the two agree.
 
 Which records survive is decided by
-[`keep_records`][processing.completeness.kept_records.keep_records], which lives
+[`keep_records`][processing.formatting.kept_records.keep_records], which lives
 beside the cascade so the weighting can read the same answer.
 
 Weights and joint ids are read for the profile this consumer names, so its
@@ -28,7 +28,7 @@ import polars as pl
 
 from data_canon.codebook.tours import TourDataQuality
 from processing.completeness import usable_col_for
-from processing.completeness.kept_records import (
+from processing.formatting.kept_records import (
     GATED_TABLES,
     KeepLedger,
     keep_records,

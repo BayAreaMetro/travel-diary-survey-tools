@@ -31,9 +31,9 @@ from processing.completeness import (
     cascade_complete,
     parse_usability_profiles,
     stamp_usable,
-    suggest_usability_columns,
 )
 from processing.completeness.usable import _flag_tours
+from processing.formatting.kept_records import suggest_usability_columns
 from tests.fixtures.schema_utils import add_household_days
 
 STRICT = UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS)

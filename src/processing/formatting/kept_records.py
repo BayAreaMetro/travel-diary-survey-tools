@@ -24,9 +24,7 @@ import polars as pl
 
 from data_canon.core.dataclass import CANONICAL_MODELS
 from data_canon.validation.relational import foreign_key_edges
-
-from .descriptions import suggest_usability_columns
-from .joint_groupings import MIN_JOINT_PARTICIPANTS
+from processing.completeness import MIN_JOINT_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +70,23 @@ _PROFILE_COLUMNS: dict[str, tuple[str, ...]] = {
 
 # Rows of a failing check to name before summarising the rest.
 _MAX_REPORTED = 5
+
+
+def suggest_usability_columns(frame: pl.DataFrame) -> str:
+    """A "did you mean" line naming the boolean columns *frame* actually has.
+
+    For a consumer that was pointed at a usability column which is not there.
+    The names come from config, so there is no pattern to match on: a rule like
+    "ends in _usable" only holds until a project picks a name that does not fit
+    it, and then the hint reports none rather than admitting it cannot tell.
+    Every boolean column is offered instead. Some will be unrelated, which costs
+    a reader one glance; a confident empty answer costs them a debugging session
+    in the wrong step.
+    """
+    boolean = sorted(name for name, dtype in frame.schema.items() if dtype == pl.Boolean)
+    if not boolean:
+        return "It carries no boolean columns at all."
+    return f"Did you mean one of these boolean columns? {', '.join(boolean)}."
 
 
 @dataclass
