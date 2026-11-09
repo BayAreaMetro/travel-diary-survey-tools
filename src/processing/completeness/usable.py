@@ -22,7 +22,6 @@ from .joint_groupings import flag_joint
 from .profiles import ADMITTED_QUALITY, NO_ZONE_COVERAGE, TourClosesAt, UsabilityProfile
 from .reduce import and_reduced
 from .survey_complete import (
-    cascade_complete,
     reduce_to_household_days,
     with_household_day,
     with_household_day_excluded,
@@ -645,24 +644,3 @@ def _trips_with_zones_per_tour(
         has_zone = has_zone & _has_zone(column)
 
     return trips.select("tour_id", has_zone.alias("_trip_has_zone"))
-
-
-# -- Both halves, for a single profile -----------------------------------------
-
-
-def compute_usability(
-    tables: dict[str, pl.DataFrame | None],
-    profile: UsabilityProfile,
-) -> None:
-    """Stamp ``survey_complete`` and one profile's verdict on every table, in place.
-
-    The two halves in order: reporting completeness once, then one usability
-    pass over it. A run stamping several profiles calls :func:`cascade_complete`
-    once and :func:`stamp_usable` per profile instead.
-
-    Args:
-        tables: Mutable dict of table_name -> DataFrame (or None).
-        profile: The standard to apply, named on every axis.
-    """
-    cascade_complete(tables)
-    stamp_usable(tables, profile)

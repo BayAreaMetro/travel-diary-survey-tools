@@ -8,11 +8,9 @@ from processing.completeness import (
     HouseholdDayNeeds,
     TourClosesAt,
     UsabilityProfile,
+    cascade_complete,
     cascade_completeness,
-    compute_usability,
-    flag_household_day_complete,
-    rollup_completeness,
-    rollup_household_complete,
+    stamp_usable,
 )
 from processing.completeness.joint_groupings import _flag_joint_groupings
 from processing.completeness.usable import _flag_households
@@ -57,13 +55,13 @@ class TestRollupCompleteness:
     def test_person_complete_is_any_complete_day(self):
         """Person 1 has a complete day -> complete; person 2 has none -> incomplete."""
         tables = self._tables()
-        rollup_completeness(tables)
+        cascade_complete(add_household_days(tables))
         assert tables["persons"].sort("person_id")["survey_complete"].to_list() == [True, False]
 
     def test_day_records_inherit_their_day(self):
         """A tour/trip is complete only if its day is (own AND day)."""
         tables = self._tables()
-        rollup_completeness(tables)
+        cascade_complete(add_household_days(tables))
         assert tables["tours"].sort("tour_id")["survey_complete"].to_list() == [True, False, False]
         assert tables["linked_trips"].sort("linked_trip_id")["survey_complete"].to_list() == [
             True,
@@ -77,7 +75,7 @@ class TestRollupCompleteness:
         tables["tours"] = pl.DataFrame(
             {"tour_id": [1], "person_day_id": [1], "survey_complete": [False]}
         )
-        rollup_completeness(tables)
+        cascade_complete(add_household_days(tables))
         assert tables["tours"]["survey_complete"].to_list() == [False]
 
     @pytest.mark.parametrize(("person_day_id", "expected"), [(1, True), (2, False)])
@@ -88,29 +86,27 @@ class TestRollupCompleteness:
             {"unlinked_trip_id": [1], "person_day_id": [person_day_id], "survey_complete": [None]},
             schema_overrides={"survey_complete": pl.Boolean},
         )
-        rollup_completeness(tables)
+        cascade_complete(add_household_days(tables))
         assert tables["unlinked_trips"]["survey_complete"].to_list() == [expected]
 
     def test_household_needs_a_complete_household_day(self):
         """Hh 1 has a complete household-day (d1); hh 2 has none."""
         tables = self._tables()
-        rollup_completeness(tables)
-        flag_household_day_complete(add_household_days(tables))
-        rollup_household_complete(tables)
+        cascade_complete(add_household_days(tables))
         assert tables["households"].sort("hh_id")["survey_complete"].to_list() == [True, False]
 
     def test_idempotent(self):
         """Re-running the rollup never changes an already-rolled result."""
         tables = self._tables()
-        rollup_completeness(tables)
+        cascade_complete(add_household_days(tables))
         once = tables["tours"].sort("tour_id")["survey_complete"].to_list()
-        rollup_completeness(tables)
+        cascade_complete(add_household_days(tables))
         assert tables["tours"].sort("tour_id")["survey_complete"].to_list() == once
 
     def test_missing_tables_are_skipped(self):
-        """Rollup tolerates a bare tables dict (no days)."""
+        """The cascade tolerates a bare tables dict (no days)."""
         tables = {"households": pl.DataFrame({"hh_id": [1], "survey_complete": [False]})}
-        rollup_completeness(tables)  # must not raise
+        cascade_complete(add_household_days(tables))  # must not raise
         assert tables["households"]["survey_complete"].to_list() == [False]
 
 
@@ -169,27 +165,25 @@ def _gate_tables(
 
 
 class TestComputeModelUsable:
-    """Tests for compute_usability (the modelling gate)."""
+    """Tests for one usability pass (the modelling gate)."""
 
     def test_only_admissible_tours_are_usable(self):
         """VALID + COMPLETE-category tours pass; invalid and partial ones do not."""
         tables = _gate_tables()
-        compute_usability(
-            add_household_days(tables),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(tables))
+        stamp_usable(
+            tables,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         assert tables["tours"].sort("tour_id")["usable_test"].to_list() == [True, False, False]
 
     def test_day_with_one_usable_tour_stays_usable(self):
         """A day keeps its gate as long as at least one tour is admissible."""
         tables = _gate_tables()
-        compute_usability(
-            add_household_days(tables),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(tables))
+        stamp_usable(
+            tables,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         assert tables["person_days"]["usable_test"].to_list() == [True]
 
@@ -199,11 +193,10 @@ class TestComputeModelUsable:
             tour_quality=[TourDataQuality.NO_DESTINATION.value] * 3,
             tour_category=[TourCategory.PARTIAL_BOTH.value] * 3,
         )
-        compute_usability(
-            add_household_days(tables),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(tables))
+        stamp_usable(
+            tables,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         assert tables["person_days"]["usable_test"].to_list() == [False]
         # ...but it is still valid survey data
@@ -214,11 +207,10 @@ class TestComputeModelUsable:
         tables = _gate_tables()
         tables["tours"] = tables["tours"].clear()
         tables["linked_trips"] = tables["linked_trips"].clear()
-        compute_usability(
-            add_household_days(tables),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(tables))
+        stamp_usable(
+            tables,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         assert tables["person_days"]["usable_test"].to_list() == [True]
 
@@ -239,11 +231,10 @@ class TestComputeModelUsable:
                 "survey_complete": [False],
             }
         )
-        compute_usability(
-            add_household_days(tables),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(tables))
+        stamp_usable(
+            tables,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         assert tables["persons"]["usable_test"].to_list() == [False]
         assert tables["person_days"]["usable_test"].to_list() == [False]
@@ -310,11 +301,10 @@ class TestJointGroupingsNeedTwoMembers:
         survived its own members being dropped.
         """
         tables = _joint_tables(tour_usable=[False, False, False])
-        compute_usability(
-            add_household_days(tables),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(tables))
+        stamp_usable(
+            tables,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         assert tables["joint_trips"]["survey_complete"].to_list() == [True]
         assert tables["joint_trips"]["usable_test"].to_list() == [False]
@@ -387,11 +377,10 @@ class TestHouseholdDayCoherence:
             hh_ids=[1, 1],
             persons=[1, 2],
         )
-        compute_usability(
-            add_household_days(t),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(t))
+        stamp_usable(
+            t,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         assert t["household_days"]["survey_complete"].to_list() == [True]
         assert t["person_days"]["usable_test"].to_list() == [True, True]
@@ -417,11 +406,10 @@ class TestHouseholdDayCoherence:
             persons=[1, 2],
             surveyable=surveyable,
         )
-        compute_usability(
-            add_household_days(t),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(t))
+        stamp_usable(
+            t,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         # member 1 reported a complete day, but member 2 did not, so the whole
         # household-date is incoherent and neither day is usable
@@ -441,11 +429,10 @@ class TestHouseholdDayCoherence:
             hh_ids=[1, 1, 1, 1],
             persons=[1, 1, 2, 2],
         )
-        compute_usability(
-            add_household_days(t),
-            profile=UsabilityProfile(
-                "test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS
-            ),
+        cascade_complete(add_household_days(t))
+        stamp_usable(
+            t,
+            UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
         )
         # date A (days 1,3) coherent; date B (days 2,4) not
         assert t["household_days"].sort("travel_date")["survey_complete"].to_list() == [True, False]
@@ -494,7 +481,7 @@ class TestUnflaggedMemberTablesRaise:
 class TestCascadeCompletenessStep:
     """Tests for the cascade_completeness pipeline step.
 
-    The step is a thin wrapper over :func:`compute_usability` (covered above);
+    The step runs :func:`cascade_complete` and :func:`stamp_usable` (covered above);
     the full pipeline wiring is exercised by the synthetic end-to-end run. Here we
     only assert it is registered and returns just the tables it was given.
     """

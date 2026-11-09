@@ -18,7 +18,7 @@ The rule is therefore an ALL over the tour's trips -- the same shape as
 import polars as pl
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
-from processing.completeness import UsabilityProfile, compute_usability
+from processing.completeness import UsabilityProfile, cascade_complete, stamp_usable
 from tests.fixtures.schema_utils import add_household_days
 
 ZONE = "taz"
@@ -77,7 +77,8 @@ def _tables(trip_zones: list[tuple[int | None, int | None]]) -> dict[str, pl.Dat
 def _verdict(trip_zones, *, coverage: str) -> bool:
     tables = _tables(trip_zones)
     profile = UsabilityProfile("u", "primary_home", "all_members", zone_coverage=coverage)
-    compute_usability(add_household_days(tables), profile=profile)
+    cascade_complete(add_household_days(tables))
+    stamp_usable(tables, profile)
     return bool(tables["tours"]["usable_u"][0])
 
 

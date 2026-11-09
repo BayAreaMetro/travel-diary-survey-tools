@@ -34,7 +34,8 @@ from processing.completeness import (
     HouseholdDayNeeds,
     TourClosesAt,
     UsabilityProfile,
-    compute_usability,
+    cascade_complete,
+    stamp_usable,
 )
 from processing.formatting.ctramp.format_households import format_households
 from processing.formatting.ctramp.format_tours import format_individual_tour
@@ -250,9 +251,10 @@ def _gate(tours: pl.DataFrame) -> dict[int, bool]:
         ),
         "tours": tours.with_columns(pl.lit(value=True).alias("survey_complete")),
     }
-    compute_usability(
-        add_household_days(tables),
-        profile=UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
+    cascade_complete(add_household_days(tables))
+    stamp_usable(
+        tables,
+        UsabilityProfile("test", TourClosesAt.PRIMARY_HOME, HouseholdDayNeeds.ALL_MEMBERS),
     )
     return dict(zip(*tables["tours"].select("tour_id", "usable_test"), strict=True))
 

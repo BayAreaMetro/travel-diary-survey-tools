@@ -34,16 +34,16 @@ def cascade_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     """
     # -- Completeness rolls UP from days (person = >=1 complete day) and each
     #    day-record inherits its day's complete.
-    rollup_completeness(tables)
+    _rollup_completeness(tables)
 
     # -- Household-day coherence (lateral: ALL member-days complete that date) -
-    flag_household_day_complete(tables)
+    _flag_household_day_complete(tables)
 
     # -- households.survey_complete = >=1 complete household-day -------------
-    rollup_household_complete(tables)
+    _rollup_household_complete(tables)
 
 
-def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
+def _rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
     """Roll ``survey_complete`` UP from days, then broadcast each day's value down, in place.
 
     Completeness is measured at the person-day (``person_days.survey_complete`` is set
@@ -58,7 +58,7 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
       day-records; see ``_DAY_RECORDS``.
 
     ``households.survey_complete`` is a household-day rollup and is set separately by
-    :func:`rollup_household_complete` (it needs ``household_days`` judged first). Tables
+    :func:`_rollup_household_complete` (it needs ``household_days`` judged first). Tables
     lacking ``survey_complete`` or the join key are left unchanged. Idempotent.
     """
     person_days = tables.get("person_days")
@@ -92,7 +92,7 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
         )
 
 
-def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
+def _flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     """Stamp ``household_days.survey_complete``, in place (the reverse cascade).
 
     A household-day is complete only when every *surveyable* member's day is
@@ -100,7 +100,7 @@ def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     verdicts. It decides nothing of its own. Unsurveyable members (see
     :func:`_join_surveyable`) take no part.
 
-    This runs after :func:`rollup_completeness`, so ``survey_complete`` already
+    This runs after :func:`_rollup_completeness`, so ``survey_complete`` already
     reflects ancestry; the reduction then flows the other way, up from members to
     the shared date. Idempotent.
     """
@@ -110,12 +110,12 @@ def flag_household_day_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     reduce_to_household_days(tables, pl.col("survey_complete"), "survey_complete")
 
 
-def rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
+def _rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     """Set ``households.survey_complete`` = has at least one complete household-day, in place.
 
     A household is complete when at least one date was coherently observed (every
     member complete). Requires ``household_days.survey_complete`` (from
-    :func:`flag_household_day_complete`). Left unchanged if either is absent.
+    :func:`_flag_household_day_complete`). Left unchanged if either is absent.
     """
     households = tables.get("households")
     household_days = tables.get("household_days")
