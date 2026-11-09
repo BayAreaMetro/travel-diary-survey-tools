@@ -11,6 +11,7 @@ the person-day level.
 import polars as pl
 
 from .profiles import UsabilityProfile
+from .reduce import and_reduced
 
 
 def _join_surveyable(person_days: pl.DataFrame, persons: pl.DataFrame | None) -> pl.DataFrame:
@@ -70,16 +71,13 @@ def _reduce_to_household_days(
     """
     household_days = _require_household_days(tables)
     person_days = _join_surveyable(tables["person_days"], tables.get("persons"))
-    reduced = (
-        person_days.filter(pl.col("_surveyable"))
-        .group_by("hh_day_id")
-        .agg(own.fill_null(value=False).all().alias("_verdict"))
-    )
-    tables["household_days"] = (
-        household_days.drop(column, strict=False)
-        .join(reduced, on="hh_day_id", how="left")
-        .with_columns(pl.col("_verdict").fill_null(value=False).alias(column))
-        .drop("_verdict")
+    tables["household_days"] = and_reduced(
+        household_days.drop(column, strict=False),
+        person_days.filter(pl.col("_surveyable")),
+        "hh_day_id",
+        own.fill_null(value=False).all(),
+        fill=False,
+        into=column,
     )
 
 

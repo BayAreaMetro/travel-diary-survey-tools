@@ -8,6 +8,7 @@ independent of how many usability passes follow it.
 import polars as pl
 
 from .household_day import flag_household_day_complete
+from .reduce import and_reduced
 
 # Records that sit on a day: their ``survey_complete`` is their own AND their day's
 # (a trip or tour is no more complete than the day it belongs to). Joint trips and
@@ -41,29 +42,27 @@ def rollup_completeness(tables: dict[str, pl.DataFrame | None]) -> None:
 
     persons = tables.get("persons")
     if persons is not None and "person_id" in person_days.columns:
-        per_flag = person_days.group_by("person_id").agg(day_complete.any().alias("_c"))
-        tables["persons"] = (
-            persons.drop("survey_complete", strict=False)
-            .join(per_flag, on="person_id", how="left")
-            .with_columns(pl.col("_c").fill_null(value=False).alias("survey_complete"))
-            .drop("_c")
+        tables["persons"] = and_reduced(
+            persons.drop("survey_complete", strict=False),
+            person_days,
+            "person_id",
+            day_complete.any(),
+            fill=False,
+            into="survey_complete",
         )
 
-    day_flag = person_days.select("person_day_id", day_complete.alias("_day_complete"))
     for name in _DAY_RECORDS:
         df = tables.get(name)
         if df is None or "survey_complete" not in df.columns or "person_day_id" not in df.columns:
             continue
-        tables[name] = (
-            df.join(day_flag, on="person_day_id", how="left")
-            .with_columns(
-                # A null own verdict defers to the day's.
-                (
-                    pl.col("survey_complete").fill_null(value=True)
-                    & pl.col("_day_complete").fill_null(value=True)
-                ).alias("survey_complete")
-            )
-            .drop("_day_complete")
+        # A null own verdict defers to the day's.
+        tables[name] = and_reduced(
+            df.with_columns(pl.col("survey_complete").fill_null(value=True)),
+            person_days,
+            "person_day_id",
+            day_complete.first(),
+            fill=True,
+            into="survey_complete",
         )
 
 
@@ -78,17 +77,13 @@ def rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
     household_days = tables.get("household_days")
     if households is None or household_days is None or "survey_complete" not in household_days:
         return
-    has_complete_day = (
-        household_days.filter(pl.col("survey_complete").fill_null(value=False))
-        .select("hh_id")
-        .unique()
-        .with_columns(pl.lit(value=True).alias("_h"))
-    )
-    tables["households"] = (
-        households.drop("survey_complete", strict=False)
-        .join(has_complete_day, on="hh_id", how="left")
-        .with_columns(pl.col("_h").fill_null(value=False).alias("survey_complete"))
-        .drop("_h")
+    tables["households"] = and_reduced(
+        households.drop("survey_complete", strict=False),
+        household_days,
+        "hh_id",
+        pl.col("survey_complete").fill_null(value=False).any(),
+        fill=False,
+        into="survey_complete",
     )
 
 

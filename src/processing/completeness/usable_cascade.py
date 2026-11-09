@@ -17,6 +17,7 @@ from .household_day import (
 )
 from .joint_groupings import flag_joint
 from .profiles import UsabilityProfile
+from .reduce import and_reduced
 from .survey_complete import cascade_complete
 from .usable_tours import TRIP_TABLES, _flag_tours
 from .zone_coverage import _home_zone_ok
@@ -137,15 +138,6 @@ def _flag_days(  # noqa: C901, PLR0912 # This needs fixing in next issue
     else:
         base = pl.col("survey_complete").fill_null(value=False)
 
-    # A no-travel day has no tour to carry the household's home zone, so it
-    # takes the term directly or it would outlive its own household.
-    home = _home_zone_ok(tables, cols)
-    if home is not None and "hh_id" in person_days.columns:
-        person_days = person_days.join(home, on="hh_id", how="left")
-        base = base & pl.col("_home_zone_ok").fill_null(value=False)
-    else:
-        home = None
-
     # A day the profile does not take is unusable whatever was reported on it,
     # and so is one whose day of the week is unknown.
     if cols.limits_travel_days:
@@ -160,44 +152,40 @@ def _flag_days(  # noqa: C901, PLR0912 # This needs fixing in next issue
 
     # What the cleaner excluded has no usable day under any profile.
     persons = tables.get("persons")
-    if persons is not None and "exclusion_reason" in persons.columns:
-        person_days = person_days.join(
-            persons.select("person_id", pl.col("exclusion_reason").alias("_excluded")),
-            on="person_id",
-            how="left",
-        )
-        base = base & pl.col("_excluded").is_null()
-    households = tables.get("households")
-    if households is not None and "exclusion_reason" in households.columns:
-        person_days = person_days.join(
-            households.select("hh_id", pl.col("exclusion_reason").alias("_hh_excluded")),
-            on="hh_id",
-            how="left",
-        )
-        base = base & pl.col("_hh_excluded").is_null()
     if "exclusion_reason" in person_days.columns:
         if cols.needs_whole_household_day:
             person_days = with_household_day_excluded(person_days, persons, "_date_excluded")
             base = base & ~pl.col("_date_excluded")
         else:
             base = base & pl.col("exclusion_reason").is_null()
-
-    if tours is not None and "person_day_id" in tours.columns:
-        day_has_usable = tours.group_by("person_day_id").agg(
-            pl.col(cols.flag).any().alias("_day_has_usable_tour")
-        )
-        person_days = person_days.join(day_has_usable, on="person_day_id", how="left")
-        # null == the day has no tours at all -> a legitimate no-travel day.
-        flagged = person_days.with_columns(
-            (base & pl.col("_day_has_usable_tour").fill_null(value=True)).alias(cols.flag)
-        ).drop("_day_has_usable_tour")
-    else:
-        flagged = person_days.with_columns(base.alias(cols.flag))
-
-    flagged = flagged.drop(
-        "_hh_day_complete", "_excluded", "_hh_excluded", "_date_excluded", strict=False
+    person_days = person_days.with_columns(base.alias(cols.flag)).drop(
+        "_hh_day_complete", "_date_excluded", strict=False
     )
-    tables["person_days"] = flagged.drop("_home_zone_ok") if home is not None else flagged
+    not_excluded = pl.col("exclusion_reason").is_null().first()
+    if persons is not None and "exclusion_reason" in persons.columns:
+        person_days = and_reduced(
+            person_days, persons, "person_id", not_excluded, fill=True, into=cols.flag
+        )
+    households = tables.get("households")
+    if households is not None and "exclusion_reason" in households.columns:
+        person_days = and_reduced(
+            person_days, households, "hh_id", not_excluded, fill=True, into=cols.flag
+        )
+
+    # A no-travel day has no tour to carry the household's home zone, so it
+    # takes the term directly or it would outlive its own household.
+    home = _home_zone_ok(tables, cols)
+    if home is not None and "hh_id" in person_days.columns:
+        person_days = and_reduced(
+            person_days, home, "hh_id", pl.col("_home_zone_ok").first(), fill=False, into=cols.flag
+        )
+
+    # A day with no tours at all is a legitimate no-travel day.
+    if tours is not None and "person_day_id" in tours.columns:
+        person_days = and_reduced(
+            person_days, tours, "person_day_id", pl.col(cols.flag).any(), fill=True, into=cols.flag
+        )
+    tables["person_days"] = person_days
 
 
 def _flag_persons(
@@ -230,16 +218,13 @@ def _flag_persons(
             pl.col("survey_complete").fill_null(value=False).alias(cols.flag)
         )
         return
-    has_usable_day = (
-        person_days.filter(pl.col(cols.flag).fill_null(value=False))
-        .select("person_id")
-        .unique()
-        .with_columns(pl.lit(value=True).alias("_u"))
-    )
-    tables["persons"] = (
-        persons.join(has_usable_day, on="person_id", how="left")
-        .with_columns(pl.col("_u").fill_null(value=False).alias(cols.flag))
-        .drop("_u")
+    tables["persons"] = and_reduced(
+        persons.drop(cols.flag, strict=False),
+        person_days,
+        "person_id",
+        pl.col(cols.flag).fill_null(value=False).any(),
+        fill=False,
+        into=cols.flag,
     )
 
 
@@ -285,20 +270,17 @@ def _flag_households(
             f"{counted_over} first, otherwise every household silently passes."
         )
         raise ValueError(msg)
+    households = households.with_columns(base.alias(cols.flag))
     if rows is None or "hh_id" not in rows.columns:
-        tables["households"] = households.with_columns(base.alias(cols.flag))
+        tables["households"] = households
         return
-
-    hh_has_usable_day = (
-        rows.filter(pl.col(cols.flag).fill_null(value=False))
-        .select("hh_id")
-        .unique()
-        .with_columns(pl.lit(value=True).alias("_hh_has_usable_day"))
-    )
-    tables["households"] = (
-        households.join(hh_has_usable_day, on="hh_id", how="left")
-        .with_columns((base & pl.col("_hh_has_usable_day").fill_null(value=False)).alias(cols.flag))
-        .drop("_hh_has_usable_day")
+    tables["households"] = and_reduced(
+        households,
+        rows,
+        "hh_id",
+        pl.col(cols.flag).fill_null(value=False).any(),
+        fill=False,
+        into=cols.flag,
     )
 
 
@@ -328,15 +310,8 @@ def _cascade_down(tables: dict[str, pl.DataFrame | None], cols: UsabilityProfile
             or key not in parent_df.columns
         ):
             continue
-        verdict = parent_df.select(key, pl.col(cols.flag).alias("_parent_usable"))
-        tables[table] = (
-            df.join(verdict, on=key, how="left")
-            .with_columns(
-                (pl.col(cols.flag) & pl.col("_parent_usable").fill_null(value=False)).alias(
-                    cols.flag
-                )
-            )
-            .drop("_parent_usable")
+        tables[table] = and_reduced(
+            df, parent_df, key, pl.col(cols.flag).first(), fill=False, into=cols.flag
         )
 
 

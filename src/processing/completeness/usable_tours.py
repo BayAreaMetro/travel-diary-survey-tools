@@ -11,6 +11,7 @@ from data_canon.codebook.tours import TourCategory
 
 from .household_day import with_household_day
 from .profiles import _ADMITTED_QUALITY, TourClosesAt, UsabilityProfile
+from .reduce import and_reduced
 from .zone_coverage import _home_zone_ok, _trips_with_zones_per_tour, _zone_expr
 
 # The trip tables: each starts from its own ``survey_complete``, the tour fuse
@@ -46,69 +47,57 @@ def _flag_tours(
         has_category="tour_category" in tours.columns,
         closes_at=cols.tour_closes_at,
     ) & _zone_expr(tours, "tours", cols)
+    tours = tours.with_columns(usable.alias(cols.flag))
 
     # ...and every leg of it, not only its anchor and primary destination. See
-    # _trips_with_zones_per_tour for why the endpoints are not enough.
-    per_tour = _trips_with_zones_per_tour(tables, cols)
-    if per_tour is not None and "tour_id" in tours.columns:
-        tours = tours.join(per_tour, on="tour_id", how="left")
-        # A tour with no trips has no leg that could be missing a zone.
-        usable = usable & pl.col("_trip_has_zone").fill_null(value=True)
-    else:
-        per_tour = None
+    # _trips_with_zones_per_tour for why the endpoints are not enough. A tour
+    # with no trips has no leg that could be missing a zone.
+    trip_zones = _trips_with_zones_per_tour(tables, cols)
+    if trip_zones is not None and "tour_id" in tours.columns:
+        tours = and_reduced(
+            tours, trip_zones, "tour_id", pl.col("_trip_has_zone").all(), fill=True, into=cols.flag
+        )
 
     # ...and every trip on it, so a trip dropped on its own takes its tour with it.
     trips_ok = _trips_usable_per_tour(tables, cols)
     if trips_ok is not None and "tour_id" in tours.columns:
-        tours = tours.join(trips_ok, on="tour_id", how="left")
-        # A tour with no trips has no trip that could fail it.
-        usable = usable & pl.col("_trips_usable").fill_null(value=True)
-    else:
-        trips_ok = None
+        tours = and_reduced(
+            tours, trips_ok, "tour_id", pl.col("_trips_usable").all(), fill=True, into=cols.flag
+        )
 
     # The household's own home has to have a zone too, or the tour belongs to
     # a household the consumer cannot write. See _home_zone_ok on why this is
     # joined in rather than rolled down.
     home = _home_zone_ok(tables, cols)
     if home is not None and "hh_id" in tours.columns:
-        tours = tours.join(home, on="hh_id", how="left")
-        usable = usable & pl.col("_home_zone_ok").fill_null(value=False)
-    else:
-        home = None
+        tours = and_reduced(
+            tours, home, "hh_id", pl.col("_home_zone_ok").first(), fill=False, into=cols.flag
+        )
 
     person_days = tables.get("person_days")
     if (
-        not cols.needs_whole_household_day
-        or person_days is None
-        or "person_day_id" not in tours.columns
+        cols.needs_whole_household_day
+        and person_days is not None
+        and "person_day_id" in tours.columns
     ):
-        flagged = tours.with_columns(usable.alias(cols.flag))
-    else:
-        coherence = with_household_day(
-            person_days, tables, "survey_complete", "_hh_day_complete"
-        ).select("person_day_id", "_hh_day_complete")
-        flagged = (
-            tours.join(coherence, on="person_day_id", how="left")
-            .with_columns(
-                (usable & pl.col("_hh_day_complete").fill_null(value=False)).alias(cols.flag)
-            )
-            .drop("_hh_day_complete")
+        coherence = with_household_day(person_days, tables, "survey_complete", "_hh_day_complete")
+        tours = and_reduced(
+            tours,
+            coherence,
+            "person_day_id",
+            pl.col("_hh_day_complete").first(),
+            fill=False,
+            into=cols.flag,
         )
 
-    if home is not None:
-        flagged = flagged.drop("_home_zone_ok")
-    if per_tour is not None:
-        flagged = flagged.drop("_trip_has_zone")
-    if trips_ok is not None:
-        flagged = flagged.drop("_trips_usable")
-    tables["tours"] = _flag_subtours_from_parent(flagged, cols)
+    tables["tours"] = _flag_subtours_from_parent(tours, cols)
 
 
 def _trips_usable_per_tour(
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
 ) -> pl.DataFrame | None:
-    """Per tour, whether every trip on it is usable so far, or None when no trips carry one.
+    """Each trip's usable flag so far, keyed by tour, or None when no trips carry one.
 
     Reads both trip tables: a linked trip and the unlinked trips it was built
     from can be narrowed separately (each carries its own weight), and either
@@ -136,7 +125,7 @@ def _trips_usable_per_tour(
         )
     if not per_table:
         return None
-    return pl.concat(per_table).group_by("tour_id").agg(pl.all("_trips_usable"))
+    return pl.concat(per_table)
 
 
 def _flag_subtours_from_parent(
@@ -153,16 +142,16 @@ def _flag_subtours_from_parent(
     if "parent_tour_id" not in tours.columns or "tour_id" not in tours.columns:
         return tours
 
-    parent_usable = tours.select(
-        pl.col("tour_id").alias("parent_tour_id"),
-        pl.col(cols.flag).alias("_parent_usable"),
+    parents = tours.select(
+        pl.col("tour_id").alias("parent_tour_id"), pl.col(cols.flag).alias("_parent_usable")
     )
-    return (
-        tours.join(parent_usable, on="parent_tour_id", how="left")
-        .with_columns(
-            (pl.col(cols.flag) & pl.col("_parent_usable").fill_null(value=True)).alias(cols.flag)
-        )
-        .drop("_parent_usable")
+    return and_reduced(
+        tours,
+        parents,
+        "parent_tour_id",
+        pl.col("_parent_usable").first(),
+        fill=True,
+        into=cols.flag,
     )
 
 

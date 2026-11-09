@@ -95,7 +95,7 @@ def _trips_with_zones_per_tour(
     tables: dict[str, pl.DataFrame | None],
     cols: UsabilityProfile,
 ) -> pl.DataFrame | None:
-    """Per tour, whether every one of its trips has a zone, or None.
+    """Whether each linked trip has a zone, keyed by tour, or None.
 
     A tour's own ``o``/``d`` are its anchor and its primary destination, so they
     say nothing about the legs between: a tour can start and end in the model
@@ -124,8 +124,4 @@ def _trips_with_zones_per_tour(
     for column in wanted:
         has_zone = has_zone & _has_zone(column)
 
-    return (
-        trips.select("tour_id", has_zone.alias("_trip_has_zone"))
-        .group_by("tour_id")
-        .agg(pl.all("_trip_has_zone"))
-    )
+    return trips.select("tour_id", has_zone.alias("_trip_has_zone"))

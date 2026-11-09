@@ -17,6 +17,7 @@ import polars as pl
 from data_canon.codebook.trips import WORK_PURPOSE_CATEGORIES, PurposeCategory
 
 from .profiles import UsabilityProfile
+from .reduce import and_reduced
 
 # A joint entity is only joint while two of its members survive.
 MIN_JOINT_PARTICIPANTS = 2
@@ -246,9 +247,6 @@ def _flag_joint_groupings(
         df = tables.get(joint_table)
         if df is None or "survey_complete" not in df.columns:
             continue
-
-        df, inherited = _join_parent_verdicts(df, tables, cols)
-        base = pl.col("survey_complete").fill_null(value=False) & inherited
         members = tables.get(member_table)
 
         if members is not None and cols.flag not in members.columns:
@@ -260,63 +258,30 @@ def _flag_joint_groupings(
             raise ValueError(msg)
 
         if members is None or key not in members.columns or key not in df.columns:
-            tables[joint_table] = df.with_columns(base.alias(cols.flag)).drop(
-                "_parent_usable", strict=False
+            df = df.with_columns(pl.col("survey_complete").fill_null(value=False).alias(cols.flag))
+        else:
+            # The profile's own copy of the id, where decided, is the stricter count:
+            # a usable tour that left its group for a leg is not on it.
+            own = cols.joint_tour_id if key == "joint_tour_id" else cols.joint_trip_id
+            on_it = pl.col(own).is_not_null() if own in members.columns else pl.col(cols.flag)
+            df = and_reduced(
+                df.drop(cols.flag, strict=False),
+                members.filter(pl.col(key).is_not_null() & on_it),
+                key,
+                pl.len() >= MIN_JOINT_PARTICIPANTS,
+                fill=False,
+                into=cols.flag,
             )
-            continue
 
-        # The profile's own copy of the id, where decided, is the stricter count:
-        # a usable tour that left its group for a leg is not on it.
-        own = cols.joint_tour_id if key == "joint_tour_id" else cols.joint_trip_id
-        on_it = pl.col(own).is_not_null() if own in members.columns else pl.col(cols.flag)
-        usable_members = (
-            members.filter(pl.col(key).is_not_null() & on_it)
-            .group_by(key)
-            .agg(pl.len().alias("_n_usable_members"))
-        )
-        tables[joint_table] = (
-            df.join(usable_members, on=key, how="left")
-            .with_columns(
-                (
-                    inherited & (pl.col("_n_usable_members").fill_null(0) >= MIN_JOINT_PARTICIPANTS)
-                ).alias(cols.flag)
+        # The household is the only record a grouping belongs to. The person_day_id
+        # a joint table carries is one traveller's, picked as a representative, so
+        # it is not inherited: the count of usable members already decides.
+        households = tables.get("households")
+        if households is not None and cols.flag in households.columns and "hh_id" in df.columns:
+            df = and_reduced(
+                df, households, "hh_id", pl.col(cols.flag).first(), fill=False, into=cols.flag
             )
-            .drop("_n_usable_members", "_parent_usable", strict=False)
-        )
-
-
-def _join_parent_verdicts(
-    df: pl.DataFrame,
-    tables: dict[str, pl.DataFrame | None],
-    cols: UsabilityProfile,
-) -> tuple[pl.DataFrame, pl.Expr]:
-    """Join the usable flag of *df*'s household as ``_parent_usable``.
-
-    The household is the only record a grouping belongs to. The ``person_day_id`` a
-    joint table carries is one traveller's day, picked as a representative when
-    the grouping was built, so it is not inherited: the members already carry
-    their own days' verdicts, and the count of usable members is what decides.
-
-    Returns the frame with the column added and the expression to AND into the
-    verdict. Where the reference cannot be followed the expression is True and
-    no column is added, so the caller's ``drop(strict=False)`` is a no-op.
-    """
-    verdict = pl.lit(value=True)
-    added = False
-    for parent, key in (("households", "hh_id"),):
-        parent_df = tables.get(parent)
-        if parent_df is None or cols.flag not in parent_df.columns:
-            continue
-        if key not in df.columns or key not in parent_df.columns:
-            continue
-        flag = parent_df.select(key, pl.col(cols.flag).alias(f"_{parent}_usable"))
-        df = df.join(flag, on=key, how="left")
-        verdict = verdict & pl.col(f"_{parent}_usable").fill_null(value=False)
-        added = True
-    if added:
-        df = df.with_columns(verdict.alias("_parent_usable")).drop("_households_usable")
-        return df, pl.col("_parent_usable")
-    return df, verdict
+        tables[joint_table] = df
 
 
 # -- Voiding what a rejected grouping left behind -----------------------------------
