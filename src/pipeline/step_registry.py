@@ -30,10 +30,16 @@ def is_config_named(field_name: str) -> bool:
 
 @dataclass(frozen=True)
 class TableContract:
-    """Workflow contract for a single table within a step."""
+    """Workflow contract for a single table within a step.
+
+    ``takes`` says whether the step receives the table; ``optional`` whether it
+    may be absent. A table the step only produces is not taken.
+    """
 
     requires: frozenset[str] = field(default_factory=frozenset)
     produces: frozenset[str] = field(default_factory=frozenset)
+    takes: bool = False
+    optional: bool = False
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,11 @@ class StepContract:
     """Workflow contract for a pipeline step."""
 
     tables: dict[str, TableContract] = field(default_factory=dict)
+
+    @property
+    def taken(self) -> dict[str, TableContract]:
+        """The tables the step receives, by name."""
+        return {name: tc for name, tc in self.tables.items() if tc.takes}
 
 
 # Module-level registry, populated at import time by @step() decorators
@@ -51,6 +62,7 @@ def register_step(
     step_name: str,
     requires: dict[str, set[str]] | None = None,
     produces: dict[str, set[str]] | None = None,
+    optional: dict[str, set[str]] | None = None,
 ) -> None:
     """Register a step's workflow contract in the global registry.
 
@@ -58,20 +70,32 @@ def register_step(
 
     Args:
         step_name: Name of the step (typically the function name).
-        requires: Mapping of table name to set of required input field names.
+        requires: Tables the step takes, each with the columns it reads.
         produces: Mapping of table name to set of produced output field names.
+        optional: Tables the step takes that may be absent, each with the
+            columns it reads when present.
+
+    Raises:
+        TypeError: If a table is both required and optional.
     """
     requires = requires or {}
     produces = produces or {}
+    optional = optional or {}
+    both = sorted(set(requires) & set(optional))
+    if both:
+        msg = f"{step_name}: {both} are in both requires and optional."
+        raise TypeError(msg)
 
-    table_names = set(requires) | set(produces)
+    taken = {**requires, **optional}
     STEP_REGISTRY[step_name] = StepContract(
         tables={
             t: TableContract(
-                requires=frozenset(requires.get(t, set())),
+                requires=frozenset(taken.get(t, set())),
                 produces=frozenset(produces.get(t, set())),
+                takes=t in taken,
+                optional=t in optional,
             )
-            for t in table_names
+            for t in dict.fromkeys([*taken, *produces])  # declared order, not a set's
         }
     )
 

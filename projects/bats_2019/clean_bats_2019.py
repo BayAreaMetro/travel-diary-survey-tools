@@ -11,7 +11,7 @@ from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import Employment, Ethnicity, Gender, Race, Student, SurveyTech
 from data_canon.codebook.trips import ModeType, Purpose, PurposeCategory, TNCType
 from data_canon.models.survey import HouseholdModel, PersonDayModel, PersonModel, UnlinkedTripModel
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from pipeline.step_registry import get_all_required_fields
 from processing.habitual_locations import reported_habitual_locations
 from utils.create_ids import create_household_days
@@ -934,16 +934,20 @@ def exclude_as_vendor_weekday_weights(
     return households, person_days
 
 
-@step()
+@step(
+    requires={"households": set(), "persons": set(), "person_days": set(), "unlinked_trips": set()}
+)
 def clean_2019_bats(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    person_days: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
+    tables: Tables,
     weights_dir: str,
     weight_col_suffix: str | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline."""
+    households = tables["households"]
+    persons = tables["persons"]
+    person_days = tables["person_days"]
+    unlinked_trips = tables["unlinked_trips"]
+
     # CLEANUP UNLINKED TRIPS =================================
     unlinked_trips = clean_trips(unlinked_trips)
 

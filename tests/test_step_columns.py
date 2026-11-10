@@ -8,7 +8,7 @@ every call, so ``write_data`` keeps them (#176).
 import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.add_zone_ids.add_zone_ids import zone_columns
 from processing.completeness.descriptions import profile_columns
 from processing.imputation.impute import preimputed_columns
@@ -31,11 +31,12 @@ def _zone_step(calls: list[str]):
     def columns(zone_name: str) -> dict[str, list[str]]:
         return {"households": [f"home_{zone_name}"]}
 
-    @step(validate_input=False, generated_columns=columns)
+    @step(validate_input=False, requires={"households": {"hh_id"}}, generated_columns=columns)
     def zone_step(
-        households: pl.DataFrame, zone_name: str, canonical_data: CanonicalData
+        tables: Tables, zone_name: str, canonical_data: CanonicalData
     ) -> dict[str, pl.DataFrame]:
         calls.append(sorted(canonical_data.generated_columns.get("households", {})))
+        households = tables["households"]
         return {"households": households.with_columns(pl.lit(1).alias(f"home_{zone_name}"))}
 
     return zone_step

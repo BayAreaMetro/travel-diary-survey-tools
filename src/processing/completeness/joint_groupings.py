@@ -84,16 +84,13 @@ def _flag_joint_ids(
     it only if it is usable, not work, work-related, school or escort, and made the same
     joint trips as the others (see :func:`_fully_joint_tours`). A linked trip
     is on its joint trip only while its tour is on its joint tour, and both
-    trip tables carry the tour's answer too. A survey with no joint travel
-    detected need not write ``joint_tour_id``, and then no tour is on one.
+    trip tables carry the tour's answer too.
     """
     tours = tables["tours"]
     tour_col = profile.joint_tour_id
     usable = pl.col(profile.flag).fill_null(value=False)
 
-    if "joint_tour_id" not in tours.columns:
-        tables["tours"] = tours.with_columns(pl.lit(None, dtype=pl.Int64).alias(tour_col))
-    elif not profile.requires_fully_joint:
+    if not profile.requires_fully_joint:
         tables["tours"] = tours.with_columns(
             pl.when(usable).then(pl.col("joint_tour_id")).otherwise(None).alias(tour_col)
         )
@@ -122,38 +119,35 @@ def _fully_joint_tours(
     trip went somewhere alone and is in no class. A group then needs two tours
     and one purpose, or it is no group and everyone on it travels alone.
 
-    Without ``joint_trip_id`` on the linked trips there are no legs to compare,
-    so the answer stops at the tour's own standing: usable, in a group, and
-    never work, work-related, school or escort.
+    A tour is also never work, work-related, school or escort.
     """
     tour_col = profile.joint_tour_id
     on_tour = pl.col(profile.flag).fill_null(value=False) & pl.col("joint_tour_id").is_not_null()
     if "tour_purpose" in tours.columns:
         on_tour = on_tour & ~pl.col("tour_purpose").is_in(_NEVER_JOINT_PURPOSES)
 
-    if "joint_trip_id" in trips.columns:
-        signatures = (
-            trips.filter(pl.col(profile.flag).fill_null(value=False))
-            .group_by("tour_id")
-            .agg(
-                pl.col("joint_trip_id").is_null().any().alias("_solo_leg"),
-                pl.col("joint_trip_id").sort().alias("_signature"),
-            )
+    signatures = (
+        trips.filter(pl.col(profile.flag).fill_null(value=False))
+        .group_by("tour_id")
+        .agg(
+            pl.col("joint_trip_id").is_null().any().alias("_solo_leg"),
+            pl.col("joint_trip_id").sort().alias("_signature"),
         )
-        classes = (
-            tours.filter(on_tour)
-            .select("tour_id", "joint_tour_id")
-            .join(signatures, on="tour_id", how="inner")
-            .filter(~pl.col("_solo_leg"))
-            .group_by("joint_tour_id", "_signature")
-            .agg(pl.col("tour_id").alias("_tours"), pl.len().alias("_n_tours"))
-            .with_columns(pl.col("_tours").list.min().alias("_first"))
-            .sort("joint_tour_id", "_n_tours", "_first", descending=[False, True, False])
-            .unique("joint_tour_id", keep="first", maintain_order=True)
-            .filter(pl.col("_n_tours") >= MIN_JOINT_PARTICIPANTS)
-        )
-        in_class = classes.select(pl.col("_tours").explode().alias("tour_id"))["tour_id"]
-        on_tour = on_tour & pl.col("tour_id").is_in(in_class.implode())
+    )
+    classes = (
+        tours.filter(on_tour)
+        .select("tour_id", "joint_tour_id")
+        .join(signatures, on="tour_id", how="inner")
+        .filter(~pl.col("_solo_leg"))
+        .group_by("joint_tour_id", "_signature")
+        .agg(pl.col("tour_id").alias("_tours"), pl.len().alias("_n_tours"))
+        .with_columns(pl.col("_tours").list.min().alias("_first"))
+        .sort("joint_tour_id", "_n_tours", "_first", descending=[False, True, False])
+        .unique("joint_tour_id", keep="first", maintain_order=True)
+        .filter(pl.col("_n_tours") >= MIN_JOINT_PARTICIPANTS)
+    )
+    in_class = classes.select(pl.col("_tours").explode().alias("tour_id"))["tour_id"]
+    on_tour = on_tour & pl.col("tour_id").is_in(in_class.implode())
 
     tours = tours.with_columns(
         pl.when(on_tour).then(pl.col("joint_tour_id")).otherwise(None).alias(tour_col)
@@ -187,9 +181,6 @@ def _flag_joint_trip_ids(
     """
     trips = tables["linked_trips"]
     trip_col = profile.joint_trip_id
-    if "joint_trip_id" not in trips.columns:
-        tables["linked_trips"] = trips.with_columns(pl.lit(None, dtype=pl.Int64).alias(trip_col))
-        return
     on_trip = pl.col(profile.flag).fill_null(value=False)
     if profile.requires_fully_joint:
         on_trip = on_trip & pl.col(profile.joint_tour_id).is_not_null()
@@ -216,13 +207,10 @@ def _flag_joint_groupings(
     The grouping's own ``survey_complete`` (every traveller complete) is no veto.
     A member is on it only while usable, which already needs that member's
     record complete, so an incomplete traveller is pruned from the grouping
-    rather than rejecting it for everyone else. A project that detects no joint
-    travel has no joint tables, and there is nothing to judge.
+    rather than rejecting it for everyone else.
     """
     for joint_table, member_table, key in _JOINT_GROUPINGS:
-        df = tables.get(joint_table)
-        if df is None:
-            continue
+        df = tables[joint_table]
         # The profile's own copy of the id is the stricter count: a usable tour
         # that left its group for a leg is not on it.
         own = profile.joint_tour_id if key == "joint_tour_id" else profile.joint_trip_id
@@ -265,9 +253,7 @@ def _void_ids_of_rejected_groupings(
     """
     changed = False
     for joint_table, _member_table, key in _JOINT_GROUPINGS:
-        groups = tables.get(joint_table)
-        if groups is None:
-            continue
+        groups = tables[joint_table]
         rejected = groups.filter(~pl.col(profile.flag).fill_null(value=False))[key]
         own = profile.joint_tour_id if key == "joint_tour_id" else profile.joint_trip_id
         changed = _void_on_tables(tables, own, rejected) or changed

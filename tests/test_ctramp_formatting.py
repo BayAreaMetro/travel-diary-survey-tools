@@ -68,6 +68,8 @@ from tests.fixtures import (
     empty_tours,
     empty_unlinked_trips,
     get_tour_schema,
+    reported_locations,
+    step_tables,
 )
 
 
@@ -261,14 +263,20 @@ class TestEndToEndFormatting:
         ) = create_single_adult_household()
 
         result = format_ctramp(
-            persons,
-            households,
-            linked_trips=empty_linked_trips(),
-            tours=empty_tours(),
-            joint_trips=empty_joint_trips(),
-            unlinked_trips=empty_unlinked_trips(),
-            joint_tours=empty_joint_tours(),
-            person_days=days_for_persons(persons),
+            **step_tables(
+                "format_ctramp",
+                {
+                    "persons": persons,
+                    "households": households,
+                    "linked_trips": empty_linked_trips(),
+                    "tours": empty_tours(),
+                    "joint_trips": empty_joint_trips(),
+                    "unlinked_trips": empty_unlinked_trips(),
+                    "joint_tours": empty_joint_tours(),
+                    "person_days": days_for_persons(persons),
+                    **reported_locations(households, persons, ["taz"]),
+                },
+            ),
             ctramp=standard_config,
         )
 
@@ -313,14 +321,20 @@ class TestEndToEndFormatting:
         households, persons = build_household()
 
         result = format_ctramp(
-            persons,
-            households,
-            linked_trips=empty_linked_trips(),
-            tours=empty_tours(),
-            joint_trips=empty_joint_trips(),
-            unlinked_trips=empty_unlinked_trips(),
-            joint_tours=empty_joint_tours(),
-            person_days=days_for_persons(persons),
+            **step_tables(
+                "format_ctramp",
+                {
+                    "persons": persons,
+                    "households": households,
+                    "linked_trips": empty_linked_trips(),
+                    "tours": empty_tours(),
+                    "joint_trips": empty_joint_trips(),
+                    "unlinked_trips": empty_unlinked_trips(),
+                    "joint_tours": empty_joint_tours(),
+                    "person_days": days_for_persons(persons),
+                    **reported_locations(households, persons, ["taz"]),
+                },
+            ),
             ctramp=standard_config,
         )
 

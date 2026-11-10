@@ -165,8 +165,9 @@ class Pipeline:
     def parse_step_args(self, step_name: str, step_obj: Callable) -> dict[str, Any]:
         """Separate the canonical data and parameters.
 
-        If argument name matches a canonical table, it is passed from self.data.
-        Else, it is taken from the step configuration "parameters".
+        The tables the step's contract declares are passed from self.data, by
+        name; the decorator checks them. Other arguments come from the step
+        configuration "parameters".
 
         A config key the step does not take raises, as does one naming a
         canonical table: either would otherwise be dropped without a word, and
@@ -200,14 +201,14 @@ class Pipeline:
             if key in owners:
                 flat[owners[key]][key] = value
 
-        data_kwargs = {}
+        contract = getattr(step_obj, "contract", None)
+        taken = contract.taken if contract else {}
+        data_kwargs = {name: getattr(self.data, name) for name in taken}
         config_kwargs = {}
         for arg_name, param in step_args.items():
             if arg_name == "canonical_data":
                 # Pass the entire CanonicalData instance if requested
                 data_kwargs[arg_name] = self.data
-            elif hasattr(self.data, arg_name):
-                data_kwargs[arg_name] = getattr(self.data, arg_name)
             elif arg_name in models:
                 settings = _model_settings(step_name, arg_name, params, flat[arg_name])
                 if settings is None and param.default is not param.empty:

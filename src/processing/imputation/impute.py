@@ -6,7 +6,7 @@ from typing import Any
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.imputation.comparison import compare_imputation_methods
 from processing.imputation.flags import stash_preimputed_columns
 
@@ -34,6 +34,17 @@ def preimputed_columns(
 
 @step(
     # The columns to impute come from impute_columns, so the step checks them itself.
+    optional={
+        table: set()
+        for table in (
+            "households",
+            "persons",
+            "person_days",
+            "unlinked_trips",
+            "linked_trips",
+            "tours",
+        )
+    },
     produces={
         table: {"<column>_preimputed"}
         for table in (
@@ -48,14 +59,7 @@ def preimputed_columns(
     generated_columns=preimputed_columns,
 )
 def imputation(  # noqa: C901, PLR0912, PLR0915
-    # Optional canonical tables
-    households: pl.DataFrame | None = None,
-    persons: pl.DataFrame | None = None,
-    person_days: pl.DataFrame | None = None,
-    unlinked_trips: pl.DataFrame | None = None,
-    linked_trips: pl.DataFrame | None = None,
-    tours: pl.DataFrame | None = None,
-    # Config parameters
+    tables: Tables,
     impute_columns: dict[str, list[dict[str, Any]]] | None = None,
     stash_preimputed: bool = True,
     random_state: int | None = None,
@@ -154,12 +158,7 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
                   max_iter: 10
 
     Args:
-        households: Households table (optional).
-        persons: Persons table (optional).
-        person_days: Days table (optional).
-        unlinked_trips: Unlinked trips table (optional).
-        linked_trips: Linked trips table (optional).
-        tours: Tours table (optional).
+        tables: Any of the six core tables; ``impute_columns`` names those used.
         impute_columns: Dict mapping table names to list of imputation configs.
             Every config dict **must** include a ``method`` key (``knn``, ``rf``,
             or ``mice``).  The remaining keys are method-specific:
@@ -273,18 +272,7 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
               n_folds: 5
               sample_pct: 5.0
     """
-    # Collect input tables
-    tables = {
-        "households": households,
-        "persons": persons,
-        "person_days": person_days,
-        "unlinked_trips": unlinked_trips,
-        "linked_trips": linked_trips,
-        "tours": tours,
-    }
-
-    # Remove None tables
-    tables = {name: df for name, df in tables.items() if df is not None}
+    tables = dict(tables)
 
     if not tables:
         logger.warning("No tables provided for imputation")

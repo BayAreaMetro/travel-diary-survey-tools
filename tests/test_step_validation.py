@@ -149,7 +149,6 @@ class TestStepValidationBehavior:
 _NO_CONTRACT = {
     "load_data": "reads whatever files the config names",
     "write_data": "writes whatever tables exist",
-    "final_check": "checks every table against its full model, not a subset",
 }
 
 

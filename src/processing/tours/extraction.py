@@ -94,7 +94,7 @@ import logging
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.habitual_locations import MatchConfig
 from utils.create_ids import create_tour_ids
 
@@ -137,6 +137,7 @@ logger = logging.getLogger(__name__)
             "source",
         },
         "person_days": {"person_day_id", "hh_day_id", "travel_date", "begin_day", "end_day"},
+        "joint_trips": set(),  # whether any exist
     },
     produces={
         "unlinked_trips": {"tour_id", "joint_tour_id"},
@@ -146,14 +147,9 @@ logger = logging.getLogger(__name__)
     },
 )
 def extract_tours(
-    persons: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    habitual_locations: pl.DataFrame,
-    person_days: pl.DataFrame,
+    tables: Tables,
     extraction: TourConfig,
     habitual_match: MatchConfig,
-    joint_trips: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Extract hierarchical tour structures from linked trip data.
 
@@ -161,22 +157,16 @@ def extract_tours(
     and temporal patterns. See module docstring for complete algorithm description.
 
     Args:
-        persons: Person attributes, for the person category purpose priority is
-            ranked by.
-        unlinked_trips: Individual trip segments. Will receive tour_id assignment.
-        linked_trips: Journey records with coordinates and timing. Required columns:
-            person_id, person_day_id, o_lon, o_lat, d_lon, d_lat, depart_time, arrive_time.
-        habitual_locations: The person's habitual locations, from
-            ``detect_habitual_locations``. Read only.
-        person_days: Days with ``begin_day``/``end_day``. A day stated to begin or end
-            at home counts beside the trip purpose at its first origin or last
-            destination.
+        tables: ``persons`` (for the person category purpose priority is ranked
+            by), ``unlinked_trips``, ``linked_trips``, ``habitual_locations``
+            (from ``detect_habitual_locations``, read only), ``person_days``
+            (a day stated to begin or end at home counts beside the trip purpose
+            at its first origin or last destination) and ``joint_trips`` (joint
+            tours are identified when there are any).
         extraction: Tour-building rules. See ``TourConfig``.
         habitual_match: Whether a trip end is at a habitual location, and the
             distance within which it returns to a tour's primary destination.
             The tours' own setting, separate from ``detect_habitual_locations``'.
-        joint_trips: Optional joint trip aggregations. If provided, enables joint
-            tour identification based on stable participant groups.
 
     Returns:
         Dictionary containing:
@@ -189,6 +179,11 @@ def extract_tours(
             - joint_tours: One record per joint tour
     """
     logger.info("Building tours from linked trip data...")
+    persons = tables["persons"]
+    unlinked_trips = tables["unlinked_trips"]
+    linked_trips = tables["linked_trips"]
+    habitual_locations = tables["habitual_locations"]
+    person_days = tables["person_days"]
 
     person_categories = persons.select("person_id", extraction.person_category_expression())
 
@@ -231,7 +226,7 @@ def extract_tours(
     )
 
     # Step 6: Identify joint tours (tours where all trips involve same group)
-    if joint_trips is not None and len(joint_trips) > 0:
+    if len(tables["joint_trips"]) > 0:
         linked_trips_with_tour_dir, tours = identify_joint_tours(
             linked_trips_with_tour_dir,
             tours,

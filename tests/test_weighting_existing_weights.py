@@ -144,6 +144,7 @@ class TestAddExistingWeights:
         persons = pl.DataFrame(
             {
                 "person_id": [1, 2, 3],
+                "hh_id": [1, 2, 3],
                 "age": [
                     AgeCategory.AGE_25_TO_34.value,
                     AgeCategory.AGE_35_TO_44.value,
@@ -186,6 +187,8 @@ class TestAddExistingWeights:
         trips = pl.DataFrame(
             {
                 "unlinked_trip_id": [1, 2, 3],
+                "person_day_id": [1, 1, 1],
+                "linked_trip_id": [1, 2, 3],
                 "mode": ["car", "walk", "transit"],
             }
         )
@@ -523,7 +526,7 @@ class TestSuppliedTotalPreserved:
         assert sum(weights) == pytest.approx(30.0)
 
     def test_missing_scope_column_raises(self, tmp_path):
-        """Days without person_id cannot be conserved as declared, so this fails loudly."""
+        """Days without person_id cannot be conserved as declared, so the step stops."""
         person_days = pl.DataFrame(
             {"person_day_id": [10, 20], "hh_id": [1, 1], "survey_complete": [True, False]}
         )
@@ -532,7 +535,7 @@ class TestSuppliedTotalPreserved:
             weight_file
         )
 
-        with pytest.raises(ValueError, match="missing its scope column"):
+        with pytest.raises(ValueError, match=r"person_days: missing columns \['person_id'\]"):
             _weights_for(
                 preserve_travel_totals=True,
                 household_size_top_group=6,

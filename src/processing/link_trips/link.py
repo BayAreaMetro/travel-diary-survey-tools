@@ -5,7 +5,7 @@ import logging
 import polars as pl
 
 from data_canon.codebook.trips import AccessEgressMode, Driver, ModeType, PurposeCategory
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from utils.create_ids import create_linked_trip_id
 from utils.enum_helpers import resolve_enum_labels
 from utils.helpers import expr_haversine
@@ -60,7 +60,7 @@ as access or egress modes for transit journeys.
     },
 )
 def link_trips(
-    unlinked_trips: pl.DataFrame,
+    tables: Tables,
     change_mode_enum: str,
     transit_mode_enums: list[str],
     max_dwell_time: float = 120,
@@ -74,8 +74,7 @@ def link_trips(
     temporal continuity across consecutive trips.
 
     Args:
-        unlinked_trips: Individual trip records with person_id, person_day_id,
-            depart_time, arrive_time, o/d locations, o/d purposes, mode_type.
+        tables: ``unlinked_trips``, the individual trip records.
         change_mode_enum: Enum label indicating a mode change purpose.
         transit_mode_enums: List of enum labels that count as transit modes.
         max_dwell_time: Maximum time gap between trips to link them, in
@@ -135,6 +134,7 @@ def link_trips(
         - Spatial/temporal thresholds prevent false linkages across separate journeys
     """
     logger.info("Linking trips...")
+    unlinked_trips = tables["unlinked_trips"]
 
     # Link trip IDs
     unlinked_trips_with_ids = link_trip_ids(

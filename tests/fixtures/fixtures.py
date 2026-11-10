@@ -272,7 +272,7 @@ def process_scenario_through_pipeline(
     """
     # Link trips (using config.yaml defaults)
     link_result = link_trips(
-        unlinked_trips,
+        unlinked_trips=unlinked_trips,
         change_mode_enum=PurposeCategory.CHANGE_MODE.value,
         transit_mode_enums=DEFAULT_TRANSIT_MODE_CODES,
         max_dwell_time=180,  # in minutes
