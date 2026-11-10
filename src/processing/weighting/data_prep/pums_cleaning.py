@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 #: ``TYPEHUGQ`` for a housing unit; 2 is institutional and 3 noninstitutional group quarters.
 _HOUSING_UNIT = 1
 
-#: ``ADJINC`` as the API sends it, the factor itself (2019-2023: 1.010 to 1.042). Outside
-#: this range it is not a factor: most likely a downloaded file's integer form (#184).
+#: ``ADJINC`` as a factor (2019-2023: 1.010 to 1.042), as ``read_pums`` returns it.
+#: Outside this range it is not a factor, such as the official file's integer form (#184).
 _ADJINC_RANGE = (0.5, 2.0)
 
 _HH_REQUIRED = ("SERIALNO", "NP", "TYPEHUGQ", "WGTP", "HINCP", "ADJINC")
@@ -90,8 +90,8 @@ def adjust_income(hh_df: pl.DataFrame) -> pl.DataFrame:
     if factor.null_count() or not low <= factor.min() <= factor.max() <= high:
         msg = (
             f"ADJINC is not an income factor: {factor.null_count():,} blank, range "
-            f"{factor.min()} to {factor.max()}. The Census API sends the factor (about 1.02); "
-            "a downloaded file sends it times 1,000,000, which is not read yet."
+            f"{factor.min()} to {factor.max()}. It should be the factor itself (about 1.02); "
+            "the official file's value is 1,000,000 times that and is divided when read."
         )
         raise ValueError(msg)
     logger.info("PUMS rule income: HINCP x ADJINC, factor %.6f to %.6f", factor.min(), factor.max())

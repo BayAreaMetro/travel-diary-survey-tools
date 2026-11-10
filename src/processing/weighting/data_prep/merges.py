@@ -1,23 +1,20 @@
 """Category merging for incidence tables and control totals.
 
-Three concerns:
+Cross-tab merges are applied when the cross-tab is registered, so only 1-D
+merges are handled here:
 
-1. **Crosstab merges** — :func:`apply_crosstab_merges` collapses
-   composite ``{xtab}__{dim0}_{dim1}`` columns along one or more
-   dimensions, dropping originals.  Applied before 1-D merges.
-2. **1-D merges** — :func:`apply_1d_merges` handles both global
+1. **1-D merges** — :func:`apply_1d_merges` handles both global
    (drop originals) and zone-specific (keep originals) merge specs
    based on ``spec.zones``.
-3. **Control-total merges** — :func:`merge_control_totals` adjusts
+2. **Control-total merges** — :func:`merge_control_totals` adjusts
    aggregated target rows for zone-specific merges.
 """
 
 import logging
-from itertools import product
+from dataclasses import replace
 
 import polars as pl
 
-from processing.weighting.controls.registry import resolve_targets
 from processing.weighting.core.specs import ControlTotals, MergeSpec
 
 logger = logging.getLogger(__name__)
@@ -48,18 +45,15 @@ def apply_1d_merges(
             if not present:  # a group of one still merges, as a rename
                 continue
             merged_col = f"{spec.control}__{merged_label}"
+            merged = pl.sum_horizontal(*[pl.col(c) for c in present]).alias(merged_col)
 
             if spec.zones is None:
                 # Global: sum + drop originals
-                df = df.with_columns(
-                    pl.sum_horizontal(*[pl.col(c) for c in present]).alias(merged_col)
-                ).drop(present)
+                df = df.with_columns(merged).drop(present)
                 logger.debug("Merged %s: %s → %s", spec.control, present, merged_col)
             elif merged_col not in df.columns:
                 # Zone-specific: add column, keep originals
-                df = df.with_columns(
-                    pl.sum_horizontal(*[pl.col(c) for c in present]).alias(merged_col)
-                )
+                df = df.with_columns(merged)
                 logger.debug(
                     "Zone merge %s (zones %s): added %s",
                     spec.control,
@@ -112,124 +106,4 @@ def merge_control_totals(
                 merged_label,
             )
 
-    return ControlTotals(
-        totals=totals,
-        pums_hh_count=control_totals.pums_hh_count,
-        pums_person_count=control_totals.pums_person_count,
-        zone_group_ids=control_totals.zone_group_ids,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Crosstab (N-D) merges
-# ---------------------------------------------------------------------------
-
-
-def apply_crosstab_merges(
-    df: pl.DataFrame,
-    merges: list[MergeSpec],
-) -> pl.DataFrame:
-    """Collapse composite incidence columns along crosstab dimensions.
-
-    Each spec's ``groups`` is ``{dim_name: {merged_label: [sources]}}``.
-    For each dimension merge, enumerates combinations of the other
-    dimensions' current members, sums constituent columns, and drops
-    originals.  Dimensions within one spec are processed sequentially
-    so that a merge in one dimension sees already-merged columns from
-    another.
-    """
-    for spec in merges:
-        ctrl = resolve_targets([spec.control])[0]
-        if not hasattr(ctrl, "dim_controls"):
-            logger.warning(
-                "Control '%s' is not a crosstab, skipping N-D merges",
-                spec.control,
-            )
-            continue
-
-        n_dims = len(ctrl.dim_controls)
-        dim_name_to_idx = {dc.name: i for i, dc in enumerate(ctrl.dim_controls)}
-
-        # Track current member names per dimension (start with originals)
-        dim_members: list[list[str]] = [
-            [name.lower() for _, name in dc.valid_members] for dc in ctrl.dim_controls
-        ]
-
-        prefix = f"{spec.control}__"
-
-        for dim_name, dim_merge_groups in spec.groups.items():
-            df = _apply_one_dim_merge(
-                df, prefix, n_dims, dim_name_to_idx, dim_members, dim_name, dim_merge_groups
-            )
-
-    return df
-
-
-def _apply_one_dim_merge(
-    df: pl.DataFrame,
-    prefix: str,
-    n_dims: int,
-    dim_name_to_idx: dict[str, int],
-    dim_members: list[list[str]],
-    dim_name: str,
-    dim_merge_groups: dict[str, list[str]],
-) -> pl.DataFrame:
-    """Merge one dimension of a crosstab, updating *dim_members* in place."""
-    dim_idx = dim_name_to_idx.get(dim_name)
-    if dim_idx is None:
-        logger.warning("Unknown dimension '%s' in crosstab merge, skipping", dim_name)
-        return df
-
-    other_indices = [i for i in range(n_dims) if i != dim_idx]
-    other_members = [dim_members[i] for i in other_indices]
-
-    for merged_label, source_members in dim_merge_groups.items():
-        source_lower = [m.lower() for m in source_members]
-        merged_lower = merged_label.lower()
-
-        for other_combo in product(*other_members):
-            src_cols = [
-                _composite_col(prefix, n_dims, dim_idx, m, other_indices, other_combo)
-                for m in source_lower
-            ]
-            target_col = _composite_col(
-                prefix, n_dims, dim_idx, merged_lower, other_indices, other_combo
-            )
-
-            present = [c for c in src_cols if c in df.columns]
-            if not present:
-                continue
-
-            df = df.with_columns(
-                pl.sum_horizontal(*[pl.col(c) for c in present]).alias(target_col)
-            ).drop(present)
-
-        # Update tracked members: remove sources, append merged label
-        removed = set(source_lower)
-        dim_members[dim_idx] = [m for m in dim_members[dim_idx] if m not in removed] + [
-            merged_lower
-        ]
-
-        logger.debug(
-            "Crosstab merge dim %s: %s → %s",
-            dim_name,
-            source_lower,
-            merged_lower,
-        )
-    return df
-
-
-def _composite_col(
-    prefix: str,
-    n_dims: int,
-    dim_idx: int,
-    member: str,
-    other_indices: list[int],
-    other_combo: tuple[str, ...],
-) -> str:
-    """Build ``{prefix}{dim0_member}_{dim1_member}_...`` column name."""
-    parts: list[str] = [""] * n_dims
-    parts[dim_idx] = member
-    for oi, oidx in enumerate(other_indices):
-        parts[oidx] = other_combo[oi]
-    return f"{prefix}{'_'.join(parts)}"
+    return replace(control_totals, totals=totals)

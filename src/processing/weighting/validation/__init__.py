@@ -1,6 +1,6 @@
 """Validation sub-package.
 
-* ``checksums`` — recode null detection and incidence-sum overcount checks
+* ``checksums`` — recode null detection and incidence-sum mismatch checks
   (pre-balancing).
 * ``control_validation`` — control configuration and cross-tab marginal
   consistency (pre-balancing).

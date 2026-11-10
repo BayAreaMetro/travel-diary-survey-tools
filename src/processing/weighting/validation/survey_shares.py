@@ -121,8 +121,22 @@ def check_survey_shares(table: pl.DataFrame, min_ratio: float) -> None:
     raise ValueError(msg)
 
 
+def table_cells(row: dict) -> list[str]:
+    """One table row as display text, shared by the stop message and the report."""
+    return [
+        row["area"],
+        row["target"],
+        row["group"],
+        f"{row['survey']:,.0f}",
+        f"{row['pums']:,.0f}",
+        f"{row['survey_share'] * 100:.1f}%",
+        f"{row['pums_share'] * 100:.1f}%",
+        f"{row['ratio']:.2f}",
+    ]
+
+
 def format_table(table: pl.DataFrame) -> str:
-    """The table as aligned plain text, for the stop message and the log."""
+    """The table as aligned plain text, for the stop message."""
     header = [
         "area",
         "target",
@@ -133,19 +147,7 @@ def format_table(table: pl.DataFrame) -> str:
         "% of area's PUMS",
         "ratio",
     ]
-    rows = [
-        [
-            r["area"],
-            r["target"],
-            r["group"],
-            f"{r['survey']:,.0f}",
-            f"{r['pums']:,.0f}",
-            f"{r['survey_share'] * 100:.1f}%",
-            f"{r['pums_share'] * 100:.1f}%",
-            f"{r['ratio']:.2f}",
-        ]
-        for r in table.iter_rows(named=True)
-    ]
+    rows = [table_cells(r) for r in table.iter_rows(named=True)]
     widths = [max(len(str(x)) for x in col) for col in zip(header, *rows, strict=True)]
     left = 3  # area, target and group read left to right; numbers line up on the right
     lines = [

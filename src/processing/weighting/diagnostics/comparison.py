@@ -41,6 +41,8 @@ import polars as pl
 
 from processing.weighting.core.hierarchy import HIERARCHY, Level
 
+from .table_html import profile_key, profile_label
+
 logger = logging.getLogger(__name__)
 
 # Below this many records in common, a slope describes the sample rather than
@@ -57,11 +59,6 @@ MAX_POINTS = 700
 
 # Fixed so that rerunning on unchanged data rewrites an identical file.
 SAMPLE_SEED = 20260915
-
-# A child weight this close to its parent's counts as inherited unchanged.
-# Loose enough to swallow floating-point representation, which bitwise equality
-# would not, and tight enough that no one could act on the difference.
-AGREEMENT_TOL = 0.01
 
 
 @dataclass(frozen=True)
@@ -172,8 +169,8 @@ def fitted_weight_sets(profiles: Sequence[str | None]) -> list[WeightSet]:
     """
     return [
         WeightSet(
-            name=profile or "survey",
-            label=profile or "the survey",
+            name=profile_key(profile),
+            label=profile_label(profile),
             columns={level.table: level.weight_col_for(profile) for level in HIERARCHY},
             fitted=True,
         )
@@ -248,7 +245,7 @@ def _deciles(log_a: np.ndarray, log_b: np.ndarray) -> list[Decile]:
     edges = np.unique(np.quantile(log_b, np.linspace(0, 1, N_DECILES + 1)))
     if edges.size < 2:  # noqa: PLR2004 - a single distinct value has no deciles
         return []
-    # right=False with the final edge nudged so the maximum lands in the last bin.
+    # Bin by the interior edges, so the maximum lands in the last bin.
     index = np.searchsorted(edges[1:-1], log_b, side="right")
     deciles: list[Decile] = []
     for bin_id in range(edges.size - 1):

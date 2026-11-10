@@ -21,6 +21,7 @@ from processing.weighting.core.hierarchy import (
     LEVELS,
     Agg,
     Flow,
+    Level,
     levels_with_flow,
     seed_col_for,
     weight_col_for,
@@ -31,6 +32,12 @@ from processing.weighting.core.specs import ControlSpec, ControlTotals
 logger = logging.getLogger(__name__)
 
 _HIERARCHY_ABS_TOL = 0.01
+
+# Rows of a failing scope to name in the error before summarising the rest.
+_MAX_REPORTED = 5
+
+# The geography column the control totals are keyed on.
+_GEO_COL = "zone_group_id"
 
 # A table's total must survive the redistribution and the formatter to this
 # relative precision; anything beyond floating-point drift is weight going missing.
@@ -46,7 +53,6 @@ def weight_sanity_checks(
     specs: list[ControlSpec],
     usability_flag_col: str,
     *,
-    geo_col: str = "zone_group_id",
     profile: str | None = None,
 ) -> None:
     """Run weight sanity checks: log the fit to the controls, raise on a broken identity.
@@ -60,7 +66,6 @@ def weight_sanity_checks(
             identities only hold over the records that carried weight, so the
             checks have to read the same column the propagation did -- checking
             a different universe than was weighted would fail on correct output.
-        geo_col: Geography column the control totals are keyed on.
         profile: Usability profile whose columns to check, or None for the
             un-suffixed set. Names the columns only; *usability_flag_col* is
             still what decides the universe.
@@ -87,13 +92,12 @@ def weight_sanity_checks(
             totals_df.filter(pl.col("control_name") == hh_ctrl),
             weight_col=hh_weight_col,
             base_weight_col=base_weight_col,
-            geo_col=geo_col,
             label="Household",
         )
 
-    if per_ctrl and person_weight_col in per.columns and geo_col in hh.columns:
+    if per_ctrl and person_weight_col in per.columns and _GEO_COL in hh.columns:
         per_with_zone = per.join(
-            hh.select("hh_id", geo_col, base_weight_col),
+            hh.select("hh_id", _GEO_COL, base_weight_col),
             on="hh_id",
             how="left",
         )
@@ -102,7 +106,6 @@ def weight_sanity_checks(
             totals_df.filter(pl.col("control_name") == per_ctrl),
             weight_col=person_weight_col,
             base_weight_col=base_weight_col,
-            geo_col=geo_col,
             label="Person",
         )
 
@@ -270,7 +273,6 @@ def _compare_and_log(
     *,
     weight_col: str,
     base_weight_col: str,
-    geo_col: str,
     label: str,
 ) -> None:
     """Compare summed survey weights to targets per zone and log results."""
@@ -283,15 +285,10 @@ def _compare_and_log(
         pl.col(weight_col).median().alias("wt_median"),
         pl.col(base_weight_col).sum().alias("base_total"),
     ]
-    survey_by_zone = df.group_by(geo_col).agg(agg_exprs)
+    survey_by_zone = df.group_by(_GEO_COL).agg(agg_exprs)
+    target_by_zone = target_df.group_by(_GEO_COL).agg(pl.col("target_total").sum())
 
-    target_by_zone = (
-        target_df.group_by("zone_group_id")
-        .agg(pl.col("target_total").sum().alias("target_total"))
-        .rename({"zone_group_id": geo_col})
-    )
-
-    comp = survey_by_zone.join(target_by_zone, on=geo_col, how="left").with_columns(
+    comp = survey_by_zone.join(target_by_zone, on=_GEO_COL, how="left").with_columns(
         pl.when(pl.col("target_total") != 0)
         .then((pl.col("survey_total") - pl.col("target_total")) / pl.col("target_total") * 100)
         .otherwise(0.0)
@@ -309,15 +306,12 @@ def _compare_and_log(
     logger.info(
         "  %s weights — min=%.1f  max=%.1f  mean=%.1f  median=%.1f",
         label,
-        float(w.min()) if len(w) else 0.0,  # pyright: ignore[reportArgumentType]
-        float(w.max()) if len(w) else 0.0,  # pyright: ignore[reportArgumentType]
-        float(w.mean()) if len(w) else 0.0,  # pyright: ignore[reportArgumentType]
-        float(w.median()) if len(w) else 0.0,  # pyright: ignore[reportArgumentType]
+        *(float(v) if len(w) else 0.0 for v in (w.min(), w.max(), w.mean(), w.median())),  # pyright: ignore[reportArgumentType]
     )
 
     # Build a display table and let Polars handle column alignment
-    display = comp.sort(geo_col).select(
-        pl.col(geo_col).cast(pl.Utf8).alias("zone"),
+    display = comp.sort(_GEO_COL).select(
+        pl.col(_GEO_COL).cast(pl.Utf8).alias("zone"),
         pl.col("base_total").round(0).cast(pl.Int64).alias("base"),
         pl.col("survey_total").round(0).cast(pl.Int64).alias("balanced"),
         (pl.col("target_total").fill_null(0).round(0).cast(pl.Int64)).alias("target"),
@@ -346,8 +340,18 @@ def _compare_and_log(
         logger.info("  %s", line)
 
 
-# Rows of a failing scope to name in the error before summarising the rest.
-_MAX_REPORTED = 5
+def _failure_table(
+    failures: pl.DataFrame, key: str, values: tuple[str, str], labels: tuple[str, str, str]
+) -> str:
+    """A header, the first ``_MAX_REPORTED`` failing rows aligned under it, then a count."""
+    lines = [f"  {labels[0]:<16} {labels[1]:>14} {labels[2]:>14}"]
+    lines += [
+        f"  {row[key]:<16} {row[values[0]]:>14.4f} {row[values[1]]:>14.4f}"
+        for row in failures.head(_MAX_REPORTED).iter_rows(named=True)
+    ]
+    if failures.height > _MAX_REPORTED:
+        lines.append(f"  ... and {failures.height - _MAX_REPORTED} more")
+    return "\n".join(lines)
 
 
 def _check_joint_sums(
@@ -414,21 +418,13 @@ def _check_joint_sums(
             )
             continue
 
-        rows = "\n".join(
-            f"  {row[level.key]:<16} {row[target_wt]:>14.4f} {row['member_sum']:>14.4f}"
-            for row in failures.head(_MAX_REPORTED).iter_rows(named=True)
-        )
-        more = (
-            f"\n  ... and {failures.height - _MAX_REPORTED} more"
-            if failures.height > _MAX_REPORTED
-            else ""
+        table = _failure_table(
+            failures, level.key, (target_wt, "member_sum"), (level.key, target_wt, "members' total")
         )
         msg = (
             f"Joint weight is not its members' total: {failures.height} "
             f"{level.table} record(s) whose {target_wt} does not equal "
-            f"sum({src_weight}) over their member {level.parent}.\n"
-            f"  {level.key:<16} {target_wt:>14} {'member_sum':>14}\n"
-            f"{rows}{more}"
+            f"sum({src_weight}) over their member {level.parent}.\n{table}"
         )
         logger.error(msg)
         raise ValueError(msg)
@@ -547,7 +543,7 @@ def _check_hierarchy(
     *,
     only: Collection[str] | None = None,
 ) -> None:
-    """Verify that children sum to what their parents represent, or raise.
+    """Verify that each level's weights sum to what the level above represents, or raise.
 
     Each DOWN edge is checked against the identity its rule actually maintains,
     read from the same [`HIERARCHY`]
@@ -623,24 +619,7 @@ def _check_hierarchy(
             continue
 
         if level.split:
-            # A split parent is represented once by its children, so a parent
-            # carrying weight but owning no child rows at all (e.g. an
-            # unsurveyable person has no days) is a genuine shortfall --
-            # reported, not failed. Copy levels have nothing to represent.
-            rowless = parent.filter(pl.col(parent_wt).fill_null(0.0) > 0).join(
-                per_parent.select(join_key), on=join_key, how="anti"
-            )
-            if rowless.height:
-                logger.info(
-                    "  Hierarchy %s → %s: %d %s(s) carry weight but have no %s rows "
-                    "(%.1f unrepresented below)",
-                    parent_name,
-                    child_name,
-                    rowless.height,
-                    join_key,
-                    child_name,
-                    float(rowless[parent_wt].sum()),
-                )
+            _log_rowless_parents(level, parent, per_parent, parent_wt)
 
         by_scope = merged.group_by("_scope").agg(
             pl.col("child_sum").sum(),
@@ -669,22 +648,39 @@ def _check_hierarchy(
             logger.info("  Hierarchy %s → %s: OK (per %s)", parent_name, child_name, scope)
             continue
 
-        rows = "\n".join(
-            f"  {row['_scope']:<16} {row['child_sum']:>14.4f} {row['expected']:>14.4f}"
-            for row in failures.head(_MAX_REPORTED).iter_rows(named=True)
-        )
-        more = (
-            f"\n  ... and {failures.height - _MAX_REPORTED} more"
-            if failures.height > _MAX_REPORTED
-            else ""
+        table = _failure_table(
+            failures, "_scope", ("child_sum", "expected"), (scope, f"{child_wt} sum", "expected")
         )
         identity = parent_wt if level.split else f"{parent_wt} x n_{child_name}"
         msg = (
             f"Weight cascade broken between {parent_name} and {child_name}: "
             f"{failures.height} {scope}(s) whose {child_wt} does not sum to "
-            f"{identity}.\n"
-            f"  {scope:<16} {'child_sum':>14} {'expected':>14}\n"
-            f"{rows}{more}"
+            f"{identity}.\n{table}"
         )
         logger.error(msg)
         raise ValueError(msg)
+
+
+def _log_rowless_parents(
+    level: Level, parent: pl.DataFrame, per_parent: pl.DataFrame, parent_wt: str
+) -> None:
+    """Log the records above a split level that carry weight but have no rows in it.
+
+    A split level represents each record above it once, so one with weight but
+    no rows below (e.g. an unsurveyable person has no days) is a genuine
+    shortfall -- reported, not failed. Copy levels have nothing to represent.
+    """
+    rowless = parent.filter(pl.col(parent_wt).fill_null(0.0) > 0).join(
+        per_parent.select(level.key), on=level.key, how="anti"
+    )
+    if rowless.height:
+        logger.info(
+            "  Hierarchy %s → %s: %d %s(s) carry weight but have no %s rows "
+            "(%.1f unrepresented below)",
+            level.parent,
+            level.table,
+            rowless.height,
+            level.key,
+            level.table,
+            float(rowless[parent_wt].sum()),
+        )

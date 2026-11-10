@@ -274,7 +274,6 @@ class TestTrainAndPredict:
             gender_cols,
             id_col="person_id",
             weight_col="PWGTP",
-            group_col="SERIALNO",
         )
         assert not proba_df.is_empty()
 
@@ -297,7 +296,6 @@ class TestTrainedOncePerRun:
             cols,
             id_col="person_id",
             weight_col="PWGTP",
-            group_col="SERIALNO",
             models=models,
         )
 
@@ -351,7 +349,6 @@ class TestTrainingCountsByWeight:
             self.MEMBERS,
             id_col="person_id",
             weight_col=weight_col,
-            group_col="SERIALNO",
         )
         return proba["p_gender__male"].item()
 

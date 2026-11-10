@@ -28,19 +28,17 @@ def check_control_geography_coverage(
     seed: pl.DataFrame,
     *,
     profile: str | None,
-    geo_col: str = "zone_group_id",
     max_unplaceable_share: float,
 ) -> GeographyCoverage:
     """Count the profile's households the target zones cannot place.
 
-    No new geography test is applied: *geo_col* is the point-in-polygon result
-    the crosswalk already assigned, and a null there is the definition of
+    No new geography test is applied: ``zone_group_id`` is the point-in-polygon
+    result the crosswalk already assigned, and a null there is the definition of
     outside.
 
     Args:
-        seed: The profile's seed, one row per household, carrying *geo_col*.
+        seed: The profile's seed, one row per household, carrying ``zone_group_id``.
         profile: Usability profile being fitted, or None.
-        geo_col: Balancing-zone column assigned by the crosswalk.
         max_unplaceable_share: Largest share of the universe that may be
             unplaceable before this is treated as a misconfigured geography
             rather than a boundary effect.
@@ -52,7 +50,11 @@ def check_control_geography_coverage(
         ValueError: If the unplaceable share exceeds *max_unplaceable_share*.
     """
     n_universe = seed.height
-    n_placed = seed.filter(pl.col(geo_col).is_not_null()).height if geo_col in seed.columns else 0
+    n_placed = (
+        seed.filter(pl.col("zone_group_id").is_not_null()).height
+        if "zone_group_id" in seed.columns
+        else 0
+    )
     coverage = GeographyCoverage(profile=profile, n_universe=n_universe, n_placed=n_placed)
 
     label = profile or "the survey"
