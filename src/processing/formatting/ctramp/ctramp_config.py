@@ -4,17 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CTRAMPConfig(BaseModel):
-    """Configuration for CT-RAMP formatting.
-
-    Attributes:
-        income_low_threshold: Income threshold for low income bracket
-        income_med_threshold: Income threshold for medium income bracket
-        income_high_threshold: Income threshold for high income bracket
-        age_adult: Age threshold for adult vs child in joint tour composition
-        income_survey_year_to_ctramp_year: Factor converting survey-year dollars
-            to CT-RAMP-year dollars
-        gender_default_for_missing: Default gender for missing/non-binary
-    """
+    """Configuration for CT-RAMP formatting; each field's description says what it sets."""
 
     income_low_threshold: int = Field(
         ge=0,

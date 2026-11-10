@@ -118,7 +118,9 @@ def format_daysim(
     !!! Example
 
         ```python
+        from processing.formatting.daysim.format_daysim import format_daysim
 
+        # A step takes its tables by name; the decorator gathers them into `tables`.
         result = format_daysim(
             persons=canonical_persons,
             households=canonical_households,

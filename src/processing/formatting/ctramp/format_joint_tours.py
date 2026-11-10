@@ -66,32 +66,8 @@ def format_joint_tour(
         how="left",
     )
 
-    participants_with_ages = joint_tours.join(
-        persons_canonical.select(["person_id", "age"]),
-        on="person_id",
-        how="left",
-    )
-    composition_agg = (
-        participants_with_ages.group_by("joint_tour_id")
-        .agg(
-            [
-                (pl.col("age") < config.age_adult).any().alias("has_children"),
-                (pl.col("age") >= config.age_adult).any().alias("has_adults"),
-            ]
-        )
-        .with_columns(
-            pl.when(pl.col("has_children") & pl.col("has_adults"))
-            .then(pl.lit(TourComposition.ADULTS_AND_CHILDREN.value))
-            .when(pl.col("has_children"))
-            .then(pl.lit(TourComposition.CHILDREN_ONLY.value))
-            .otherwise(pl.lit(TourComposition.ADULTS_ONLY.value))
-            .alias("Composition")
-        )
-    )
     joint_tours_formatted = participants_agg.join(
-        composition_agg.select(["joint_tour_id", "Composition"]),
-        on="joint_tour_id",
-        how="left",
+        _composition(joint_tours, config.age_adult), on="joint_tour_id", how="left"
     )
 
     # Income only: a joint record's weight and rate come from its own columns, never
@@ -174,9 +150,7 @@ def format_joint_tour(
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
                 NO_EMPLOYMENT,
-                config.income_low_threshold,
-                config.income_med_threshold,
-                config.income_high_threshold,
+                config,
             ).alias("tour_purpose_ctramp"),
             ctramp_mode_expression(
                 pl.col("tour_mode"),
@@ -216,9 +190,8 @@ def format_joint_tour(
     return joint_tours_formatted.select(
         [
             pl.col("hh_id"),
-            # WARNING: Canonical processing uses joint_tour_id. CT-RAMP's legacy
-            # joint-tour schema calls this household-scoped number tour_id.
-            # Rename only at the output boundary to avoid conflating the identifiers.
+            # CT-RAMP calls the household-scoped joint-tour number tour_id; renamed
+            # only here so it is never confused with the canonical joint_tour_id.
             pl.col("_ctramp_joint_tour_id").alias("tour_id"),
             pl.col("tour_category"),
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
@@ -233,6 +206,31 @@ def format_joint_tour(
             pl.col("num_ib_stops").cast(pl.Int64),
             *weight_cols,
         ]
+    )
+
+
+def _composition(joint_tours: pl.DataFrame, age_adult: int) -> pl.DataFrame:
+    """Each joint tour's party: adults only, children only, or both.
+
+    Args:
+        joint_tours: Member tours carrying each member's ``age`` category.
+        age_adult: The first ``AgeCategory`` code counted as an adult.
+    """
+    return (
+        joint_tours.group_by("joint_tour_id")
+        .agg(
+            (pl.col("age") < age_adult).any().alias("has_children"),
+            (pl.col("age") >= age_adult).any().alias("has_adults"),
+        )
+        .select(
+            "joint_tour_id",
+            pl.when(pl.col("has_children") & pl.col("has_adults"))
+            .then(pl.lit(TourComposition.ADULTS_AND_CHILDREN.value))
+            .when(pl.col("has_children"))
+            .then(pl.lit(TourComposition.CHILDREN_ONLY.value))
+            .otherwise(pl.lit(TourComposition.ADULTS_ONLY.value))
+            .alias("Composition"),
+        )
     )
 
 
@@ -326,11 +324,10 @@ def joint_weight_columns(
     ``n_members / weight``.
 
     The count comes from the member table the caller already grouped, not from the
-    joint record. It matches what the weighting summed over because the CT-RAMP
-    filters drop an unusable member's tour and its trips upstream, then demote any
-    group left with fewer than two participants -- not because of the joint
-    record's own flag, and not because of the zero-weight filter, which only ever
-    removes whole households.
+    joint record. It matches what the weighting summed over because both read the
+    same usability profile: the cascade voids the joint ids of any grouping the
+    profile rejects and dissolves any left with fewer than two members, and
+    ``keep_usable`` keeps exactly the records the profile admits.
 
     Args:
         available: Columns present on the frame the expressions will run against.

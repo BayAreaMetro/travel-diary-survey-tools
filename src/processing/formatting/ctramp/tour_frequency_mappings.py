@@ -95,34 +95,18 @@ def get_inmf_code_from_counts(
     Returns:
         Alternative code (1-96), or 0 if all counts are 0
     """
-    # Special case: no non-mandatory tours
-    if (
-        escort == 0
-        and shopping == 0
-        and othmaint == 0
-        and othdiscr == 0
-        and eatout == 0
-        and social == 0
-    ):
+    counts = {
+        "escort": escort,
+        "shopping": shopping,
+        "othmaint": othmaint,
+        "othdiscr": othdiscr,
+        "eatout": eatout,
+        "social": social,
+    }
+    if not any(counts.values()):
         return 0
-
-    # Cap each count to the codebook maximum (ceiling semantics)
-    capped_escort = min(escort, _INMF_MAXES["escort"])
-    capped_shopping = min(shopping, _INMF_MAXES["shopping"])
-    capped_othmaint = min(othmaint, _INMF_MAXES["othmaint"])
-    capped_othdiscr = min(othdiscr, _INMF_MAXES["othdiscr"])
-    capped_eatout = min(eatout, _INMF_MAXES["eatout"])
-    capped_social = min(social, _INMF_MAXES["social"])
-
-    # Lookup the code
-    key = (
-        capped_escort,
-        capped_shopping,
-        capped_othmaint,
-        capped_othdiscr,
-        capped_eatout,
-        capped_social,
-    )
+    # Each count capped to the codebook maximum (ceiling semantics).
+    key = tuple(min(n, _INMF_MAXES[purpose]) for purpose, n in counts.items())
     code = _INMF_REVERSE_LOOKUP.get(key)
 
     if code is None:
