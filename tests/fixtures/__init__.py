@@ -68,6 +68,7 @@ from .schema_utils import (
     empty_tours,
     empty_unlinked_trips,
     model_to_polars_schema,
+    reported_locations,
     step_tables,
 )
 
@@ -127,6 +128,7 @@ __all__ = [
     "multi_stop_tour",
     "multi_tour_day",
     "process_scenario_through_pipeline",
+    "reported_locations",
     "simple_work_tour",
     "step_tables",
     "transit_commute",

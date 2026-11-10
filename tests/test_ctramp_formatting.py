@@ -68,6 +68,7 @@ from tests.fixtures import (
     empty_tours,
     empty_unlinked_trips,
     get_tour_schema,
+    reported_locations,
     step_tables,
 )
 
@@ -273,8 +274,8 @@ class TestEndToEndFormatting:
                     "unlinked_trips": empty_unlinked_trips(),
                     "joint_tours": empty_joint_tours(),
                     "person_days": days_for_persons(persons),
+                    **reported_locations(households, persons, ["taz"]),
                 },
-                named={"habitual_locations": ["taz"]},
             ),
             ctramp=standard_config,
         )
@@ -331,8 +332,8 @@ class TestEndToEndFormatting:
                     "unlinked_trips": empty_unlinked_trips(),
                     "joint_tours": empty_joint_tours(),
                     "person_days": days_for_persons(persons),
+                    **reported_locations(households, persons, ["taz"]),
                 },
-                named={"habitual_locations": ["taz"]},
             ),
             ctramp=standard_config,
         )

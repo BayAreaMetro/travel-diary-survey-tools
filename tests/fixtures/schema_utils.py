@@ -22,6 +22,7 @@ from data_canon.models.survey import (
     UnlinkedTripModel,
 )
 from pipeline.step_registry import STEP_REGISTRY, is_config_named
+from processing.habitual_locations import reported_habitual_locations
 from processing.weighting.core.hierarchy import WEIGHT_COLUMNS
 from utils.create_ids import create_household_days
 
@@ -283,30 +284,47 @@ def add_household_days(tables: dict) -> dict:
 _MODELS = CanonicalData().models
 
 
-def step_tables(step: str, tables: dict, named: dict[str, list[str]] | None = None) -> dict:
+def step_tables(step: str, tables: dict) -> dict:
     """The tables *step* takes, from *tables*, with an empty frame for each one left out.
 
     A household with no unlinked trips, say, is a valid input, but a step that
     reads the table needs the empty table rather than none. Each empty frame has
-    the columns the step requires of it, typed as the model types them, plus
-    those *named* gives it: the columns config names, such as a zone. An
+    the table's model columns and the columns the step requires of it. An
     optional table left out stays out.
     """
-    named = named or {}
     out = {}
     for name, contract in STEP_REGISTRY[step].taken.items():
         if tables.get(name) is not None:
             out[name] = tables[name]
         elif not contract.optional:
             types = model_to_polars_schema(_MODELS[name]) if name in _MODELS else {}
-            columns = sorted(c for c in contract.requires if not is_config_named(c))
-            columns += named.get(name, [])
+            required = sorted(c for c in contract.requires if not is_config_named(c))
+            columns = list(dict.fromkeys([*types, *required]))
             out[name] = pl.DataFrame(schema={c: types.get(c, pl.Int64) for c in columns})
     return out
 
 
 # The joint ids each table carries once joint detection and tour extraction ran.
 _JOINT_IDS = {"tours": "joint_tour_id", "linked_trips": "joint_trip_id"}
+
+
+def reported_locations(
+    households: pl.DataFrame, persons: pl.DataFrame, zones: list[str]
+) -> dict[str, pl.DataFrame]:
+    """The habitual tables survey cleaning delivers for *households* and *persons*.
+
+    Every location is a reported one, so none has days spent at it. Each zone
+    in *zones* gets its column, null: the formatters read the zones config names.
+    """
+    located = reported_habitual_locations(households, persons)
+    return {
+        "habitual_locations": located.with_columns(
+            pl.lit(None, dtype=pl.Int64).alias(zone) for zone in zones
+        ),
+        "habitual_location_days": pl.DataFrame(
+            schema=model_to_polars_schema(_MODELS["habitual_location_days"])
+        ),
+    }
 
 
 def add_missing_tables(tables: dict) -> dict:

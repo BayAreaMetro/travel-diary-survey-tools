@@ -55,6 +55,7 @@ from tests.fixtures import (
     create_simple_work_tour_processed,
     create_transit_commute_processed,
     create_unlinked_trip,
+    reported_locations,
     step_tables,
 )
 from tests.fixtures.locations import HOME_LOCATION, WORK_LOCATION
@@ -675,7 +676,10 @@ class TestEndToEndDaysimFormatting:
         data = create_simple_work_tour_processed()
 
         result = format_daysim(
-            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
+            **step_tables(
+                "format_daysim",
+                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
+            ),
             usability_profile="test",
         )
 
@@ -696,7 +700,10 @@ class TestEndToEndDaysimFormatting:
         data = create_transit_commute_processed()
 
         result = format_daysim(
-            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
+            **step_tables(
+                "format_daysim",
+                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
+            ),
             usability_profile="test",
         )
 
@@ -713,7 +720,10 @@ class TestEndToEndDaysimFormatting:
         data = create_multi_person_household_processed()
 
         result = format_daysim(
-            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
+            **step_tables(
+                "format_daysim",
+                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
+            ),
             usability_profile="test",
         )
 
@@ -732,7 +742,10 @@ class TestEndToEndDaysimFormatting:
         data = create_simple_work_tour_processed()
 
         result = format_daysim(
-            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
+            **step_tables(
+                "format_daysim",
+                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
+            ),
             usability_profile="test",
         )
 

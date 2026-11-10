@@ -338,9 +338,14 @@ def _update_canonical_data(
 
 
 def _validates(step_name: str, tables: Tables, canonical_data: CanonicalData) -> None:
-    """Row-validate each table the step received against its model."""
+    """Row-validate each table the step received against its model.
+
+    Every table is attached before any is validated, so a validator reading
+    several tables sees all of them whatever the order.
+    """
     for name, df in tables.items():
         setattr(canonical_data, name, df)
+    for name in tables:
         canonical_data.validate(name, step=step_name)
 
 

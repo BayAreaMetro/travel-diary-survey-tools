@@ -95,7 +95,7 @@ def register_step(
                 takes=t in taken,
                 optional=t in optional,
             )
-            for t in set(taken) | set(produces)
+            for t in dict.fromkeys([*taken, *produces])  # declared order, not a set's
         }
     )
 
