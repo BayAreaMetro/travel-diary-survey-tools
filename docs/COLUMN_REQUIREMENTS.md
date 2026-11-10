@@ -55,7 +55,7 @@ Each tab shows the fields for one canonical table. Only steps that reference the
     | `job_type` | JobType or None |  |  |  |  |  |  | ✓ |  |  |  |
     | `employment` | Employment |  |  | ✓ |  |  |  | ✓ | ✓ |  |  |
     | `student` | Student |  |  | ✓ |  |  |  | ✓ | ✓ |  |  |
-    | `school_type` | SchoolType or None |  |  | ✓ |  |  |  | ✓ | ✓ |  |  |
+    | `school_type` | SchoolType or None |  |  |  |  |  |  | ✓ | ✓ |  |  |
     | `work_park` | WorkParking or None |  |  |  |  |  |  |  |  | ✓ |  |
     | `work_mode` | Mode or None |  |  |  |  |  |  | ✓ |  | ✓ |  |
     | `race` | Race or None |  |  |  |  |  |  | ✓ |  |  |  |

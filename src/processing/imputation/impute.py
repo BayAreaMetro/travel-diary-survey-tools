@@ -18,6 +18,9 @@ from .generic_impute import (
 
 logger = logging.getLogger(__name__)
 
+# The tables imputation may fill
+_TABLES = ("households", "persons", "person_days", "unlinked_trips", "linked_trips", "tours")
+
 
 def preimputed_columns(
     impute_columns: dict[str, list[dict[str, Any]]] | None = None,
@@ -34,31 +37,11 @@ def preimputed_columns(
 
 @step(
     # The columns to impute come from impute_columns, so the step checks them itself.
-    optional={
-        table: set()
-        for table in (
-            "households",
-            "persons",
-            "person_days",
-            "unlinked_trips",
-            "linked_trips",
-            "tours",
-        )
-    },
-    produces={
-        table: {"<column>_preimputed"}
-        for table in (
-            "households",
-            "persons",
-            "person_days",
-            "unlinked_trips",
-            "linked_trips",
-            "tours",
-        )
-    },
+    optional={table: set() for table in _TABLES},
+    produces={table: {"<column>_preimputed"} for table in _TABLES},
     generated_columns=preimputed_columns,
 )
-def imputation(  # noqa: C901, PLR0912, PLR0915
+def imputation(
     tables: Tables,
     impute_columns: dict[str, list[dict[str, Any]]] | None = None,
     stash_preimputed: bool = True,
@@ -103,20 +86,20 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
 
     Cross-Table Features (``join_tables``):
         By default only features from the same table are used.  Adding
-        ``join_tables`` to a config block pulls columns from parent tables
-        via left-join on known foreign keys, which can significantly improve
-        quality.
+        ``join_tables`` to a config block pulls columns from the tables its
+        rows belong to via left-join on known foreign keys, which can
+        significantly improve quality.
 
         Behaviour:
 
-        1. Columns from the specified parent table(s) are joined onto the
-           child table (e.g. ``persons`` ← ``households`` via ``hh_id``).
+        1. Columns from the specified table(s) are joined on
+           (e.g. ``persons`` ← ``households`` via ``hh_id``).
         2. For each target column, ``n_hh_{column}={code}`` features are
            auto-generated — how many of the person's *other* household
            members have each code.  This captures within-household
            correlation (e.g. siblings sharing race/ethnicity).
         3. Auto-generated ``n_hh_*`` columns are appended to
-           ``categorical_features`` automatically.
+           ``numeric_features`` automatically.
         4. After imputation all joined/aggregated columns are stripped;
            the output schema is unchanged.
 
@@ -132,16 +115,16 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
                   #                                       ^^^^^^^^^^  ^^^^^^^^^^^^^^
                   #                              columns from the households table
 
-    Child-to-Parent Aggregation (``aggregate_from``):
-        The reverse of ``join_tables``: aggregate child rows up to a parent
-        table.  Useful when imputing parent-level fields that depend on
-        household composition (e.g. predicting household income from the
-        employment/education mix of its members).
+    Counting Rows From Another Table (``aggregate_from``):
+        The reverse of ``join_tables``: count the rows that belong to each
+        record, such as a household's persons.  Useful when imputing
+        household fields that depend on its composition (e.g. predicting
+        household income from the employment/education mix of its members).
 
-        For each child table and each field listed under ``pivot_count``, the
-        module groups child rows by the parent's FK and creates one column per
+        For each source table and each field listed under ``pivot_count``, the
+        module groups its rows by the foreign key and creates one column per
         unique value, counting occurrences.  Generated columns are named
-        ``{child_table}_count_{field}={value}`` and are automatically added to
+        ``{source_table}_count_{field}={value}`` and are automatically added to
         ``numeric_features``.  After imputation, all generated columns are
         stripped.
 
@@ -172,8 +155,8 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
               (default: ``'distance'``).
             - numeric_features: Numeric feature columns.
             - categorical_features: Categorical feature columns.
-            - join_tables: Parent tables to left-join for extra features.
-            - aggregate_from: Child-to-parent pivot-count config.
+            - join_tables: Tables to left-join for extra features.
+            - aggregate_from: Pivot-count config for rows of other tables.
 
             **Random Forest** (``method: rf``):
 
@@ -183,8 +166,8 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
             - max_depth: Maximum tree depth (default: None, unlimited).
             - numeric_features: Numeric feature columns.
             - categorical_features: Categorical feature columns.
-            - join_tables: Parent tables to left-join for extra features.
-            - aggregate_from: Child-to-parent pivot-count config.
+            - join_tables: Tables to left-join for extra features.
+            - aggregate_from: Pivot-count config for rows of other tables.
 
             **MICE** (``method: mice``):
 
@@ -194,8 +177,8 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
             - max_iter: Maximum iterations (default: 10).
             - numeric_features: Numeric feature columns.
             - categorical_features: Categorical feature columns.
-            - join_tables: Parent tables to left-join for extra features.
-            - aggregate_from: Child-to-parent pivot-count config.
+            - join_tables: Tables to left-join for extra features.
+            - aggregate_from: Pivot-count config for rows of other tables.
 
             At least one of ``numeric_features`` or ``categorical_features``
             is required in every config block.
@@ -282,19 +265,67 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
 
     if not impute_columns:
         logger.warning("No impute_columns configs provided")
-        return dict(tables.items())
+        return tables
 
-    # Clone all tables and track originals for validation/preimputed stash
+    # Originals feed validation and the pre-imputation stash
     originals = {name: df.clone() for name, df in tables.items()}
-    current_dfs = dict(tables.items())
-    all_imputed_columns: dict[str, list[str]] = {name: [] for name in tables}
-    all_validation_results: list[dict[str, Any]] = []
-    all_importance_rows: list[dict[str, Any]] = []
+    current_dfs, imputed_columns, validation_rows, importance_rows = _run_phases(
+        tables, originals, impute_columns, validate_imputation, random_state
+    )
 
-    # Group configs by method (KNN → RF → MICE)
+    result_tables = {}
+    for table_name in tables:
+        current_df = current_dfs[table_name]
+        if stash_preimputed and imputed_columns[table_name]:
+            logger.info(
+                "Stashing pre-imputation values for %s (%d columns)",
+                table_name,
+                len(imputed_columns[table_name]),
+            )
+            current_df = stash_preimputed_columns(
+                current_df, originals[table_name], imputed_columns[table_name]
+            )
+        result_tables[table_name] = current_df
+
+    result_tables.update(
+        _reports(
+            impute_columns,
+            current_dfs,
+            validation_rows,
+            importance_rows,
+            validate_imputation,
+            random_state,
+        )
+    )
+
+    logger.info("Imputation complete for %d tables", len(result_tables))
+    return result_tables
+
+
+def _run_phases(
+    tables: dict[str, pl.DataFrame],
+    originals: dict[str, pl.DataFrame],
+    impute_columns: dict[str, list[dict[str, Any]]],
+    validate_imputation: dict[str, Any] | None,
+    random_state: int | None,
+) -> tuple[
+    dict[str, pl.DataFrame],
+    dict[str, list[str]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Run each method's configs across all tables, in ``_METHOD_ORDER``.
+
+    Returns:
+        ``(imputed tables, imputed columns per table, validation rows, feature
+        importance rows)``.
+    """
+    current_dfs = dict(tables)
+    imputed_columns: dict[str, list[str]] = {name: [] for name in tables}
+    validation_rows: list[dict[str, Any]] = []
+    importance_rows: list[dict[str, Any]] = []
+
     method_configs = _group_configs_by_method(impute_columns)
-
-    # Process each method phase across all tables
     for phase_num, method in enumerate(_METHOD_ORDER, 1):
         configs_by_table = method_configs[method]
         if not configs_by_table:
@@ -318,59 +349,55 @@ def imputation(  # noqa: C901, PLR0912, PLR0915
                 random_state,
                 tables=current_dfs,
             )
-            all_imputed_columns[table_name].extend(cols)
-            all_validation_results.extend(val_rows)
-            all_importance_rows.extend(imp_rows)
+            imputed_columns[table_name].extend(cols)
+            validation_rows.extend(val_rows)
+            importance_rows.extend(imp_rows)
 
-    # Stash pre-imputation values for all tables
-    result_tables = {}
-    for table_name in tables:
-        current_df = current_dfs[table_name]
-        imputed_columns = all_imputed_columns[table_name]
+    return current_dfs, imputed_columns, validation_rows, importance_rows
 
-        if stash_preimputed and imputed_columns:
-            logger.info(
-                "Stashing pre-imputation values for %s (%d columns)",
-                table_name,
-                len(imputed_columns),
-            )
-            current_df = stash_preimputed_columns(
-                current_df, originals[table_name], imputed_columns
-            )
 
-        result_tables[table_name] = current_df
+def _reports(
+    impute_columns: dict[str, list[dict[str, Any]]],
+    current_dfs: dict[str, pl.DataFrame],
+    validation_rows: list[dict[str, Any]],
+    importance_rows: list[dict[str, Any]],
+    validate_imputation: dict[str, Any] | None,
+    random_state: int | None,
+) -> dict[str, pl.DataFrame]:
+    """The ``_method_comparison`` or ``_validation_summary``, and ``_feature_importance``.
 
-    # Run either per-method validation summary or full method comparison
+    Each is written to CSV beside ``validate_imputation.output_path`` when set.
+    """
+    reports: dict[str, pl.DataFrame] = {}
+    output_path = validate_imputation.get("output_path") if validate_imputation else None
+
+    # Either the full method comparison or the per-method validation summary
     if validate_imputation and validate_imputation.get("compare_methods", False):
         logger.info("Running head-to-head method comparison for all imputed columns")
-        comparison_df = compare_imputation_methods(
+        reports["_method_comparison"] = compare_imputation_methods(
             impute_columns,
             current_dfs,
             n_folds=validate_imputation.get("n_folds", 5),
             sample_pct=validate_imputation.get("sample_pct", 5.0),
             random_state=random_state,
-            output_path=validate_imputation.get("output_path"),
+            output_path=output_path,
         )
-        result_tables["_method_comparison"] = comparison_df
-    elif all_validation_results:
-        summary_df = pl.DataFrame(all_validation_results)
-        output_path = validate_imputation.get("output_path") if validate_imputation else None
+    elif validation_rows:
+        summary_df = pl.DataFrame(validation_rows)
         if output_path:
             summary_df.write_csv(output_path)
             logger.info("Validation summary saved to %s", output_path)
-        result_tables["_validation_summary"] = summary_df
+        reports["_validation_summary"] = summary_df
 
     # Feature importance (RF only — collected during imputation)
-    if all_importance_rows:
-        fi_df = pl.DataFrame(all_importance_rows)
-        output_path = validate_imputation.get("output_path") if validate_imputation else None
+    if importance_rows:
+        fi_df = pl.DataFrame(importance_rows)
         if output_path:
             fi_path = Path(output_path).with_name(
                 Path(output_path).stem + "_feature_importance.csv"
             )
             fi_df.write_csv(str(fi_path))
             logger.info("Feature importance saved to %s", fi_path)
-        result_tables["_feature_importance"] = fi_df
+        reports["_feature_importance"] = fi_df
 
-    logger.info("Imputation complete for %d tables", len(result_tables))
-    return result_tables
+    return reports

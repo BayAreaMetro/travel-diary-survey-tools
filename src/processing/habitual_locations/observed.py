@@ -14,12 +14,12 @@ the house or lunch by the office says it is somewhere else.
 import networkx as nx
 import polars as pl
 
-from data_canon.codebook.days import BeginEndDay
 from data_canon.codebook.generic import LocationSource, LocationType
 from data_canon.codebook.trips import PurposeCategory
 from utils.helpers import expr_haversine
 
 from .habitual_location_configs import HabitualLocationConfig
+from .matching import STATED_DAY_PURPOSE
 
 # Kinds found from long stops, and the purpose categories of the stops that feed
 # each. Work-related stops count towards a workplace, but only at their own
@@ -32,7 +32,7 @@ OBSERVED_KINDS = {
 }
 
 # Answers to "where did the day begin/end?" that name a home of the person's.
-STATED_HOMES = [BeginEndDay.HOME.value, BeginEndDay.OTHER_HOME.value]
+STATED_HOMES = list(STATED_DAY_PURPOSE)
 
 
 def label_clusters(points: pl.DataFrame, radius_meters: float) -> pl.DataFrame:

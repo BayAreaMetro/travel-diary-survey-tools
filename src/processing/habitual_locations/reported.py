@@ -17,12 +17,12 @@ from .numbering import LOCATION_COLUMNS, assign_location_id
 
 logger = logging.getLogger(__name__)
 
-# The survey's reported coordinates: (location type, table, lat column, lon column).
+# The survey's reported coordinates: (location type, lat column, lon column).
 # Home is the household's; work and school are the person's.
 REPORTED_COLUMNS = [
-    (LocationType.HOME, "households", "home_lat", "home_lon"),
-    (LocationType.WORK, "persons", "work_lat", "work_lon"),
-    (LocationType.SCHOOL, "persons", "school_lat", "school_lon"),
+    (LocationType.HOME, "home_lat", "home_lon"),
+    (LocationType.WORK, "work_lat", "work_lon"),
+    (LocationType.SCHOOL, "school_lat", "school_lon"),
 ]
 
 
@@ -41,7 +41,7 @@ def _primaries(households: pl.DataFrame, persons: pl.DataFrame) -> pl.DataFrame:
                 pl.col(lat).cast(pl.Float64).alias("lat"),
                 pl.col(lon).cast(pl.Float64).alias("lon"),
             )
-            for kind, _table, lat, lon in REPORTED_COLUMNS
+            for kind, lat, lon in REPORTED_COLUMNS
         ],
         how="vertical",
     )
@@ -85,7 +85,6 @@ def reported_habitual_locations(
     households: pl.DataFrame,
     persons: pl.DataFrame,
     extra: pl.DataFrame | None = None,
-    buffer_meters: float = DEFAULT_BUFFER_METERS,
 ) -> pl.DataFrame:
     """Build the delivered ``habitual_locations`` table: every reported location.
 
@@ -99,8 +98,8 @@ def reported_habitual_locations(
             ``school_lat/lon``.
         extra: Optional further reported locations with ``person_id``,
             ``location_type``, ``lat`` and ``lon``. They are never primary.
-        buffer_meters: An extra location this close to its kind's primary is
-            the same place and is dropped.
+            One within ``DEFAULT_BUFFER_METERS`` of its kind's primary is the
+            same place and is dropped.
 
     Returns:
         Table conforming to ``HabitualLocationModel``, all ``REPORTED``.
@@ -120,7 +119,7 @@ def reported_habitual_locations(
             .with_row_index("_order")
             .with_columns(pl.col("_order").cast(pl.Int64))
         )
-        frames.append(_drop_near_primary(primaries, further, buffer_meters))
+        frames.append(_drop_near_primary(primaries, further, DEFAULT_BUFFER_METERS))
 
     reported = pl.concat(frames, how="diagonal").with_columns(
         pl.lit(LocationSource.REPORTED.value, dtype=pl.Int64).alias("source")

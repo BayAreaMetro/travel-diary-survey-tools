@@ -61,7 +61,54 @@ def zone_points(df: pl.DataFrame, df_index: str, lon_col: str, lat_col: str) -> 
     return points
 
 
-# Helper function to add zone ID to a dataframe based on lon/lat
+def _snap_unmatched(
+    unmatched: gpd.GeoDataFrame,
+    gdf_joined: gpd.GeoDataFrame,
+    snap_zones: gpd.GeoDataFrame,
+    projected_crs: str,
+    zone_id_field: str,
+    zone_col_name: str,
+    max_snap_distance: float | None,
+) -> None:
+    """Snap *unmatched* points to the nearest zone within reach, in place on *gdf_joined*.
+
+    Points are projected to *projected_crs* first: nearest-neighbour distances
+    in degrees are wrong. Points with null/NaN coordinates (e.g. persons with
+    no work location) have no real location and stay null.
+    """
+    points_projected = unmatched.to_crs(projected_crs)
+    valid_geom_mask = points_projected.geometry.is_valid & ~points_projected.geometry.is_empty
+    points_for_nearest = points_projected[valid_geom_mask]
+    if points_for_nearest.empty:
+        return
+
+    nearest = gpd.sjoin_nearest(
+        points_for_nearest,
+        snap_zones,
+        how="left",
+        max_distance=max_snap_distance,
+    ).rename(columns={zone_id_field: zone_col_name})
+    # Drop duplicate rows that arise when multiple zones are equidistant
+    nearest = nearest[~nearest.index.duplicated(keep="first")]
+    n_snapped = nearest[zone_col_name].notna().sum()
+    n_beyond = len(points_for_nearest) - n_snapped
+    if n_snapped > 0:
+        logger.warning(
+            "%d point(s) did not fall within any %s zone; snapped to nearest zone.",
+            n_snapped,
+            zone_col_name,
+        )
+    if n_beyond > 0:
+        logger.warning(
+            "%d point(s) did not fall within any %s zone and exceeded the snap"
+            " distance of %.0f m; leaving as null.",
+            n_beyond,
+            zone_col_name,
+            max_snap_distance,
+        )
+    gdf_joined.loc[points_for_nearest.index, zone_col_name] = nearest[zone_col_name].values
+
+
 def add_zone_to_dataframe(
     df: pl.DataFrame,
     shp: gpd.GeoDataFrame,
@@ -128,74 +175,36 @@ def add_zone_to_dataframe(
     """
     gdf = points if points is not None else zone_points(df, df_index, lon_col, lat_col)
 
-    # Prepare shapefile for spatial join and ensure zone ID is string to handle nulls in pandas land
     shp_prepared = zones if zones is not None else prepare_zones(shp, zone_id_field)
 
     # Spatial join to find zone containing each point
     gdf_joined = gpd.sjoin(gdf, shp_prepared, how="left", predicate="within")
     gdf_joined = gdf_joined.rename(columns={zone_id_field: zone_col_name})
 
-    # Fallback: for points that didn't fall within any zone, snap to the nearest zone
-    # polygon by boundary distance. Only performed when projected_crs is provided.
-    # max_snap_distance filters out genuinely out-of-region points: only snap if the
-    # point is within that distance of the nearest zone boundary.
+    # Points in no zone: snap to the nearest one, or leave null (see docstring)
     null_mask = gdf_joined[zone_col_name].isna()
-    if null_mask.any():
-        n_null = null_mask.sum()
-        if projected_crs:
-            # Project to metric CRS before nearest-neighbour join
-            # to avoid incorrect results from operating in geographic CRS (degrees).
-            shp_for_nearest = (
-                snap_zones
-                if snap_zones is not None
-                else prepare_snap_zones(shp, zone_id_field, projected_crs)
-            )
-            points_projected = gdf[null_mask].to_crs(projected_crs)
-            # Exclude points with null/NaN coordinates (e.g. persons with no work location);
-            # those have no real location and should remain null regardless.
-            valid_geom_mask = (
-                points_projected.geometry.is_valid & ~points_projected.geometry.is_empty
-            )
-            points_for_nearest = points_projected[valid_geom_mask]
-            if not points_for_nearest.empty:
-                nearest = gpd.sjoin_nearest(
-                    points_for_nearest,
-                    shp_for_nearest,
-                    how="left",
-                    max_distance=max_snap_distance,
-                ).rename(columns={zone_id_field: zone_col_name})
-                # Drop duplicate rows that arise when multiple zones are equidistant
-                nearest = nearest[~nearest.index.duplicated(keep="first")]
-                n_snapped = nearest[zone_col_name].notna().sum()
-                n_beyond = len(points_for_nearest) - n_snapped
-                if n_snapped > 0:
-                    logger.warning(
-                        "%d point(s) did not fall within any %s zone; snapped to nearest zone.",
-                        n_snapped,
-                        zone_col_name,
-                    )
-                if n_beyond > 0:
-                    logger.warning(
-                        "%d point(s) did not fall within any %s zone and exceeded the snap"
-                        " distance of %.0f m; leaving as null.",
-                        n_beyond,
-                        zone_col_name,
-                        max_snap_distance,
-                    )
-                gdf_joined.loc[points_for_nearest.index, zone_col_name] = nearest[
-                    zone_col_name
-                ].values
-        else:
-            logger.warning(
-                "%d point(s) did not fall within any %s zone; leaving as null.",
-                n_null,
-                zone_col_name,
-            )
+    if null_mask.any() and projected_crs:
+        if snap_zones is None:
+            snap_zones = prepare_snap_zones(shp, zone_id_field, projected_crs)
+        _snap_unmatched(
+            gdf[null_mask],
+            gdf_joined,
+            snap_zones,
+            projected_crs,
+            zone_id_field,
+            zone_col_name,
+            max_snap_distance,
+        )
+    elif null_mask.any():
+        logger.warning(
+            "%d point(s) did not fall within any %s zone; leaving as null.",
+            null_mask.sum(),
+            zone_col_name,
+        )
 
     gdf_joined = gdf_joined.drop(columns="geometry")
 
-    # If all zone IDs are integers, convert to Int64 to allow nulls
-    # else keep as string
+    # All-digit zone IDs become Int64 (which admits nulls); otherwise text
     casttype = pl.Utf8
     if gdf_joined[zone_col_name].dropna().str.isdigit().all():
         casttype = pl.Int64

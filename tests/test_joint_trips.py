@@ -412,7 +412,9 @@ class TestGroupingMembership:
         """The control: a genuine pair aggregates without complaint."""
         linked_trips, assignments = self._members([101, 102])
 
-        result = build_joint_trips_table(linked_trips, assignments, days_not_asked(linked_trips))
+        result = build_joint_trips_table(
+            linked_trips.join(assignments, on="linked_trip_id"), days_not_asked(linked_trips)
+        )
 
         assert len(result) == 1
         assert result["num_joint_travelers"][0] == 2
@@ -429,4 +431,6 @@ class TestGroupingMembership:
         linked_trips, assignments = self._members(person_ids)
 
         with pytest.raises(ValueError, match="fewer than 2 distinct participants"):
-            build_joint_trips_table(linked_trips, assignments, days_not_asked(linked_trips))
+            build_joint_trips_table(
+                linked_trips.join(assignments, on="linked_trip_id"), days_not_asked(linked_trips)
+            )

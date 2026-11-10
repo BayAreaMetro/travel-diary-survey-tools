@@ -121,7 +121,7 @@ def _rollup_household_complete(tables: dict[str, pl.DataFrame | None]) -> None:
 
 
 def _join_surveyable(person_days: pl.DataFrame, persons: pl.DataFrame) -> pl.DataFrame:
-    """Return *days* with a ``_surveyable`` bool column joined from persons.
+    """Return *person_days* with a ``_surveyable`` bool column joined from persons.
 
     A person is *surveyable* when the survey could collect their travel at all;
     unrelated household members (e.g. roommates) are not, file no trips, and
@@ -166,7 +166,7 @@ def with_household_day(
     column: str,
     alias: str,
 ) -> pl.DataFrame:
-    """Return *days* with *alias*: its household-day's *column*.
+    """Return *person_days* with *alias*: its household-day's *column*.
 
     An unsurveyable member's day takes no part in the household-day, so it is
     not judged by it either: it keeps its own *column*.
@@ -188,7 +188,7 @@ def with_household_day_excluded(
     persons: pl.DataFrame,
     alias: str,
 ) -> pl.DataFrame:
-    """Return *days* with *alias*: any surveyable member's day on its date was excluded.
+    """Return *person_days* with *alias*: any surveyable member's day on its date was excluded.
 
     An excluded day is one the project cleaner gave an ``exclusion_reason``. An
     unsurveyable member's day takes no part in the household-day, so it answers

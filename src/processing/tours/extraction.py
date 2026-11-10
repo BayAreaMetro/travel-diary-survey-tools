@@ -104,18 +104,21 @@ from .detection_helpers import (
     expand_anchor_periods,
     identify_home_based_tours,
 )
-from .joint_tour_helpers import build_joint_tours_table, identify_joint_tours
+from .joint_tour_helpers import (
+    build_joint_tours_table,
+    identify_joint_tours,
+    without_joint_tours,
+)
 from .location_helpers import add_anchor_flags, classify_trip_locations
 from .tour_configs import TourConfig
 from .validation_helpers import validate_and_correct_tours
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 @step(
     requires={
-        "persons": {"person_id", "age", "employment", "student", "school_type"},
+        "persons": {"person_id", "age", "employment", "student"},
         "unlinked_trips": {"person_day_id", "linked_trip_id", "depart_time", "arrive_time"},
         "linked_trips": {
             "person_day_id",
@@ -177,6 +180,11 @@ def extract_tours(
             - tours: Aggregated tour records with purpose, mode, timing, trip counts,
               tour_data_quality and joint_tour_id
             - joint_tours: One record per joint tour
+
+        ``person_category`` (worker/student, joined on so purpose priority can
+        be ranked) is dropped with the underscored working columns: it predates
+        the underscore convention and is derived from ``persons``, not a survey
+        fact.
     """
     logger.info("Building tours from linked trip data...")
     persons = tables["persons"]
@@ -187,8 +195,7 @@ def extract_tours(
 
     person_categories = persons.select("person_id", extraction.person_category_expression())
 
-    msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
-    logger.info(msg)
+    logger.info("Processing %d persons, %d trips", len(persons), len(linked_trips))
 
     # Step 1: Say which habitual location each trip end is at, and classify it
     linked_trips_classified = classify_trip_locations(
@@ -232,13 +239,9 @@ def extract_tours(
             tours,
         )
     else:
-        # No joint trips, add null joint_tour_id columns
-        linked_trips_with_tour_dir = linked_trips_with_tour_dir.with_columns(
-            pl.lit(None, dtype=pl.Int64).alias("joint_tour_id")
-        )
-        tours = tours.with_columns(pl.lit(None, dtype=pl.Int64).alias("joint_tour_id"))
+        linked_trips_with_tour_dir, tours = without_joint_tours(linked_trips_with_tour_dir, tours)
 
-    # Step 7: Validate tours and correct data quality issues
+    # Step 7: Grade each tour's data quality
     # Sorted: tours come out of group_bys in no fixed order, so runs would differ.
     tours = validate_and_correct_tours(
         tours,
@@ -253,25 +256,20 @@ def extract_tours(
         how="left",
     )
 
-    # Drop temporary columns, any starting with underscore. ``person_category``
-    # is the same kind of thing -- a worker/student label joined on so purpose
-    # priority can be ranked -- it just predates the underscore convention, and
-    # it is derivable from the persons table rather than a survey fact.
-    for df in [linked_trips_with_tour_dir, tours]:
-        _cols = df.columns
-        for c in _cols:
-            if c.startswith("_") or c == "person_category":
-                df.drop_in_place(c)
-
-    msg = (
-        f"Tour building complete: {len(linked_trips_with_tour_dir)} "
-        f"linked trips, {len(tours)} tours."
-        "\nTour count may increase due to sub-tours being identified."
+    # Drop working columns: underscored ones, and person_category (see docstring)
+    linked_trips_with_tour_dir, tours = (
+        df.drop([c for c in df.columns if c.startswith("_") or c == "person_category"])
+        for df in (linked_trips_with_tour_dir, tours)
     )
-    logger.info(msg)
 
-    # Step 9: Collapse the member tours into the canonical joint_tours table, so
-    # the group is a record in its own right rather than a grouping key.
+    logger.info(
+        "Tour building complete: %d linked trips, %d tours."
+        "\nTour count may increase due to sub-tours being identified.",
+        len(linked_trips_with_tour_dir),
+        len(tours),
+    )
+
+    # Step 9: Collapse member tours into joint_tours, one record per group
     joint_tours = build_joint_tours_table(tours, person_days)
 
     return {

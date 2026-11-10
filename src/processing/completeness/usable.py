@@ -33,7 +33,7 @@ _TRIP_TABLES = ("linked_trips", "unlinked_trips")
 
 
 # The down walk, as (table, the table it inherits from, the key joining them),
-# in order: each row's parent has already inherited its own by the time it runs.
+# in order: the table each inherits from has already taken its own verdict.
 _DOWN_EDGES = (
     ("household_days", "households", "hh_id"),
     ("persons", "households", "hh_id"),
@@ -401,8 +401,8 @@ def _cascade_down(tables: dict[str, pl.DataFrame | None], profile: UsabilityProf
     not: a whole-household-day profile judges the household over dates on which
     *every* member passed, while the person only needs one day of their own. A
     consumer takes nothing from a household it does not take, so the household's
-    verdict is the ceiling on everything in it. Each level takes its parent's
-    verdict in turn -- person from household, day from person, tour from day,
+    verdict is the ceiling on everything in it. Each level takes the verdict of
+    the record it belongs to, in turn -- person from household, day from person, tour from day,
     trips from tour -- and nothing here can change a verdict above it, so one
     walk is the whole of it. The trips start from the verdict
     :func:`_flag_trips` gave them on the way up.

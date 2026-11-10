@@ -8,7 +8,6 @@ from processing.imputation.impute_utils import (
     aggregate_from_children,
     enrich_dataframe,
     join_parent_tables,
-    strip_joined_columns,
 )
 
 # ---------------------------------------------------------------------------
@@ -240,41 +239,6 @@ class TestAddHouseholdAggFeatures:
 
 
 # ---------------------------------------------------------------------------
-# strip_joined_columns
-# ---------------------------------------------------------------------------
-
-
-class TestStripJoinedColumns:
-    """Tests for strip_joined_columns."""
-
-    def test_removes_added_columns(self):
-        """Should remove specified columns."""
-        df = pl.DataFrame(
-            {
-                "id": [1, 2],
-                "keep": [10, 20],
-                "temp_a": [100, 200],
-                "temp_b": [300, 400],
-            }
-        )
-
-        result = strip_joined_columns(df, ["temp_a", "temp_b"])
-
-        assert "temp_a" not in result.columns
-        assert "temp_b" not in result.columns
-        assert "id" in result.columns
-        assert "keep" in result.columns
-
-    def test_handles_missing_column_gracefully(self):
-        """Should not fail if a column to strip doesn't exist."""
-        df = pl.DataFrame({"id": [1], "val": [2]})
-
-        result = strip_joined_columns(df, ["nonexistent", "also_missing"])
-
-        assert result.equals(df)
-
-
-# ---------------------------------------------------------------------------
 # End-to-end: join → impute → strip
 # ---------------------------------------------------------------------------
 
@@ -297,7 +261,7 @@ class TestJoinImputeStripLifecycle:
         added.extend(agg_added)
 
         # Strip
-        result = strip_joined_columns(enriched, added)
+        result = enriched.drop(added, strict=False)
 
         assert set(result.columns) == original_cols
         assert len(result) == len(persons)
@@ -408,7 +372,7 @@ class TestAggregateFromChildren:
             "persons_count_student=1",
         ]
 
-        result = strip_joined_columns(enriched, added)
+        result = enriched.drop(added, strict=False)
         assert set(result.columns) == original_cols
 
 
@@ -486,13 +450,12 @@ def test_counts_are_numeric_features(table, config, prefix):
         "persons": pl.DataFrame({"hh_id": [1, 1, 2], "person_id": [10, 11, 20], "race": [1, 2, 2]}),
     }
 
-    _, added, categorical, numeric = enrich_dataframe(
+    _, added, numeric = enrich_dataframe(
         tables[table],
         table,
         tables,
         config.get("join_tables", []),
         ["race"],
-        ["residence_type"],
         config.get("aggregate_from"),
         ["num_trips"],
     )
@@ -500,4 +463,3 @@ def test_counts_are_numeric_features(table, config, prefix):
     counts = [c for c in added if c.startswith(prefix)]
     assert counts
     assert numeric == ["num_trips", *counts]
-    assert categorical == ["residence_type"]

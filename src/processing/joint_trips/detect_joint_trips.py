@@ -220,7 +220,7 @@ def detect_joint_trips(
     Returns:
         Dictionary containing:
             - linked_trips: Original trips with added joint_trip_id column
-            - joint_trips: Aggregated table of shared trips with participant lists
+            - joint_trips: One row per shared trip (see Phase 5)
 
     Algorithm:
         # Phase 1: Household Pre-filtering
@@ -236,7 +236,7 @@ def detect_joint_trips(
             - Destination coordinates (d_lon, d_lat)
             - Departure time
             - Arrival time
-        2. Store distances in condensed matrix format for efficiency
+        2. Add the four distances as columns on each candidate pair
 
         # Phase 3: Similarity Filtering
 
@@ -264,8 +264,8 @@ def detect_joint_trips(
         2. Detect maximal cliques (groups of mutually-similar trips)
         3. Handle overlapping cliques by selecting disjoint set with maximum coverage
         4. Each clique represents one joint trip event
-        5. Ensures transitivity: if A travels with B, and B with C, then A,B,C form
-           one joint trip
+        5. A clique needs every pair similar: A with B and B with C makes A,B,C
+           one joint trip only if A is also similar to C
 
         # Phase 5: Joint Trip Aggregation
 
@@ -368,28 +368,10 @@ def detect_joint_trips(
         joint_trip_assignments, on="linked_trip_id", how="left"
     )
 
-    # Build joint_trips aggregation table
-    joint_trips_table = build_joint_trips_table(
-        linked_trips_with_joints, joint_trip_assignments, person_days
-    )
+    joint_trips_table = build_joint_trips_table(linked_trips_with_joints, person_days)
 
-    # Validate against num_travelers (optional logging)
-    validate_against_num_travelers(
-        linked_trips_with_joints,
-        joint_trip_assignments,
-        matching.log_discrepancies,
-    )
-
-    # Drop intermediate distance columns before returning
-    cols_to_drop = {
-        "origin_dist_m",
-        "dest_dist_m",
-        "depart_diff_min",
-        "arrive_diff_min",
-    }
-    existing_cols_to_drop = [c for c in cols_to_drop if c in linked_trips_with_joints.columns]
-    if existing_cols_to_drop:
-        linked_trips_with_joints = linked_trips_with_joints.drop(existing_cols_to_drop)
+    # Compare against reported num_travelers (logging only)
+    validate_against_num_travelers(linked_trips_with_joints, matching.log_discrepancies)
 
     logger.info(
         "Joint trip detection completed: %d joint trip groups detected",

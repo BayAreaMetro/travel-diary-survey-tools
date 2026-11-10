@@ -7,13 +7,13 @@ the survey vendor's own day verdict), and each tour's structural validity.
 Each flag comes from one place in the tree -- its **direction** -- via a counting
 **operation** (the ``op`` column below). Naming the direction makes it clear that
 ``household-day`` and the joint entities are the same kind of thing: cross-person
-groupings, not parent/child.
+groupings, not one record inside another.
 
 | direction | value comes from               | example                               |
 |-----------|--------------------------------|---------------------------------------|
 | self      | measured on the record         | a trip never filled out               |
-| up        | aggregate your own children    | person with zero complete days        |
-| down      | inherit your parent's verdict  | good trip on a dropped tour           |
+| up        | count the records below it     | person with zero complete days        |
+| down      | inherit its owner's verdict    | good trip on a dropped tour           |
 | lateral   | aggregate a cross-person group | one member skips a day, whole date fails |
 
 

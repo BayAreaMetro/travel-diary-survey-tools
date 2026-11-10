@@ -73,13 +73,13 @@ def identify_joint_tours(
 
     if joint_trip_members.is_empty():
         logger.info("No joint trips found, skipping joint tour identification")
-        return _without_joint_tours(linked_trips, tours)
+        return without_joint_tours(linked_trips, tours)
 
     eligible_tours = _find_eligible_tours(trips_with_tours, joint_trip_members)
 
     if eligible_tours.is_empty():
         logger.info("No tours where all trips are joint, skipping joint tour identification")
-        return _without_joint_tours(linked_trips, tours)
+        return without_joint_tours(linked_trips, tours)
 
     # One row per (tour, joint_trip_id). This is the relation linked_trips
     # already holds; keep it long rather than collapsing to a list per tour.
@@ -96,7 +96,7 @@ def identify_joint_tours(
 
     if valid_joint_tours.is_empty():
         logger.info("No stable joint tour groups found")
-        return _without_joint_tours(linked_trips, tours)
+        return without_joint_tours(linked_trips, tours)
 
     tours_with_joint_id = _assign_joint_tour_ids(
         tour_joint_trips.join(
@@ -232,7 +232,7 @@ def build_joint_tours_table(tours: pl.DataFrame, person_days: pl.DataFrame) -> p
     return joint_tours
 
 
-def _without_joint_tours(
+def without_joint_tours(
     linked_trips: pl.DataFrame,
     tours: pl.DataFrame,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -381,21 +381,9 @@ def _drop_singleton_joint_tours(
     Returns:
         The same frame with singleton joint_tour_ids set to null
     """
-    shared_ids = (
-        tours_with_joint_id.group_by("joint_tour_id")
-        .agg(pl.col("person_id").n_unique().alias("_n_persons"))
-        .filter(pl.col("_n_persons") >= MIN_JOINT_TOUR_PARTICIPANTS)
-        .select("joint_tour_id")
-        .with_columns(pl.lit(value=True).alias("_shared"))
-    )
-
-    return (
-        tours_with_joint_id.join(shared_ids, on="joint_tour_id", how="left")
-        .with_columns(
-            pl.when(pl.col("_shared").fill_null(value=False))
-            .then(pl.col("joint_tour_id"))
-            .otherwise(pl.lit(None, dtype=pl.Int64))
-            .alias("joint_tour_id")
-        )
-        .drop("_shared")
+    n_persons = pl.col("person_id").n_unique().over("joint_tour_id")
+    return tours_with_joint_id.with_columns(
+        pl.when(n_persons >= MIN_JOINT_TOUR_PARTICIPANTS)
+        .then(pl.col("joint_tour_id"))
+        .alias("joint_tour_id")
     )
