@@ -178,13 +178,12 @@ class TestRequiredChildrenWhen:
 
 
 class TestCustomValidators:
-    """Tests for custom validator registration."""
+    """Tests for running the custom validators registered on a table."""
 
     def test_single_table_validator(self):
         """Should run custom validator on single table."""
         data_obj = CanonicalData()
 
-        @data_obj.register_validator("unlinked_trips")
         def check_trip_duration(unlinked_trips: pl.DataFrame) -> list[str]:
             """Check that trips are not unreasonably long (>4 hours)."""
             hours = (pl.col("arrive_time") - pl.col("depart_time")).dt.total_seconds() / 3600
@@ -193,6 +192,8 @@ class TestCustomValidators:
                 trip_ids = long_trips["unlinked_trip_id"].to_list()[:5]
                 return [f"Found {len(long_trips)} trips longer than 4 hours: {trip_ids}"]
             return []
+
+        data_obj.custom_validators["unlinked_trips"].append(check_trip_duration)
 
         def trip(trip_id: int, depart: datetime, arrive: datetime) -> dict:
             return create_unlinked_trip(
@@ -227,7 +228,6 @@ class TestCustomValidators:
         """Should run custom validator with multiple tables."""
         data = CanonicalData()
 
-        @data.register_validator("persons")
         def check_size(
             persons: pl.DataFrame,
             households: pl.DataFrame,
@@ -239,9 +239,27 @@ class TestCustomValidators:
                 return ["Size mismatch"]
             return []
 
+        data.custom_validators["persons"].append(check_size)
         data.households = _households([1, 2])
         data.persons = _persons([1, 2])
         data.validate("persons", step="link_trips")
+
+    def test_a_validator_on_an_absent_table_skips_only_itself(self):
+        """A validator whose table is not loaded is skipped; later ones still run."""
+        data = CanonicalData()
+
+        def needs_tours(persons: pl.DataFrame, tours: pl.DataFrame) -> list[str]:
+            return [f"should not run on {persons.height} persons, {tours.height} tours"]
+
+        def always_fails(persons: pl.DataFrame) -> list[str]:
+            return [f"ran on {persons.height} persons"]
+
+        data.custom_validators["persons"] = [needs_tours, always_fails]
+        data.households = _households([1, 2])
+        data.persons = _persons([1, 2])
+        with pytest.raises(DataValidationError) as exc:
+            data.validate("persons", step="link_trips")
+        assert exc.value.rule == "always_fails"
 
 
 class TestValidToursAreComplete:

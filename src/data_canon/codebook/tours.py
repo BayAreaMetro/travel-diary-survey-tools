@@ -1,4 +1,4 @@
-"""Tour building step for processing travel diary data."""
+"""Codebook enumerations for the tours table."""
 
 from data_canon.core.labeled_enum import LabeledEnum
 

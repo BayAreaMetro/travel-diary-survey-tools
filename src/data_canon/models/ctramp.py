@@ -178,13 +178,7 @@ class PersonCTRAMPModel(BaseModel):
     @classmethod
     def validate_person_type_from_label(cls, v: str | CTRAMPPersonType) -> CTRAMPPersonType:
         """Convert string label to enum member."""
-        if isinstance(v, str):
-            result = CTRAMPPersonType.from_label(v)
-            if result is None:
-                msg = f"Invalid person type label: {v}"
-                raise ValueError(msg)
-            return CTRAMPPersonType(result.value)
-        return v
+        return CTRAMPPersonType.from_label(v) if isinstance(v, str) else v  # pyright: ignore[reportReturnType]
 
 
 class MandatoryLocationCTRAMPModel(BaseModel):

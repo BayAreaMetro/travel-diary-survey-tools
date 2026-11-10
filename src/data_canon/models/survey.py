@@ -1,10 +1,7 @@
-"""Data models for trip linking and tour building.
+"""Pydantic models for the canonical survey tables.
 
-This module uses Pydantic for data validation.
-
-Models represent individual records (rows) rather than entire DataFrames.
-Use the validate_* functions to validate Polars DataFrames by iterating
-through rows.
+Models represent individual records (rows) rather than entire DataFrames;
+``CanonicalData.validate`` checks a table against its model row by row.
 
 Any field without None as an allowed type is considered required core data.
 
@@ -80,6 +77,14 @@ from data_canon.codebook.trips import (
 )
 from data_canon.core.schema_field import schema_field
 
+# Shared by the joint trip and joint tour tables.
+_GROUP_HH_DAY_ID = (
+    "The household-day this grouping happened on, shared by every member's "
+    "day. Not any one member's person_day_id: a grouping belongs to the household's "
+    "day, and a member's own day can be unusable while the others' are not."
+)
+_GROUP_TRAVEL_DATE = "The household-day's date, repeated here so it reads without a lookup."
+
 
 # Data Models ------------------------------------------------------------------
 class HouseholdModel(BaseModel):
@@ -143,9 +148,7 @@ class PersonModel(BaseModel):
     commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(default=None)
     # Uses commute subsidy: Discounted (partially subsidized) parking at work
     commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(default=None)
-    # NOTE: is proxy is vague.
-    # Better and more flexible would be to have proxy_person_id on the proxied person
-    # This allows for multiple proxy reporters and is more explicit.
+    # NOTE: vague; a proxy_person_id on the proxied person would allow several reporters
     is_proxy: bool | None = schema_field(default=None)
     surveyable: bool | None = schema_field(
         default=None,
@@ -187,10 +190,7 @@ class PersonDayModel(BaseModel):
         ge=1,
         fk_to="persons.person_id",
         required_child=True,
-        # Only surveyable persons must have a day. Unrelated household members
-        # file no travel and the vendor gives them no day rows, so requiring
-        # one of them can only be satisfied by fabricating a day that reads as
-        # a genuine no-travel day.
+        # Unrelated members file no travel; requiring their day would mean fabricating one
         required_child_when="surveyable",
     )
     person_day_id: int = schema_field(ge=1, unique=True)
@@ -251,9 +251,8 @@ class HouseholdDayModel(BaseModel):
             "for whole household-days, a person-day is only usable within one."
         ),
     )
-    # The usable-side mirror is stamped once per usability profile, as
-    # usable_{profile}. Those names come from config, so they cannot be model
-    # fields; cascade_completeness registers them as generated columns.
+    # usable_{profile} is named from config, so cascade_completeness registers it
+    # as a generated column instead of a field here.
 
 
 class UnlinkedTripModel(BaseModel):
@@ -354,9 +353,8 @@ class LinkedTripModel(BaseModel):
     distance_meters: float = schema_field(ge=0)
     depart_time: datetime = schema_field()
     arrive_time: datetime = schema_field()
-    # This field is derivable, and tour aggregation already recomputes it with
-    # different semantics rather than reading it. See issue #81 for whether it
-    # should stay on the schema at all.
+    # Derivable, and tour aggregation recomputes it differently; see issue #81
+    # for whether it stays on the schema.
     d_activity_duration: int = schema_field(
         description=(
             "Whole minutes spent at the trip destination before the next departure "
@@ -579,17 +577,9 @@ class JointTripModel(BaseModel):
     joint_trip_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     hh_day_id: int = schema_field(
-        ge=1,
-        fk_to="household_days.hh_day_id",
-        description=(
-            "The household-day this grouping happened on, shared by every member's "
-            "day. Not any one member's person_day_id: a grouping belongs to the household's "
-            "day, and a member's own day can be unusable while the others' are not."
-        ),
+        ge=1, fk_to="household_days.hh_day_id", description=_GROUP_HH_DAY_ID
     )
-    travel_date: datetime = schema_field(
-        description="The household-day's date, repeated here so it reads without a lookup.",
-    )
+    travel_date: datetime = schema_field(description=_GROUP_TRAVEL_DATE)
     num_joint_travelers: int = schema_field(
         ge=2,
         description=(
@@ -619,17 +609,9 @@ class JointTourModel(BaseModel):
     joint_tour_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     hh_day_id: int = schema_field(
-        ge=1,
-        fk_to="household_days.hh_day_id",
-        description=(
-            "The household-day this grouping happened on, shared by every member's "
-            "day. Not any one member's person_day_id: a grouping belongs to the household's "
-            "day, and a member's own day can be unusable while the others' are not."
-        ),
+        ge=1, fk_to="household_days.hh_day_id", description=_GROUP_HH_DAY_ID
     )
-    travel_date: datetime = schema_field(
-        description="The household-day's date, repeated here so it reads without a lookup.",
-    )
+    travel_date: datetime = schema_field(description=_GROUP_TRAVEL_DATE)
     num_participants: int = schema_field(
         ge=2,
         description=(

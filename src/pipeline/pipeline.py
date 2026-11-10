@@ -129,16 +129,12 @@ class Pipeline:
         self.data = CanonicalData()
         self.steps = {func.__name__: func for func in steps or []}
 
-        # Setup logging
-        log_filename = self.config.get("log_file", None)
-
-        # filename for file+console, or None for console only
+        # A log file gets console + file logging; none gets console only
+        log_filename = self.config.get("log_file") or None
+        setup_logging(log_file=log_filename, log_file_mode=log_file_mode)
         if log_filename:
-            setup_logging(log_file=log_filename, log_file_mode=log_file_mode)
             logger.info("Log file: %s", log_filename)
         else:
-            # Console-only logging
-            setup_logging(log_file=None)
             logger.info("Console-only logging enabled")
 
         # Add extra data models if provided
@@ -166,8 +162,8 @@ class Pipeline:
         """Separate the canonical data and parameters.
 
         The tables the step's contract declares are passed from self.data, by
-        name; the decorator checks them. Other arguments come from the step
-        configuration "parameters".
+        name; the decorator checks them. Other arguments come from the step's
+        ``params`` in the config.
 
         A config key the step does not take raises, as does one naming a
         canonical table: either would otherwise be dropped without a word, and

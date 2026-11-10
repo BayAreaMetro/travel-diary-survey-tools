@@ -88,7 +88,7 @@ class TestThroughValidate:
         canon = CanonicalData(households=pl.DataFrame({**HOUSEHOLD, "home_taz": [7]}))
         canon.register_generated_columns("households", {"home_taz": "the home zone"})
         canon.validate("households")
-        assert canon.describe_generated("households") == {"home_taz": "the home zone"}
+        assert canon.generated_columns["households"]["home_taz"].description == "the home zone"
 
     def test_a_bare_iterable_registration_still_works(self):
         """Names with no promise at all, as add_zone_ids passes them."""
