@@ -2,7 +2,7 @@
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 
 from .descriptions import log_gate_summary, profile_columns
 from .profiles import parse_usability_profiles
@@ -27,11 +27,12 @@ from .usable import stamp_usable
             "tour_id",
             "person_day_id",
             "parent_tour_id",
+            "joint_tour_id",
             "survey_complete",
             "tour_data_quality",
             "tour_category",
         },
-        "linked_trips": {"tour_id", "person_day_id", "survey_complete"},
+        "linked_trips": {"tour_id", "person_day_id", "joint_trip_id", "survey_complete"},
         "unlinked_trips": {"tour_id", "person_day_id", "survey_complete"},
         "joint_trips": {"joint_trip_id", "hh_id"},
         "joint_tours": {"joint_tour_id", "hh_id"},
@@ -55,15 +56,7 @@ from .usable import stamp_usable
     generated_columns=profile_columns,
 )
 def cascade_completeness(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    household_days: pl.DataFrame,
-    person_days: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    tours: pl.DataFrame,
-    joint_trips: pl.DataFrame | None = None,
-    joint_tours: pl.DataFrame | None = None,
+    tables: Tables,
     usability_profiles: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Cascade ``survey_complete`` through the hierarchy and stamp one column per profile.
@@ -115,15 +108,8 @@ def cascade_completeness(
     [processing.completeness.parse_usability_profiles] for the vocabulary.
 
     Args:
-        households: Canonical households.
-        persons: Canonical persons.
-        household_days: Canonical household-days, built by the project cleaner.
-        person_days: Canonical person-days.
-        unlinked_trips: Canonical unlinked trips.
-        linked_trips: Canonical linked trips.
-        tours: Canonical tours (with ``tour_data_quality`` / ``tour_category``).
-        joint_trips: Aggregated joint trips; absent where no joint travel was detected.
-        joint_tours: Aggregated joint tours; absent likewise.
+        tables: The canonical tables in ``requires``; ``household_days`` is built
+            by the project cleaner.
         usability_profiles: Profile name -> ``{tour_closes_at, household_day_needs,
             zone_coverage, joint_tours, travel_days}``.
             Required, and every profile answers every axis: there is no default
@@ -132,7 +118,7 @@ def cascade_completeness(
 
     Returns:
         The tables, each with ``survey_complete`` reconciled and one column per
-        profile added; the joint tables only where given.
+        profile added.
 
     Raises:
         ValueError: If ``usability_profiles`` is missing or malformed.
@@ -147,21 +133,9 @@ def cascade_completeness(
         raise ValueError(msg)
     profiles = parse_usability_profiles(usability_profiles)
 
-    tables: dict[str, pl.DataFrame | None] = {
-        "households": households,
-        "persons": persons,
-        "household_days": household_days,
-        "person_days": person_days,
-        "unlinked_trips": unlinked_trips,
-        "linked_trips": linked_trips,
-        "joint_trips": joint_trips,
-        "tours": tours,
-        "joint_tours": joint_tours,
-    }
-
-    cascade_complete(tables)
+    stamped = dict(tables)
+    cascade_complete(stamped)
     for profile in profiles:
-        stamp_usable(tables, profile)
-    log_gate_summary(tables, profiles)
-
-    return {name: df for name, df in tables.items() if df is not None}
+        stamp_usable(stamped, profile)
+    log_gate_summary(stamped, profiles)
+    return stamped

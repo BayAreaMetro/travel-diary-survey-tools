@@ -8,7 +8,7 @@ import logging
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from utils.create_ids import create_concatenated_id
 
 from .aggregation import (
@@ -193,6 +193,7 @@ def _assign_joint_trip_ids(
             "arrive_time",
         },
         "person_days": {"person_day_id", "hh_day_id", "travel_date"},
+        "households": set(),  # counted for the log
     },
     produces={
         "linked_trips": {"joint_trip_id"},
@@ -200,9 +201,7 @@ def _assign_joint_trip_ids(
     },
 )
 def detect_joint_trips(
-    linked_trips: pl.DataFrame,
-    households: pl.DataFrame,
-    person_days: pl.DataFrame,
+    tables: Tables,
     matching: JointTripConfig,
 ) -> dict[str, pl.DataFrame]:
     """Detect joint trips among household members using similarity matching.
@@ -212,11 +211,9 @@ def detect_joint_trips(
     thresholds or Mahalanobis distance.
 
     Args:
-        linked_trips: Journey records with coordinates and timing. Required columns:
-            linked_trip_id, hh_id, person_id, o/d coordinates, depart/arrive times.
-        households: Household table for pre-filtering.
-        person_days: Days with ``travel_date``; trips are paired only within one
-            household date, and each joint trip records it.
+        tables: ``linked_trips`` (journeys with coordinates and timing),
+            ``households`` and ``person_days`` (with ``travel_date``: trips are
+            paired only within one household date, and each joint trip records it).
         matching: How trips are matched: the method and its thresholds, from
             the config's ``matching:`` block. See ``JointTripConfig``.
 
@@ -291,6 +288,9 @@ def detect_joint_trips(
           number of travelers
         - Non-joint trips retain joint_trip_id = NULL
     """
+    linked_trips = tables["linked_trips"]
+    households = tables["households"]
+    person_days = tables["person_days"]
     logger.info(
         "Detecting joint trips using %s method (%d trips, %d households)",
         matching.method,

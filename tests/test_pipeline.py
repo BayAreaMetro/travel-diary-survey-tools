@@ -55,9 +55,10 @@ class TestParseStepArgs:
         assert kwargs["canonical_data"] is pipeline.data
 
     def test_parse_step_args_with_table_names(self, temp_config):
-        """Test parse_step_args extracts table data from canonical data."""
+        """The tables a step's contract declares come from the canonical data."""
 
-        def step_func(households, persons):
+        @step(requires={"households": set(), "persons": set()})
+        def step_func(tables):
             pass
 
         pipeline = Pipeline(config_path=str(temp_config), steps=[step_func])

@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 
 import processing  # noqa: F401  # triggers @step registration
+from pipeline.decoration import Tables
 from pipeline.step_registry import STEP_REGISTRY, is_config_named
 
 # Zone columns are named from the `taz_field` param (e.g. `o_TAZ1454`), so they
@@ -48,7 +49,7 @@ def test_required_columns_are_present(full_result, step, table, columns):
 def _is_required(fn, probe, params, baseline, fingerprint):
     """Whether dropping a column changed the outcome. A raise proves it was required."""
     try:
-        return fingerprint(fn(**probe, **params)) != baseline
+        return fingerprint(fn(probe, params)) != baseline
     except Exception:  # noqa: BLE001  # any failure means the column was load-bearing
         return True
 
@@ -63,7 +64,15 @@ def test_format_ctramp_requires_nothing_it_does_not_read(full_result):
     from processing.formatting.ctramp.ctramp_config import CTRAMPConfig
     from processing.formatting.ctramp.format_ctramp import format_ctramp
 
-    fn = getattr(format_ctramp, "__wrapped__", format_ctramp)
+    contract = STEP_REGISTRY["format_ctramp"]
+
+    # The body itself, past the decorator's presence check, so a dropped column
+    # shows whether the step reads it.
+    def fn(probe, params):
+        return format_ctramp.__wrapped__(
+            tables=Tables("format_ctramp", set(probe), probe), **params
+        )
+
     tables = full_result.as_dict_non_null()
     params = {
         "ctramp": CTRAMPConfig(
@@ -79,27 +88,15 @@ def test_format_ctramp_requires_nothing_it_does_not_read(full_result):
             gender_default_for_missing="f",
         )
     }
-    inputs = {
-        name: tables.get(name, pl.DataFrame())
-        for name in (
-            "persons",
-            "households",
-            "unlinked_trips",
-            "linked_trips",
-            "tours",
-            "joint_trips",
-            "joint_tours",
-            "person_days",
-        )
-    }
+    inputs = {name: tables.get(name, pl.DataFrame()) for name in contract.taken}
 
     def fingerprint(result):
         return {k: (v.height, sorted(v.columns)) for k, v in result.items()}
 
-    baseline = fingerprint(fn(**inputs, **params))
+    baseline = fingerprint(fn(inputs, params))
 
     unused = []
-    for table, tc in sorted(STEP_REGISTRY["format_ctramp"].tables.items()):
+    for table, tc in sorted(contract.taken.items()):
         for col in sorted(tc.requires):
             if col.endswith(_DYNAMIC_SUFFIXES) or col not in inputs[table].columns:
                 continue

@@ -15,7 +15,7 @@ from data_canon.codebook.households import (
 )
 from data_canon.codebook.persons import Ethnicity, Race, SurveyTech
 from data_canon.core.labeled_enum import LabeledEnum
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.habitual_locations import reported_habitual_locations
 from utils.create_ids import create_household_days
 from utils.helpers import add_time_columns, expr_haversine, get_income_midpoint
@@ -198,28 +198,29 @@ def day_survey_complete(
     )
 
 
-@step()
+@step(
+    requires={"households": set(), "persons": set(), "person_days": set(), "unlinked_trips": set()}
+)
 def clean_2023_bats(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    person_days: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
+    tables: Tables,
     child_day_complete: Literal["vendor", "observed_trips"],
     exclude_survey_tech: list[str],
 ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline.
 
     Args:
-        households: Vendor households.
-        persons: Vendor persons.
-        person_days: Vendor person-days.
-        unlinked_trips: Vendor trips.
+        tables: The delivered households, persons, person-days and trips.
         child_day_complete: How a child's day is judged complete; see
             :func:`day_survey_complete`. Required, so every config says which.
         exclude_survey_tech: Technologies whose persons are dropped from every
             usability profile; see :func:`exclude_by_survey_tech`. Required, so
             every config says which (an empty list drops no one).
     """
+    households = tables["households"]
+    persons = tables["persons"]
+    person_days = tables["person_days"]
+    unlinked_trips = tables["unlinked_trips"]
+
     # CLEANUP UNLINKED TRIPS =================================
     # Much wow...
     logger.info("Cleaning 2023 trip data")

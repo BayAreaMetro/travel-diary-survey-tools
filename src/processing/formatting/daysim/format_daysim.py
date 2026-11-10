@@ -44,7 +44,7 @@ import logging
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.formatting.usable_records import keep_usable
 from processing.formatting.usual_workplace import fill_usual_workplace
 
@@ -71,18 +71,21 @@ logger = logging.getLogger(__name__)
             "egress_mode",
         },
         "tours": {"origin_linked_trip_id", "dest_linked_trip_id"},
+        "habitual_locations": {
+            "habitual_location_id",
+            "person_id",
+            "location_type",
+            "location_num",
+            "source",
+            "lat",
+            "lon",
+        },
+        "habitual_location_days": {"habitual_location_id", "dwell_minutes"},
     },
 )
 def format_daysim(
-    persons: pl.DataFrame,
-    households: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    tours: pl.DataFrame,
-    person_days: pl.DataFrame,
+    tables: Tables,
     usability_profile: str,
-    habitual_locations: pl.DataFrame | None = None,
-    habitual_location_days: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to DaySim model specification.
 
@@ -90,25 +93,15 @@ def format_daysim(
     format. See module docstring for complete component descriptions.
 
     Args:
-        persons: Person attributes in canonical format. Required columns:
-            person_id, hh_id, age, employment, student, etc.
-        households: Household attributes in canonical format. Required columns:
-            hh_id, home_taz, income, etc.
-        unlinked_trips: Individual trip segments with mode, purpose, and timing.
-        linked_trips: Journey records with coordinates, mode, purpose, and timing.
-        tours: Tour records with purpose, timing, and location fields.
-        person_days: Person-day records for completeness calculation.
+        tables: The canonical tables in ``requires``. An employed person who
+            reported no workplace takes their most-visited observed workplace,
+            from ``habitual_locations`` and ``habitual_location_days``, as
+            ``pwtaz``/``pwpcl`` (see
+            [`usual_workplace`][processing.formatting.usual_workplace]).
         usability_profile: Which usability profile decides the record universe.
             Required: with several profiles stamped there is no defensible
             default, and naming a different one from the CT-RAMP formatter or
             the weighting means those outputs describe different universes.
-        habitual_locations: Habitual locations, zoned by ``add_zone_ids``. An
-            employed person who reported no workplace takes their most-visited
-            observed workplace as ``pwtaz``/``pwpcl`` (see
-            [`usual_workplace`][processing.formatting.usual_workplace]). None
-            leaves the reported workplaces alone.
-        habitual_location_days: Time spent at each habitual location per day,
-            which picks the most-visited workplace.
 
     Returns:
         Dictionary containing:
@@ -132,7 +125,9 @@ def format_daysim(
             unlinked_trips=canonical_unlinked_trips,
             linked_trips=canonical_linked_trips,
             tours=canonical_tours,
-            days=canonical_days,
+            person_days=canonical_person_days,
+            habitual_locations=canonical_habitual_locations,
+            habitual_location_days=canonical_habitual_location_days,
             usability_profile="daysim",
         )
         households_daysim = result["households_daysim"]
@@ -146,12 +141,15 @@ def format_daysim(
     # so the three describe one universe rather than three implementations of it.
     gated = keep_usable(
         {
-            "households": households,
-            "persons": persons,
-            "person_days": person_days,
-            "tours": tours,
-            "linked_trips": linked_trips,
-            "unlinked_trips": unlinked_trips,
+            name: tables[name]
+            for name in (
+                "households",
+                "persons",
+                "person_days",
+                "tours",
+                "linked_trips",
+                "unlinked_trips",
+            )
         },
         usability_profile,
     )
@@ -166,8 +164,8 @@ def format_daysim(
     # for anyone else employed, their trips may show one.
     persons = fill_usual_workplace(
         persons,
-        habitual_locations,
-        habitual_location_days,
+        tables["habitual_locations"],
+        tables["habitual_location_days"],
         zone_names=[z for z in ("taz", "maz") if f"work_{z}" in persons.columns],
     )
 

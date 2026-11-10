@@ -5,7 +5,7 @@ import logging
 import geopandas as gpd
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +224,8 @@ def zone_columns(zone_geographies: list[dict]) -> dict[str, list[str]]:
 
 
 @step(
-    requires={
+    # Each table present is zoned; none has to be.
+    optional={
         "households": {"hh_id", "home_lon", "home_lat"},
         "persons": {"person_id", "work_lon", "work_lat", "school_lon", "school_lat"},
         "unlinked_trips": {"unlinked_trip_id", "o_lon", "o_lat", "d_lon", "d_lat"},
@@ -244,14 +245,8 @@ def zone_columns(zone_geographies: list[dict]) -> dict[str, list[str]]:
     generated_columns=zone_columns,
 )
 def add_zone_ids(
+    tables: Tables,
     zone_geographies: list[dict],
-    households: pl.DataFrame | None = None,
-    persons: pl.DataFrame | None = None,
-    unlinked_trips: pl.DataFrame | None = None,
-    linked_trips: pl.DataFrame | None = None,
-    tours: pl.DataFrame | None = None,
-    joint_trips: pl.DataFrame | None = None,
-    habitual_locations: pl.DataFrame | None = None,
     projected_crs: str | None = None,
     max_snap_distance: float | None = None,
 ) -> dict:
@@ -268,13 +263,7 @@ def add_zone_ids(
       trips can stand in as a model's usual workplace
 
     Args:
-        households: Households dataframe
-        persons: Persons dataframe
-        unlinked_trips: Unlinked trips dataframe
-        linked_trips: Linked trips dataframe
-        tours: Tours dataframe
-        joint_trips: Joint trips dataframe
-        habitual_locations: Habitual locations dataframe
+        tables: Any of the tables above; each one present is zoned.
         zone_geographies: List of dicts, each containing:
             - shapefile: Path to shapefile with zone boundaries (str)
             - zone_id_field: Field name in shapefile for zone ID
@@ -291,15 +280,7 @@ def add_zone_ids(
         Dictionary with updated dataframes
     """
     # Initialize results dictionary in outer scope to update in loop, allow accumulation of zone IDs
-    results = {
-        "households": households,
-        "persons": persons,
-        "unlinked_trips": unlinked_trips,
-        "linked_trips": linked_trips,
-        "tours": tours,
-        "joint_trips": joint_trips,
-        "habitual_locations": habitual_locations,
-    }
+    results = dict(tables)
 
     # Pre-load the shapefiles to avoid re-loading for each table
     shapefiles_cache = {}
@@ -329,11 +310,8 @@ def add_zone_ids(
             output_col = _zone_column(location_prefix, zone_name)
 
             df = results.get(table)
-
             if df is None:
-                # Make sure its not in results
-                results.pop(table, None)
-                continue  # Skip if no table specified
+                continue  # an optional table not passed
 
             logger.info(
                 "Adding %s IDs on table %s using field '%s' from %s",

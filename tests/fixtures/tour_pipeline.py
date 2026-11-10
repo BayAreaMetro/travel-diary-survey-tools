@@ -70,7 +70,7 @@ def locate_and_extract_tours(
         households: Households with the home address.
         unlinked_trips: Unlinked trips.
         linked_trips: Linked trips.
-        joint_trips: Optional joint trips.
+        joint_trips: Joint trips; by default, joint detection found none.
         person_days: Days with ``begin_day``/``end_day``; by default, not asked.
         extra: Further reported locations, as ``reported_habitual_locations``
             takes them (a second home).
@@ -80,6 +80,12 @@ def locate_and_extract_tours(
         The ``extract_tours`` outputs plus both location tables.
     """
     person_days = person_days if person_days is not None else days_not_asked(linked_trips)
+    if joint_trips is None:
+        joint_trips = pl.DataFrame(schema={"joint_trip_id": pl.Int64})
+        if "joint_trip_id" not in linked_trips.columns:
+            linked_trips = linked_trips.with_columns(
+                pl.lit(None, dtype=pl.Int64).alias("joint_trip_id")
+            )
     located = detect_habitual_locations(
         habitual_locations=reported_habitual_locations(households, persons, extra=extra),
         linked_trips=linked_trips,

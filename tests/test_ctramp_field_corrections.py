@@ -46,6 +46,7 @@ from tests.fixtures import (
     empty_joint_trips,
     empty_unlinked_trips,
     get_tour_schema,
+    step_tables,
 )
 from tests.fixtures.schema_utils import model_to_polars_schema
 
@@ -173,14 +174,20 @@ class TestHouseholdFieldCorrections:
         )
 
         result = format_ctramp(
-            persons,
-            households,
-            linked_trips=trips,
-            tours=tours,
-            joint_trips=empty_joint_trips(),
-            unlinked_trips=empty_unlinked_trips(),
-            joint_tours=joint_tours_for(tours),
-            person_days=days_for_persons(persons),
+            **step_tables(
+                "format_ctramp",
+                {
+                    "persons": persons,
+                    "households": households,
+                    "linked_trips": trips,
+                    "tours": tours,
+                    "joint_trips": empty_joint_trips(),
+                    "unlinked_trips": empty_unlinked_trips(),
+                    "joint_tours": joint_tours_for(tours),
+                    "person_days": days_for_persons(persons),
+                },
+                named={"habitual_locations": ["taz"]},
+            ),
             ctramp=standard_config,
         )
 

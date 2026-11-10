@@ -55,20 +55,27 @@ import logging
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 
 logger = logging.getLogger(__name__)
 
 
-@step(validate_input=True, validate_output=True)
-def final_check(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    person_days: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    tours: pl.DataFrame,
-) -> dict[str, pl.DataFrame]:
+@step(
+    validate_input=True,
+    validate_output=True,
+    requires={
+        table: set()
+        for table in (
+            "households",
+            "persons",
+            "person_days",
+            "unlinked_trips",
+            "linked_trips",
+            "tours",
+        )
+    },
+)
+def final_check(tables: Tables) -> dict[str, pl.DataFrame]:
     """Run comprehensive validation on all canonical survey tables.
 
     This is a pass-through function that relies on the `@step()` decorator to
@@ -77,13 +84,7 @@ def final_check(
     and business rules.
 
     Args:
-        households: Processed household table with all required fields
-        persons: Processed person table with all required fields
-        person_days: Processed person-day table with all required fields
-        unlinked_trips: Processed unlinked trip records with all required fields
-        linked_trips: Processed linked trip records (journey-level) with all
-            required fields
-        tours: Processed tour records with all required fields
+        tables: The six core tables, processed.
 
     Returns:
         Dictionary containing the same validated tables:
@@ -115,11 +116,4 @@ def final_check(
     # checks should ideally be implemented in the models themselves!
 
     logger.info("Final validation checks completed successfully")
-    return {
-        "households": households,
-        "persons": persons,
-        "person_days": person_days,
-        "unlinked_trips": unlinked_trips,
-        "linked_trips": linked_trips,
-        "tours": tours,
-    }
+    return dict(tables)

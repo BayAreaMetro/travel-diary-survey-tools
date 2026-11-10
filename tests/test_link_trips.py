@@ -548,7 +548,7 @@ def test_end_to_end_linking():
     )
 
     result = link_trips(
-        trips,
+        unlinked_trips=trips,
         change_mode_enum=PurposeCategory.CHANGE_MODE.value,
         transit_mode_enums=[ModeType.TRANSIT.value],
         max_dwell_time=120,

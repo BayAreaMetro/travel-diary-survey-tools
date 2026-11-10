@@ -41,7 +41,7 @@ import logging
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.completeness import usable_col_for
 from processing.weighting.core.hierarchy import (
     LEVELS,
@@ -92,13 +92,15 @@ def weight_columns(existing: ExistingWeightsConfig) -> dict[str, dict]:
 
 
 @step(
-    requires={
+    # A weight goes on each table present; none has to be.
+    optional={
         "households": {"hh_id", "usable_<profile>"},
         "persons": {"person_id", "hh_id"},
         "person_days": {"person_day_id", "person_id"},
         "unlinked_trips": {"unlinked_trip_id", "person_day_id", "linked_trip_id"},
-        "linked_trips": {"linked_trip_id", "tour_id", "joint_trip_id"},
-        "tours": {"tour_id", "joint_tour_id"},
+        # The trip and tour joint ids are read only to weight the joint tables.
+        "linked_trips": {"linked_trip_id", "tour_id"},
+        "tours": {"tour_id"},
         "joint_trips": {"joint_trip_id"},
         "joint_tours": {"joint_tour_id"},
     },
@@ -115,16 +117,9 @@ def weight_columns(existing: ExistingWeightsConfig) -> dict[str, dict]:
     generated_columns=weight_columns,
 )
 def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
+    tables: Tables,
     weights: dict[str, ExistingWeightConfig | dict],
     existing: ExistingWeightsConfig,
-    households: pl.DataFrame | None = None,
-    persons: pl.DataFrame | None = None,
-    person_days: pl.DataFrame | None = None,
-    unlinked_trips: pl.DataFrame | None = None,
-    linked_trips: pl.DataFrame | None = None,
-    tours: pl.DataFrame | None = None,
-    joint_trips: pl.DataFrame | None = None,
-    joint_tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Attach existing weights to the data.
 
@@ -196,14 +191,8 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
 
         existing: How supplied weights move onto usable records, per
             profile. See ``ExistingWeightsConfig``.
-        households: Households DataFrame.
-        persons: Persons DataFrame.
-        person_days: Days DataFrame.
-        unlinked_trips: Unlinked trips DataFrame.
-        linked_trips: Linked trips DataFrame.
-        tours: Tours DataFrame.
-        joint_trips: Joint trips DataFrame.
-        joint_tours: Joint tours DataFrame.
+        tables: Any of the canonical tables in the contract; each one present
+            gets weights.
 
     Returns:
         Dict of tables with attached weights.
@@ -229,17 +218,7 @@ def add_existing_weights(  # noqa: C901, PLR0912, PLR0915
                 weight_col: "trip_weight"
     ```
     """
-    # Collect all provided tables
-    tables = collect_tables(
-        households=households,
-        persons=persons,
-        person_days=person_days,
-        unlinked_trips=unlinked_trips,
-        linked_trips=linked_trips,
-        joint_trips=joint_trips,
-        joint_tours=joint_tours,
-        tours=tours,
-    )
+    tables = collect_tables(**tables)
 
     profiles = resolve_fitted_profiles(existing.weight_profiles)
 

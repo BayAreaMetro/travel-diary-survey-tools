@@ -6,9 +6,9 @@ the step toggling and verify that turning a step on/off does not break the
 downstream steps.
 
 - Mandatory steps always run: load_data, link_trips, detect_habitual_locations,
-  extract_tours, add_zone_ids, cascade_completeness, write_data.
-- Optional steps toggle: detect_joint_trips, imputation, format_ctramp,
-  format_daysim, add_existing_weights. (The format_* steps are terminal/parallel
+  detect_joint_trips, extract_tours, add_zone_ids, cascade_completeness, write_data.
+- Optional steps toggle: imputation, format_ctramp, format_daysim,
+  add_existing_weights. (The format_* steps are terminal/parallel
   — nothing depends on their output — so by default they are on; they are
   toggled only to prove independence. No profile currently turns
   add_existing_weights off, so every run weights all three profiles.)
@@ -34,42 +34,19 @@ HABITUAL_BUFFER_METERS = 300.0
 
 # Optional steps that can be toggled (canonical execution order preserved below).
 OPTIONAL_STEPS = (
-    "detect_joint_trips",
     "imputation",
     "add_existing_weights",
     "format_ctramp",
     "format_daysim",
 )
 
-# Inter-step dependencies: a step may only run if its requirements also run.
-# format_ctramp consumes the joint_trips table (and emits joint-tour/joint-trip
-# CT-RAMP outputs), so it requires detect_joint_trips.
-_REQUIRES = {"format_ctramp": frozenset({"detect_joint_trips"})}
-
-
-def _resolve(enabled: frozenset) -> frozenset:
-    """Drop any enabled step whose required upstream steps are not enabled."""
-    current = set(enabled)
-    changed = True
-    while changed:
-        changed = False
-        for step, reqs in _REQUIRES.items():
-            if step in current and not reqs <= current:
-                current.discard(step)
-                changed = True
-    return frozenset(current)
-
-
 # Leave-one-out profiles: "full" plus one profile per optional step removed.
-# Each is dependency-resolved (e.g. removing detect_joint_trips also removes
-# format_ctramp, which depends on it).
 _ALL = frozenset(OPTIONAL_STEPS)
 PROFILES = {
-    "full": _resolve(_ALL),
-    "no_joint": _resolve(_ALL - {"detect_joint_trips"}),
-    "no_imputation": _resolve(_ALL - {"imputation"}),
-    "no_ctramp": _resolve(_ALL - {"format_ctramp"}),
-    "no_daysim": _resolve(_ALL - {"format_daysim"}),
+    "full": _ALL,
+    "no_imputation": _ALL - {"imputation"},
+    "no_ctramp": _ALL - {"format_ctramp"},
+    "no_daysim": _ALL - {"format_daysim"},
 }
 
 # Canonical step order (mandatory + optional interleaved correctly).
@@ -80,6 +57,7 @@ _MANDATORY = {
     "load_data",
     "link_trips",
     "detect_habitual_locations",
+    "detect_joint_trips",
     "extract_tours",
     "cascade_completeness",
     "add_zone_ids",
@@ -181,9 +159,8 @@ def _step_blocks(data_dir: Path, output_dir: Path, enabled: frozenset) -> dict:
         "unlinked_trips": f"{out}/survey/unlinked_trips.csv",
         "linked_trips": f"{out}/survey/linked_trips.csv",
         "tours": f"{out}/survey/tours.csv",
+        "joint_trips": f"{out}/survey/joint_trips.csv",
     }
-    if "detect_joint_trips" in enabled:
-        output_paths["joint_trips"] = f"{out}/survey/joint_trips.csv"
 
     # The formatter tables are written so that write_data validates them against
     # their CT-RAMP and DaySim models. Registering the models is not enough --

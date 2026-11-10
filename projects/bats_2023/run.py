@@ -5,7 +5,6 @@ import logging
 import os
 from pathlib import Path
 
-import polars as pl
 import yaml
 from clean_bats_2023 import clean_2023_bats
 from dotenv import load_dotenv
@@ -16,7 +15,7 @@ from data_canon.models import (
 from data_canon.models import (
     daysim as daysim_models,
 )
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from pipeline.pipeline import Pipeline
 from processing import (
     add_existing_weights,
@@ -65,18 +64,12 @@ CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 # Optional: project-specific custom step functions
 # You can define or import them here if needed
-@step()
-def custom_foo_bar(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-) -> dict:
+@step(requires={"households": set(), "persons": set(), "linked_trips": set()})
+def custom_foo_bar(tables: Tables) -> dict:
     """A custom processing step that does something specific.
 
     Args:
-        households: Households DataFrame
-        persons: Persons DataFrame
-        linked_trips: Linked trips DataFrame
+        tables: The tables in ``requires``, each with the columns it lists.
 
     Returns:
         Dictionary of processed DataFrames
@@ -84,11 +77,7 @@ def custom_foo_bar(
     # Custom processing logic here
     logger.info("Running custom_foo_bar step")
     # For demonstration, just return the inputs unchanged
-    return {
-        "households": households,
-        "persons": persons,
-        "linked_trips": linked_trips,
-    }
+    return dict(tables)
 
 
 # Set up custom steps dictionary ----------------------------------

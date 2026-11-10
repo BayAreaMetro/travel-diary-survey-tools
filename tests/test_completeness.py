@@ -142,6 +142,7 @@ def _gate_tables(
                 "person_id": [1],
                 "hh_id": [1],
                 "travel_date": ["d1"],
+                "travel_dow": [2],
                 "survey_complete": [True],
             }
         ),
@@ -511,11 +512,11 @@ class TestCascadeCompletenessStep:
 
     The step runs :func:`cascade_complete` and :func:`stamp_usable` (covered above);
     the full pipeline wiring is exercised by the synthetic end-to-end run. Here we
-    only assert it is registered and returns just the tables it was given.
+    only assert it returns every table it was given, stamped.
     """
 
-    def test_omits_joint_tables_not_supplied(self):
-        """A project with no joint travel detected gets no joint tables back."""
+    def test_returns_every_table_stamped(self):
+        """Each table it takes comes back with the profile's column."""
         tables = add_missing_tables(_gate_tables())
         result = cascade_completeness(
             validate_input=False,

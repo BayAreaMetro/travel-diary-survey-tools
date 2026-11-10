@@ -93,19 +93,14 @@ verifies that toggling an optional step off/on does **not** break the downstream
 pipeline still completes with valid, referentially-consistent output).
 
 - **Mandatory** (always run): `load_data`, `link_trips`, `detect_habitual_locations`,
-  `extract_tours`, `add_zone_ids`, `cascade_completeness`, `write_data`.
-- **Optional** (declared toggleable): `detect_joint_trips`, `imputation`, `format_ctramp`,
-  `format_daysim`, `add_existing_weights`. No profile turns `add_existing_weights` off, so
+  `detect_joint_trips`, `extract_tours`, `add_zone_ids`, `cascade_completeness`, `write_data`.
+- **Optional** (declared toggleable): `imputation`, `format_ctramp`, `format_daysim`,
+  `add_existing_weights`. No profile turns `add_existing_weights` off, so
   every run weights all three profiles from the supplied household weights.
-- Profiles: `full`, `no_joint`, `no_imputation`, `no_ctramp`, `no_daysim`.
+- Profiles: `full`, `no_imputation`, `no_ctramp`, `no_daysim`.
 
-**Discovered step dependency:** `format_ctramp` consumes the `joint_trips` table (and emits
-joint-tour/joint-trip CT-RAMP outputs), so it **requires** `detect_joint_trips`. Encoded in
-`conftest._REQUIRES`; the `no_joint` profile therefore also drops `format_ctramp`. (`format_daysim`
-and `extract_tours` both tolerate an absent `joint_trips`.) Without `detect_joint_trips`,
-`format_ctramp` reads `len(joint_trips)` on a required positional argument, so an absent table
-is a `TypeError` — a latent robustness gap never hit in production, because both real configs
-always run joint detection.
+`detect_joint_trips` is mandatory: `extract_tours`, `cascade_completeness` and `format_ctramp`
+require the `joint_trips` table, and a step stops when a table it requires is missing.
 
 Feature-specific behaviours (imputation stash, edge-case coverage below) are asserted on the
 `full_result` fixture (all optional steps on).

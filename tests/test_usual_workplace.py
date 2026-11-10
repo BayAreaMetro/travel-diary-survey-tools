@@ -133,11 +133,3 @@ class TestUsualWorkplace:
         out = _fill(persons, workplaces, _days((11, 480.0)))
 
         assert out["work_taz"].to_list() == [None]
-
-    def test_without_habitual_locations_persons_pass_through(self):
-        """A project that does not find habitual locations is left as it was."""
-        persons = _persons((1, None, None, None, WORKS))
-
-        out = fill_usual_workplace(persons, None, None, zone_names=ZONES)
-
-        assert out.equals(persons)

@@ -211,10 +211,6 @@ class WeightingPipeline:
         importance: ImportanceConfig,
     ) -> None:
         """Initialise with configuration and survey data."""
-        if data.households is None or data.persons is None:
-            msg = "WeightingPipeline requires at least households and persons tables."
-            raise ValueError(msg)
-
         self.controls = controls
         self.config = config
         self.data = data
@@ -500,10 +496,6 @@ class WeightingPipeline:
         flag = self.config.flag_for(profile)
         names = self.controls.target_names
         households = self.data.households
-        if households is None:  # pragma: no cover - guarded in __init__
-            msg = "build_seed requires a households table"
-            raise ValueError(msg)
-
         if flag not in households.columns:
             msg = (
                 f"The weighting is gated on {flag!r}, which households does not carry. "
@@ -668,7 +660,7 @@ class WeightingPipeline:
         # "no estimate exists" rather than "excluded".
         hh = tables["households"]
         flag = fit.usability_flag_col
-        if hh is not None and flag in hh.columns:
+        if flag in hh.columns:
             tables["households"] = hh.with_columns(
                 pl.when(seed_admits(flag))
                 .then(pl.col(hh_weight_col))

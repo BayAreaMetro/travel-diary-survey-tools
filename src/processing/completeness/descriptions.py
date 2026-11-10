@@ -107,7 +107,7 @@ def _describe_household_day(profile: UsabilityProfile) -> str:
 
 
 def log_gate_summary(
-    tables: dict[str, pl.DataFrame | None],
+    tables: dict[str, pl.DataFrame],
     profiles: list[UsabilityProfile],
 ) -> None:
     """Log, per table, how many records each profile admits."""
@@ -120,8 +120,6 @@ def log_gate_summary(
             f"{profile.flag:>18}{'newly unusable':>16}",
         ]
         for name, df in tables.items():
-            if df is None:
-                continue
             n_usable = df.filter(pl.col(profile.flag)).height
             # A joint table built from members without survey_complete has none.
             if "survey_complete" not in df.columns:

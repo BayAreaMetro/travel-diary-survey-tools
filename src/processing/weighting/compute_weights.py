@@ -55,7 +55,7 @@ from pathlib import Path
 import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.weighting.core.hierarchy import (
     describe_weight_columns,
     seed_col_for,
@@ -177,8 +177,8 @@ def weight_columns(weight_profiles: list[str]) -> dict[str, dict]:
     },
     generated_columns=weight_columns,
 )
-def compute_weights(  # noqa: PLR0913
-    # -- Settings (from YAML) -------------------------------------------
+def compute_weights(
+    tables: Tables,
     census: CensusConfig,
     geography: GeographyConfig,
     balancing: BalancingConfig,
@@ -189,16 +189,6 @@ def compute_weights(  # noqa: PLR0913
     sample_plan: str | None,
     use_imputed_values: bool,
     strict_survey_nulls: bool = False,
-    *,
-    # -- Canonical tables (auto-injected by pipeline) -------------------
-    households: pl.DataFrame | None = None,
-    persons: pl.DataFrame | None = None,
-    person_days: pl.DataFrame | None = None,
-    unlinked_trips: pl.DataFrame | None = None,
-    linked_trips: pl.DataFrame | None = None,
-    joint_trips: pl.DataFrame | None = None,
-    tours: pl.DataFrame | None = None,
-    joint_tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
@@ -224,31 +214,9 @@ def compute_weights(  # noqa: PLR0913
             blanks itself; the published columns stay imputed.
         strict_survey_nulls: Raise on survey nulls in control variables rather
             than imputing them.
-        households: Households.
-        persons: Persons.
-        person_days: Days.
-        unlinked_trips: Unlinked trips.
-        linked_trips: Linked trips.
-        joint_trips: Joint trips.
-        tours: Tours.
-        joint_tours: Joint tours.
+        tables: The eight canonical tables in ``requires``.
     """
-    if households is None or persons is None:
-        msg = "Weighting requires at least households and persons tables."
-        raise ValueError(msg)
-
-    # Prepare our data for the weighting pipeline
-    # We reused the canonical data handler :)
-    data = CanonicalData(
-        households=households,
-        persons=persons,
-        person_days=person_days,
-        unlinked_trips=unlinked_trips,
-        linked_trips=linked_trips,
-        tours=tours,
-        joint_trips=joint_trips,
-        joint_tours=joint_tours,
-    )
+    data = CanonicalData(**tables)
     wt_config = WeightingConfig(
         geography=geography,
         state_fips=census.state_fips,

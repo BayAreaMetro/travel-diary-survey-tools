@@ -55,6 +55,7 @@ from tests.fixtures import (
     create_simple_work_tour_processed,
     create_transit_commute_processed,
     create_unlinked_trip,
+    step_tables,
 )
 from tests.fixtures.locations import HOME_LOCATION, WORK_LOCATION
 
@@ -445,7 +446,7 @@ def _format_one_trip(**trip_kwargs) -> pl.DataFrame:
     )
 
     linked = link_trips(
-        unlinked_trips,
+        unlinked_trips=unlinked_trips,
         change_mode_enum=PurposeCategory.CHANGE_MODE.value,
         transit_mode_enums=[Mode.BART.value, Mode.BUS_LOCAL.value],
         split_on_occupancy=False,
@@ -674,12 +675,7 @@ class TestEndToEndDaysimFormatting:
         data = create_simple_work_tour_processed()
 
         result = format_daysim(
-            data["persons"],
-            data["households"],
-            data["unlinked_trips"],
-            data["linked_trips"],
-            data["tours"],
-            data["person_days"],
+            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
             usability_profile="test",
         )
 
@@ -700,12 +696,7 @@ class TestEndToEndDaysimFormatting:
         data = create_transit_commute_processed()
 
         result = format_daysim(
-            data["persons"],
-            data["households"],
-            data["unlinked_trips"],
-            data["linked_trips"],
-            data["tours"],
-            data["person_days"],
+            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
             usability_profile="test",
         )
 
@@ -722,12 +713,7 @@ class TestEndToEndDaysimFormatting:
         data = create_multi_person_household_processed()
 
         result = format_daysim(
-            data["persons"],
-            data["households"],
-            data["unlinked_trips"],
-            data["linked_trips"],
-            data["tours"],
-            data["person_days"],
+            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
             usability_profile="test",
         )
 
@@ -746,12 +732,7 @@ class TestEndToEndDaysimFormatting:
         data = create_simple_work_tour_processed()
 
         result = format_daysim(
-            data["persons"],
-            data["households"],
-            data["unlinked_trips"],
-            data["linked_trips"],
-            data["tours"],
-            data["person_days"],
+            **step_tables("format_daysim", data, named={"habitual_locations": ["taz", "maz"]}),
             usability_profile="test",
         )
 

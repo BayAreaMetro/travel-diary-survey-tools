@@ -208,7 +208,8 @@ from data_canon.models.ctramp import (
     MandatoryLocationCTRAMPModel,
     PersonCTRAMPModel,
 )
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
+from processing.formatting.kept_records import GATED_TABLES
 from processing.formatting.usable_records import keep_usable
 from processing.formatting.usual_workplace import fill_usual_workplace
 
@@ -324,20 +325,23 @@ def _drop_excess_fields(
         },
         "joint_trips": {"joint_trip_id", "hh_day_id"},
         "person_days": {"person_id", "hh_id", "person_day_id", "hh_day_id"},
+        "unlinked_trips": set(),
+        "joint_tours": {"joint_tour_id"},
+        "habitual_locations": {
+            "habitual_location_id",
+            "person_id",
+            "location_type",
+            "location_num",
+            "source",
+            "lat",
+            "lon",
+        },
+        "habitual_location_days": {"habitual_location_id", "dwell_minutes"},
     },
 )
 def format_ctramp(
-    persons: pl.DataFrame,
-    households: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    tours: pl.DataFrame,
-    joint_trips: pl.DataFrame,
-    joint_tours: pl.DataFrame,
-    person_days: pl.DataFrame,
+    tables: Tables,
     ctramp: CTRAMPConfig,
-    habitual_locations: pl.DataFrame | None = None,
-    habitual_location_days: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Format canonical survey data to CT-RAMP model specification.
 
@@ -346,40 +350,19 @@ def format_ctramp(
     docstring for complete component descriptions and data flow.
 
     Args:
-        persons: Canonical person data with demographic fields. Required columns:
-            person_id, hh_id, person_num, age, gender, employment, student,
-            school_type, commute subsidies.
-        households: Canonical household data with income and dwelling fields.
-            Required columns: hh_id, home_lat, home_lon, income_bin, num_vehicles.
-        linked_trips: Canonical linked trip data. Required columns: linked_trip_id,
-            tour_id, o_purpose_category, d_purpose_category, mode_type, o_taz,
-            d_taz, tour_direction, times, person_id, hh_id.
-        tours: Canonical tour data. Required columns: tour_id, hh_id, subtour_num,
-            parent_tour_id, joint_tour_id, tour_purpose, tour_category, tour_mode,
-            origin_depart_time, origin_arrive_time, and the zone columns named by
-            `taz_field`.
-        joint_tours: Aggregated joint tour data carrying ``joint_tour_weight``.
-            May be empty but must be provided.
-        unlinked_trips: Canonical unlinked trips used to derive detailed transit
-            submodes for formatted tours and trips. May be empty but must be provided.
-        joint_trips: Aggregated joint trip data. Required columns: joint_trip_id,
-            hh_id, num_joint_travelers.
-        person_days: Canonical person-days data. Required columns: person_id, hh_id,
-            person_day_id. Used to expand persons and households to the person-day
-            level and encode the survey day into CTRAMP hh_id / person_id so
-            that multi-day respondents produce one distinct CTRAMP record per
-            day rather than one record that conflates all survey days.
+        tables: The canonical tables in ``requires``. ``person_days`` expands
+            persons and households to the person-day level and encodes the survey
+            day into CTRAMP hh_id / person_id, so that multi-day respondents
+            produce one distinct CTRAMP record per day. ``unlinked_trips`` gives
+            the transit submodes. An employed person who reported no workplace
+            takes their most-visited observed workplace, from
+            ``habitual_locations`` and ``habitual_location_days``, as
+            ``WorkLocation`` (see
+            [`usual_workplace`][processing.formatting.usual_workplace]).
         ctramp: Formatting settings: the usability profile deciding the
             record universe, the income brackets and dollar-year factor, the
             TAZ field, the adult age and the gender for missing values. See
             ``CTRAMPConfig``.
-        habitual_locations: Habitual locations, zoned by ``add_zone_ids``. An
-            employed person who reported no workplace takes their most-visited
-            observed workplace as ``WorkLocation`` (see
-            [`usual_workplace`][processing.formatting.usual_workplace]). None
-            leaves the reported workplaces alone.
-        habitual_location_days: Time spent at each habitual location per day,
-            which picks the most-visited workplace.
 
     Returns:
         Dictionary with keys:
@@ -413,7 +396,9 @@ def format_ctramp(
             tours=canonical_tours,
             joint_trips=canonical_joint_trips,
             joint_tours=canonical_joint_tours,
-            days=canonical_days,
+            person_days=canonical_person_days,
+            habitual_locations=canonical_habitual_locations,
+            habitual_location_days=canonical_habitual_location_days,
             ctramp=CTRAMPConfig(
                 usability_profile="ctramp",  # the profile deciding the record universe
                 income_low_threshold=30000,  # $30k divides low from medium ($2000)
@@ -442,16 +427,7 @@ def format_ctramp(
     # nothing of its own: see the filters module for why deciding here rather
     # than in cascade_completeness put the weighting out of step with the output.
     gated = keep_usable(
-        {
-            "households": households,
-            "persons": persons,
-            "person_days": person_days,
-            "tours": tours,
-            "linked_trips": linked_trips,
-            "unlinked_trips": unlinked_trips,
-            "joint_trips": joint_trips,
-            "joint_tours": joint_tours,
-        },
+        {name: tables[name] for name in GATED_TABLES},
         ctramp.usability_profile,
     )
     households = gated["households"]
@@ -467,8 +443,8 @@ def format_ctramp(
     # for anyone else employed, their trips may show one.
     persons = fill_usual_workplace(
         persons,
-        habitual_locations,
-        habitual_location_days,
+        tables["habitual_locations"],
+        tables["habitual_location_days"],
         zone_names=[ctramp.taz_field],
     )
 

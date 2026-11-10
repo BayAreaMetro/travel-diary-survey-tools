@@ -11,6 +11,8 @@ from typing import get_args
 import polars as pl
 from pydantic import BaseModel
 
+import processing  # noqa: F401 - registers every step's contract
+from data_canon.core.dataclass import CanonicalData
 from data_canon.models.survey import (
     JointTourModel,
     JointTripModel,
@@ -19,8 +21,7 @@ from data_canon.models.survey import (
     TourModel,
     UnlinkedTripModel,
 )
-from pipeline.step_registry import STEP_REGISTRY
-from processing.completeness import cascade_completeness  # noqa: F401 - registers its contract
+from pipeline.step_registry import STEP_REGISTRY, is_config_named
 from processing.weighting.core.hierarchy import WEIGHT_COLUMNS
 from utils.create_ids import create_household_days
 
@@ -279,34 +280,47 @@ def add_household_days(tables: dict) -> dict:
 
 
 # The tables the cascade reads whatever the profile, in the order a test would build them.
-_CASCADE_TABLES = (
-    "households",
-    "persons",
-    "household_days",
-    "person_days",
-    "unlinked_trips",
-    "linked_trips",
-    "tours",
-)
+_MODELS = CanonicalData().models
+
+
+def step_tables(step: str, tables: dict, named: dict[str, list[str]] | None = None) -> dict:
+    """The tables *step* takes, from *tables*, with an empty frame for each one left out.
+
+    A household with no unlinked trips, say, is a valid input, but a step that
+    reads the table needs the empty table rather than none. Each empty frame has
+    the columns the step requires of it, typed as the model types them, plus
+    those *named* gives it: the columns config names, such as a zone. An
+    optional table left out stays out.
+    """
+    named = named or {}
+    out = {}
+    for name, contract in STEP_REGISTRY[step].taken.items():
+        if tables.get(name) is not None:
+            out[name] = tables[name]
+        elif not contract.optional:
+            types = model_to_polars_schema(_MODELS[name]) if name in _MODELS else {}
+            columns = sorted(c for c in contract.requires if not is_config_named(c))
+            columns += named.get(name, [])
+            out[name] = pl.DataFrame(schema={c: types.get(c, pl.Int64) for c in columns})
+    return out
+
+
+# The joint ids each table carries once joint detection and tour extraction ran.
+_JOINT_IDS = {"tours": "joint_tour_id", "linked_trips": "joint_trip_id"}
 
 
 def add_missing_tables(tables: dict) -> dict:
-    """Give *tables* an empty frame for every table the cascade reads and the test left out.
+    """Give *tables* every table the cascade reads, an empty one where the test left it out.
 
-    A household with no unlinked trips, say, is a valid input, but the cascade
-    reads every core table, so it needs the empty table rather than none. Each
-    empty frame has the columns ``cascade_completeness`` requires of it. Builds
-    ``household_days`` from the person-days first (see :func:`add_household_days`).
-    Returns *tables*, in place.
+    Builds ``household_days`` from the person-days first (see
+    :func:`add_household_days`). A tour or trip table without its joint id gets
+    one, null: joint detection ran and found no joint travel. Returns *tables*,
+    in place.
     """
     add_household_days(tables)
-    contract = STEP_REGISTRY["cascade_completeness"].tables
-    for name in _CASCADE_TABLES:
-        if tables.get(name) is None:
-            tables[name] = pl.DataFrame(
-                schema={
-                    column: pl.Boolean if column == "survey_complete" else pl.Int64
-                    for column in sorted(contract[name].requires)
-                }
-            )
+    for name, column in _JOINT_IDS.items():
+        df = tables.get(name)
+        if df is not None and column not in df.columns:
+            tables[name] = df.with_columns(pl.lit(None, dtype=pl.Int64).alias(column))
+    tables.update(step_tables("cascade_completeness", tables))
     return tables
