@@ -423,6 +423,16 @@ def _impute_controls(
                 ctrl.name,
             )
 
+        # A PUMS row in no category holds a value none of the control's categories
+        # takes; training would learn it as the first category.
+        uncoded = train_pivot.filter(pl.sum_horizontal(member_cols) != 1).height
+        if uncoded:
+            msg = (
+                f"{uncoded:,} of {train_pivot.height:,} PUMS {level_label} records sit in no "
+                f"'{ctrl.name}' category: its PUMS mapping gives them a value no category takes."
+            )
+            raise ValueError(msg)
+
         train, predict = train_pivot, predict_pivot
         if level == ControlLevel.PERSON:
             # Built per control, so another control's members never feed this one.

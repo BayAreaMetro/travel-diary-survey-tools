@@ -5,6 +5,7 @@ survey/PUMS data.  No custom controls are registered, so there is no
 registry pollution across test files.
 """
 
+import dataclasses
 from typing import ClassVar
 
 import numpy as np
@@ -423,6 +424,23 @@ class TestZoneIsAnInput:
         """All-zero zone inputs would be a zone nobody trained on."""
         with pytest.raises(ValueError, match="1 survey household"):
             self._impute(pl.DataFrame({"hh_id": [1, 2], "zone_group_id": ["A", "C"]}))
+
+
+class TestPumsRecordInNoCategory:
+    """A PUMS record in no category would be learned as the first one."""
+
+    def test_it_stops_naming_the_control(self):
+        """One PUMS person zeroed out of every gender category stops the run."""
+        survey_bundle, _ = _recode_survey(null_gender_rate=0.2)
+        pums_bundle, _ = _recode_pums()
+        first = pl.int_range(pl.len()) == 0
+        uncoded = pums_bundle.person_pivot.with_columns(
+            pl.when(first).then(0).otherwise(pl.col(c)).alias(c)
+            for c in ("p_gender__male", "p_gender__female")
+        )
+        bundle = dataclasses.replace(pums_bundle, person_pivot=uncoded)
+        with pytest.raises(ValueError, match=r"1 of .* sit in no 'p_gender' category"):
+            _impute(survey_bundle, bundle)
 
 
 class TestOtherHouseholdMembers:
