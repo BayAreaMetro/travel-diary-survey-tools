@@ -1,6 +1,6 @@
 """HTML table builders for the diagnostics report.
 
-This module generates five of the tables displayed in the diagnostics HTML report:
+This module generates six of the tables displayed in the diagnostics HTML report:
 
 1. **Balancer Performance Table** — Per-zone convergence status, target-fit metrics
    (MAPE, P90, Max), and weight quality metrics (CV, ESS%). Combines all key
@@ -20,6 +20,9 @@ This module generates five of the tables displayed in the diagnostics HTML repor
    incidence block, and the cross-validated log-loss and F1 of the PUMS-trained
    model that filled them.
 
+6. **Survey Share Table** — Each group's share of its area's survey against its
+   share of the area's PUMS.
+
 All table builders return raw HTML strings suitable for Jinja2 template insertion,
 built with the helpers in ``table_html``. The per-profile tables are in
 ``profile_tables``.
@@ -34,18 +37,19 @@ from processing.weighting.core.specs import (
     ImputationSummary,
     ZoneStatus,
 )
+from processing.weighting.data_prep.incidence import control_columns
+from processing.weighting.validation.survey_shares import table_cells
 
-from .data import (
-    category_label_map,
-)
+from .data import category_label_map
 from .glossary import term
 from .table_html import html_table, tag, wbr
 
 _HIGH_NULL_PCT = 25
+_LOW_COUNT_THRESHOLD = 30
 
 
 def imputation_summary_table(summaries: list[ImputationSummary]) -> str:
-    """Generate the fractional seed imputation table (Section 0 of diagnostics report).
+    """Generate the fractional seed imputation table.
 
     One row per control showing how many seed rows had an empty incidence block
     for it, plus the cross-validated log-loss and F1 of the PUMS-trained model
@@ -93,7 +97,7 @@ def balancer_performance_table(
     weighted: pl.DataFrame,
     zone_fit: pl.DataFrame,
 ) -> str:
-    """Generate the main balancer performance table (Section 2 of diagnostics report).
+    """Generate the main balancer performance table.
 
     Combines three categories of per-zone metrics into a single comprehensive table:
 
@@ -171,37 +175,33 @@ def balancer_performance_table(
     return html_table(sub_headers, rows, group_row=group_row)
 
 
-def _weight_stats(w: pl.Series, bw: pl.Series) -> dict[str, str]:
-    """Compute weight distribution and expansion factor statistics.
+def _weight_stats(w: pl.Series, bw: pl.Series) -> list[str]:
+    """Weight distribution and expansion factor statistics, formatted.
 
     Args:
         w: Final household weights.
         bw: Base weights (pre-balancing).
 
     Returns:
-        Dictionary of pre-formatted strings: mean, median, std, min, max, min_ef,
-        max_ef, mean_ef, median_ef. EF (expansion factor) is the ratio w / bw.
-
-    Note:
-        CV and ESS are now computed inline in `balancer_performance_table()` rather
-        than here, as they only appear in that table.
+        Mean, median, std, min and max of *w*, then the min, max, mean and
+        median EF (expansion factor, the ratio w / bw).
     """
     ratio = w / bw
-    return {
-        "mean": f"{w.mean() or 0:,.2f}",
-        "median": f"{w.median():,.2f}",
-        "std": f"{w.std():,.2f}",
-        "min": f"{w.min():,.2f}",
-        "max": f"{w.max():,.2f}",
-        "min_ef": f"{ratio.min():.3f}",
-        "max_ef": f"{ratio.max():.3f}",
-        "mean_ef": f"{ratio.mean():.3f}",
-        "median_ef": f"{ratio.median():.3f}",
-    }
+    return [
+        f"{w.mean() or 0:,.2f}",
+        f"{w.median():,.2f}",
+        f"{w.std():,.2f}",
+        f"{w.min():,.2f}",
+        f"{w.max():,.2f}",
+        f"{ratio.min():.3f}",
+        f"{ratio.max():.3f}",
+        f"{ratio.mean():.3f}",
+        f"{ratio.median():.3f}",
+    ]
 
 
 def weight_quality_table(weighted: pl.DataFrame) -> str:
-    """Generate the weight quality table (Section 3 of diagnostics report).
+    """Generate the weight quality table.
 
     Shows per-zone and total weight distribution statistics (mean, median, std,
     min, max) and expansion factor ratios (min/max/mean/median EF). This table
@@ -214,10 +214,6 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
     Returns:
         HTML table with 11 columns: Zone, N, Mean, Median, Std, Min, Max, Min EF,
         Max EF, Mean EF, Median EF, plus a TOTAL row aggregating across zones.
-
-    Note:
-        CV and ESS% were removed from this table in March 2026 and moved to the
-        balancer performance table for a unified view of all key metrics.
     """
     headers = [
         "Zone",
@@ -234,20 +230,7 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
     ]
 
     def _row(label: str, df: pl.DataFrame) -> list[str]:
-        s = _weight_stats(df["hh_weight"], df["base_weight"])
-        return [
-            label,
-            f"{df.height:,}",
-            s["mean"],
-            s["median"],
-            s["std"],
-            s["min"],
-            s["max"],
-            s["min_ef"],
-            s["max_ef"],
-            s["mean_ef"],
-            s["median_ef"],
-        ]
+        return [label, f"{df.height:,}", *_weight_stats(df["hh_weight"], df["base_weight"])]
 
     zones = sorted(weighted["zone_group_id"].unique().to_list())
     rows = [_row(str(z), weighted.filter(pl.col("zone_group_id") == z)) for z in zones]
@@ -255,28 +238,13 @@ def weight_quality_table(weighted: pl.DataFrame) -> str:
     return html_table(headers, rows)
 
 
-_LOW_COUNT_THRESHOLD = 30
-
-
-def _count_cell(
-    count: int,
-    pums_pct: float | None = None,
-    *,
-    dimmed: bool = False,
-    na: bool = False,
-) -> str:
-    """Format a count cell.
-
-    *dimmed* — constituent category absorbed by a zone merge (grey italic).
-    *na* — merged category not active for this zone (em-dash).
-    """
+def _count_cell(count: int, pums_pct: float | None = None, *, na: bool = False) -> str:
+    """Format a count cell; *na* marks a category not active in this zone (em-dash)."""
     if na:
         return '<td style="color:#aaa;text-align:center">&mdash;</td>'
     pct_html = ""
     if pums_pct is not None:
         pct_html = f' <em style="color:#888;font-weight:normal">({pums_pct:.1f}%)</em>'
-    if dimmed:
-        return f'<td style="color:#aaa;font-style:italic">{count}{pct_html}</td>'
     if count < _LOW_COUNT_THRESHOLD:
         return f'<td style="color:#c33;font-weight:bold">{count}{pct_html}</td>'
     return f"<td>{count}{pct_html}</td>"
@@ -301,8 +269,6 @@ def _build_zone_merge_lookups(
             continue
         zone_set = set(spec.zones)
         for merged_label, base_members in spec.groups.items():
-            if isinstance(base_members, dict):
-                continue
             merged_zones[(spec.control, merged_label.lower())] = zone_set
             for m in base_members:
                 key = (spec.control, m.lower())
@@ -319,7 +285,60 @@ def _importance_cell(control: str, used: dict[str, float], moe: dict[str, float]
     return f'{used[control]:.0f} <em style="color:#888;font-weight:normal">({shown})</em>'
 
 
-def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
+def _seed_counts(
+    seed: pl.DataFrame, controls: list
+) -> tuple[dict[str, list[tuple[str, str]]], dict[str, dict[str, int]]]:
+    """Each control's ``(column, category)`` pairs in *seed*, and every column's count per zone.
+
+    Categories come from the seed's own columns, so merged ones are included and
+    the originals a merge dropped are not.
+    """
+    ctrl_members = {c.name: list(control_columns(c, seed.columns).items()) for c in controls}
+    control_cols = [col for members in ctrl_members.values() for col, _ in members]
+    if not control_cols:
+        return ctrl_members, {}
+    zone_counts = seed.group_by("zone_group_id").agg(
+        [pl.col(c).sum().alias(c) for c in control_cols]
+    )
+    counts_by_zone = {
+        row["zone_group_id"]: {col: int(row[col]) for col in control_cols}
+        for row in zone_counts.iter_rows(named=True)
+    }
+    return ctrl_members, counts_by_zone
+
+
+def _pums_shares(
+    ct: pl.DataFrame,
+) -> tuple[dict[tuple[str, str, str], float], dict[tuple[str, str], float]]:
+    """Each category's share of its control's PUMS total, per zone and over all zones."""
+    zone_ctrl_totals = ct.group_by(["zone_group_id", "control_name"]).agg(
+        pl.col("target_total").sum().alias("zone_ctrl_total")
+    )
+    ct_with_pct = ct.join(zone_ctrl_totals, on=["zone_group_id", "control_name"], how="left")
+    ct_with_pct = ct_with_pct.with_columns(
+        (pl.col("target_total") / pl.col("zone_ctrl_total") * 100).alias("pct")
+    )
+    pums_pct = {
+        (row["zone_group_id"], row["control_name"], row["category"]): row["pct"]
+        for row in ct_with_pct.iter_rows(named=True)
+    }
+
+    all_ctrl_totals = ct.group_by("control_name").agg(
+        pl.col("target_total").sum().alias("all_ctrl_total")
+    )
+    ct_total = (
+        ct.group_by(["control_name", "category"])
+        .agg(pl.col("target_total").sum().alias("cat_total"))
+        .join(all_ctrl_totals, on="control_name", how="left")
+        .with_columns((pl.col("cat_total") / pl.col("all_ctrl_total") * 100).alias("pct"))
+    )
+    pums_pct_total = {
+        (row["control_name"], row["category"]): row["pct"] for row in ct_total.iter_rows(named=True)
+    }
+    return pums_pct, pums_pct_total
+
+
+def unweighted_cell_counts(  # noqa: C901
     seed: pl.DataFrame,
     target_names: list[str],
     control_totals: ControlTotals | None = None,
@@ -349,72 +368,16 @@ def unweighted_cell_counts(  # noqa: C901, PLR0912, PLR0915
     merged_zones, absorbed_zones = _build_zone_merge_lookups(merge_specs)
     zones = sorted(seed["zone_group_id"].unique().to_list())
     n_zone_cols = len(zones)
-
-    # Pre-compute counts for all controls across all zones with single aggregation.
-    # Discover categories from actual seed columns (includes merged,
-    # excludes dropped originals).
     all_controls = resolve_targets(target_names, ControlLevel.HOUSEHOLD) + resolve_targets(
         target_names, ControlLevel.PERSON
     )
+    ctrl_members, counts_by_zone = _seed_counts(seed, all_controls)
 
-    # Build (ctrl, col_name, member_key) triples from actual seed columns
-    ctrl_members: dict[str, list[tuple[str, str]]] = {}  # ctrl_name -> [(col, member_key)]
-    control_cols: list[str] = []
-
-    for ctrl in all_controls:
-        members: list[tuple[str, str]] = []
-        if ctrl.structural:
-            col = ctrl.name
-            if col in seed.columns:
-                member_key = ctrl.valid_members[0][1].lower()
-                members.append((col, member_key))
-                control_cols.append(col)
-        else:
-            prefix = f"{ctrl.name}__"
-            for col in sorted(c for c in seed.columns if c.startswith(prefix)):
-                member_key = col[len(prefix) :]
-                members.append((col, member_key))
-                control_cols.append(col)
-        ctrl_members[ctrl.name] = members
-
-    # Single group_by aggregation to get all zone x control counts
-    if control_cols:
-        zone_counts = seed.group_by("zone_group_id").agg(
-            [pl.col(c).sum().alias(c) for c in control_cols]
-        )
-        counts_by_zone: dict[str, dict[str, int]] = {}
-        for row in zone_counts.iter_rows(named=True):
-            zone_id = row["zone_group_id"]
-            counts_by_zone[zone_id] = {col: int(row[col]) for col in control_cols}
-    else:
-        counts_by_zone = {}
-
-    # Pre-compute PUMS share per (zone, control, category) ----------------
     pums_pct: dict[tuple[str, str, str], float] = {}
     pums_pct_total: dict[tuple[str, str], float] = {}
     if control_totals is not None:
         ct = control_totals.totals
-        zone_ctrl_totals = ct.group_by(["zone_group_id", "control_name"]).agg(
-            pl.col("target_total").sum().alias("zone_ctrl_total")
-        )
-        ct_with_pct = ct.join(zone_ctrl_totals, on=["zone_group_id", "control_name"], how="left")
-        ct_with_pct = ct_with_pct.with_columns(
-            (pl.col("target_total") / pl.col("zone_ctrl_total") * 100).alias("pct")
-        )
-        for row in ct_with_pct.iter_rows(named=True):
-            pums_pct[(row["zone_group_id"], row["control_name"], row["category"])] = row["pct"]
-
-        all_ctrl_totals = ct.group_by("control_name").agg(
-            pl.col("target_total").sum().alias("all_ctrl_total")
-        )
-        ct_total = (
-            ct.group_by(["control_name", "category"])
-            .agg(pl.col("target_total").sum().alias("cat_total"))
-            .join(all_ctrl_totals, on="control_name", how="left")
-            .with_columns((pl.col("cat_total") / pl.col("all_ctrl_total") * 100).alias("pct"))
-        )
-        for row in ct_total.iter_rows(named=True):
-            pums_pct_total[(row["control_name"], row["category"])] = row["pct"]
+        pums_pct, pums_pct_total = _pums_shares(ct)
 
         # A category is shown if, in some zone where it is a target, it has a target or
         # records. One zone merges replaced everywhere is a target nowhere with either.
@@ -564,17 +527,9 @@ def survey_share_table_html(shares: pl.DataFrame) -> str:
         "%&nbsp;of area's PUMS",
         "Ratio",
     ]
-    rows = [
-        [
-            r["area"],
-            r["target"],
-            wbr(r["group"]),
-            f"{r['survey']:,.0f}",
-            f"{r['pums']:,.0f}",
-            f"{r['survey_share'] * 100:.1f}%",
-            f"{r['pums_share'] * 100:.1f}%",
-            f"{r['ratio']:.2f}",
-        ]
-        for r in shares.sort("ratio").iter_rows(named=True)
-    ]
+    rows = []
+    for r in shares.sort("ratio").iter_rows(named=True):
+        cells = table_cells(r)
+        cells[2] = wbr(cells[2])  # the group name, which can be long
+        rows.append(cells)
     return html_table(headers, rows)

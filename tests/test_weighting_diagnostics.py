@@ -605,10 +605,10 @@ def _tables(
 
 
 class TestWeightCascade:
-    """Counts per level, split by why a record carries no weight."""
+    """Records per level, and how many of them the profile admits."""
 
-    def test_counts_split_exhaustively(self):
-        """Gated + weighted + unweighted must account for every row."""
+    def test_counts_rows_and_admitted_records(self):
+        """Each level counts its own rows and the ones its own flag admits."""
         tables = _tables(
             hh_usable=[True, False],
             hh_weight=[10.0, 0.0],
@@ -619,40 +619,8 @@ class TestWeightCascade:
         cascade = weight_cascade(tables, profile=PROFILE, usability_flag_col=FLAG)
         rows = {r.table: r for r in cascade}
 
-        households = rows["households"]
-        assert (households.rows, households.usable, households.weighted) == (2, 1, 1)
-        assert households.gated == 1
-        assert households.unweighted == 0
-
-        persons = rows["persons"]
-        assert (persons.rows, persons.usable, persons.weighted) == (3, 2, 1)
-        assert persons.gated == 1
-        assert persons.unweighted == 1
-
-    def test_usable_person_in_dropped_household_is_unweighted(self):
-        """A person the profile admits still carries nothing if their household fell.
-
-        Person and household reduce differently -- a person needs one usable day,
-        a household needs a date on which every member was usable -- so the two
-        verdicts legitimately disagree. The count has to show it rather than
-        assume the flag implies a weight.
-        """
-        tables = _tables(
-            hh_usable=[False],
-            hh_weight=[0.0],
-            per_usable=[True],
-            per_weight=[0.0],
-            per_hh=[1],
-        )
-        persons = next(
-            r
-            for r in weight_cascade(tables, profile=PROFILE, usability_flag_col=FLAG)
-            if r.table == "persons"
-        )
-        assert persons.usable == 1
-        assert persons.weighted == 0
-        assert persons.unweighted == 1
-        assert persons.gated == 0
+        assert (rows["households"].rows, rows["households"].usable) == (2, 1)
+        assert (rows["persons"].rows, rows["persons"].usable) == (3, 2)
 
     @pytest.mark.parametrize(
         "drop",

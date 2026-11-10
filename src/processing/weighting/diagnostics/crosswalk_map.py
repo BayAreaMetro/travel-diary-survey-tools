@@ -8,6 +8,10 @@ import geopandas as gpd
 import plotly.graph_objects as go
 import polars as pl
 
+from processing.weighting.data_prep.crosswalk import zone_to_group
+
+from .table_html import profile_key
+
 _MAP_SIMPLIFY_M = 10  # boundary tolerance; sub-pixel at regional zoom
 
 
@@ -52,9 +56,9 @@ def _build_tooltips(
             tooltips[zone_id] = f"Zone {zone_id}: no PUMA overlap"
             continue
         zone_pop = rows["population"].sum()
-        header = f"Zone {zone_id} (BG 2020 person pop {zone_pop:,.0f})"
+        header = f"Zone {zone_id} (Census block population {zone_pop:,.0f})"
         seeded = [
-            f"{profile or 'survey'} {counts[zone_id]:,}"
+            f"{profile_key(profile)} {counts[zone_id]:,}"
             for profile, counts in sample_counts.items()
             if zone_id in counts
         ]
@@ -199,7 +203,6 @@ def crosswalk_figure(
     crosswalk_df: pl.DataFrame,
     seeds: Mapping[str | None, pl.DataFrame] | None = None,
     zone_groups: dict[str, list[str]] | None = None,
-    simplify_tolerance_m: float = _MAP_SIMPLIFY_M,
 ) -> go.Figure:
     """Build an interactive Plotly map of the crosswalk.
 
@@ -222,14 +225,12 @@ def crosswalk_figure(
             ``target_zone_id``).  Per-zone counts appear in the tooltip.
         zone_groups: Optional zone group mapping.  When provided, grouped zones
             share a fill colour and labels include the group name.
-        simplify_tolerance_m: Boundary simplification tolerance in metres.
-            Zero keeps full TIGER precision.
 
     Returns:
         go.Figure
     """
-    puma_4326 = _simplified(puma_gdf, simplify_tolerance_m)
-    target_4326 = _simplified(target_gdf, simplify_tolerance_m)
+    puma_4326 = _simplified(puma_gdf, _MAP_SIMPLIFY_M)
+    target_4326 = _simplified(target_gdf, _MAP_SIMPLIFY_M)
     study_boundary = target_4326.dissolve()
 
     # Build tooltip per target zone showing allocation weights
@@ -308,12 +309,7 @@ def crosswalk_figure(
 
     # Zone labels at centroids — colour-matched to group
     zone_centroids = target_4326.to_crs("EPSG:5070").centroid.to_crs("EPSG:4326")
-    zone_to_group_name: dict[str, str] = {}
-    if zone_groups:
-        for gname, zones in zone_groups.items():
-            for z in zones:
-                zone_to_group_name[z] = gname
-
+    zone_to_group_name = zone_to_group(zone_groups or {})
     zone_labels, zone_colors = _build_zone_labels_and_colors(
         target_4326, zone_to_group_idx, zone_to_group_name
     )

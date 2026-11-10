@@ -40,29 +40,15 @@ def get_income_midpoint(income_enum: LabeledEnum) -> int:
         msg = f"Cannot calculate midpoint for {income_enum.name}: {label}"
         raise ValueError(msg)
 
-    # Handle "Under $X" format - use $0 as lower bound
-    if label.startswith("Under"):
-        match = re.search(r"\$[\d,]+", label)
-        if match:
-            upper = int(match.group().replace("$", "").replace(",", ""))
-            return int(round(upper / 2, -3))  # Round to nearest $1000
-
-    # Handle "$X or more" format - use 1.25x multiplier
-    if "or more" in label:
-        match = re.search(r"\$[\d,]+", label)
-        if match:
-            lower = int(match.group().replace("$", "").replace(",", ""))
-            # Use 1.25x multiplier to estimate upper bound
-            estimated_upper = int(lower * 1.25)
-            # Round to nearest $1000
-            return int(round((lower + estimated_upper) / 2, -3))
-
-    # Handle "$X-$Y" range format
-    matches = re.findall(r"\$[\d,]+", label)
-    if len(matches) == 2:  # noqa: PLR2004
-        lower = int(matches[0].replace("$", "").replace(",", ""))
-        upper = int(matches[1].replace("$", "").replace(",", ""))
-        return int(round((lower + upper) / 2, -3))  # Round to nearest $1000
+    amounts = [int(m.replace(",", "")) for m in re.findall(r"\$([\d,]+)", label)]
+    # Each case rounds to the nearest $1000
+    if label.startswith("Under") and amounts:
+        return int(round(amounts[0] / 2, -3))
+    if "or more" in label and amounts:
+        lower = amounts[0]
+        return int(round((lower + int(lower * 1.25)) / 2, -3))
+    if len(amounts) == 2:  # noqa: PLR2004
+        return int(round(sum(amounts) / 2, -3))
 
     # If we can't parse it, raise an error
     msg = f"Cannot parse income range from label: {label}"
@@ -221,7 +207,7 @@ def get_age_midpoint(age_enum: LabeledEnum) -> int:
         upper = int(matches[1])
         return (lower + upper) // 2
 
-    # Handle single age (e.g., "16 to 17" returns 16)
+    # A single number is the age itself
     if len(matches) == 1:
         return int(matches[0])
 

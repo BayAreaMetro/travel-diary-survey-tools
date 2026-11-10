@@ -8,22 +8,19 @@ import logging
 
 import polars as pl
 
-from processing.weighting.core.hierarchy import (
-    LEVELS,
-    weight_columns_for,
-)
-from processing.weighting.core.propagation import (
-    is_usable,
-)
+from processing.weighting.core.hierarchy import LEVELS, weight_columns_for
+from processing.weighting.core.propagation import is_usable, zero_unusable
 from processing.weighting.existing.population import SCALE_TOL, apply_usability
 
 logger = logging.getLogger(__name__)
 
 
-# Travel: unlinked trips follow their day; linked trips and tours are the mean
-# of their final trips. ``preserve_travel_totals`` decides only whether a kept
-# day's dropped trips hand their weight to its kept ones.
 TRAVEL_TABLES = frozenset({"unlinked_trips", "linked_trips", "tours"})
+"""Unlinked trips follow their day; linked trips and tours are the mean of their final trips.
+
+``preserve_travel_totals`` decides only whether a kept day's dropped trips hand
+their weight to its kept ones.
+"""
 
 
 # Overlays on travel: always the sum of their kept members, derived last.
@@ -63,12 +60,7 @@ def gate_travel(
         df = tables.get(table_name)
         if df is None or usability_flag_col not in df.columns:
             continue
-        tables[table_name] = df.with_columns(
-            pl.when(is_usable(usability_flag_col))
-            .then(pl.col(weight_col))
-            .otherwise(0.0)
-            .alias(weight_col)
-        )
+        tables[table_name] = df.with_columns(zero_unusable(weight_col, usability_flag_col))
     return {}
 
 

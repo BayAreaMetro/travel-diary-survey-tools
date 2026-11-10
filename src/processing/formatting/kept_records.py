@@ -27,9 +27,8 @@ from processing.completeness import MIN_JOINT_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
 
-# Every table the gate can apply to; a formatter passes the ones it holds.
-# All are stamped by the cascade, so a
-# missing verdict is a broken frame rather than a table that opted out.
+# Every table the gate can apply to; a formatter passes the ones it holds. All are
+# stamped by the cascade, so a missing verdict is a broken frame, not an opt-out.
 GATED_TABLES = (
     "households",
     "persons",
@@ -41,10 +40,8 @@ GATED_TABLES = (
     "joint_tours",
 )
 
-# The declared references between canonical tables, derived rather than listed.
-# There are three dozen, denormalised across the trip tables, and a
-# hand-maintained subset omits whichever one matters next -- which is how a
-# person outlived their household, and a trip outlived its joint tour.
+# The declared references between canonical tables, derived from the schema so
+# that none is left out.
 _EDGES = foreign_key_edges(CANONICAL_MODELS)
 
 # The joint groupings, as (id column, table whose surviving rows are its members,
@@ -54,17 +51,27 @@ _GROUPINGS = (
     ("joint_trip_id", "linked_trips", "joint_trips"),
 )
 
+# Each gated table's weight column.
+WEIGHT_COLUMNS = {
+    "households": "hh_weight",
+    "persons": "person_weight",
+    "person_days": "person_day_weight",
+    "tours": "tour_weight",
+    "linked_trips": "linked_trip_weight",
+    "unlinked_trips": "unlinked_trip_weight",
+    "joint_trips": "joint_trip_weight",
+    "joint_tours": "joint_tour_weight",
+}
+
 # Every column a profile writes its own copy of, per table: the weight, and
 # the joint ids saying which joint tour or joint trip a record is on.
+_JOINT_ID_COLUMNS = {
+    "tours": ("joint_tour_id",),
+    "linked_trips": ("joint_tour_id", "joint_trip_id"),
+    "unlinked_trips": ("joint_tour_id",),
+}
 _PROFILE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "households": ("hh_weight",),
-    "persons": ("person_weight",),
-    "person_days": ("person_day_weight",),
-    "tours": ("tour_weight", "joint_tour_id"),
-    "linked_trips": ("linked_trip_weight", "joint_tour_id", "joint_trip_id"),
-    "unlinked_trips": ("unlinked_trip_weight", "joint_tour_id"),
-    "joint_trips": ("joint_trip_weight",),
-    "joint_tours": ("joint_tour_weight",),
+    name: (weight, *_JOINT_ID_COLUMNS.get(name, ())) for name, weight in WEIGHT_COLUMNS.items()
 }
 
 # Rows of a failing check to name before summarising the rest.

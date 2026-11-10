@@ -8,10 +8,10 @@ import pytest
 
 from data_canon.codebook.households import IncomeBroad
 from processing.imputation.comparison import compare_imputation_methods
-from processing.imputation.flags import stash_preimputed_column, stash_preimputed_columns
+from processing.imputation.flags import stash_preimputed_columns
 from processing.imputation.impute_utils import (
     build_feature_matrix,
-    decode_dense_to_integer,
+    decode_rounded,
     encode_integer_categoricals,
     is_categorical,
     prepare_column_for_imputation,
@@ -328,8 +328,8 @@ class TestPreimputedStash:
     )
     def test_stash_single_column(self, original: list, imputed: list, expected: list):
         """Should stash original values including nulls."""
-        result_df = stash_preimputed_column(
-            pl.DataFrame({"value": imputed}), pl.DataFrame({"value": original}), "value"
+        result_df = stash_preimputed_columns(
+            pl.DataFrame({"value": imputed}), pl.DataFrame({"value": original}), ["value"]
         )
 
         assert result_df["value_preimputed"].to_list() == expected
@@ -523,11 +523,11 @@ class TestDenseIntegerEncoding:
 
         assert encodings == {}
 
-    def test_decode_dense_to_integer_basic(self):
+    def test_decode_rounded_basic(self):
         """Dense float predictions should round and decode to original codes."""
         mapping = {0: 1, 1: 2, 2: 5, 3: 6}
         values = np.array([0.3, 0.7, 2.1, 2.9])
-        decoded = decode_dense_to_integer(values, mapping)
+        decoded = decode_rounded(values, mapping)
 
         assert decoded == [1, 2, 5, 6]
 
@@ -535,7 +535,7 @@ class TestDenseIntegerEncoding:
         """Values outside [0, N-1] should be clamped to the nearest valid key."""
         mapping = {0: 10, 1: 20, 2: 30}
         values = np.array([-1.0, 5.0])
-        decoded = decode_dense_to_integer(values, mapping)
+        decoded = decode_rounded(values, mapping)
 
         assert decoded == [10, 30]
 

@@ -21,17 +21,16 @@ logger = logging.getLogger(__name__)
 # and few enough that a cycle is reported rather than spun on.
 MAX_TEMPLATE_PASSES = 10
 
+#: Config key holding committed root defaults. Anything declared here is a
+#: default the environment may replace, not a claim about this machine.
+ENVS_KEY = "ENVS"
+
 
 def _substitute(text: str, variables: dict[str, str]) -> str:
     """Replace every ``{{ name }}`` in one string with its value."""
     for name, value in variables.items():
         text = text.replace(f"{{{{ {name} }}}}", str(value))
     return text
-
-
-#: Config key holding committed root defaults. Anything declared here is a
-#: default the environment may replace, not a claim about this machine.
-ENVS_KEY = "ENVS"
 
 
 def resolve_templates(config: dict[str, Any]) -> dict[str, Any]:
@@ -89,15 +88,10 @@ def template_namespace(config: dict[str, Any]) -> dict[str, str]:
         raise TypeError(msg)
     namespace.update({str(k): str(v) for k, v in declared.items()})
 
-    for name in list(namespace) + [str(k) for k in declared]:
-        value = os.environ.get(name)
-        if value:
+    # The environment wins, and also supplies a root referenced but declared nowhere
+    for name in [*namespace, *(_referenced_names(config) - set(namespace))]:
+        if value := os.environ.get(name):
             namespace[name] = value
-
-    # A root referenced but declared nowhere still has to come from somewhere.
-    for name in _referenced_names(config):
-        if name not in namespace and os.environ.get(name):
-            namespace[name] = os.environ[name]
 
     return namespace
 

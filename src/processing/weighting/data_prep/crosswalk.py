@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 _MIN_COUNTY_SHARE = 0.01
 
 
-def _build_zone_remap(zone_groups: dict[str, list[str]]) -> dict[str, str]:
+def zone_to_group(zone_groups: dict[str, list[str]]) -> dict[str, str]:
     """Invert ``{group: [zone, ...]}`` → ``{zone: group}``."""
     remap: dict[str, str] = {}
     for group, zones in zone_groups.items():
@@ -129,14 +129,13 @@ class PumaCrosswalk:
         state_fips: str,
         pums_year: int,
         census_dir: Path,
-        zone_groups: dict[str, list[str]] | None = None,
     ) -> None:
         """Build crosswalk from *config* and the Census geographies in *census_dir*."""
         logger.info("Initializing PumaCrosswalk with config: %s", config)
 
         # -- zone groups --------------------------------------------------
-        self.zone_groups = zone_groups or {}
-        self._zone_remap = _build_zone_remap(self.zone_groups) if self.zone_groups else {}
+        self.zone_groups = config.zone_groups or {}
+        self._zone_remap = zone_to_group(self.zone_groups)
 
         # -- target zones (always needed downstream) ----------------------
         self.target_gdf = _load_target_zones(
@@ -199,27 +198,7 @@ class PumaCrosswalk:
         """
         return self.crosswalk_df["puma_id"].unique().sort().to_list()
 
-    @property
-    def zone_populations(self) -> pl.DataFrame:
-        """Census block population totals per zone group.
-
-        Returns a DataFrame with columns ``[zone_group_id, target_population]``
-        where ``target_population`` is the sum of Census block population
-        allocated to each ``zone_group_id``.
-        """
-        return (
-            self.crosswalk_df.group_by("zone_group_id")
-            .agg(pl.col("population").sum().alias("target_population"))
-            .with_columns(pl.col("zone_group_id").cast(pl.Utf8))
-            .sort("zone_group_id")
-        )
-
-    def assign_block_groups(
-        self,
-        households: pl.DataFrame,
-        lon_col: str = "home_lon",
-        lat_col: str = "home_lat",
-    ) -> pl.DataFrame:
+    def assign_block_groups(self, households: pl.DataFrame) -> pl.DataFrame:
         """Point-in-polygon assignment of households to Census block groups.
 
         Returns *households* with a ``bg_geo_id`` column added (null for
@@ -236,8 +215,8 @@ class PumaCrosswalk:
         points = gpd.GeoDataFrame(
             {"hh_id": households["hh_id"].to_numpy()},
             geometry=gpd.points_from_xy(
-                households[lon_col].to_numpy(),
-                households[lat_col].to_numpy(),
+                households["home_lon"].to_numpy(),
+                households["home_lat"].to_numpy(),
             ),
             crs="EPSG:4326",
         )
@@ -268,12 +247,7 @@ class PumaCrosswalk:
         result_pl = pl.concat([within, edge_bg]).unique(subset=["hh_id"], keep="first")
         return households.join(result_pl, on="hh_id", how="left")
 
-    def assign_households(
-        self,
-        households: pl.DataFrame,
-        lon_col: str = "home_lon",
-        lat_col: str = "home_lat",
-    ) -> pl.DataFrame:
+    def assign_households(self, households: pl.DataFrame) -> pl.DataFrame:
         """Point-in-polygon assignment of households to target zones and PUMAs.
 
         Returns *households* with ``target_zone_id``, ``zone_group_id`` and
@@ -284,8 +258,8 @@ class PumaCrosswalk:
         points = gpd.GeoDataFrame(
             {"hh_id": households["hh_id"].to_list()},
             geometry=gpd.points_from_xy(
-                households[lon_col].to_list(),
-                households[lat_col].to_list(),
+                households["home_lon"].to_list(),
+                households["home_lat"].to_list(),
             ),
             crs="EPSG:4326",
         )
@@ -383,51 +357,33 @@ class PumaCrosswalk:
         self,
         hh_df: pl.DataFrame,
         person_df: pl.DataFrame,
-        geo_col: str = "PUMA",
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Join crosswalk to PUMS and scale weights by allocation factor.
 
         Produces ``_xw_WGTP`` / ``_xw_PWGTP`` columns (original weight
-        times ``allocation_weight``) and adds ``target_zone_id`` and
-        ``zone_group_id`` to both frames.
+        times ``allocation_weight``), and the same for each replicate weight,
+        and adds ``target_zone_id`` and ``zone_group_id`` to both frames.
         """
         xw = self.crosswalk_df.select(
             "puma_id", "target_zone_id", "zone_group_id", "allocation_weight"
         )
+        puma = pl.col("PUMA").cast(pl.Utf8)
 
-        hh_xw = hh_df.join(
-            xw, left_on=pl.col(geo_col).cast(pl.Utf8), right_on="puma_id", how="inner"
-        ).with_columns(
-            (pl.col("WGTP").cast(pl.Float64) * pl.col("allocation_weight")).alias("_xw_WGTP"),
+        def scaled(df: pl.DataFrame, weight: str) -> pl.DataFrame:
+            # The weight, then its replicates (WGTP1, ...), times the allocation weight
+            reps = [c for c in df.columns if c.startswith(weight) and c[len(weight) :].isdigit()]
+            return df.with_columns(
+                (pl.col(c).cast(pl.Float64) * pl.col("allocation_weight")).alias(f"_xw_{c}")
+                for c in [weight, *reps]
+            )
+
+        hh_xw = scaled(hh_df.join(xw, left_on=puma, right_on="puma_id", how="inner"), "WGTP")
+        person_xw = scaled(
+            person_df.join(hh_df.select("SERIALNO", "PUMA"), on="SERIALNO", how="left").join(
+                xw, left_on=puma, right_on="puma_id", how="inner"
+            ),
+            "PWGTP",
         )
-
-        # Scale household replicate weights if present
-        hh_rep_cols = [c for c in hh_xw.columns if c.startswith("WGTP") and c[4:].isdigit()]
-        if hh_rep_cols:
-            hh_xw = hh_xw.with_columns(
-                [
-                    (pl.col(c).cast(pl.Float64) * pl.col("allocation_weight")).alias(f"_xw_{c}")
-                    for c in hh_rep_cols
-                ]
-            )
-
-        person_xw = (
-            person_df.join(hh_df.select("SERIALNO", geo_col), on="SERIALNO", how="left")
-            .join(xw, left_on=pl.col(geo_col).cast(pl.Utf8), right_on="puma_id", how="inner")
-            .with_columns(
-                (pl.col("PWGTP").cast(pl.Float64) * pl.col("allocation_weight")).alias("_xw_PWGTP"),
-            )
-        )
-
-        # Scale person replicate weights if present
-        per_rep_cols = [c for c in person_xw.columns if c.startswith("PWGTP") and c[5:].isdigit()]
-        if per_rep_cols:
-            person_xw = person_xw.with_columns(
-                [
-                    (pl.col(c).cast(pl.Float64) * pl.col("allocation_weight")).alias(f"_xw_{c}")
-                    for c in per_rep_cols
-                ]
-            )
         logger.info(
             "Crosswalk join: %d HH -> %d, %d persons -> %d",
             len(hh_df),
@@ -441,7 +397,6 @@ class PumaCrosswalk:
         self,
         pums_incidence: pl.DataFrame,
         *,
-        puma_col: str = "PUMA",
         weight_col: str = "WGTP",
     ) -> pl.DataFrame:
         """Assign target-zone IDs and scale PUMS weights via the crosswalk.
@@ -450,9 +405,8 @@ class PumaCrosswalk:
         its weight is scaled by the zone's ``allocation_weight``.
 
         Args:
-            pums_incidence: Pivoted PUMS incidence table.  Must contain *puma_col* and
+            pums_incidence: Pivoted PUMS incidence table.  Must contain ``PUMA`` and
                 *weight_col*.
-            puma_col: Column identifying the PUMA (default ``"PUMA"``).
             weight_col: Original PUMS weight column to scale (default ``"WGTP"``).
 
         Returns:
@@ -470,7 +424,7 @@ class PumaCrosswalk:
         result = (
             pums_incidence.join(
                 xw,
-                left_on=pl.col(puma_col).cast(pl.Utf8),
+                left_on=pl.col("PUMA").cast(pl.Utf8),
                 right_on="puma_id",
                 how="inner",
             )
@@ -489,7 +443,7 @@ class PumaCrosswalk:
         missing_geos = expected_geos - actual_geos
 
         if missing_geos:
-            pums_puma_ids = pums_incidence[puma_col].cast(pl.Utf8).unique()
+            pums_puma_ids = pums_incidence["PUMA"].cast(pl.Utf8).unique()
             xw_puma_ids = xw["puma_id"].unique()
             if actual_geos:
                 msg = (

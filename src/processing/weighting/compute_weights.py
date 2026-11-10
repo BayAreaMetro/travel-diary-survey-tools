@@ -8,24 +8,25 @@ Orchestrates the full weighting pipeline in the following stages:
    crosswalk (translating between Census PUMAs and the project's custom
    weighting geography using block-group population as the intermediary),
    and prepare the sample plan.
+2. **Zone assignment** -- assign survey households to weighting zones via
+   the geographic crosswalk. Done before recoding, as ``h_puma`` reads the
+   home PUMA.
 
 **B. [Control Data Preparation][weighting-data-preparation]**
 
-2. **PUMS recoding** -- load PUMS 1-year microdata and recode into the
+3. **PUMS recoding** -- load PUMS 1-year microdata and recode into the
    YAML-configured variable bins used by the controls.
-3. **Merges** -- apply any user-specified category merges (global or
+4. **Merges** -- apply any user-specified category merges (global or
    zone-specific) to both controls and the survey incidence table.
-4. **Control aggregation** -- apply the crosswalk to PUMS and aggregate
+5. **Control aggregation** -- apply the crosswalk to PUMS and aggregate
    into marginal control totals per zone.
 
 **C. [Survey Seed Preparation][weighting-data-preparation]**
 
-5. **Survey recoding** -- recode canonical survey variables into the same
+6. **Survey recoding** -- recode canonical survey variables into the same
    bin / group categories as the PUMS controls.
-6. **Null imputation** -- fill null-induced zeros in the survey incidence
+7. **Null imputation** -- fill null-induced zeros in the survey incidence
    table with RF-predicted fractional class probabilities.
-7. **Zone assignment** -- assign survey households to weighting zones via
-   the geographic crosswalk.
 
 **D. [Maximum-Entropy Balancing][weighting-balancing]**
 
@@ -57,6 +58,7 @@ import polars as pl
 from data_canon.core.dataclass import CanonicalData
 from pipeline.decoration import Tables, step
 from processing.weighting.core.hierarchy import (
+    SEED_TABLE,
     describe_weight_columns,
     seed_col_for,
     weight_col_for,
@@ -68,7 +70,6 @@ from processing.weighting.core.specs import (
     CensusConfig,
     ControlRegistryConfig,
     DiagnosticsConfig,
-    ImportanceConfig,
     WeightingConfig,
     resolve_fitted_profiles,
 )
@@ -77,16 +78,19 @@ from processing.weighting.validation.weight_checks import weight_sanity_checks
 
 logger = logging.getLogger(__name__)
 
-# Geography the balancer works from. It rides on ``households`` through the run
-# because zone assignment, balancing and diagnostics all read it, then moves to
-# its own table before the tables are handed back. Profile-independent: where a
-# household is does not depend on which universe was fitted.
 _GEOGRAPHY_COLUMNS = ("target_zone_id", "zone_group_id", "home_puma", "bg_geo_id")
+"""Geography the balancer works from.
+
+It rides on ``households`` through the run because zone assignment, balancing
+and diagnostics all read it, then moves to its own table before the tables are
+handed back. Profile-independent: where a household is does not depend on which
+universe was fitted.
+"""
 
 
 def _split_weighting_columns(
     tables: dict[str, pl.DataFrame],
-    profiles: tuple[str | None, ...],
+    profiles: tuple[str, ...],
 ) -> None:
     """Move the weighting's working columns off ``households`` in place.
 
@@ -95,10 +99,7 @@ def _split_weighting_columns(
     seed weight lets an expansion factor be read off one table. The table stays
     one row per household, so several profiles widen it rather than lengthen it.
     """
-    hh = tables.get("households")
-    if hh is None:
-        return
-
+    hh = tables["households"]
     geography = [c for c in _GEOGRAPHY_COLUMNS if c in hh.columns]
     seed_weights = [col for p in profiles if (col := seed_col_for("base_weight", p)) in hh.columns]
     if not geography and not seed_weights:
@@ -106,7 +107,7 @@ def _split_weighting_columns(
 
     carried = [col for p in profiles if (col := weight_col_for("hh_weight", p)) in hh.columns]
     moved = geography + seed_weights
-    tables["household_weights"] = hh.select("hh_id", *moved, *carried)
+    tables[SEED_TABLE] = hh.select("hh_id", *moved, *carried)
     tables["households"] = hh.drop(moved)
 
 
@@ -165,7 +166,7 @@ def weight_columns(weight_profiles: list[str]) -> dict[str, dict]:
         "tours": {"tour_weight_<profile>"},
         "joint_trips": {"joint_trip_weight_<profile>"},
         "joint_tours": {"joint_tour_weight_<profile>"},
-        "household_weights": {
+        SEED_TABLE: {
             "hh_id",
             "target_zone_id",
             "zone_group_id",
@@ -230,41 +231,34 @@ def compute_weights(
         weight_profiles=tuple(weight_profiles),
         max_unplaceable_share=max_unplaceable_share,
     )
-    # Importance for controls without their own; per-control overrides come from controls.
-    importance_cfg = ImportanceConfig(
-        moe_based=balancing.moe_based_importance,
-        default=balancing.default_importance,
-    )
     wt_pipeline = WeightingPipeline(
         controls=ControlRegistryConfig.from_yaml(controls),
         config=wt_config,
         data=data,
         balancing=balancing,
-        importance=importance_cfg,
     )
 
-    # 1. Setup — register controls, build crosswalk, fetch PUMS
+    # Setup — register controls, build crosswalk, fetch PUMS
     wt_pipeline.setup()
     wt_pipeline.fetch_pums()
 
-    # 2. Place households first: h_puma's recode reads their home PUMA
+    # Place households first: h_puma's recode reads their home PUMA
     wt_pipeline.place_households()
 
-    # 3. Incidence prep — recode both PUMS and survey, pivot, fill nulls
+    # Incidence prep — recode both PUMS and survey, pivot
     wt_pipeline.recode_and_pivot()
 
-    # 4. Zone allocation and merges are intertwined — merges may depend on zone groups
+    # Zone allocation before merges — merges may depend on zone groups
     wt_pipeline.allocate_pums()
 
-    # 5. Merge controls, must be applied after zone allocation and before total aggregation
+    # Merges go after zone allocation and before total aggregation
     wt_pipeline.apply_merges()
 
-    # 6. Control aggregation
     wt_pipeline.aggregate_totals()
     wt_pipeline.resolve_importance()
 
-    # 7. One fit per profile: balance, propagate, and report each in turn
-    profiles = wt_config.fitted_profiles
+    # One fit per profile: balance, propagate, and report each in turn
+    profiles = wt_config.weight_profiles
     logger.info(
         "Weighting: %d balancing run(s), one per profile (%s). Each is fitted to the "
         "controls over its own universe and writes its own columns; nothing is derived "

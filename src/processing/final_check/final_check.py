@@ -91,7 +91,7 @@ def final_check(tables: Tables) -> dict[str, pl.DataFrame]:
 
             - households: Validated household table
             - persons: Validated person table
-            - days: Validated person-day table
+            - person_days: Validated person-day table
             - unlinked_trips: Validated unlinked trip records
             - linked_trips: Validated linked trip records
             - tours: Validated tour records
@@ -107,13 +107,6 @@ def final_check(tables: Tables) -> dict[str, pl.DataFrame]:
           ideally be implemented in Pydantic models for reusability
     """
     logger.info("Starting final validation checks")
-
-    # Pydantic handles validation automatically when parsing/creating models
-    # Just pass through the data - validation happens at model instantiation
-
-    # This space *could* be used to implement any additional custom checks
-    # that are not covered by the pydantic models, if needed in future. But
-    # checks should ideally be implemented in the models themselves!
-
+    # Validation happens in the @step decorator; see Notes for adding checks here
     logger.info("Final validation checks completed successfully")
     return dict(tables)

@@ -139,4 +139,3 @@ markers = [
 max-lines = 750
 
 [tool.module-length.baseline]
-"src/data_canon/models/survey.py" = 768

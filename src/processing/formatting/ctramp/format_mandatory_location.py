@@ -32,14 +32,6 @@ def calc_fixed_location_distances(
         msg = "fixed_type must be 'work' or 'school'"
         raise ValueError(msg)
 
-    if config.distance_unit not in ["miles", "kilometers", "meters"]:
-        msg = "distance_unit must be 'miles', 'kilometers', or 'meters'"
-        raise ValueError(msg)
-
-    if config.fixed_location_buffer_meters is None:
-        msg = "fixed_location_buffer_meters must be set in config"
-        raise ValueError(msg)
-
     # Filter persons to fixed locations for the type we are calculating
     _mandatory_locations = mandatory_locations.filter(
         pl.col(f"{fixed_type}_lat").is_not_null() & pl.col(f"{fixed_type}_lon").is_not_null()
@@ -85,50 +77,23 @@ def calc_fixed_location_distances(
     )
     logger.debug("Join complete: %d trip-person rows", len(trips_with_locations))
 
-    # Calculate flags for origin/destination proximity
+    def within_buffer(end: str, place: str) -> pl.Expr:
+        distance = expr_haversine(
+            pl.col(f"{end}_lat"),
+            pl.col(f"{end}_lon"),
+            pl.col(f"{place}_lat"),
+            pl.col(f"{place}_lon"),
+            units="meters",
+        )
+        return distance <= config.fixed_location_buffer_meters
+
     logger.debug("Computing haversine proximity flags")
     trips_with_flags = trips_with_locations.with_columns(
         [
-            (
-                expr_haversine(
-                    pl.col("o_lat"),
-                    pl.col("o_lon"),
-                    pl.col("home_lat"),
-                    pl.col("home_lon"),
-                    units="meters",
-                )
-                <= config.fixed_location_buffer_meters
-            ).alias("origin_is_home"),
-            (
-                expr_haversine(
-                    pl.col("o_lat"),
-                    pl.col("o_lon"),
-                    pl.col(f"{fixed_type}_lat"),
-                    pl.col(f"{fixed_type}_lon"),
-                    units="meters",
-                )
-                <= config.fixed_location_buffer_meters
-            ).alias(f"origin_is_{fixed_type}"),
-            (
-                expr_haversine(
-                    pl.col("d_lat"),
-                    pl.col("d_lon"),
-                    pl.col("home_lat"),
-                    pl.col("home_lon"),
-                    units="meters",
-                )
-                <= config.fixed_location_buffer_meters
-            ).alias("dest_is_home"),
-            (
-                expr_haversine(
-                    pl.col("d_lat"),
-                    pl.col("d_lon"),
-                    pl.col(f"{fixed_type}_lat"),
-                    pl.col(f"{fixed_type}_lon"),
-                    units="meters",
-                )
-                <= config.fixed_location_buffer_meters
-            ).alias(f"dest_is_{fixed_type}"),
+            within_buffer("o", "home").alias("origin_is_home"),
+            within_buffer("o", fixed_type).alias(f"origin_is_{fixed_type}"),
+            within_buffer("d", "home").alias("dest_is_home"),
+            within_buffer("d", fixed_type).alias(f"dest_is_{fixed_type}"),
             # Calculate matching TAZs for origin/destination, used as fallback
             (pl.col(f"o_{config.taz_field}") == pl.col(f"{fixed_type}_{config.taz_field}")).alias(
                 f"origin_is_{fixed_type}_{config.taz_field}"

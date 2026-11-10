@@ -16,6 +16,17 @@ from processing.weighting.core.hierarchy import (
 )
 from processing.weighting.core.propagation import is_usable
 from processing.weighting.core.specs import ControlTotals, MergeSpec, ProfileFit
+from processing.weighting.data_prep.incidence import control_columns
+
+# How far a kept record's weight can be raised to carry dropped records beside it,
+# as (label, lower, upper) multiples of the record above. "Unchanged" comes first.
+RAISE_BANDS: tuple[tuple[str, float, float], ...] = (
+    ("Up to 1.5&times;", 1.0, 1.5),
+    ("1.5&times; to 2&times;", 1.5, 2.0),
+    ("2&times; to 3&times;", 2.0, 3.0),
+    ("Over 3&times;", 3.0, float("inf")),
+)
+_UNCHANGED_TOL = 1e-6  # ratios this close to 1, or to a range edge, are that value
 
 
 def _collect_merge_labels(
@@ -26,8 +37,6 @@ def _collect_merge_labels(
     labels: dict[tuple[str, str], str] = {}
     for spec in merges or []:
         for merged_label, base_members in spec.groups.items():
-            if isinstance(base_members, dict):
-                continue
             # Only hide constituents for global merges (originals dropped).
             if spec.zones is None:
                 for m in base_members:
@@ -112,8 +121,6 @@ def merge_control_moe(
     df = control_moe
     for spec in merges:
         for merged_label, base_members in spec.groups.items():
-            if isinstance(base_members, dict):
-                continue  # skip N-D merges (not applicable to flat MOE table)
             member_names = [m.lower() for m in base_members]
             is_match = (pl.col("control_name") == spec.control) & pl.col("category").is_in(
                 member_names
@@ -258,18 +265,11 @@ def compute_weighted_totals(
     """
     sw = seed.join(weights.select("hh_id", "hh_weight"), on="hh_id", how="left")
     rows: list[dict] = []
-
-    # Unified loop: HH and person controls use identical logic now
     all_controls = resolve_targets(target_names, ControlLevel.HOUSEHOLD) + resolve_targets(
         target_names, ControlLevel.PERSON
     )
-
     for ctrl in all_controls:
-        if ctrl.structural:
-            col = ctrl.name
-            member = ctrl.valid_members[0][1].lower()
-            if col not in sw.columns:
-                continue
+        for col, member in control_columns(ctrl, sw.columns).items():
             agg = sw.group_by("zone_group_id").agg(
                 (pl.col(col) * pl.col("hh_weight")).sum().alias("weighted_total")
             )
@@ -282,25 +282,6 @@ def compute_weighted_totals(
                 }
                 for r in agg.iter_rows(named=True)
             )
-        else:
-            # Discover all {ctrl.name}__* columns (includes merged)
-            prefix = f"{ctrl.name}__"
-            ctrl_cols = [c for c in sw.columns if c.startswith(prefix)]
-            for col in ctrl_cols:
-                member = col[len(prefix) :]
-                agg = sw.group_by("zone_group_id").agg(
-                    (pl.col(col) * pl.col("hh_weight")).sum().alias("weighted_total")
-                )
-                rows.extend(
-                    {
-                        "zone_group_id": r["zone_group_id"],
-                        "control_name": ctrl.name,
-                        "category": member,
-                        "weighted_total": r["weighted_total"],
-                    }
-                    for r in agg.iter_rows(named=True)
-                )
-
     return pl.DataFrame(rows)
 
 
@@ -309,18 +290,19 @@ def fit_table(
     weighted_totals: pl.DataFrame,
 ) -> pl.DataFrame:
     """Join targets to weighted totals; add ``diff`` and ``diff_pct`` columns."""
-    return (
+    return with_diff(
         control_totals.totals.join(
             weighted_totals, on=["zone_group_id", "control_name", "category"], how="left"
-        )
-        .with_columns(pl.col("weighted_total").fill_null(0))
-        .with_columns((pl.col("weighted_total") - pl.col("target_total")).alias("diff"))
-        .with_columns(
-            (pl.col("diff") / pl.col("target_total") * 100)
-            .fill_nan(0)
-            .fill_null(0)
-            .alias("diff_pct")
-        )
+        ).with_columns(pl.col("weighted_total").fill_null(0))
+    )
+
+
+def with_diff(df: pl.DataFrame) -> pl.DataFrame:
+    """Add ``diff`` (weighted minus target) and ``diff_pct`` (it as % of target, 0 if none)."""
+    diff = pl.col("weighted_total") - pl.col("target_total")
+    return df.with_columns(
+        diff.alias("diff"),
+        (diff / pl.col("target_total") * 100).fill_nan(0).fill_null(0).alias("diff_pct"),
     )
 
 
@@ -396,29 +378,11 @@ def profile_summary(
 
 @dataclass(frozen=True)
 class CascadeRow:
-    """One level's weight coverage under one profile.
-
-    ``rows`` splits three ways and the parts are exhaustive: a record is
-    rejected by the profile's own flag, or admitted and carrying weight, or
-    admitted and carrying none. Only the last needs explaining, and what it
-    means depends on the level -- for the anchor it is a household the control
-    geography could not place, and below it, a record whose parent was dropped.
-    """
+    """One level's records under one profile: how many, and how many it admits."""
 
     table: str
     rows: int
     usable: int
-    weighted: int
-
-    @property
-    def gated(self) -> int:
-        """Records the profile's own flag rejected."""
-        return self.rows - self.usable
-
-    @property
-    def unweighted(self) -> int:
-        """Records the profile admits that still carry no weight."""
-        return self.usable - self.weighted
 
 
 def weight_cascade(
@@ -427,7 +391,7 @@ def weight_cascade(
     profile: str | None,
     usability_flag_col: str,
 ) -> list[CascadeRow]:
-    """Count, per level, what the profile admitted and what carries weight.
+    """Count, per level, the records and how many the profile admitted.
 
     Walks [`HIERARCHY`][processing.weighting.core.hierarchy.HIERARCHY] rather
     than a list of table names, and reads each level's weight column through
@@ -452,7 +416,6 @@ def weight_cascade(
                 table=level.table,
                 rows=df.height,
                 usable=df.filter(is_usable(usability_flag_col)).height,
-                weighted=df.filter(pl.col(weight_col) > 0).height,
             )
         )
     return rows
@@ -487,17 +450,6 @@ def exclusions(tables: dict[str, pl.DataFrame | None]) -> list[ExclusionRow]:
         )
         rows += [ExclusionRow(level.table, reason, n) for reason, n in counts.iter_rows()]
     return rows
-
-
-# How far a kept record's weight can be raised to carry dropped siblings, as
-# (label, lower, upper) multiples of the record above. "Unchanged" comes first.
-RAISE_BANDS: tuple[tuple[str, float, float], ...] = (
-    ("Up to 1.5&times;", 1.0, 1.5),
-    ("1.5&times; to 2&times;", 1.5, 2.0),
-    ("2&times; to 3&times;", 2.0, 3.0),
-    ("Over 3&times;", 3.0, float("inf")),
-)
-_UNCHANGED_TOL = 1e-6  # ratios this close to 1, or to a range edge, are that value
 
 
 @dataclass(frozen=True)

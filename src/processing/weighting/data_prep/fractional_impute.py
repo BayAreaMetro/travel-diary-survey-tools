@@ -50,8 +50,7 @@ from sklearn.model_selection import GroupKFold, cross_val_predict
 
 from processing.weighting.controls.base import ControlLevel
 from processing.weighting.controls.registry import resolve_targets
-from processing.weighting.core.specs import ImputationSummary
-from processing.weighting.data_prep.incidence import IncidenceBundle
+from processing.weighting.core.specs import ImputationSummary, IncidenceBundle
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +58,14 @@ logger = logging.getLogger(__name__)
 # sees households where only some members are known, as the survey has them.
 _MASKED_COPIES = 3
 _MASK_SEED = 0
+
+# The forest: number of trees, smallest leaf, and seed.
+_N_ESTIMATORS = 100
+_MIN_SAMPLES_LEAF = 20
+_RANDOM_STATE = 42
+
+# The PUMS column naming each record's household, which CV keeps in one fold.
+_HOUSEHOLD_COL = "SERIALNO"
 
 
 @dataclass(frozen=True)
@@ -82,7 +89,6 @@ def _cv_diagnostics(
     y_train: np.ndarray,
     w_train: np.ndarray,
     groups: np.ndarray,
-    n_features: int,
 ) -> tuple[float | None, float | None]:
     """CV on training data → (log_loss, f1_macro), each record by its weight.
 
@@ -117,7 +123,7 @@ def _cv_diagnostics(
         cv_ll,
         cv_f1,
         len(y_train),
-        n_features,
+        x_train.shape[1],
         cv_folds,
     )
     return cv_ll, cv_f1
@@ -166,16 +172,12 @@ def _train_and_predict(
     member_cols: list[str],
     id_col: str,
     weight_col: str,
-    group_col: str,
     *,
-    n_estimators: int = 100,
-    random_state: int = 42,
-    min_samples_leaf: int = 20,
     models: dict[str, TrainedModel] | None = None,
 ) -> tuple[pl.DataFrame, float | None, float | None]:
     """Train an RF on complete rows and predict probabilities for null rows.
 
-    The forest is ``n_estimators`` decision trees, each grown on a resample of
+    The forest is ``_N_ESTIMATORS`` decision trees, each grown on a resample of
     the PUMS training rows. A tree splits its rows by yes/no questions about the
     inputs until no split is allowed; each final group (a leaf) answers with the
     weighted category mix of its rows, and a prediction averages the leaves a
@@ -183,12 +185,12 @@ def _train_and_predict(
 
     * Each training record counts by its *weight_col*, so the forest learns the
       population's mix rather than the PUMS sample's.
-    * A split is made only if both sides keep at least *min_samples_leaf* rows.
+    * A split is made only if both sides keep at least ``_MIN_SAMPLES_LEAF`` rows.
       Trees grow deep where data is plentiful and stop early where it is thin,
       so every leaf's answer is a mix of several PUMS persons and no category
       comes out exactly 0 for want of one.
-    * *group_col* names each record's household, which the CV scores keep in
-      one fold.
+    * ``_HOUSEHOLD_COL`` names each record's household, which the CV scores keep
+      in one fold.
 
     *models* holds the forests already trained in this run, by control. Every
     profile's seed is imputed from the same PUMS, so a later profile reuses the
@@ -212,7 +214,7 @@ def _train_and_predict(
     x_train = train_pivot.select(feature_cols).to_numpy().astype(np.float32)
     y_train = train_pivot.select(member_cols).to_numpy().argmax(axis=1)
     w_train = train_pivot[weight_col].cast(pl.Float64).to_numpy()
-    groups = train_pivot[group_col].to_numpy()
+    groups = train_pivot[_HOUSEHOLD_COL].to_numpy()
     # The pivot's row order varies run to run, and the forest samples rows by
     # position. Sorting by the values fixes it; identical rows are interchangeable.
     order = np.lexsort(np.column_stack([x_train, y_train, w_train]).T[::-1])
@@ -230,13 +232,13 @@ def _train_and_predict(
         raise ValueError(msg)
     if trained is None:
         clf = RandomForestClassifier(
-            n_estimators=n_estimators,
-            random_state=random_state,
-            min_samples_leaf=min_samples_leaf,
+            n_estimators=_N_ESTIMATORS,
+            random_state=_RANDOM_STATE,
+            min_samples_leaf=_MIN_SAMPLES_LEAF,
             n_jobs=-1,
         )
         clf.fit(x_train, y_train, sample_weight=w_train)
-        cv_ll, cv_f1 = _cv_diagnostics(clf, x_train, y_train, w_train, groups, len(feature_cols))
+        cv_ll, cv_f1 = _cv_diagnostics(clf, x_train, y_train, w_train, groups)
         trained = TrainedModel(clf, feature_cols, cv_ll, cv_f1)
         if models is not None:
             models[control] = trained
@@ -298,7 +300,7 @@ def _masked_copies(
     carries an equal share of the person's weight, so each person still adds up
     to their own weight. Seeded, so runs repeat.
     """
-    household = ["SERIALNO", "zone_group_id"]
+    household = [_HOUSEHOLD_COL, "zone_group_id"]
     base = pums_persons.sort(*household, "SPORDER")
     sizes = base.group_by(household, maintain_order=True).len()
     rng = np.random.default_rng(_MASK_SEED)
@@ -447,7 +449,6 @@ def _impute_controls(
             member_cols,
             id_col=id_col,
             weight_col=weight_col,
-            group_col="SERIALNO",
             models=models,
         )
         summaries.append(

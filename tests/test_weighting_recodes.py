@@ -675,7 +675,7 @@ class TestRecodePumsHouseholds:
     )
     def test_household_recode(self, pums_households, pums_persons, column, expected):
         """Each household control, for all three households, in SERIALNO order."""
-        result = recode_pums_households(pums_households, pums_persons)
+        result = recode_pums_households(pums_households, pums_persons, [column])
         assert result.sort("SERIALNO")[column].to_list() == [v.value for v in expected]
 
     def test_vehicles_na_is_not_zero_vehicles(self):
@@ -785,7 +785,7 @@ class TestRecodePumsPersons:
     )
     def test_person_recode(self, pums_persons, column, expected):
         """Each person control, for all seven persons, in (SERIALNO, SPORDER) order."""
-        result = recode_pums_persons(pums_persons)
+        result = recode_pums_persons(pums_persons, [column])
         got = result.sort(["SERIALNO", "SPORDER"])[column].to_list()
         assert got == [v.value for v in expected]
 

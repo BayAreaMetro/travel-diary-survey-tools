@@ -1,6 +1,6 @@
 """Custom IntEnum categories for weighting controls.
 
-These define the **output bins** for the 9 collapsing controls where the
+These define the **output bins** for the collapsing controls where the
 canonical survey granularity is reduced to fewer bins for weighting.  The
 identity controls (income, education, age) reuse canonical ``LabeledEnum``
 directly and are not duplicated here.
@@ -74,7 +74,7 @@ class HHChildrenCategory(IntEnum):
 
 
 class GenderCategory(IntEnum):
-    """Gender bins for weighting (male / female / other).
+    """Gender bins for weighting (male / female).
 
     PUMS only has binary SEX.
     """
@@ -138,8 +138,6 @@ class TotalCategory(IntEnum):
 
 
 # -- Cross-tabulation helpers ----------------------------------------------
-
-_SENTINEL_NAMES = frozenset({"MISSING", "PNTA"})
 
 
 def make_crosstab_enum(

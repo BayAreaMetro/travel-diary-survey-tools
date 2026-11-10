@@ -21,18 +21,17 @@ def format_days(
     """Format person-day data for DaySim PersonDay file.
 
     Creates person-day records with tour counts by purpose, stop counts,
-    begin/end at home flags, work at home duration, and location coordinates.
+    begin/end at home flags and work at home duration.
 
     Key Transformations:
 
-    - **Day-Level Summaries**: Tour count by purpose (work, school, escort, etc.),
-      stop counts by purpose, total travel time and distance
+    - **Day-Level Summaries**: Tour count by purpose (work, school, escort, etc.)
+      and stop counts by purpose
     - **Tour Categories**: Classify tours as home-based, work-based, or usual work location
     - **Activity Patterns**: Begin/end at home flags, work at home duration
-    - **Usual Locations**: Work and school coordinates for spatial modeling
 
     Args:
-        persons: Canonical person data with person_id, hh_id, work/school coords
+        persons: Canonical person data with person_id, person_num and employment
         person_days: Canonical day data with person_day_id, person_id, travel_dow, person_day_weight
         tours: Canonical tour data with tour_id, person_day_id, tour_purpose,
             tour_type, tour_category
@@ -48,7 +47,6 @@ def format_days(
             - wkstops, scstops, esstops, pbstops, shstops, mlstops, sostops, restops, mestops:
               Stop counts by purpose
             - wkathome: Minutes worked at home
-            - pwxcord, pwycord, psxcord, psycord: Work/school coordinates
             - pdexpfac: Person-day expansion factor
     """
     logger.info("Formatting person-day data for DaySim")
@@ -120,24 +118,12 @@ def format_days(
         .agg(pl.len().alias("uwtours"))
     )
 
-    join_cols = [
-        "person_num",
-        "work_lon",
-        "work_lat",
-        "school_lon",
-        "school_lat",
-    ]
-    _days = person_days.drop([x for x in join_cols if x in person_days.columns])
-
     # Start with days data and join person identifiers
-    days_daysim = _days.join(
-        persons.select([*join_cols, "person_id"]),
+    days_daysim = person_days.drop("person_num", strict=False).join(
+        persons.select("person_num", "person_id"),
         on="person_id",
         how="left",
     )
-
-    person_days.filter(pl.col("person_num").is_null()).select("person_num")
-    persons.filter(pl.col("person_num").is_null())
 
     # Join tour count aggregations
     days_daysim = (

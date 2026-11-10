@@ -14,7 +14,7 @@ from .data import (
     RedistributionRow,
 )
 from .glossary import term
-from .table_html import html_table
+from .table_html import html_table, profile_label
 
 # How a parent level is named in a row label, as in "persons, from their household".
 _PARENT_NOUN = {
@@ -54,7 +54,7 @@ def profile_comparison_table(rows: list[ProfileSummary]) -> str:
         css = "converged" if r.zones_converged == r.zones_total else "failed"
         body.append(
             [
-                r.profile or "the survey",
+                profile_label(r.profile),
                 f"{r.seed_households:,}",
                 f"{r.weight_sums.get('households', 0.0):,.0f}",
                 f"{r.weight_sums.get('persons', 0.0):,.0f}",
@@ -83,7 +83,7 @@ def cascade_table(cascades: dict[str | None, list[CascadeRow]]) -> str:
         for row in rows:
             by_table.setdefault(row.table, {})[profile] = row
 
-    headers = ["Level", "Records", *(p or "the survey" for p in profiles)]
+    headers = ["Level", "Records", *(profile_label(p) for p in profiles)]
     body: list[list[str]] = []
     for table, per_profile in by_table.items():
         any_row = next(iter(per_profile.values()))

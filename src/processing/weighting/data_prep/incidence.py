@@ -16,10 +16,11 @@ Category merging lives in :mod:`processing.weighting.data_prep.merges`.
 """
 
 import logging
+from dataclasses import replace
 
 import polars as pl
 
-from processing.weighting.controls.base import ControlLevel
+from processing.weighting.controls.base import ControlLevel, ControlTarget
 from processing.weighting.controls.registry import resolve_targets
 from processing.weighting.core.specs import ControlTotals, IncidenceBundle
 
@@ -29,6 +30,26 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Incidence pivot
 # ---------------------------------------------------------------------------
+
+
+def _indicators(code: pl.Expr | pl.Series, ctrl: ControlTarget) -> list:
+    """One 0/1 ``{ctrl}__{member}`` column per category of *ctrl*, read off *code*."""
+    return [
+        (code == value).cast(pl.Int32).fill_null(0).alias(f"{ctrl.name}__{member.lower()}")
+        for value, member in ctrl.valid_members
+    ]
+
+
+def control_columns(ctrl: ControlTarget, columns: list[str]) -> dict[str, str]:
+    """The incidence columns holding *ctrl*, each mapped to its category name.
+
+    A structural control is one unpivoted column under its own name; any other
+    is one ``{ctrl}__{member}`` column per category present, merged ones included.
+    """
+    if ctrl.structural:
+        return {ctrl.name: ctrl.valid_members[0][1].lower()} if ctrl.name in columns else {}
+    prefix = f"{ctrl.name}__"
+    return {c: c[len(prefix) :] for c in sorted(columns) if c.startswith(prefix)}
 
 
 def pivot_hh_controls(
@@ -59,22 +80,10 @@ def pivot_hh_controls(
     hh_ctrls = resolve_targets(targets, ControlLevel.HOUSEHOLD)
     encoded_cols = [c.name for c in hh_ctrls if c.name in hh_recoded.columns]
 
-    result = hh_recoded.select([hh_id_col])
-
-    if encoded_cols:
-        hh_data = hh_recoded.select([hh_id_col, *encoded_cols])
-        result = result.join(hh_data, on=hh_id_col, how="left")
-
-        for ctrl in hh_ctrls:
-            if ctrl.name not in result.columns or ctrl.structural:
-                continue
-            for value, member_name in ctrl.valid_members:
-                col_name = f"{ctrl.name}__{member_name.lower()}"
-                result = result.with_columns(
-                    (pl.col(ctrl.name) == value).cast(pl.Int32).fill_null(0).alias(col_name)
-                )
-            result = result.drop(ctrl.name)
-
+    result = hh_recoded.select(hh_id_col, *encoded_cols)
+    for ctrl in hh_ctrls:
+        if ctrl.name in encoded_cols and not ctrl.structural:
+            result = result.with_columns(_indicators(pl.col(ctrl.name), ctrl)).drop(ctrl.name)
     return result
 
 
@@ -140,12 +149,9 @@ def pivot_person_controls(
             person_pivot = person_pivot.with_columns(pl.lit(1).alias(ctrl.name))
             member_cols.append(ctrl.name)
         else:
-            for value, member_name in ctrl.valid_members:
-                col_name = f"{ctrl.name}__{member_name.lower()}"
-                person_pivot = person_pivot.with_columns(
-                    (per_recoded[ctrl.name] == value).cast(pl.Int32).fill_null(0).alias(col_name)
-                )
-                member_cols.append(col_name)
+            indicators = _indicators(per_recoded[ctrl.name], ctrl)
+            person_pivot = person_pivot.with_columns(indicators)
+            member_cols += [s.name for s in indicators]
 
     # Aggregate to household level
     agg_exprs = [pl.col(c).sum() for c in member_cols]
@@ -163,11 +169,7 @@ def pivot_allocated_controls(incidence: pl.DataFrame, targets: list[str]) -> pl.
     for ctrl in resolve_targets(targets, ControlLevel.HOUSEHOLD):
         if not ctrl.pums_after_allocation:
             continue
-        code = ctrl.pums_expr()
-        incidence = incidence.with_columns(
-            (code == value).cast(pl.Int32).fill_null(0).alias(f"{ctrl.name}__{member.lower()}")
-            for value, member in ctrl.valid_members
-        )
+        incidence = incidence.with_columns(_indicators(ctrl.pums_expr(), ctrl))
     return incidence
 
 
@@ -290,14 +292,7 @@ def aggregate_control_totals(
 
     for ctrl in resolve_targets(targets):
         source, weight_col = sources[ctrl.level]
-        if ctrl.structural:
-            cols = (
-                {ctrl.name: ctrl.valid_members[0][1].lower()} if ctrl.name in source.columns else {}
-            )
-        else:
-            prefix = f"{ctrl.name}__"
-            cols = {c: c[len(prefix) :] for c in sorted(source.columns) if c.startswith(prefix)}
-        for col, member in cols.items():
+        for col, member in control_columns(ctrl, source.columns).items():
             totals = (
                 source.group_by(geo_col)
                 .agg(
@@ -340,9 +335,4 @@ def drop_lone_target_zones(totals: ControlTotals, crosswalk_df: pl.DataFrame) ->
     keep = ~(
         (pl.col("control_name") == "h_target_zone") & pl.col("zone_group_id").is_in(lone.implode())
     )
-    return ControlTotals(
-        totals=totals.totals.filter(keep),
-        pums_hh_count=totals.pums_hh_count,
-        pums_person_count=totals.pums_person_count,
-        zone_group_ids=totals.zone_group_ids,
-    )
+    return replace(totals, totals=totals.totals.filter(keep))

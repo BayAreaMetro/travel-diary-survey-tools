@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from data_canon.core.dataclass import CanonicalData
 from pipeline.step_registry import STEP_REGISTRY, StepContract, is_config_named, register_step
 
+logger = logging.getLogger(__name__)
+
 # Arguments the pipeline supplies itself; never settings.
 PIPELINE_ARGS = frozenset(
     {"canonical_data", "tables", "validate_input", "validate_output", "kwargs"}
@@ -89,7 +91,7 @@ def field_owners(func: Callable[..., Any]) -> dict[str, str]:
             argument, a canonical table or a pipeline argument.
     """
     params = set(inspect.signature(func).parameters)
-    reserved = PIPELINE_ARGS | set(CanonicalData().TABLE_NAMES)
+    reserved = PIPELINE_ARGS | TABLE_NAMES
     owners: dict[str, str] = {}
     for arg, model in settings_models(func).items():
         for name in model.model_fields:
@@ -110,9 +112,6 @@ def field_owners(func: Callable[..., Any]) -> dict[str, str]:
                 raise TypeError(msg)
             owners[name] = arg
     return owners
-
-
-logger = logging.getLogger(__name__)
 
 
 def step(
@@ -197,9 +196,6 @@ def step(
             if args:
                 msg = f"Step '{func.__name__}' takes keyword arguments only."
                 raise TypeError(msg)
-            # Save a copy of original kwargs to restore after validation
-            kwargs_copy = kwargs.copy()
-
             # Extract validation flags
             should_validate_input = kwargs.pop("validate_input", validate_input)
             should_validate_output = kwargs.pop("validate_output", validate_output)
@@ -217,10 +213,6 @@ def step(
 
             _register_generated(generated_columns, func, kwargs, canonical_data)
 
-            # Add back in any popped flags if requested by the function
-            kwargs.update(
-                {key: value for key, value in kwargs_copy.items() if key in sig.parameters}
-            )
             # A step that takes a flag itself (write_data) gets the value in force,
             # whether the caller passed it or the decorator default applies.
             resolved = {
@@ -235,7 +227,7 @@ def step(
             result = func(**kwargs)
 
             # Update canonical_data with results if available
-            if canonical_data and isinstance(result, dict):
+            if canonical_data is not None and isinstance(result, dict):
                 _update_canonical_data(canonical_data, result)
 
             if should_validate_output and isinstance(result, dict):
@@ -354,15 +346,13 @@ def _validate_dict_outputs(
     func_name: str,
     canonical_data: CanonicalData,
 ) -> None:
-    """Validate outputs in dict format."""
+    """Validate outputs in dict format.
+
+    An output that is not a canonical table was already warned about when it
+    was stored on ``canonical_data``, so it is skipped here without a word.
+    """
     for key, value in result.items():
         if key not in canonical_data.models and isinstance(value, pl.DataFrame):
-            logger.warning(
-                "Output '%s' from step '%s' is not a canonical "
-                "table and cannot be validated automatically.",
-                key,
-                func_name,
-            )
             continue
 
         logger.info(

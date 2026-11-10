@@ -19,101 +19,53 @@ def identify_home_based_tours(
     linked_trips: pl.DataFrame,
     check_multiday_gaps: bool = False,
 ) -> pl.DataFrame:
-    """Identify home-based tours from classified trip data.
+    """Number the home-based tours within each person-day.
 
-    Creates tour boundaries for sequences of trips, classifying each tour
-    by whether it starts/ends at home using TourCategory enum:
-    - COMPLETE: Starts at home, ends at home
-    - PARTIAL_END: Starts at home, doesn't end at home
-    - PARTIAL_START: Doesn't start at home, ends at home
-    - PARTIAL_BOTH: Neither starts nor ends at home
+    A new tour starts at a trip that:
+    1. Leaves home (o_is_home=True, d_is_home=False), or loops at it
+       (both ends home)
+    2. Is the day's first trip and does not start at home (a partial tour)
+    3. Follows a multi-day gap and does not start at home (if
+       ``check_multiday_gaps``)
+    4. Follows a trip that returned home, even if the next tour is partial
 
-    Tours are identified by detecting:
-    1. Departures from home (o_is_home=True, d_is_home=False)
-    2. Returns to home (o_is_home=False, d_is_home=True)
-    3. Multi-day gaps (if check_multiday_gaps=True)
-
-    Tours can be filtered downstream using the tour_category column:
-    - Filter to TourCategory.COMPLETE for legacy compatibility
-    - Include partial tours for more comprehensive analysis
+    Whether each tour starts and ends at its anchor (``tour_category``) is
+    decided later, during aggregation.
 
     Args:
         linked_trips: Classified linked trips with location type flags
         check_multiday_gaps: Whether to check for multi-day gaps
 
     Returns:
-        Linked trips with tour_id, tour_category
+        Linked trips with ``tour_num``
     """
     logger.info("Identifying home-based tours...")
 
-    # Sort trips by person, day, and time
     linked_trips = linked_trips.sort(["person_id", "person_day_id", "depart_time"])
 
-    # Mark trip characteristics for tour boundary detection
-    is_leaving_home = pl.col("_o_is_home") & ~pl.col("_d_is_home")
-    is_returning_home = ~pl.col("_o_is_home") & pl.col("_d_is_home")
-    is_loop_trip = pl.col("_o_is_home") & pl.col("_d_is_home")
-    # Use rank with tiebreakers to handle duplicate departure times
+    o_home, d_home = pl.col("_o_is_home"), pl.col("_d_is_home")
+    # Ordinal rank breaks ties between duplicate departure times
     is_first_trip = pl.col("depart_time").rank("ordinal").over(["person_id", "person_day_id"]) == 1
-    is_last_trip = pl.col("depart_time") == pl.col("depart_time").max().over(
-        ["person_id", "person_day_id"]
-    )
 
-    # Check for multi-day gaps if configured
     if check_multiday_gaps:
         day_gap = (pl.col("person_day_id") - pl.col("person_day_id").shift(1)).over(["person_id"])
         has_gap = day_gap > 1
     else:
         has_gap = pl.lit(value=False)
 
-    # Check if previous trip returned home
     prev_returned_home = (
-        is_returning_home.shift(1).over(["person_id", "person_day_id"]).fill_null(value=False)
+        (~o_home & d_home).shift(1).over(["person_id", "person_day_id"]).fill_null(value=False)
     )
-
-    # Tour starts when:
-    # 1. Leaving home (origin=home, dest!=home)
-    # 2. Loop trip (origin=home, dest=home)
-    # 3. First trip AND not at home (partial tour)
-    # 4. Multi-day gap AND not at home
-    # 5. Previous trip returned home (even if next tour is partial)
-    tour_starts_leaving = is_leaving_home
-    tour_starts_loop = is_loop_trip
-    tour_starts_away = is_first_trip & ~pl.col("_o_is_home")
-    tour_starts_gap = has_gap & ~pl.col("_o_is_home")
-    tour_starts_after_home = prev_returned_home
 
     tour_starts = (
-        tour_starts_leaving
-        | tour_starts_loop
-        | tour_starts_away
-        | tour_starts_gap
-        | tour_starts_after_home
+        o_home  # leaving home, or a loop trip at it
+        | (is_first_trip & ~o_home)
+        | (has_gap & ~o_home)
+        | prev_returned_home
     ).cast(pl.Int32)
 
-    # Tour ends when: returning home OR last trip
-    tour_ends = (is_returning_home | is_last_trip).cast(pl.Int32)
-
-    # Assign tour numbers by cumulative sum of tour starts
     linked_trips = linked_trips.with_columns(
-        [
-            is_leaving_home.alias("_leaving_home"),
-            is_returning_home.alias("_returning_home"),
-            tour_starts.alias("_tour_starts"),
-            tour_ends.alias("_tour_ends"),
-        ]
-    ).with_columns(
-        [
-            pl.col("_tour_starts").cum_sum().over(["person_id", "person_day_id"]).alias("tour_num"),
-        ]
-    )
-
-    # Clean up temporary columns
-    linked_trips = linked_trips.drop(
-        [
-            "_tour_starts",
-            "_tour_ends",
-        ]
+        tour_starts.cum_sum().over(["person_id", "person_day_id"]).alias("tour_num")
     )
 
     logger.info("Home-based tour identification complete")
@@ -159,20 +111,12 @@ def expand_anchor_periods(linked_trips: pl.DataFrame) -> pl.DataFrame:
     )
 
     # For each tour, find the first and last trip at each anchor type.
+    tour = ["person_id", "person_day_id", "tour_num"]
     for name in ["work", "school"]:
+        at_anchor = pl.when(pl.col(f"_at_{name}")).then(pl.col("_trip_num_in_tour"))
         linked_trips = linked_trips.with_columns(
-            pl.when(pl.col(f"_at_{name}"))
-            .then(pl.col("_trip_num_in_tour"))
-            .otherwise(None)
-            .min()
-            .over(["person_id", "person_day_id", "tour_num"])
-            .alias(f"_{name}_period_start"),
-            pl.when(pl.col(f"_at_{name}"))
-            .then(pl.col("_trip_num_in_tour"))
-            .otherwise(None)
-            .max()
-            .over(["person_id", "person_day_id", "tour_num"])
-            .alias(f"_{name}_period_end"),
+            at_anchor.min().over(tour).alias(f"_{name}_period_start"),
+            at_anchor.max().over(tour).alias(f"_{name}_period_end"),
         )
 
     # Determine primary anchor type for tours with anchors.
@@ -182,20 +126,11 @@ def expand_anchor_periods(linked_trips: pl.DataFrame) -> pl.DataFrame:
         .then(pl.lit(LocationType.WORK))
         .when(pl.col("_school_period_start").is_not_null())
         .then(pl.lit(LocationType.SCHOOL))
-        .otherwise(None)
         .alias("_anchor_location_type"),
-        pl.when(pl.col("_work_period_start").is_not_null())
-        .then(pl.col("_work_period_start"))
-        .when(pl.col("_school_period_start").is_not_null())
-        .then(pl.col("_school_period_start"))
-        .otherwise(None)
-        .alias("_anchor_period_start_trip_num"),
-        pl.when(pl.col("_work_period_end").is_not_null())
-        .then(pl.col("_work_period_end"))
-        .when(pl.col("_school_period_end").is_not_null())
-        .then(pl.col("_school_period_end"))
-        .otherwise(None)
-        .alias("_anchor_period_end_trip_num"),
+        pl.coalesce("_work_period_start", "_school_period_start").alias(
+            "_anchor_period_start_trip_num"
+        ),
+        pl.coalesce("_work_period_end", "_school_period_end").alias("_anchor_period_end_trip_num"),
     )
 
     # Clean up temporary columns. Keep the _o_at_work / _d_at_work / _o_at_school
@@ -290,9 +225,6 @@ def detect_anchor_based_subtours(
 ) -> pl.DataFrame:
     """Detect anchor-based subtours using hybrid loop approach.
 
-    LEGACY REFERENCE: 03a-tour_extract_week.py lines 578-600
-    MATCHES LEGACY: Only detects subtours within expanded anchor periods
-
     This is a hybrid approach that uses fast Polars vectorized operations
     to detect home-based tours, expand anchor periods, then this function
     uses a slower but more flexible/understandable loop-based approach to
@@ -315,7 +247,7 @@ def detect_anchor_based_subtours(
         linked_trips: Trips with anchor period markers
 
     Returns:
-        Trips with subtour_id assigned to subtour trips
+        Trips with ``subtour_num`` (0 for trips not on a subtour)
     """
     logger.info("Detecting anchor-based subtours...")
 
@@ -403,9 +335,6 @@ def detect_anchor_based_subtours(
     # Concatenate all tours back together. Rechunk: one chunk per tour makes
     # every downstream expression orders of magnitude slower.
     linked_trips_with_subtours = pl.concat(modified_tours, rechunk=True)
-
-    # tour_num, subtour_num, and parent_tour_id are now set for subtour trips
-    # They will be used for ID creation and parent tracking during aggregation
 
     logger.info("Detected %s anchor-based subtours", subtour_counter)
     return linked_trips_with_subtours

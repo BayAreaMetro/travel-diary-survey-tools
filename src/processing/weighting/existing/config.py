@@ -6,10 +6,8 @@ from pathlib import Path
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from processing.weighting.core.hierarchy import (
-    WEIGHT_CONFIG_MAPPING,
-    weight_col_for,
-)
+from processing.weighting.core.hierarchy import LEVEL_BY_WEIGHT_COL, weight_col_for
+from processing.weighting.core.propagation import safe_join_weight
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +59,8 @@ class ExistingWeightConfig(BaseModel):
     @classmethod
     def validate_config_key(cls, v: str) -> str:
         """Validate that config_key is one of the allowed values."""
-        if v not in WEIGHT_CONFIG_MAPPING:
-            msg = (
-                f"Invalid weight config key: {v}. "
-                f"Must be one of {list(WEIGHT_CONFIG_MAPPING.keys())}"
-            )
+        if v not in LEVEL_BY_WEIGHT_COL:
+            msg = f"Invalid weight config key: {v}. Must be one of {list(LEVEL_BY_WEIGHT_COL)}"
             raise ValueError(msg)
         return v
 
@@ -80,46 +75,38 @@ class ExistingWeightConfig(BaseModel):
 
     @model_validator(mode="after")
     def set_defaults_from_mapping(self) -> "ExistingWeightConfig":
-        """Set default values for weight_id_col and weight_col from the mapping."""
-        _, table_id_col, canonical_weight_col = WEIGHT_CONFIG_MAPPING[self.config_key]
-
+        """Set default values for weight_id_col and weight_col from the hierarchy."""
         if self.weight_id_col is None:
-            self.weight_id_col = table_id_col
+            self.weight_id_col = self.table_id_col
         if self.weight_col is None:
-            self.weight_col = canonical_weight_col
-
+            self.weight_col = self.canonical_weight_col
         return self
 
     @property
     def table_name(self) -> str:
         """Get the table name for this weight config."""
-        return WEIGHT_CONFIG_MAPPING[self.config_key][0]
+        return LEVEL_BY_WEIGHT_COL[self.config_key].table
 
     @property
     def table_id_col(self) -> str:
         """Get the canonical table ID column."""
-        return WEIGHT_CONFIG_MAPPING[self.config_key][1]
+        return LEVEL_BY_WEIGHT_COL[self.config_key].id_col
 
     @property
     def canonical_weight_col(self) -> str:
         """Get the canonical weight column name for this table."""
-        return WEIGHT_CONFIG_MAPPING[self.config_key][2]
+        return LEVEL_BY_WEIGHT_COL[self.config_key].weight_col
 
     def joined_weight_col(self, profile: str) -> str:
         """The column the supplied weight lands in under *profile*."""
         return weight_col_for(self.canonical_weight_col, profile)
 
-    def validate_columns(self, weight_df: pl.DataFrame, table_df: pl.DataFrame) -> None:
-        """Validate that required columns exist in weight file and table.
-
-        Args:
-            weight_df: The weight DataFrame loaded from weight_path
-            table_df: The survey data table to join weights to
+    def validate_columns(self, weight_df: pl.DataFrame) -> None:
+        """Validate that the weight file has its ID and weight columns.
 
         Raises:
-            ValueError: If required columns are missing
+            ValueError: If either column is missing.
         """
-        # Check weight file has required columns
         if self.weight_id_col not in weight_df.columns:
             msg = f"Weight file {self.weight_path} missing required ID column: {self.weight_id_col}"
             raise ValueError(msg)
@@ -128,11 +115,6 @@ class ExistingWeightConfig(BaseModel):
             msg = (
                 f"Weight file {self.weight_path} missing required weight column: {self.weight_col}"
             )
-            raise ValueError(msg)
-
-        # Check table has required ID column
-        if self.table_id_col not in table_df.columns:
-            msg = f"Table {self.table_name} missing required ID column: {self.table_id_col}"
             raise ValueError(msg)
 
 
@@ -157,14 +139,9 @@ def attach_supplied(
             continue
         cfg = by_table[table_name]
         joined_col = cfg.joined_weight_col(profile)
-
-        # Drop the target column if it is already there, so a re-run replaces
-        # rather than duplicates it.
-        if joined_col in df.columns:
-            df = df.drop(joined_col)
-
         renamed = weight_df.rename({cfg.canonical_weight_col: joined_col})
-        tables[table_name] = df.join(renamed, on=cfg.table_id_col, how="left")
+        # A re-run replaces the column rather than duplicating it
+        tables[table_name] = safe_join_weight(df, renamed, cfg.table_id_col)
         has_weight[table_name] = joined_col
         logger.info("Joined %s to %s on %s", joined_col, table_name, cfg.table_id_col)
 

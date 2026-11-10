@@ -42,13 +42,11 @@ from data_canon.models.ctramp import (
 )
 from processing.formatting.ctramp.format_ctramp import _drop_excess_fields, format_ctramp
 from processing.formatting.ctramp.format_households import format_households
+from processing.formatting.ctramp.format_joint_tours import format_joint_tour
 from processing.formatting.ctramp.format_joint_trips import format_joint_trip
 from processing.formatting.ctramp.format_mandatory_location import format_mandatory_location
 from processing.formatting.ctramp.format_persons import format_persons
-from processing.formatting.ctramp.format_tours import (
-    format_individual_tour,
-    format_joint_tour,
-)
+from processing.formatting.ctramp.format_tours import format_individual_tour
 from processing.formatting.ctramp.format_trips import (
     format_individual_trip,
 )

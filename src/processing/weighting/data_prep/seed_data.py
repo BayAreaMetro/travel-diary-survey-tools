@@ -164,7 +164,7 @@ def recode_survey_households(
 
     for ctrl in hh_ctrls:
         _require_fields(hh, ctrl)
-        hh = _apply_recode(hh, ctrl)
+        hh = hh.with_columns(ctrl.survey_expr().alias(ctrl.name))
 
     check_recode_nulls(
         hh,
@@ -200,7 +200,7 @@ def recode_survey_persons(
     for ctrl in p_ctrls:
         logger.info("Recoding survey person control '%s'...", ctrl.name)
         _require_fields(df, ctrl)
-        df = _apply_recode(df, ctrl)
+        df = df.with_columns(ctrl.survey_expr().alias(ctrl.name))
 
     check_recode_nulls(
         df,
@@ -214,16 +214,6 @@ def recode_survey_persons(
 
 
 # -- Internals -------------------------------------------------------------
-
-
-def _apply_recode(df: pl.DataFrame, ctrl: ControlTarget) -> pl.DataFrame:
-    """Add ``{name}`` column via ``ctrl.survey_expr()``."""
-    # Cross-tab controls derive their values from other control expressions
-    # (no direct survey fields)
-    if isinstance(ctrl, CrosstabControlTarget):
-        return df.with_columns(ctrl.survey_expr().alias(ctrl.name))
-
-    return df.with_columns(ctrl.survey_expr().alias(ctrl.name))
 
 
 def _require_values(df: pl.DataFrame, name: str, fields: tuple[str, ...], table: str) -> None:

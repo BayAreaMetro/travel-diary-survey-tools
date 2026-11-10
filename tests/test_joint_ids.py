@@ -446,7 +446,6 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
             "survey_complete": [True] * 6,
         }
     )
-    assignments = linked_trips.select("linked_trip_id", "joint_trip_id")
     return {
         "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
         "persons": pl.DataFrame(
@@ -460,7 +459,7 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
         "person_days": person_days,
         "tours": tours,
         "linked_trips": linked_trips,
-        "joint_trips": build_joint_trips_table(linked_trips, assignments, person_days),
+        "joint_trips": build_joint_trips_table(linked_trips, person_days),
         "joint_tours": build_joint_tours_table(tours, person_days),
     }
 

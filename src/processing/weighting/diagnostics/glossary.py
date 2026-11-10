@@ -153,7 +153,8 @@ GLOSSARY: tuple[Term, ...] = (
         "inherit",
         "Same as level above",
         "Share unchanged from level above",
-        "share of records with |w / w<sub>above</sub> &minus; 1| &le; 1%",
+        "share of records with |w / w<sub>above</sub> &minus; 1| &le; 10<sup>&minus;6</sup>, "
+        "equal but for floating-point error",
         "The share of records with the same weight as the record they belong to.",
         CASCADE,
     ),

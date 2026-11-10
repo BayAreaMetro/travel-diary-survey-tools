@@ -7,7 +7,7 @@ numeric dtypes. A file missing from the folder is downloaded there first, so a
 fresh clone runs without any manual step; after that every run reads it as it is.
 
 Records come back as the Census published them: which ones count is decided by
-``pums_cleaning``, and transformation (recoding, aggregation) lives in ``control_data``.
+``pums_cleaning``, recoding lives in ``control_data`` and aggregation in ``incidence``.
 """
 
 import io
@@ -77,30 +77,10 @@ _NOT_APPLICABLE = {
 }
 
 
-#: Columns identifying one row of each table. SERIALNO alone repeats once per
-#: household member, so persons need SPORDER too.
-_HH_KEYS = ("SERIALNO",)
-
-
-_PERSON_KEYS = ("SERIALNO", "SPORDER")
-
-
-#: A replicate weight is a perturbation of the full weight, so the two track each
-#: other. Measured on clean 2023 California data every replicate correlates 0.77
-#: with WGTP; misattributed ones sat at 0.20. This bound is deliberately loose
-#: because the sound value is a property of the sample -- another state or
-#: vintage need not give 0.77 -- so it is only asked to separate "tracks its
-#: weight" from "does not". The sharp test is the agreement bound below.
+#: Lowest correlation a replicate weight may have with its full weight.
 _MIN_REPLICATE_CORRELATION = 0.5
 
-
-#: Replicates of the same weight are built the same way, so they must correlate
-#: with it to the same degree, whatever that degree is. Sound data agrees to
-#: within 0.009 across all 80; a file whose replicates were partly misattributed
-#: split into two populations 0.605 apart. Being relative, this needs no
-#: assumption about the sound value, which is what makes it the stronger check.
-#: It cannot stand alone: if *every* replicate were misattributed they would
-#: agree with each other on being wrong, which is what the bound above catches.
+#: Widest spread allowed among the replicates' correlations with their full weight.
 _MAX_REPLICATE_CORRELATION_SPREAD = 0.1
 
 
@@ -112,7 +92,22 @@ def _replicate_weight_problems(
     Unlike the household-size check there is no cross-table fact to test these
     against, and a shuffled weight is still a plausible weight -- which is how
     65% of them stayed wrong across months of runs without anything noticing.
-    Correlation with the full weight is the invariant that does hold.
+    Correlation with the full weight is the invariant that does hold. Two bounds
+    test it:
+
+    * ``_MIN_REPLICATE_CORRELATION``: a replicate is a perturbation of the full
+      weight, so the two track each other. On clean 2023 California data every
+      replicate correlates 0.77 with WGTP; misattributed ones sat at 0.20. The
+      bound is loose because the sound value is a property of the sample --
+      another state or vintage need not give 0.77 -- so it only separates
+      "tracks its weight" from "does not".
+    * ``_MAX_REPLICATE_CORRELATION_SPREAD``: replicates of one weight are built
+      alike, so they correlate with it to the same degree, whatever that is.
+      Sound data agrees to within 0.009 across all 80; a partly misattributed
+      file split into two groups 0.605 apart. Being relative, this needs no
+      assumption about the sound value, which makes it the stronger check. It
+      cannot stand alone: if *every* replicate were misattributed they would
+      agree on being wrong, which the first bound catches.
     """
     present = sorted(replicates & set(df.columns))
     if weight_col not in df.columns or not present:
@@ -364,7 +359,7 @@ def read_pums(
 
 
 def _cast_pums_types(df: pl.DataFrame, expected_vars: set[str]) -> pl.DataFrame:
-    """Cast PUMS columns from string (Census API) to numeric types.
+    """Cast PUMS columns from string to numeric types.
 
     Strict: a value that does not read as a number raises, naming the variable.
     Turning it into null instead is how ``ADJINC``, which the API sends as a
@@ -374,7 +369,7 @@ def _cast_pums_types(df: pl.DataFrame, expected_vars: set[str]) -> pl.DataFrame:
         ValueError: If any value of an expected variable is not a number.
     """
     # String ID columns that should stay as strings
-    string_cols = {"SERIALNO", "PUMA", "ST"}
+    string_cols = {"SERIALNO", "PUMA"}
     # Written with a fractional part; every other variable read is a whole number
     decimal_vars = {"HINCP", "PWGTP", "WGTP", "WKHP", "ADJINC"}
 

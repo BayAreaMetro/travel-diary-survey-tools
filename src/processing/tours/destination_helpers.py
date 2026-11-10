@@ -29,9 +29,22 @@ def calculate_tour_purpose_and_destination(
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Calculate tour purpose and primary destination from trip data.
 
-    Determines tour purpose from the highest priority non-last trip, with
-    activity duration as a tie-breaker. Returns enhanced trip data with
-    purpose priorities and primary destination coordinates.
+    The tour purpose is the purpose of the first candidate trip after ordering
+    by ``config.tour_purpose_method``:
+
+    - ``"score"``: duration-weighted, highest score wins, so a long
+      discretionary activity can outrank a brief mandatory one; ties go to
+      the longer activity, then the lower trip id.
+    - ``"hierarchy"``: priority rank; activity duration breaks ties only.
+
+    A trip cannot supply the purpose when it is the *return leg* -- the last
+    trip, landing back on the anchor: that arrival is the tour closing, not an
+    activity. A partial tour's last trip never reaches the anchor, so its
+    destination is a genuine candidate; excluding it purely for being last left
+    every one-trip tour with a null purpose. Mode changes are never
+    candidates. A tour with no candidate at all -- an anchor-to-anchor loop,
+    or one whose every stop was a mode change -- gets a null purpose and is
+    flagged NO_DESTINATION downstream.
 
     Args:
         linked_trips: Trip data with tour_num and subtour_num
@@ -53,11 +66,7 @@ def calculate_tour_purpose_and_destination(
         alias="_activity_duration",
     )
 
-    # A trip cannot supply the tour purpose when it is the *return leg* -- the
-    # last trip, landing back on the anchor. That arrival is the tour closing,
-    # not an activity. A partial tour's last trip never reaches the anchor, so
-    # its destination is a genuine candidate; excluding it purely for being last
-    # is what left every one-trip tour with a null purpose.
+    # The return leg to the anchor and mode changes are not candidates (see docstring)
     is_last_trip = pl.col("linked_trip_id").rank("ordinal").over("tour_id") == pl.col(
         "linked_trip_id"
     ).count().over("tour_id")
@@ -78,22 +87,9 @@ def calculate_tour_purpose_and_destination(
         ]
     )
 
-    # Order non-last trips so the tour purpose is the first row per tour. Two
-    # methods (config.tour_purpose_method):
-    # - "score": duration-weighted, highest score wins (a long discretionary
-    #   activity can outrank a brief mandatory one).
-    # - "hierarchy": priority rank, activity duration breaks ties only.
-    # A tour with no candidate at all -- an anchor-to-anchor loop, or one whose
-    # every stop was a mode change -- gets a null purpose and is flagged
-    # NO_DESTINATION downstream.
+    # Order candidates so the tour purpose is the first row per tour
     if config.tour_purpose_method == "score":
-        linked_trips = add_purpose_score_column(
-            linked_trips,
-            config,
-            purpose_col="d_purpose_category",
-            duration_col="_activity_duration",
-            alias="_purpose_score",
-        )
+        linked_trips = add_purpose_score_column(linked_trips, config, alias="_purpose_score")
         non_last = linked_trips.filter(~pl.col("_is_not_a_destination")).sort(
             # score wins; ties broken by longer activity then lowest trip id so
             # the selection is deterministic.
@@ -142,6 +138,12 @@ def calculate_destination_times(
     tour cut by the diary edge arrived somewhere and stopped being observed;
     inventing a departure would put a time on an event that did not happen.
 
+    Departure times join on *left*, not full: a departure is a departure from
+    the destination, so a tour with no destination has none. An outer join let
+    a tour whose every trip was ruled out as a candidate still pick up a
+    departure time, and then all its trips classified as inbound, leaving it
+    with no outbound leg and no mode for it.
+
     Args:
         linked_trips: Enhanced trip data with primary destination coordinates
         buffer_meters: The habitual-location buffer: a trip end this close to
@@ -167,17 +169,15 @@ def calculate_destination_times(
                 pl.col("_primary_d_lat"),
                 pl.col("_primary_d_lon"),
             ).alias("_dist_o_to_primary"),
-            pl.lit(buffer_meters).alias("_threshold"),
         ]
     ).with_columns(
         [
-            (pl.col("_dist_d_to_primary") <= pl.col("_threshold")).alias("_arrives_at_primary"),
-            (pl.col("_dist_o_to_primary") <= pl.col("_threshold")).alias("_departs_from_primary"),
+            (pl.col("_dist_d_to_primary") <= buffer_meters).alias("_arrives_at_primary"),
+            (pl.col("_dist_o_to_primary") <= buffer_meters).alias("_departs_from_primary"),
         ]
     )
 
-    # Aggregate arrive times (exclude last trip) and depart times (all trips)
-    # Use distance filtering with fallback to trip sequence
+    # Arrival: the last candidate trip ending at the destination
     dest_arrive = (
         linked_trips.filter(~pl.col("_is_not_a_destination") & pl.col("_arrives_at_primary"))
         .group_by("tour_id")
@@ -232,11 +232,7 @@ def calculate_destination_times(
             ]
         )
         .select(["tour_id", "dest_arrive_time", "dest_linked_trip_id"])
-        # Left, not full: a departure is a departure *from the destination*, so a
-        # tour with no destination has none. Joining outer let a tour whose every
-        # trip was ruled out as a candidate still pick up a departure time, and
-        # every one of its trips then classified as inbound -- leaving the tour
-        # with no outbound leg and no mode for it.
+        # Left, not full: no destination, no departure (see docstring)
         .join(
             dest_depart_fallback.join(dest_depart, on="tour_id", how="left", suffix="_dist")
             .with_columns(

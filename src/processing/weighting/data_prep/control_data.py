@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Recoding  (generic loop — all mapping logic lives in controls.py)
+# Recoding  (generic loop — all mapping logic lives in the controls package)
 # ---------------------------------------------------------------------------
 
 
@@ -52,28 +52,22 @@ def _apply_pums_recode(df: pl.DataFrame, ctrl: ControlTarget) -> pl.DataFrame:
 def recode_pums_households(
     hh_df: pl.DataFrame,
     person_df: pl.DataFrame,
-    targets: list[str] | None = None,
+    targets: list[str],
 ) -> pl.DataFrame:
     """Recode PUMS household records into control categories.
 
-    Derives person-level aggregates (workers, children, drivers) then loops over
-    household-level controls calling ``ctrl.from_pums_row``.
+    Derives person-level aggregates (workers, children, drivers) then adds each
+    household-level control's ``ctrl.pums_expr()`` column.
 
     Args:
         hh_df: PUMS household microdata.
         person_df: PUMS person microdata (used to derive hh-level aggregates).
-        targets: Registry keys to recode.  ``None`` → all household controls.
+        targets: Registry keys to recode; person-level keys are ignored.
             Controls recoded only after allocation are skipped (see
             `recode_allocated_pums`).
     """
     hh_ctrls = [
-        c
-        for c in (
-            resolve_targets(targets, ControlLevel.HOUSEHOLD)
-            if targets
-            else [c for c in CONTROLS.values() if c.level == ControlLevel.HOUSEHOLD]
-        )
-        if not c.pums_after_allocation
+        c for c in resolve_targets(targets, ControlLevel.HOUSEHOLD) if not c.pums_after_allocation
     ]
 
     # Pre-aggregate person → household counts for derived HH controls.
@@ -111,7 +105,7 @@ def recode_pums_households(
 
     check_recode_nulls(
         hh,
-        targets or [c.name for c in hh_ctrls],
+        targets,
         level=ControlLevel.HOUSEHOLD,
         id_col="SERIALNO",
         source_label="PUMS",
@@ -140,30 +134,21 @@ def recode_allocated_pums(hh_df: pl.DataFrame, targets: list[str]) -> pl.DataFra
     return hh_df
 
 
-def recode_pums_persons(
-    person_df: pl.DataFrame,
-    targets: list[str] | None = None,
-) -> pl.DataFrame:
+def recode_pums_persons(person_df: pl.DataFrame, targets: list[str]) -> pl.DataFrame:
     """Recode PUMS person records into control categories.
 
     Args:
         person_df: PUMS person microdata.
-        targets: Registry keys to recode.  ``None`` → all person controls.
+        targets: Registry keys to recode; household-level keys are ignored.
     """
-    p_ctrls = (
-        resolve_targets(targets, ControlLevel.PERSON)
-        if targets
-        else [c for c in CONTROLS.values() if c.level == ControlLevel.PERSON]
-    )
-
     df = person_df
-    for ctrl in p_ctrls:
+    for ctrl in resolve_targets(targets, ControlLevel.PERSON):
         logger.info("Recoding PUMS person control '%s'...", ctrl.name)
         df = _apply_pums_recode(df, ctrl)
 
     check_recode_nulls(
         df,
-        targets or [c.name for c in p_ctrls],
+        targets,
         level=ControlLevel.PERSON,
         id_col="SERIALNO",
         source_label="PUMS",

@@ -42,6 +42,16 @@ MODE_TO_TRANSIT_SUBMODE = {
 }
 
 
+def tnc_type_agg() -> pl.Expr:
+    """A group's TNC type: ``POOLED`` if any segment was pooled, else the lowest."""
+    return (
+        pl.when((pl.col("tnc_type") == TNCType.POOLED.value).any())
+        .then(pl.lit(TNCType.POOLED.value))
+        .otherwise(pl.col("tnc_type").min())
+        .alias("tnc_type")
+    )
+
+
 def aggregate_transit_submode(unlinked_trips: pl.DataFrame, group_col: str) -> pl.DataFrame:
     """Aggregate the highest transit submode and the TNC type within each group.
 
@@ -88,19 +98,13 @@ def aggregate_transit_submode(unlinked_trips: pl.DataFrame, group_col: str) -> p
         .agg(pl.col("_submode_rank").max().alias("transit_submode"))
     )
 
-    # Aggregate TNC type across the group's TNC segments (POOLED wins, else min).
     if "tnc_type" in unlinked_trips.columns and "mode_type" in unlinked_trips.columns:
         tnc = (
             unlinked_trips.filter(
                 pl.col(group_col).is_not_null() & (pl.col("mode_type") == ModeType.TNC.value)
             )
             .group_by(group_col)
-            .agg(
-                pl.when((pl.col("tnc_type") == TNCType.POOLED.value).any())
-                .then(pl.lit(TNCType.POOLED.value))
-                .otherwise(pl.col("tnc_type").min())
-                .alias("tnc_type")
-            )
+            .agg(tnc_type_agg())
         )
         submode = submode.join(tnc, on=group_col, how="full", coalesce=True)
     else:

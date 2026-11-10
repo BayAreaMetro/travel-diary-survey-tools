@@ -118,24 +118,6 @@ def get_required_fields(table_name: str, step_name: str) -> set[str]:
     return set(tc.requires) if tc else set()
 
 
-def get_produced_fields(table_name: str, step_name: str) -> set[str]:
-    """Get fields produced by a step for a given table.
-
-    Args:
-        table_name: Name of the canonical table.
-        step_name: Name of the pipeline step.
-
-    Returns:
-        Set of field names produced as output. Empty if step or table
-        has no registered contract.
-    """
-    contract = STEP_REGISTRY.get(step_name)
-    if not contract:
-        return set()
-    tc = contract.tables.get(table_name)
-    return set(tc.produces) if tc else set()
-
-
 def get_all_required_fields(table_name: str) -> set[str]:
     """Get the union of all required fields for a table across every step.
 
@@ -154,20 +136,3 @@ def get_all_required_fields(table_name: str) -> set[str]:
         if tc:
             fields.update(tc.requires)
     return fields
-
-
-def get_step_validation_summary() -> dict[str, dict[str, list[str]]]:
-    """Get a summary of required fields across all steps and tables.
-
-    Returns:
-        Nested dict: step_name -> table_name -> sorted list of required fields.
-    """
-    summary: dict[str, dict[str, list[str]]] = {}
-    for step_name, step_contract in STEP_REGISTRY.items():
-        tables: dict[str, list[str]] = {}
-        for table_name, table_contract in step_contract.tables.items():
-            if table_contract.requires:
-                tables[table_name] = sorted(table_contract.requires)
-        if tables:
-            summary[step_name] = tables
-    return summary

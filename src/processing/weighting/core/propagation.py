@@ -122,6 +122,16 @@ def is_usable(usability_flag_col: str) -> pl.Expr:
     return pl.col(usability_flag_col).fill_null(value=False)
 
 
+def zero_unusable(weight_col: str, usability_flag_col: str) -> pl.Expr:
+    """*weight_col* where the record is usable, 0 where it is not."""
+    return (
+        pl.when(is_usable(usability_flag_col))
+        .then(pl.col(weight_col))
+        .otherwise(0.0)
+        .alias(weight_col)
+    )
+
+
 def seed_admits(usability_flag_col: str) -> pl.Expr:
     """True when a household belongs in the balancer's seed for this profile.
 
@@ -134,7 +144,7 @@ def seed_admits(usability_flag_col: str) -> pl.Expr:
     two to differ, a household the seed rejected could keep a null where the
     output promises a zero.
     """
-    admits = pl.col(usability_flag_col).fill_null(value=False)
+    admits = is_usable(usability_flag_col)
     if usability_flag_col == "survey_complete":
         return admits
     return admits & pl.col("survey_complete").fill_null(value=False)
@@ -260,13 +270,14 @@ def split_among_usable(
     stranded = counts.filter((pl.col("_n_usable") == 0) & (pl.col("_parent_weight") > 0))
     if stranded.height:
         logger.info(
-            "%s: %d %s(s) kept no usable child; %.1f of %s stays unrepresented "
-            "(reported by the checksum, never pooled across parents)",
+            "%s: %d %s(s) have no usable record here; %.1f of %s stays unrepresented "
+            "(reported by the checksum, never moved to another %s)",
             table,
             stranded.height,
             key,
             float(stranded["_parent_weight"].sum()),
             weight_col,
+            key,
         )
 
     df = (
@@ -279,7 +290,7 @@ def split_among_usable(
         )
         .drop("_n_usable")
     )
-    logger.info("%s: %s split equally among each %s's usable children", table, weight_col, key)
+    logger.info("%s: %s split equally among each %s's usable records", table, weight_col, key)
     return df
 
 
@@ -300,11 +311,14 @@ def _carry_down(
     if level.parent not in has_weight:
         msg = (
             f"Cannot derive {weight_col} for {level.table}: "
-            f"parent table {level.parent} has no weight column"
+            f"it comes from {level.parent}, which has no weight column"
         )
         raise ValueError(msg)
     if parent_df is None:
-        msg = f"Cannot derive {weight_col} for {level.table}: parent table {level.parent} is None"
+        msg = (
+            f"Cannot derive {weight_col} for {level.table}: "
+            f"it comes from {level.parent}, which is not loaded"
+        )
         raise ValueError(msg)
     if level.key not in child_df.columns:
         msg = f"Cannot derive weight: {level.table} missing join key {level.key}"
@@ -396,12 +410,7 @@ def _aggregate_up(
     # A grouping is never more usable than its members: an unusable record
     # carries no weight even where the combination came out positive.
     if usability_flag_col and usability_flag_col in target_df.columns:
-        target_df = target_df.with_columns(
-            pl.when(is_usable(usability_flag_col))
-            .then(pl.col(weight_col))
-            .otherwise(0.0)
-            .alias(weight_col)
-        )
+        target_df = target_df.with_columns(zero_unusable(weight_col, usability_flag_col))
 
     tables[level.table] = target_df
     has_weight[level.table] = weight_col

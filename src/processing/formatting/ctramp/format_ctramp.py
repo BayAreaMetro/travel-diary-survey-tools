@@ -194,7 +194,6 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.ctramp import CTRAMPEmploymentCategory, CTRAMPPersonType
 from data_canon.models.ctramp import (
     AllTourCTRAMPModel,
     AllTripCTRAMPModel,
@@ -218,13 +217,12 @@ from .day_ids import incorporate_day_into_ids
 from .format_ao import format_ao_results
 from .format_cdap import format_cdap_results
 from .format_households import format_households
+from .format_joint_tours import format_joint_tour
 from .format_joint_trips import format_joint_trip
 from .format_mandatory_location import format_mandatory_location
-from .format_persons import enrich_persons_with_person_type, format_persons
-from .format_tours import format_individual_tour, format_joint_tour
+from .format_persons import add_person_type, format_persons
+from .format_tours import format_individual_tour
 from .format_trips import format_individual_trip
-from .person_mappings import EMPLOYMENT_TO_CTRAMP
-from .student_mappings import ctramp_student_category_expression
 
 logger = logging.getLogger(__name__)
 
@@ -263,12 +261,7 @@ def _drop_excess_fields(
 
 
 @step(
-    # Derived by ablation against the 2023 canonical output: every column below was
-    # dropped in turn and the step re-run, keeping those whose absence raised. Columns
-    # whose absence merely degrades the output (weights, `industry`, `tnc_type`,
-    # the usability flag, the `person_day_id`s) are deliberately excluded - see module note.
-    # Zone columns are omitted because their names come from the `taz_field` param
-    # (e.g. `o_TAZ1454`) and so cannot be expressed statically.
+    # The columns whose absence raises; see "Required columns" in the docstring.
     requires={
         "households": {
             "hh_id",
@@ -349,6 +342,13 @@ def format_ctramp(
     CT-RAMP format required by the activity-based travel demand model. See module
     docstring for complete component descriptions and data flow.
 
+    Required columns: found by ablation against the 2023 canonical output. Each
+    column in ``requires`` was dropped in turn and the step re-run, keeping
+    those whose absence raised. Columns whose absence only degrades the output
+    (weights, ``industry``, ``tnc_type``, the usability flag, the trip tables'
+    ``person_day_id``) are left out, as are the zone columns, whose names come
+    from ``taz_field`` (e.g. ``o_TAZ1454``).
+
     Args:
         tables: The canonical tables in ``requires``. ``person_days`` expands
             persons and households to the person-day level and encodes the survey
@@ -386,8 +386,9 @@ def format_ctramp(
     !!! Example
 
         ```python
-        from processing.formatting.ctramp import format_ctramp
+        from processing.formatting.ctramp.format_ctramp import format_ctramp
 
+        # A step takes its tables by name; the decorator gathers them into `tables`.
         result = format_ctramp(
             persons=canonical_persons,
             households=canonical_households,
@@ -423,9 +424,8 @@ def format_ctramp(
     """
     logger.info("Starting CT-RAMP formatting")
 
-    # One gate, read from the profile the config names. The formatter selects
-    # nothing of its own: see the filters module for why deciding here rather
-    # than in cascade_completeness put the weighting out of step with the output.
+    # One gate, read from the profile the config names; usable_records says why
+    # the formatter selects nothing of its own.
     gated = keep_usable(
         {name: tables[name] for name in GATED_TABLES},
         ctramp.usability_profile,
@@ -466,40 +466,8 @@ def format_ctramp(
     # Format households first since it has no derived field dependencies
     households_ctramp = format_households(households, persons, tours, ctramp)
 
-    # Derive/validate person_type and type for use in tour/trip formatting
-    # Pre-compute student_category and employment_category so person_type
-    # expression can use them for consistent classification
-    if "student_category" not in persons.columns:
-        persons = persons.with_columns(
-            ctramp_student_category_expression(school_taz_col=f"school_{ctramp.taz_field}").alias(
-                "student_category"
-            )
-        )
-    if "employment_category" not in persons.columns:
-        persons = persons.with_columns(
-            pl.col("employment")
-            .replace_strict(
-                EMPLOYMENT_TO_CTRAMP,
-                default=CTRAMPEmploymentCategory.NOT_EMPLOYED.value,
-            )
-            .alias("employment_category")
-        )
-    persons_with_type = enrich_persons_with_person_type(persons)
-
-    # Children under 16 get UNDER_16 employment category regardless of reported employment
-    persons_with_type = persons_with_type.with_columns(
-        pl.when(
-            pl.col("person_type").is_in(
-                [
-                    CTRAMPPersonType.CHILD_UNDER_5.value,
-                    CTRAMPPersonType.STUDENT_NON_DRIVING_AGE.value,
-                ]
-            )
-        )
-        .then(pl.lit(CTRAMPEmploymentCategory.UNDER_16.value))
-        .otherwise(pl.col("employment_category"))
-        .alias("employment_category")
-    )
+    # Student and employment categories and person type, for tours and persons.
+    persons_with_type = add_person_type(persons, ctramp)
 
     # Format tours - use empty DataFrame with proper schema if no tours exist
     if len(tours) == 0:
@@ -588,9 +556,8 @@ def format_ctramp(
             config=ctramp,
         )
 
-    # Prepare result dictionary and clean up temporary columns
     # Two tables come out of group_bys in no fixed order; sort them so runs match.
-    tables = {
+    results = {
         "households_ctramp": households_ctramp.sort("hh_id"),
         "persons_ctramp": persons_ctramp,
         "individual_trips_ctramp": individual_trips_ctramp,
@@ -606,15 +573,8 @@ def format_ctramp(
         "all_tours_ctramp": all_tours_ctramp,
         "all_trips_ctramp": all_trips_ctramp,
     }
+    # Derived before each table is trimmed to its own model below.
+    results["cdap_results_ctramp"] = format_cdap_results(results["persons_ctramp"])
+    results["ao_results_ctramp"] = format_ao_results(results["households_ctramp"])
 
-    # Derive cdapResults / aoResults from the formatted persons/households before
-    # the cleanup loop trims each table to its own model.
-    tables["cdap_results_ctramp"] = format_cdap_results(tables["persons_ctramp"])
-    tables["ao_results_ctramp"] = format_ao_results(tables["households_ctramp"])
-
-    # Cleanup tables
-    for table_name, df in tables.items():
-        model_cls = MODEL_MAP[table_name]
-        tables[table_name] = _drop_excess_fields(df, model_cls)
-
-    return tables
+    return {name: _drop_excess_fields(df, MODEL_MAP[name]) for name, df in results.items()}

@@ -1,8 +1,8 @@
 """The controls a weighting run fits to, from definition to checksum.
 
 Four things, read together because each consumes the last. Cross-tab targets are
-registered from YAML config and recoded into a composite key, then pivoted into
-an incidence table and collapsed by N-D merges. Control totals are aggregated
+registered from YAML config, pre-merged at registration and recoded into a
+composite key, then pivoted into an incidence table. Control totals are aggregated
 from the recoded PUMS frames, households on household weights and persons on
 person weights. Zone-targeted
 1-D merges layer on top of the global ones, and the fit report reads its labels
@@ -13,13 +13,11 @@ structural totals.
 import logging
 import re
 
-import numpy as np
 import polars as pl
 import pytest
 
 from data_canon.codebook.households import IncomeBroad
 from data_canon.codebook.persons import Gender
-from processing.weighting.balancing.merges import apply_category_merges
 from processing.weighting.controls.base import ControlLevel, CrosstabControlTarget
 from processing.weighting.controls.enums import HHSizeCategory
 from processing.weighting.controls.registry import CONTROLS, register_crosstab
@@ -39,7 +37,6 @@ from processing.weighting.data_prep.incidence import (
 )
 from processing.weighting.data_prep.merges import (
     apply_1d_merges,
-    apply_crosstab_merges,
     merge_control_totals,
 )
 from processing.weighting.data_prep.seed_data import (
@@ -183,7 +180,7 @@ class TestCrosstabRegistration:
         assert size_spec.dimensions is None
 
     def test_from_yaml_stores_merges_on_spec(self):
-        """Cross-tab merges are stored on ControlSpec, not in crosstab_merges list.
+        """Cross-tab merges are stored on ControlSpec, not among the 1-D merges.
 
         They are applied at registration time, not post-pivot.
         """
@@ -206,8 +203,7 @@ class TestCrosstabRegistration:
             },
         ]
         parsed = ControlRegistryConfig.from_yaml(config)
-        # Cross-tab merges are NOT added to crosstab_merges (pre-merge at registration)
-        assert len(parsed.crosstab_merges) == 0
+        assert parsed.merges_1d == []
         # Instead, merges are stored on the ControlSpec itself
         xtab_spec = next(s for s in parsed.specs if s.name == "h_size_by_income")
         assert xtab_spec.merges is not None
@@ -323,46 +319,7 @@ class TestCrosstabIncidence:
 
 @pytest.mark.usefixtures("size_income_xtab")
 class TestCrosstabMerges:
-    """Tests for N-D merge operations on cross-tab incidence columns."""
-
-    def test_merge_preserves_row_sums(self, households, persons):
-        """Merging doesn't change the total incidence per household."""
-        targets = ["h_size", "h_income", "h_size_x_income"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
-
-        before_cols = [c for c in incidence.columns if c.startswith("h_size_x_income__")]
-        before_sums = incidence.select(pl.sum_horizontal(*before_cols).alias("s"))["s"]
-
-        merge_spec = MergeSpec(
-            control="h_size_x_income",
-            groups={"h_income": PREMERGE_GROUPS["h_income"]},
-        )
-        merged = apply_crosstab_merges(incidence, [merge_spec])
-        after_cols = [c for c in merged.columns if c.startswith("h_size_x_income__")]
-        after_sums = merged.select(pl.sum_horizontal(*after_cols).alias("s"))["s"]
-
-        assert before_sums.to_list() == after_sums.to_list()
-
-    def test_multi_dim_merge(self, households, persons):
-        """Merging both dimensions simultaneously produces expected cell count."""
-        targets = ["h_size", "h_income", "h_size_x_income"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
-
-        # Merge: 4 income -> 1 merged + 2 kept = 3 income bins
-        # Merge: 8 size -> 1 merged + 2 kept = 3 size bins
-        # Result: 3 x 3 = 9 cells
-        merge_spec = MergeSpec(
-            control="h_size_x_income",
-            groups=PREMERGE_GROUPS,
-        )
-        merged = apply_crosstab_merges(incidence, [merge_spec])
-        after_cols = [c for c in merged.columns if c.startswith("h_size_x_income__")]
-
-        # 3 size bins (size_1, size_2, size_3_plus) x 3 income bins
-        # (income_under_100, income_100to200, income_200_or_more) = 9
-        assert len(after_cols) == 9
+    """1-D merges alongside cross-tab incidence columns."""
 
     def test_1d_merges_independent_of_crosstab(self, households, persons):
         """Global 1-D merges on h_size don't affect cross-tab columns."""
@@ -683,90 +640,6 @@ class TestZoneMergeTargets:
         merged = merge_control_totals(totals, [spec]).totals
         assert merged["category"].to_list() == ["napa"]
         assert merged["target_total"].to_list() == [51167.0]
-
-
-# ---------------------------------------------------------------------------
-# apply_category_merges — targeted merge layered on global merge
-# ---------------------------------------------------------------------------
-def _make_arrays(labels, targets_list):
-    """Helper: build incidence, targets, importance arrays from row labels."""
-    n_hh = 3
-    incidence = np.ones((len(labels), n_hh), dtype=np.float64)
-    # Give each row distinct values so we can verify summation
-    for i in range(len(labels)):
-        incidence[i] = np.array([i + 1, i + 2, i + 3], dtype=np.float64)
-    targets = np.array(targets_list, dtype=np.float64)
-    importance = np.ones(len(labels), dtype=np.float64)
-    master_idx = next(i for i, (c, _) in enumerate(labels) if c == "h_total")
-    return incidence, targets, master_idx, importance
-
-
-class TestApplyMergesTargeted:
-    """Targeted merges should be able to reference labels produced by global merges."""
-
-    def test_global_then_targeted_merge(self):
-        """A targeted merge can reference a label created by a preceding global merge."""
-        # Row labels: h_total + h_size with 4 categories
-        labels = [
-            ("h_total", "total"),
-            ("h_size", "size_3"),
-            ("h_size", "size_4"),
-            ("h_size", "size_5"),
-            ("h_size", "size_6"),
-        ]
-        targets = [100.0, 30.0, 25.0, 25.0, 20.0]
-        incidence, tgt, master_idx, imp = _make_arrays(labels, targets)
-
-        # Global: merge 5+6 → size_5_plus
-        global_merge = MergeSpec(
-            control="h_size",
-            groups={"size_5_plus": ["size_5", "size_6"]},
-            zones=None,
-        )
-        # Targeted: further merge 4 + size_5_plus → size_4_plus (zone Z1 only)
-        targeted_merge = MergeSpec(
-            control="h_size",
-            groups={"size_4_plus": ["size_4", "size_5_plus"]},
-            zones=["Z1"],
-        )
-
-        # Apply both in order (global first)
-        incidence, tgt, master_idx, imp = apply_category_merges(
-            incidence, tgt, labels, master_idx, [global_merge, targeted_merge], imp
-        )
-
-        # After global: size_5,size_6→size_5_plus  (target=25+20=45)
-        # After targeted: size_4+size_5_plus→size_4_plus  (target=25+45=70)
-        remaining_members = {member for _, member in labels}
-        assert "size_5" not in remaining_members
-        assert "size_6" not in remaining_members
-        assert "size_4" not in remaining_members
-        assert "size_5_plus" not in remaining_members
-        assert "size_4_plus" in remaining_members
-        assert "size_3" in remaining_members
-
-        # Find the merged target
-        idx_4_plus = next(i for i, (c, m) in enumerate(labels) if m == "size_4_plus")
-        assert tgt[idx_4_plus] == pytest.approx(70.0)
-
-    def test_targeted_merge_unknown_label_raises(self):
-        """Referencing a label that doesn't exist should raise ValueError."""
-        labels = [
-            ("h_total", "total"),
-            ("h_size", "size_3"),
-            ("h_size", "size_4"),
-        ]
-        targets = [100.0, 50.0, 50.0]
-        incidence, tgt, master_idx, imp = _make_arrays(labels, targets)
-
-        bad_merge = MergeSpec(
-            control="h_size",
-            groups={"merged": ["size_4", "nonexistent"]},
-            zones=["Z1"],
-        )
-
-        with pytest.raises(ValueError, match="unknown categories"):
-            apply_category_merges(incidence, tgt, labels, master_idx, [bad_merge], imp)
 
 
 # ---------------------------------------------------------------------------

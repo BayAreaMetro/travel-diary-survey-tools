@@ -1,28 +1,21 @@
-"""Configuration models and calibration utilities for joint trip detection.
+"""Configuration for joint trip detection.
 
 ALGORITHM DESIGN NOTES:
 ========================
 
-This module implements joint trip detection using two methods:
+This module configures joint trip detection, which uses one of two methods:
 
-1. BUFFER METHOD (debugging/calibration):
+1. BUFFER METHOD:
    Strict AND across four dimensions: origin distance, destination distance,
    departure time, arrival time. Uses Haversine for spatial matching and
    absolute time differences. All four must pass thresholds.
 
-2. MAHALANOBIS METHOD (production):
+2. MAHALANOBIS METHOD:
    Statistical distance on 4D vector
    [Δorigin_m, Δdest_m, Δdepart_min, Δarrive_min].
    Supports diagonal covariance (assumes independence) or full covariance matrix
-   (captures correlations). More robust to GPS noise via compensation.
-
-CALIBRATION WORKFLOW:
----------------------
-1. Run detection with method='buffer' to find high-confidence joint trips
-2. Use estimate_covariance_from_detected_pairs() to analyze buffer results
-3. Helper scans threshold range and recommends optimal distance_threshold
-4. Copy diagonal or full covariance to config for production runs
-5. Run detection with method='mahalanobis' using calibrated parameters
+   (captures correlations). The covariance is an assumed noise level stated in
+   config, not estimated here.
 
 TEMPORAL OVERLAP:
 -----------------
@@ -34,11 +27,8 @@ from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
-import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from scipy import stats
-
-from utils.helpers import expr_haversine as haversine_dist
 
 
 class JointTripConfig(BaseModel):
@@ -213,237 +203,3 @@ class JointTripConfig(BaseModel):
             return 0.0  # Not used for buffer method
         # Inverted on purpose: higher confidence_level, lower cutoff.
         return float(stats.chi2.ppf(1 - self.confidence_level, df=4))
-
-    class ConfigDict:
-        """Pydantic model configuration."""
-
-        arbitrary_types_allowed = True
-
-
-def _validate_covariance_inputs(joint_trips: pl.DataFrame, linked_trips: pl.DataFrame) -> None:
-    """Validate inputs for covariance estimation."""
-    required_joint_cols = {"joint_trip_id", "hh_id", "travel_date"}
-    required_trip_cols = {
-        "linked_trip_id",
-        "hh_id",
-        "person_day_id",
-        "person_id",
-        "o_lat",
-        "o_lon",
-        "d_lat",
-        "d_lon",
-        "depart_time",
-        "arrive_time",
-        "joint_trip_id",
-    }
-
-    missing_joint = required_joint_cols - set(joint_trips.columns)
-    missing_trip = required_trip_cols - set(linked_trips.columns)
-
-    if missing_joint:
-        msg = (
-            f"joint_trips missing required columns: {missing_joint}. "
-            "Run detect_joint_trips with method='buffer' first."
-        )
-        raise ValueError(msg)
-
-    if missing_trip:
-        msg = f"linked_trips missing required columns: {missing_trip}"
-        raise ValueError(msg)
-
-
-def _compute_joint_trip_pairs(linked_trips: pl.DataFrame) -> pl.DataFrame:
-    """Compute pairwise differences for joint trip members."""
-    joint_trip_members = linked_trips.filter(pl.col("joint_trip_id").is_not_null())
-
-    if len(joint_trip_members) == 0:
-        msg = "No joint trips detected in buffer run. Cannot estimate covariance from empty set."
-        raise ValueError(msg)
-
-    # Create all pairwise combinations within each joint_trip_id
-    pairs = joint_trip_members.join(
-        joint_trip_members.select(
-            [
-                "joint_trip_id",
-                "linked_trip_id",
-                "person_id",
-                "o_lat",
-                "o_lon",
-                "d_lat",
-                "d_lon",
-                "depart_time",
-                "arrive_time",
-            ]
-        ).rename(
-            {
-                "linked_trip_id": "linked_trip_id_b",
-                "person_id": "person_id_b",
-                "o_lat": "o_lat_b",
-                "o_lon": "o_lon_b",
-                "d_lat": "d_lat_b",
-                "d_lon": "d_lon_b",
-                "depart_time": "depart_time_b",
-                "arrive_time": "arrive_time_b",
-            }
-        ),
-        on="joint_trip_id",
-        how="inner",
-    ).filter(pl.col("linked_trip_id") < pl.col("linked_trip_id_b"))
-
-    if len(pairs) == 0:
-        msg = "No pairs found in detected joints (all single-trip groups?)"
-        raise ValueError(msg)
-
-    # Compute differences
-    return pairs.with_columns(
-        [
-            haversine_dist(
-                pl.col("o_lat"),
-                pl.col("o_lon"),
-                pl.col("o_lat_b"),
-                pl.col("o_lon_b"),
-            ).alias("delta_origin_m"),
-            haversine_dist(
-                pl.col("d_lat"),
-                pl.col("d_lon"),
-                pl.col("d_lat_b"),
-                pl.col("d_lon_b"),
-            ).alias("delta_dest_m"),
-            ((pl.col("depart_time") - pl.col("depart_time_b")).dt.total_minutes().abs()).alias(
-                "delta_depart_min"
-            ),
-            ((pl.col("arrive_time") - pl.col("arrive_time_b")).dt.total_minutes().abs()).alias(
-                "delta_arrive_min"
-            ),
-        ]
-    )
-
-
-def estimate_covariance_from_detected_pairs(
-    joint_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    threshold_range: list[float] | None = None,
-) -> dict:
-    """Estimate covariance from buffer-detected joint trip pairs.
-
-    This calibration helper analyzes joint trips detected using the buffer
-    method to compute covariance parameters for the Mahalanobis method.
-    It also scans a range of distance thresholds to recommend optimal values.
-
-    Workflow:
-        1. Run detect_joint_trips with method='buffer'
-        2. Pass output to this function
-        3. Copy returned diagonal or full covariance to config
-        4. Use recommended_threshold for distance_threshold
-        5. Run detect_joint_trips with method='mahalanobis'
-
-    Args:
-        joint_trips: Output from detect_joint_trips (joint_trips table)
-        linked_trips: Original linked_trips DataFrame with coordinates/times
-        threshold_range: List of distance thresholds to scan for recommendation.
-            Defaults to [1.5, 2.0, 2.5, 3.0, 3.5]
-
-    Returns:
-        Dictionary containing:
-            - diagonal: List of 4 variances
-              [origin_m^2, dest_m^2, depart_min^2, arrive_min^2]
-            - full: 4x4 covariance matrix as list of lists
-            - correlation: 4x4 correlation matrix for inspecting
-              relationships
-            - threshold_analysis: DataFrame with columns
-              [threshold, detected_pairs, avg_clique_size,
-              buffer_recall, marginal_increase]
-            - recommended_threshold: Float, optimal threshold based
-              on inflection
-
-    Raises:
-        ValueError: If joint_trips or linked_trips missing required columns
-    """
-    if threshold_range is None:
-        threshold_range = [1.5, 2.0, 2.5, 3.0, 3.5]
-
-    _validate_covariance_inputs(joint_trips, linked_trips)
-    pairs = _compute_joint_trip_pairs(linked_trips)
-
-    # Extract difference vectors as numpy array
-    delta_cols = [
-        "delta_origin_m",
-        "delta_dest_m",
-        "delta_depart_min",
-        "delta_arrive_min",
-    ]
-    deltas = pairs.select(delta_cols).to_numpy()
-
-    # Compute covariance and correlation
-    cov_matrix = np.cov(deltas.T)
-    diagonal_vars = np.diag(cov_matrix).tolist()
-
-    # Correlation matrix
-    std_devs = np.sqrt(np.diag(cov_matrix))
-    corr_matrix = cov_matrix / np.outer(std_devs, std_devs)
-
-    # Threshold scanning
-    threshold_results = []
-    num_buffer_pairs = len(pairs)
-
-    for threshold in threshold_range:
-        # Compute Mahalanobis distance for each pair
-        cov_inv = np.linalg.inv(cov_matrix)
-        mahal_distances = np.array([np.sqrt(delta @ cov_inv @ delta) for delta in deltas])
-
-        # Count pairs below threshold
-        detected = np.sum(mahal_distances < threshold)
-        recall = detected / num_buffer_pairs
-
-        # Average clique size (approximate)
-        avg_clique_size = 2.0  # Pairs are always size 2
-
-        threshold_results.append(
-            {
-                "threshold": threshold,
-                "detected_pairs": int(detected),
-                "buffer_recall": recall,
-                "avg_clique_size": avg_clique_size,
-            }
-        )
-
-    # Create analysis DataFrame
-    threshold_df = pl.DataFrame(threshold_results)
-
-    # Compute marginal increases
-    threshold_df = threshold_df.with_columns(
-        [
-            (
-                (pl.col("detected_pairs") - pl.col("detected_pairs").shift(1))
-                / (pl.col("threshold") - pl.col("threshold").shift(1))
-            ).alias("marginal_increase")
-        ]
-    )
-
-    # Find recommended threshold (before spike)
-    # Look for where marginal increase jumps >50%
-    marginal_vals = threshold_df["marginal_increase"].to_list()[1:]
-    recommended_idx = 0
-    for i in range(len(marginal_vals) - 1):
-        if marginal_vals[i] > 0 and marginal_vals[i + 1] > 0:
-            pct_jump = (marginal_vals[i + 1] - marginal_vals[i]) / marginal_vals[i]
-            if pct_jump > 0.5:  # noqa: PLR2004
-                recommended_idx = i
-                break
-    else:
-        # No spike found, recommend threshold with 95% recall
-        recall_vals = threshold_df["buffer_recall"].to_list()
-        for i, r in enumerate(recall_vals):
-            if r >= 0.95:  # noqa: PLR2004
-                recommended_idx = i
-                break
-
-    recommended_threshold = threshold_range[recommended_idx]
-
-    return {
-        "diagonal": diagonal_vars,
-        "full": cov_matrix.tolist(),
-        "correlation": corr_matrix.tolist(),
-        "threshold_analysis": threshold_df,
-        "recommended_threshold": recommended_threshold,
-    }

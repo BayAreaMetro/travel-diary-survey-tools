@@ -41,17 +41,6 @@ EMPLOYMENT_TO_CTRAMP = {
 }
 
 
-# PurposeCategory to Joint Tour Frequency (JTF) group mapping
-# Maps canonical tour purposes to JTF category strings used for joint tour classification
-# This is an internal mapping used in CTRAMP processing to get joint tour frequencies
-# based on tour purpose categories.
-# S = Shopping
-# M = Maintenance/errands
-# E = Eating out
-# V = Visiting/social/recreational
-# D = Discretionary
-
-
 def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
     """Log warnings for logically impossible person attribute combinations.
 
@@ -70,13 +59,10 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
         >>> if sum(warnings.values()) > 0:
         ...     logger.warning(f"Found {sum(warnings.values())} impossible combinations")
     """
-    logger = logging.getLogger(__name__)
-
     warnings = {
         "child_fulltime_workers": 0,
         "preschool_students": 0,
         "young_college_students": 0,
-        "young_retirees": 0,
         "missing_employment_status": 0,
         "missing_student_status": 0,
         "age_inappropriate_school_types": 0,
@@ -137,11 +123,6 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
             len(young_college),
             young_college.unique(subset=["age", "school_type"]).head(5),
         )
-
-    # Check if anyone < 65 and >16 have no employment code.
-    # (This shouldn't happen with correct logic, but log if it does)
-    # Note: We can only check if the input data suggests retirement, not the output
-    # The classification logic itself prevents young retirees
 
     # MISSING employment status
     missing_employment = df.filter(
@@ -252,11 +233,7 @@ def log_person_type_warnings(df: pl.DataFrame) -> dict[str, int]:
     return warnings
 
 
-def ctramp_person_type_expression(
-    employment_category_col: str = "employment_category",
-    student_category_col: str = "student_category",
-    age_col: str = "age",
-) -> pl.Expr:
+def ctramp_person_type_expression() -> pl.Expr:
     """Create expression to derive person category from person attributes.
 
     This replicates the pptyp logic from the old pipeline's 02a-reformat
@@ -284,12 +261,8 @@ def ctramp_person_type_expression(
         - Impossible combinations (e.g., 4-year-old college student) should be
           logged using log_person_type_warnings() before classification
 
-    Args:
-        employment_category_col: Name of the pre-derived employment category
-            column (CTRAMPEmploymentCategory values).
-        student_category_col: Name of the pre-derived student category column
-            (CTRAMPStudentCategory values).
-        age_col: Name of age column (categorical AgeCategory)
+    Reads ``employment_category`` (CTRAMPEmploymentCategory values),
+    ``student_category`` (CTRAMPStudentCategory values) and ``age`` (AgeCategory).
 
     Returns:
         Polars expression that evaluates to CTRAMPPersonType enum value
@@ -324,24 +297,22 @@ def ctramp_person_type_expression(
     # Employment status indicators, from the pre-derived category
     # (EMPLOYMENT_TO_CTRAMP maps EMPLOYED_SELF → full-time, EMPLOYED_UNPAID → part-time)
     is_full_time = (
-        pl.col(employment_category_col) == CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value
+        pl.col("employment_category") == CTRAMPEmploymentCategory.FULL_TIME_EMPLOYED.value
     )
     is_part_time = (
-        pl.col(employment_category_col) == CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value
+        pl.col("employment_category") == CTRAMPEmploymentCategory.PART_TIME_EMPLOYED.value
     )
 
     # Student and school status indicators, from the pre-derived category
-    is_college = pl.col(student_category_col) == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value
-    is_high_school = (
-        pl.col(student_category_col) == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value
-    )
+    is_college = pl.col("student_category") == CTRAMPStudentCategory.COLLEGE_OR_HIGHER.value
+    is_high_school = pl.col("student_category") == CTRAMPStudentCategory.GRADE_OR_HIGH_SCHOOL.value
 
     # Note: a student 18+ whose school_type is MISSING is resolved to
     # COLLEGE_OR_HIGHER upstream by ctramp_student_category_expression, so it
     # arrives here as is_college and needs no branch of its own.
 
     # Age indicators
-    age = pl.col(age_col)
+    age = pl.col("age")
     is_under_5 = age == AgeCategory.AGE_UNDER_5.value
     is_5_to_15 = age == AgeCategory.AGE_5_TO_15.value
     is_16_to_17 = age == AgeCategory.AGE_16_TO_17.value
@@ -349,18 +320,7 @@ def ctramp_person_type_expression(
     is_working_age = age.is_in(working_age)
     is_senior = age.is_in(senior_age)
 
-    # Must have these categories to match CT-RAMP person types:
-    # FULL_TIME_WORKER = 1, "Full-time worker"
-    # PART_TIME_WORKER = 2, "Part-time worker"
-    # UNIVERSITY_STUDENT = 3, "University student"
-    # NON_WORKER = 4, "Non-worker"
-    # RETIRED = 5, "Retired"
-    # STUDENT_DRIVING_AGE = 6, "Student of driving age"
-    # STUDENT_NON_DRIVING_AGE = 7, "Student of non-driving age"
-    # CHILD_UNDER_5 = 8, "Child too young for school"
-
-    # Build classification expression
-    _expr = (
+    return (
         pl.when(is_under_5)
         .then(pl.lit(CTRAMPPersonType.CHILD_UNDER_5))
         .when(is_5_to_15)
@@ -379,9 +339,7 @@ def ctramp_person_type_expression(
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
         .when(is_18_to_24 & is_high_school)
         .then(pl.lit(CTRAMPPersonType.STUDENT_DRIVING_AGE))
-        # Part-time workers who are college students -> prioritize student status
-        .when(is_18_to_24 & is_part_time & is_college)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
+        # College beats part-time employment
         .when(is_18_to_24 & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_18_to_24 & is_part_time)
@@ -391,9 +349,6 @@ def ctramp_person_type_expression(
         # Working age: full-time employment beats student status
         .when(is_working_age & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
-        # Part-time workers who are college students -> prioritize student status
-        .when(is_working_age & is_part_time & is_college)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_working_age & is_part_time)
@@ -403,8 +358,6 @@ def ctramp_person_type_expression(
         # Seniors (65+): employment overrides RETIRED
         .when(is_senior & is_full_time)
         .then(pl.lit(CTRAMPPersonType.FULL_TIME_WORKER))
-        .when(is_senior & is_part_time & is_college)
-        .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_senior & is_college)
         .then(pl.lit(CTRAMPPersonType.UNIVERSITY_STUDENT))
         .when(is_senior & is_part_time)
@@ -414,8 +367,6 @@ def ctramp_person_type_expression(
         # Catch-all (shouldn't be reached with valid AgeCategory values)
         .otherwise(pl.lit(CTRAMPPersonType.NON_WORKER))
     )
-
-    return _expr
 
 
 INDUSTRY_TO_EMPSIX = {

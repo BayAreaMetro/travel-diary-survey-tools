@@ -71,7 +71,6 @@ diagnostics:
 `output_path` is required. One file per run, with no profile suffix.
 """
 
-from .crosswalk_map import crosswalk_figure
 from .report import generate_report
 
-__all__ = ["crosswalk_figure", "generate_report"]
+__all__ = ["generate_report"]
