@@ -9,12 +9,11 @@ import logging
 
 import polars as pl
 
-from processing.weighting.core.hierarchy import (
-    LEVELS,
-)
+from processing.weighting.core.hierarchy import LEVELS
 from processing.weighting.core.propagation import (
     distribute_within_scope,
     is_usable,
+    zero_unusable,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,12 +66,7 @@ def apply_usability(
 
         if scope is None:
             # The anchor has no scope to spread within; zero and rescale below.
-            df = df.with_columns(
-                pl.when(is_usable(usability_flag_col))
-                .then(pl.col(weight_col))
-                .otherwise(0.0)
-                .alias(weight_col)
-            )
+            df = df.with_columns(zero_unusable(weight_col, usability_flag_col))
         else:
             # Raises when the scope column is absent -- quietly conserving the
             # weight over some other grouping would change the numbers silently.
@@ -91,12 +85,12 @@ def apply_usability(
                 df = df.with_columns((pl.col(weight_col) * scale).alias(weight_col))
                 logger.info(
                     "%s: scaled %s by %.4f to preserve the supplied total (%.1f). This covers "
-                    "the weight of parents that kept no usable record, which has no sibling "
-                    "to receive it.",
+                    "weight that no usable record in its %s could take.",
                     table_name,
                     weight_col,
                     scale,
                     supplied_total,
+                    scope or "table",
                 )
         elif supplied_total > 0:
             logger.warning(

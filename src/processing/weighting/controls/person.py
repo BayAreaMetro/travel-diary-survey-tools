@@ -108,7 +108,6 @@ class EmploymentControl(ControlTarget):
     }
 
     _pums_employed_esr: list[int] = PumsEsr.EMPLOYED
-    _pums_not_employed_esr: list[int] = PumsEsr.NOT_EMPLOYED
 
     def survey_expr(self) -> pl.Expr:
         emp = pl.col("employment")
@@ -245,8 +244,7 @@ class CommuteModeControl(ControlTarget):
         cf = pl.col("commute_freq")
         wm = pl.col("work_mode")
 
-        # Codes are inverse-ordered: 1 = most frequent, 8 = least frequent
-        # Higher code → lower frequency.  So commute_freq > telework_freq + 1
+        # Codes run from most frequent (1) to least (8), so commute_freq > telework_freq + 1
         # means "commutes much less often than teleworks" → mostly remote.
         is_mostly_remote = (
             # (a) job_type == WFH always
@@ -290,7 +288,6 @@ class CommuteModeControl(ControlTarget):
         jwtrns = pl.col("JWTRNS")
         base = jwtrns.replace_strict(
             self._pums_map,
-            # default=CommuteModeCategory.OTHER, # defaults are dangerous...
             return_dtype=pl.Int16,
         )
         return (
@@ -317,7 +314,7 @@ class StudentControl(ControlTarget):
         4. Childcare / at-home (not school in the Census sense) → NOT_STUDENT
         5. Age-based fallback when both student & school_type are missing:
            school-age children (5-17) → K12, everyone else → NOT_STUDENT
-        6. Active student with missing school_type → COLLEGE (adult default)
+        6. Anything else → null, so the recode null check reports it
 
     The ``student`` field is only collected for persons age 16+ in the
     survey instrument; younger children have ``student = 995`` (MISSING)
@@ -332,9 +329,8 @@ class StudentControl(ControlTarget):
     survey_fields = ("student", "school_type", "age")
     pums_fields = ("SCHG",)
 
-    # Aligns with Census SCHG: nursery/preschool (SCHG=1) through grade 12.
-    # DAYCARE and ATHOME are excluded — the Census does not count childcare
-    # as school enrollment.
+    # Census SCHG: nursery/preschool (SCHG=1) through grade 12. DAYCARE and ATHOME are
+    # excluded — the Census does not count childcare as school enrollment.
     _k12_school_types: frozenset[int] = frozenset(
         {
             SchoolType.PRESCHOOL.value,
@@ -569,5 +565,4 @@ class PersonTotalControl(ControlTarget):
     def survey_expr(self) -> pl.Expr:
         return pl.lit(1).cast(pl.Int16)
 
-    def pums_expr(self) -> pl.Expr:
-        return pl.lit(1).cast(pl.Int16)
+    pums_expr = survey_expr

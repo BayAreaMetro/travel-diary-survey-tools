@@ -35,7 +35,7 @@ Every weight is written once per profile, suffixed with its name
     ├── core/                     # WeightingPipeline, the hierarchy, propagation, settings
     ├── controls/                 # control variable definitions & registry
     ├── data_prep/                # PUMS I/O, control totals, survey seed, geography
-    ├── balancing/                # balancer, base weights, importance, merges
+    ├── balancing/                # balancer, base weights, importance
     ├── diagnostics/              # interactive HTML report (Plotly + Jinja2)
     └── validation/               # post-balancing sanity checks
 """

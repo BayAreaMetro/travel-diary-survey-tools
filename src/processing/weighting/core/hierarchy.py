@@ -59,6 +59,9 @@ _SEED_COLUMNS: frozenset[str] = frozenset({"base_weight"})
 gives a different base weight -- it belongs to a fit, not to the survey.
 """
 
+SEED_TABLE = "household_weights"
+"""Table the weighting's working columns move to before the data is handed back."""
+
 
 def _suffixed(name: str, profile: str | None) -> str:
     """*name* under *profile*: the profile name appended verbatim, or *name* itself."""
@@ -175,9 +178,8 @@ class Level:
             msg = f"{self.table} is the anchor and has no member key"
             raise ValueError(msg)
         profile = profile_of(usability_flag_col) if usability_flag_col else None
-        if profile is not None and f"{key}_{profile}" in columns:
-            return f"{key}_{profile}"
-        return key
+        profile_key = _suffixed(key, profile)
+        return profile_key if profile_key in columns else key
 
     def __post_init__(self) -> None:
         """Reject a half-declared edge at import time rather than mid-pipeline."""
@@ -276,6 +278,17 @@ HIERARCHY: tuple[Level, ...] = (
     ),
 )
 
+# Projections of HIERARCHY. These are views, never independent facts.
+LEVELS: dict[str, Level] = {level.table: level for level in HIERARCHY}
+TABLE_NAMES: list[str] = [level.table for level in HIERARCHY]
+_WEIGHT_BASES: frozenset[str] = frozenset(level.weight_col for level in HIERARCHY)
+LEVEL_BY_WEIGHT_COL: dict[str, Level] = {level.weight_col: level for level in HIERARCHY}
+"""Supplied-weight config key -> its level.
+
+The config key *is* the weight column: one name for one thing, so a config
+cannot name a level the hierarchy does not have.
+"""
+
 
 def _validate_hierarchy() -> None:
     """Fail at import if the declared hierarchy is not a well-formed tree."""
@@ -302,15 +315,6 @@ def _validate_hierarchy() -> None:
 
 
 _validate_hierarchy()
-
-# ---------------------------------------------------------------------------
-# Projections of HIERARCHY. These are views, never independent facts.
-# ---------------------------------------------------------------------------
-
-LEVELS: dict[str, Level] = {level.table: level for level in HIERARCHY}
-TABLE_NAMES: list[str] = [level.table for level in HIERARCHY]
-
-_WEIGHT_BASES: frozenset[str] = frozenset(level.weight_col for level in HIERARCHY)
 
 
 def weight_col_for(base: str, profile: str | None) -> str:
@@ -351,21 +355,6 @@ def seed_col_for(base: str, profile: str | None) -> str:
 def weight_columns_for(profile: str | None) -> dict[str, str]:
     """Map each table to its weight column under *profile*."""
     return {level.table: level.weight_col_for(profile) for level in HIERARCHY}
-
-
-WEIGHT_COLUMNS: dict[str, str] = weight_columns_for(None)
-WEIGHT_CONFIG_MAPPING: dict[str, tuple[str, str, str]] = {
-    level.weight_col: (level.table, level.id_col, level.weight_col) for level in HIERARCHY
-}
-"""Supplied-weight config key -> (table, id column, weight column).
-
-The config key *is* the weight column: one name for one thing, so a config
-cannot name a level the hierarchy does not have.
-"""
-
-
-SEED_TABLE = "household_weights"
-"""Table the weighting's working columns move to before the data is handed back."""
 
 
 def describe_weight_columns(

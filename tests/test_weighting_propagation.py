@@ -147,7 +147,7 @@ class TestPropagateCarryForward:
             pytest.param(
                 lambda t: t | {"households": None},
                 {"households": "hh_weight"},
-                "parent table households is None",
+                "households, which is not loaded",
                 id="parent_frame_is_none",
             ),
             pytest.param(

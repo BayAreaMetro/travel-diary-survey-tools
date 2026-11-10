@@ -16,7 +16,6 @@ import numpy as np
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
-from processing.completeness import usable_col_for
 from processing.weighting.data_prep.crosswalk import GeographyConfig
 
 logger = logging.getLogger(__name__)
@@ -33,8 +32,8 @@ class ControlSpec:
     Attributes:
         name: Registry name (must exist in ``CONTROLS``).
         importance: Explicit importance weight for the balancer.  ``None`` means use
-            the default (100 for normal controls, 1000 for structural) or
-            the MOE-derived value when ``moe_based_importance`` is enabled.
+            ``default_importance``, or the MOE-derived value when
+            ``moe_based_importance`` is enabled.
         dimensions: For cross-tab controls only: list of dimension control names
             (e.g. ``["h_size", "h_income"]``).  ``None`` for standard controls.
         merges: For cross-tab controls only: per-dimension merge specs applied
@@ -93,14 +92,13 @@ class IncidenceBundle:
     person_pivot: pl.DataFrame
     household_pivot: pl.DataFrame
 
-    def filter_households(
-        self, hh_ids: list | pl.Series, hh_id_col: str = "hh_id"
-    ) -> "IncidenceBundle":
+    def filter_households(self, hh_ids: list | pl.Series) -> "IncidenceBundle":
         """Return a new bundle keeping only the given household IDs."""
+        keep = pl.col("hh_id").is_in(hh_ids)
         return IncidenceBundle(
-            incidence=self.incidence.filter(pl.col(hh_id_col).is_in(hh_ids)),
-            person_pivot=self.person_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
-            household_pivot=self.household_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
+            incidence=self.incidence.filter(keep),
+            person_pivot=self.person_pivot.filter(keep),
+            household_pivot=self.household_pivot.filter(keep),
         )
 
 
@@ -135,22 +133,6 @@ class ImputationSummary:
 # ---------------------------------------------------------------------------
 # PUMS Configuration
 # ---------------------------------------------------------------------------
-@dataclass
-class PUMSSource:
-    """Configuration for PUMS data source.
-
-    Attributes:
-        state_fips: Two-digit FIPS code for the state (e.g. "06" for California).
-        pums_year: ACS 1-year PUMS vintage (e.g. 2022).
-        puma_ids: Optional list of PUMA codes to fetch. If None, fetches all PUMAs in
-            the state (can be large).
-    """
-
-    state_fips: str
-    pums_year: int
-    puma_ids: list[str] | None = None
-
-
 class PumsWeights(StrEnum):
     """Which PUMS weight each level of target sums.
 
@@ -320,22 +302,6 @@ class BalancingConfig(BaseModel):
     )
 
 
-@dataclass
-class ImportanceConfig:
-    """Importance weighting configuration.
-
-    Determines how per-control importance weights are computed:
-
-    - ``explicit`` — YAML-declared overrides (always highest precedence).
-    - ``moe_based`` — derive importance from PUMS replicate-weight CVs.
-    - ``default`` — fallback value when neither of the above applies.
-    """
-
-    explicit: dict[str, float] = field(default_factory=dict)
-    moe_based: bool = False
-    default: float = 100.0
-
-
 def resolve_fitted_profiles(
     weight_profiles: tuple[str, ...] | list[str] | None,
 ) -> tuple[str, ...]:
@@ -375,10 +341,14 @@ class WeightingConfig:
     """Top-level configuration for the weighting pipeline.
 
     Groups the parameters that are *not* already covered by
-    [`ControlRegistryConfig`][processing.weighting.core.specs.ControlRegistryConfig],
-    [`BalancingConfig`][processing.weighting.core.specs.BalancingConfig], or
-    [`ImportanceConfig`][processing.weighting.core.specs.ImportanceConfig]
+    [`ControlRegistryConfig`][processing.weighting.core.specs.ControlRegistryConfig] or
+    [`BalancingConfig`][processing.weighting.core.specs.BalancingConfig]
     — primarily Census/geography settings and pipeline plumbing.
+
+    ``weight_profiles`` names the usability profiles that decide who carries
+    weight, one fit each. It is required: with several profiles stamped there is
+    no defensible default, and picking silently would weight a different
+    universe than the formatters emit.
     """
 
     geography: GeographyConfig
@@ -387,38 +357,23 @@ class WeightingConfig:
     pums_weights: PumsWeights
     use_imputed_values: bool
     census_dir: Path
-    # Which usability profiles decide who carries weight, one fit each. Required:
-    # with several profiles stamped there is no defensible default, and picking
-    # silently would weight a different universe than the formatters emit.
     weight_profiles: tuple[str, ...] = ()
     max_unplaceable_share: float = 0.01
     sample_plan: str | None = None
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
-    _fitted_profiles: tuple[str, ...] = field(default=(), init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Reject a weighting universe that is unstated or names a profile twice."""
-        self._fitted_profiles = resolve_fitted_profiles(self.weight_profiles)
-
-    @property
-    def fitted_profiles(self) -> tuple[str, ...]:
-        """One entry per balancing run."""
-        return self._fitted_profiles
-
-    def flag_for(self, profile: str) -> str:
-        """The verdict column the fit for *profile* is gated on.
-
-        A profile names both its gate and its weights -- ``usable_<profile>`` and
-        ``hh_weight_<profile>`` -- so there is no second setting to disagree with
-        the first.
-        """
-        return usable_col_for(profile)
+        self.weight_profiles = resolve_fitted_profiles(self.weight_profiles)
 
 
 @dataclass
 class ControlRegistryConfig:
-    """Parsed control definitions, merge specs, and derived target names.
+    """Parsed control definitions, 1-D merge specs, and derived target names.
+
+    Cross-tab merges are not here: they are applied when the cross-tab is
+    registered, from ``ControlSpec.merges``.
 
     Built via [`from_yaml`][processing.weighting.core.specs.ControlRegistryConfig.from_yaml]
     from the YAML ``controls`` block.
@@ -426,7 +381,6 @@ class ControlRegistryConfig:
 
     specs: list[ControlSpec]
     target_names: list[str]
-    crosstab_merges: list[MergeSpec]
     merges_1d: list[MergeSpec]
 
     @classmethod
@@ -436,7 +390,6 @@ class ControlRegistryConfig:
         specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
         target_names = [s.name for s in specs]
 
-        crosstab_merges: list[MergeSpec] = []
         merges_1d: list[MergeSpec] = []
 
         def lower(groups: dict[str, list[str]]) -> dict[str, list[str]]:
@@ -446,8 +399,6 @@ class ControlRegistryConfig:
             }
 
         for c in controls:
-            # Cross-tab merges are applied at registration time, not here.
-            # Only parse 1-D merges and zone-specific merges.
             global_labels: set[str] = set()
             if c.get("merge"):
                 merges_1d.append(MergeSpec(control=c["name"], groups=lower(c["merge"])))
@@ -457,12 +408,9 @@ class ControlRegistryConfig:
                 overlap = set(groups.keys()) & global_labels
                 if overlap:
                     msg = (
-                        "Control '%s' zone_merges for '%s' redefines global "
-                        "merge label(s) %s — the zone merge is redundant "
-                        "because the global merge already applies everywhere.",
-                        c["name"],
-                        zone_id,
-                        sorted(overlap),
+                        f"Control '{c['name']}' zone_merges for '{zone_id}' redefines global "
+                        f"merge label(s) {sorted(overlap)} — the zone merge is redundant "
+                        "because the global merge already applies everywhere."
                     )
                     raise ValueError(msg)
                 merges_1d.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
@@ -470,7 +418,6 @@ class ControlRegistryConfig:
         return cls(
             specs=specs,
             target_names=target_names,
-            crosstab_merges=crosstab_merges,
             merges_1d=merges_1d,
         )
 
@@ -478,11 +425,6 @@ class ControlRegistryConfig:
     def importance_overrides(self) -> dict[str, float]:
         """Explicit importance overrides from YAML."""
         return {s.name: s.importance for s in self.specs if s.importance is not None}
-
-    @property
-    def all_merges(self) -> list[MergeSpec]:
-        """All merge specs (crosstab + 1-D) for diagnostics."""
-        return self.crosstab_merges + self.merges_1d
 
 
 @dataclass
@@ -614,10 +556,10 @@ class ProfileFit:
     diagnostics describe and the checks read.
 
     Attributes:
-        profile: Usability profile fitted, or None for a single un-suffixed set.
-            Suffixes every weight column this fit writes.
+        profile: Usability profile fitted. Suffixes every weight column this
+            fit writes.
         usability_flag_col: The column that gated the seed and will gate the
-            propagation. Equal to *profile* whenever a profile was named.
+            propagation: ``usable_<profile>``, or ``survey_complete`` itself.
         seed_incidence: The seed this fit was solved from, carrying its own
             ``base_weight`` once balancing has run.
         pre_imputation_incidence: The same seed before null imputation, for the
@@ -630,7 +572,7 @@ class ProfileFit:
         grid_results: Expansion-factor grid points, when a grid was configured.
     """
 
-    profile: str | None
+    profile: str
     usability_flag_col: str
     seed_incidence: pl.DataFrame
     pre_imputation_incidence: pl.DataFrame

@@ -23,7 +23,7 @@ from data_canon.models.survey import (
 )
 from pipeline.step_registry import STEP_REGISTRY, is_config_named
 from processing.habitual_locations import reported_habitual_locations
-from processing.weighting.core.hierarchy import WEIGHT_COLUMNS
+from processing.weighting.core.hierarchy import LEVELS
 from utils.create_ids import create_household_days
 
 # Which canonical table each model describes, for looking up its weight column.
@@ -138,8 +138,8 @@ def _with_generated(
     schema = dict(schema)
     schema[usability_flag_col] = pl.Boolean
     table = _TABLE_OF_MODEL.get(model.__name__)
-    if table is not None and table in WEIGHT_COLUMNS:
-        schema[WEIGHT_COLUMNS[table]] = pl.Float64
+    if table is not None and table in LEVELS:
+        schema[LEVELS[table].weight_col] = pl.Float64
     return pl.DataFrame(schema=schema)
 
 

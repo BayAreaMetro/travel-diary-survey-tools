@@ -38,6 +38,7 @@ balancing:
   n_workers: 8                  # zones balanced in parallel
   default_importance: 100
   moe_based_importance: true
+  min_survey_share_ratio: 0.25  # stop if a group is too small a share of its area's survey
 ```
 """
 
@@ -53,7 +54,6 @@ from processing.weighting.core.specs import (
     BalancingConfig,
     ControlTotals,
     GridPoint,
-    ImportanceConfig,
     ZoneInput,
     ZoneResult,
     ZoneStatus,
@@ -71,7 +71,7 @@ def balance_weights(
     control_totals: ControlTotals,
     targets: list[str],
     balancing: BalancingConfig,
-    importance: ImportanceConfig,
+    importance: dict[str, float],
     *,
     verbose: bool = True,
 ) -> tuple[pl.DataFrame, list[ZoneStatus]]:
@@ -85,7 +85,7 @@ def balance_weights(
         control_totals: Per-zone targets (with merges already applied).
         targets: Control registry names.
         balancing: Solver bounds, iteration limits, and parallelism.
-        importance: Per-control importance weights.
+        importance: Importance of each control in *targets*, by name.
         verbose: Log per-zone convergence (default ``True``).
 
     Returns:
@@ -94,12 +94,9 @@ def balance_weights(
         *statuses* is one [`ZoneStatus`][processing.weighting.core.specs.ZoneStatus]
         entry per zone with convergence info.
     """
-    geo_col = "zone_group_id"
-
-    # Build per-zone inputs
     zone_inputs: list[ZoneInput] = []
     for zone_group_id in control_totals.zone_group_ids:
-        zone_seed = seed.filter(pl.col(geo_col).cast(pl.Utf8) == zone_group_id)
+        zone_seed = seed.filter(pl.col("zone_group_id").cast(pl.Utf8) == zone_group_id)
         if len(zone_seed) == 0:
             logger.warning("Zone %s: no seed records, skipping", zone_group_id)
             continue
@@ -111,8 +108,7 @@ def balance_weights(
                 zone_totals,
                 targets,
                 zone_group_id,
-                importance=importance.explicit or None,
-                default_importance=importance.default,
+                importance=importance,
                 min_expansion_factor=balancing.min_expansion_factor,
                 max_expansion_factor=balancing.max_expansion_factor,
                 max_base_weight_gap=balancing.max_base_weight_gap,
@@ -155,7 +151,7 @@ def grid_search_expansion_factor(
     ef_grid: list[float],
     selected_ef: float,
     balancing: BalancingConfig,
-    importance: ImportanceConfig,
+    importance: dict[str, float],
 ) -> list[GridPoint]:
     """Re-run the balancer across a grid of ``max_expansion_factor`` values.
 
@@ -172,8 +168,6 @@ def grid_search_expansion_factor(
     parallelism alone left most workers idle.
     """
     grid = sorted(set(ef_grid) | {selected_ef})
-    if not grid:
-        return []
 
     def run(ef: float) -> GridPoint:
         # Zones run one at a time here; the grid points share the worker pool
@@ -191,9 +185,9 @@ def grid_search_expansion_factor(
         wt = compute_weighted_totals(seed, weights, targets)
         ft = fit_table(control_totals, wt)
         abs_pct = ft["diff_pct"].abs()
-        mape = float(abs_pct.mean() or 0) if len(abs_pct) > 0 else 0.0  # pyright: ignore[reportArgumentType]
-        p90 = float(abs_pct.quantile(0.9) or 0) if len(abs_pct) > 0 else 0.0
-        max_error = float(abs_pct.max() or 0) if len(abs_pct) > 0 else 0.0  # pyright: ignore[reportArgumentType]
+        mape = float(abs_pct.mean() or 0)  # pyright: ignore[reportArgumentType]
+        p90 = float(abs_pct.quantile(0.9) or 0)
+        max_error = float(abs_pct.max() or 0)  # pyright: ignore[reportArgumentType]
 
         # -- Weight quality (CV, ESS%) ---------------------------------
         w = weights["hh_weight"]
@@ -229,14 +223,13 @@ def grid_search_expansion_factor(
 # -- Zone preparation -------------------------------------------------------
 
 
-def _prepare_zone(  # noqa: PLR0913
+def _prepare_zone(
     zone_seed: pl.DataFrame,
     zone_totals: pl.DataFrame,
     targets: list[str],
     zone_group_id: str,
     *,
-    importance: dict[str, float] | None,
-    default_importance: float,
+    importance: dict[str, float],
     min_expansion_factor: float,
     max_expansion_factor: float,
     max_base_weight_gap: float,
@@ -257,12 +250,7 @@ def _prepare_zone(  # noqa: PLR0913
         targets,
     )
 
-    # Importance: default for every row, then apply overrides
-    overrides = importance or {}
-    imp_vec = np.full(len(row_labels), default_importance, dtype=np.float64)
-    for i, (ctrl_name, _member) in enumerate(row_labels):
-        if ctrl_name in overrides:
-            imp_vec[i] = overrides[ctrl_name]
+    imp_vec = np.array([importance[name] for name, _member in row_labels], dtype=np.float64)
 
     if "base_weight" not in zone_seed.columns:
         msg = (

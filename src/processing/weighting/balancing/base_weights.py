@@ -13,7 +13,7 @@ This module provides two paths:
    per zone.  Works whenever PUMS-derived control totals are available
    (always, in our pipeline).
 
-2. **Sample plan** — a [`SamplePlan`][processing.weighting.balancing.base_weights.SamplePlan]
+2. **Sample plan** — a [`SamplePlan`][processing.weighting.core.specs.SamplePlan]
    object mapping Census block groups
    to sampling strata (segments).  Household counts come from the
    decennial Census by block, grown to the PUMS year by PUMA
@@ -69,7 +69,7 @@ def load_sample_plan(path: str | Path) -> SamplePlan:
     df = pl.read_csv(p, schema_overrides={"bg_geo_id": pl.Utf8})
     # Census block-group FIPS codes are 12 characters; zero-pad in case
     # the CSV was saved without preserving leading zeros.
-    df = df.with_columns(pl.col("bg_geo_id").str.zfill(12))
+    df = df.with_columns(pl.col("bg_geo_id").str.zfill(_BLOCK_GROUP_ID_LENGTH))
     logger.info("Loaded sample plan from %s (%d rows)", p, len(df))
     return SamplePlan(strata=df)
 
@@ -81,7 +81,6 @@ def compute_base_weights(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
-    geo_col: str = "zone_group_id",
     *,
     sample_plan: str | Path | SamplePlan | None = None,
     block_households: pl.DataFrame | None = None,
@@ -90,14 +89,13 @@ def compute_base_weights(
 
     Args:
         seed: Household seed table from ``build_incidence_table``.  Must
-            contain ``hh_id`` and *geo_col*.  When using a sample plan,
+            contain ``hh_id`` and ``zone_group_id``.  When using a sample plan,
             must also contain ``bg_geo_id`` (assigned via
             [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
         control_totals: PUMS-derived targets from
             ``aggregate_control_totals``.
         targets: Control registry names (used to identify the master HH
             control).
-        geo_col: Geography column on *seed*.
         sample_plan: Optional sample plan.  Accepts a file path (loaded
             via [`load_sample_plan`][processing.weighting.balancing.base_weights.load_sample_plan])
             or an already-loaded
@@ -123,15 +121,15 @@ def compute_base_weights(
                 "Pass the result of grow_block_households."
             )
             raise ValueError(msg)
-        hh_weights = _hh_weights_from_plan(seed, plan, block_households, geo_col)
+        hh_weights = _hh_weights_from_plan(seed, plan, block_households)
         return seed.join(hh_weights, on="hh_id", how="left")
 
     logger.info("Using PUMS-target response inversion for base weights")
-    zone_weights = _zone_weights_from_response_inversion(seed, control_totals, targets, geo_col)
+    zone_weights = _zone_weights_from_response_inversion(seed, control_totals, targets)
 
     return seed.join(
         zone_weights,
-        left_on=pl.col(geo_col).cast(pl.Utf8),
+        left_on=pl.col("zone_group_id").cast(pl.Utf8),
         right_on="zone_group_id",
         how="left",
     )
@@ -144,16 +142,12 @@ def _zone_weights_from_response_inversion(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
     targets: list[str],
-    geo_col: str,
 ) -> pl.DataFrame:
     """Return ``(zone_group_id, base_weight)`` via zone_target_hh_pop / zone_n_responses.
 
-    Uses the first household-level control to derive the total-HH
-    population target per zone — the same logic that ``_build_incidence``
-    uses for the total control row.
-    Total control var is just used as a reference point to get the zone-level population targets;
-    the actual base weights are derived from the total HH population per zone,
-    not the category-level targets.
+    A zone's household target is the sum of the first household-level
+    control's category targets there; only that total is used, not the
+    category targets themselves.
     """
     hh_names = [t for t in targets if CONTROLS[t].level == ControlLevel.HOUSEHOLD]
     if not hh_names:
@@ -173,9 +167,8 @@ def _zone_weights_from_response_inversion(
 
     # Count survey responses per zone
     zone_counts = (
-        seed.group_by(geo_col)
+        seed.group_by("zone_group_id")
         .agg(pl.len().alias("_zone_n_responses"))
-        .rename({geo_col: "zone_group_id"})
         .with_columns(pl.col("zone_group_id").cast(pl.Utf8))
     )
 
@@ -235,9 +228,7 @@ def _zone_weights_from_response_inversion(
         zw_wide,
     )
 
-    zone_weights = zone_weights.select("zone_group_id", "base_weight")
-
-    return zone_weights
+    return zone_weights.select("zone_group_id", "base_weight")
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +295,6 @@ def _hh_weights_from_plan(
     seed: pl.DataFrame,
     plan: SamplePlan,
     block_households: pl.DataFrame,
-    geo_col: str,
 ) -> pl.DataFrame:
     """Return ``(hh_id, base_weight)`` from a block-group-level sample plan.
 
@@ -336,13 +326,13 @@ def _hh_weights_from_plan(
         pl.col("bg_geo_id").cast(pl.Utf8),
         pl.col("sample_segment").cast(pl.Utf8),
     )
-    cell = ["sample_segment", geo_col]
+    cell = ["sample_segment", "zone_group_id"]
 
     # Households per segment x zone; blocks outside the plan belong to no cell
     cell_households = (
         block_households.with_columns(
             pl.col("block_id").str.slice(0, _BLOCK_GROUP_ID_LENGTH).alias("bg_geo_id"),
-            pl.col("zone_group_id").cast(pl.Utf8).alias(geo_col),
+            pl.col("zone_group_id").cast(pl.Utf8),
         )
         .join(bg_segment, on="bg_geo_id", how="inner")
         .group_by(cell)
@@ -350,7 +340,7 @@ def _hh_weights_from_plan(
     )
 
     # Map each HH to its segment via bg_geo_id
-    seed_with_seg = seed.select("hh_id", "bg_geo_id", pl.col(geo_col).cast(pl.Utf8)).join(
+    seed_with_seg = seed.select("hh_id", "bg_geo_id", pl.col("zone_group_id").cast(pl.Utf8)).join(
         bg_segment,
         left_on=pl.col("bg_geo_id").cast(pl.Utf8),
         right_on="bg_geo_id",

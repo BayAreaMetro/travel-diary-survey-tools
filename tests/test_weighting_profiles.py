@@ -83,11 +83,12 @@ class TestTheConfigUsesIt:
 
     def test_a_profile_config_exposes_one_fit_each(self):
         """One balancing run per profile, in the order configured."""
-        assert _config(weight_profiles=("a", "b")).fitted_profiles == ("a", "b")
+        assert _config(weight_profiles=("a", "b")).weight_profiles == ("a", "b")
 
-    def test_flag_for_resolves_the_profile_to_its_column(self):
-        """A profile gates on its own verdict column."""
-        assert _config(weight_profiles=("a",)).flag_for("a") == "usable_a"
+    def test_an_unstated_universe_is_refused_by_the_config(self):
+        """The config resolves its profiles on construction, so it refuses the same lists."""
+        with pytest.raises(ValueError, match="needs a universe"):
+            _config(weight_profiles=())
 
 
 # ---------------------------------------------------------------------------

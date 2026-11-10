@@ -4,7 +4,6 @@ One self-contained HTML document per run, written after every profile is fitted.
 See ``generate_diagnostics`` for its sections.
 """
 
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,8 +23,6 @@ from processing.weighting.diagnostics.comparison import (
 
 if TYPE_CHECKING:
     from processing.weighting.core.pipeline import WeightingPipeline
-
-logger = logging.getLogger(__name__)
 
 
 def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: DiagnosticsConfig) -> None:
@@ -90,30 +87,23 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         [`reference_weight_sets`][processing.weighting.diagnostics.comparison
         .reference_weight_sets] for why they are named rather than found.
     """
-    if not pipeline.fits:
-        logger.warning("No completed fits to report on; skipping diagnostics.")
-        return
-
-    resolved_path = Path(diagnostics.output_path)
-
-    zone_groups = pipeline.config.geography.zone_groups
     generate_report(
         fits=pipeline.fits,
         control_totals=pipeline.control_totals,
         target_names=pipeline.controls.target_names,
         tables=pipeline.data.as_dict(),
-        output_path=resolved_path,
+        output_path=Path(diagnostics.output_path),
         run_meta=_run_meta(pipeline),
         puma_gdf=pipeline.crosswalk.puma_gdf,
         target_gdf=pipeline.crosswalk.target_gdf,
         crosswalk_df=pipeline.crosswalk.crosswalk_df,
-        zone_groups=zone_groups,
+        zone_groups=pipeline.config.geography.zone_groups,
         zone_counties=pipeline.crosswalk.zone_counties(
             get_county_names(
-                pipeline.config.state_fips, pipeline.config.pums_year, pipeline.census_dir
+                pipeline.config.state_fips, pipeline.config.pums_year, pipeline.config.census_dir
             )
         ),
-        merge_specs=pipeline.controls.all_merges,
+        merge_specs=pipeline.controls.merges_1d,
         control_moe=pipeline.control_moe,
         moe_importance=pipeline.moe_importance,
         importance_used=pipeline.importance_used,
@@ -147,7 +137,7 @@ def _run_meta(pipeline: "WeightingPipeline") -> dict[str, str]:
     Reports get shared around detached from the run that made them, so the
     file has to say which run it describes.
     """
-    profiles = ", ".join(p or "the survey" for p in pipeline.fits)
+    profiles = ", ".join(pipeline.fits)
     return {
         "Run": datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
         "PUMS": f"{pipeline.config.pums_year} &middot; FIPS {pipeline.config.state_fips}",

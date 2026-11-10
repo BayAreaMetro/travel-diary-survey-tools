@@ -77,8 +77,7 @@ class HHWorkersControl(ControlTarget):
     def survey_expr(self) -> pl.Expr:
         return pl.col("_n_workers").clip(0, 5).cast(pl.Int16)
 
-    def pums_expr(self) -> pl.Expr:
-        return pl.col("_n_workers").clip(0, 5).cast(pl.Int16)
+    pums_expr = survey_expr
 
 
 class HHVehiclesControl(ControlTarget):
@@ -152,8 +151,7 @@ class HHChildrenControl(ControlTarget):
     def survey_expr(self) -> pl.Expr:
         return pl.col("_n_children").clip(0, 5).cast(pl.Int16)
 
-    def pums_expr(self) -> pl.Expr:
-        return pl.col("_n_children").clip(0, 5).cast(pl.Int16)
+    pums_expr = survey_expr
 
 
 class HHPumaControl(ControlTarget):
@@ -213,10 +211,7 @@ class HHTargetZoneControl(ControlTarget):
             self._codes, default=None, return_dtype=pl.Int16
         )
 
-    def pums_expr(self) -> pl.Expr:
-        return pl.col("target_zone_id").replace_strict(
-            self._codes, default=None, return_dtype=pl.Int16
-        )
+    pums_expr = survey_expr
 
 
 class HHTotalControl(ControlTarget):
@@ -233,5 +228,4 @@ class HHTotalControl(ControlTarget):
     def survey_expr(self) -> pl.Expr:
         return pl.lit(1).cast(pl.Int16)
 
-    def pums_expr(self) -> pl.Expr:
-        return pl.lit(1).cast(pl.Int16)
+    pums_expr = survey_expr

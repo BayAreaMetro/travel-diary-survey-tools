@@ -30,6 +30,7 @@ from processing.weighting.balancing.importance import (
     _control_cell_moe,
     _control_cv,
     _normalize_cvs,
+    compute_control_moe,
     compute_moe_importance,
 )
 from processing.weighting.controls.base import ControlLevel, ControlTarget
@@ -38,7 +39,6 @@ from processing.weighting.core.specs import (
     BalancingConfig,
     ControlTotals,
     GridPoint,
-    ImportanceConfig,
 )
 from processing.weighting.diagnostics.charts import ef_tradeoff_figure
 
@@ -54,6 +54,17 @@ _BALANCING = BalancingConfig(
     default_importance=100.0,
     min_survey_share_ratio=0.25,
 )
+
+
+def _cv(ctrl: ControlTarget, hh: pl.DataFrame, person: pl.DataFrame) -> float | None:
+    """One control's CV, from its cells as ``compute_control_moe`` builds them."""
+    cells = _control_cell_moe(ctrl, hh, person)
+    return None if cells is None else _control_cv(cells)
+
+
+def _moe_importance(hh: pl.DataFrame, person: pl.DataFrame, names: list[str]) -> dict[str, float]:
+    """Importance per control, through the per-cell MOE as the pipeline runs it."""
+    return compute_moe_importance(compute_control_moe(hh, person, names), names)
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +142,7 @@ class TestResponseInversion:
         seed = _make_seed("zone_group_id", {"A": 50, "B": 200}).with_columns(
             pl.lit(42).alias("extra_col")
         )
-        result = compute_base_weights(seed, ct, ["h_size"], geo_col="zone_group_id")
+        result = compute_base_weights(seed, ct, ["h_size"])
 
         zone_a = result.filter(pl.col("zone_group_id") == "A")
         zone_b = result.filter(pl.col("zone_group_id") == "B")
@@ -157,7 +168,7 @@ class TestResponseInversion:
         )
         seed = _make_seed("zone_group_id", {"Z1": 100})
         # h_size is first HH control → total 100_000, base_weight = 1000
-        result = compute_base_weights(seed, ct, ["h_size", "h_income"], geo_col="zone_group_id")
+        result = compute_base_weights(seed, ct, ["h_size", "h_income"])
         assert result["base_weight"][0] == pytest.approx(1_000.0)
 
     def test_no_hh_controls_raises(self):
@@ -165,7 +176,7 @@ class TestResponseInversion:
         ct = _make_control_totals({"Z1": [("p_age", 1, 1_000.0)]})
         seed = _make_seed("zone_group_id", {"Z1": 10})
         with pytest.raises(ValueError, match="no household-level control"):
-            compute_base_weights(seed, ct, ["p_age"], geo_col="zone_group_id")
+            compute_base_weights(seed, ct, ["p_age"])
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +208,7 @@ class TestSamplePlan:
     @staticmethod
     def _weights(seed, plan, blocks, zones=("Z1",)) -> pl.DataFrame:
         ct = _make_control_totals({z: [("h_size", 1, 999.0)] for z in zones})
-        return compute_base_weights(
-            seed, ct, ["h_size"], geo_col="zone_group_id", sample_plan=plan, block_households=blocks
-        )
+        return compute_base_weights(seed, ct, ["h_size"], sample_plan=plan, block_households=blocks)
 
     def test_single_segment_all_bgs(self):
         """All BGs in one segment and zone → weight = households / responses."""
@@ -309,7 +318,6 @@ class TestSamplePlan:
                 seed,
                 ct,
                 ["h_size"],
-                geo_col="zone_group_id",
                 sample_plan=plan,
             )
 
@@ -374,7 +382,7 @@ class TestBalancerRequiresBaseWeight:
                 ct,
                 ["h_total", "h_size"],
                 balancing=_BALANCING,
-                importance=ImportanceConfig(),
+                importance={"h_total": 100.0, "h_size": 100.0},
             )
 
 
@@ -402,7 +410,7 @@ class TestBaseWeightsMatchTheTarget:
                 self.CT,
                 ["h_total"],
                 balancing=_BALANCING,
-                importance=ImportanceConfig(),
+                importance={"h_total": 100.0},
             )
 
     def test_limits_are_the_base_weight_times_the_factors(self):
@@ -413,8 +421,7 @@ class TestBaseWeightsMatchTheTarget:
             self.CT.totals.filter(pl.col("zone_group_id") == "Z1"),
             ["h_total"],
             "Z1",
-            importance=None,
-            default_importance=100.0,
+            importance={"h_total": 100.0},
             min_expansion_factor=0.1,
             max_expansion_factor=10.0,
             max_base_weight_gap=0.005,
@@ -477,7 +484,6 @@ class TestLoadSamplePlan:
             seed,
             ct,
             ["h_size"],
-            geo_col="zone_group_id",
             sample_plan=plan,
             block_households=blocks,
         )
@@ -603,8 +609,8 @@ class TestControlCv:
         hh_low = _hh_frame_with_replicates(50, noise_scale=1.0, seed=1)
         hh_high = _hh_frame_with_replicates(50, noise_scale=50.0, seed=2)
         ctrl = _HHStubControl()
-        cv_low = _control_cv(ctrl, hh_low, pl.DataFrame(), "zone_group_id")
-        cv_high = _control_cv(ctrl, hh_high, pl.DataFrame(), "zone_group_id")
+        cv_low = _cv(ctrl, hh_low, pl.DataFrame())
+        cv_high = _cv(ctrl, hh_high, pl.DataFrame())
         assert cv_low is not None
         assert cv_high is not None
         assert 0 < cv_low < cv_high
@@ -613,7 +619,7 @@ class TestControlCv:
         """If no rows match valid categories, return None."""
         hh = _hh_frame_with_replicates(10, ctrl_values=[99, 98])  # not in _StubCategory
         ctrl = _HHStubControl()
-        cv = _control_cv(ctrl, hh, pl.DataFrame(), "zone_group_id")
+        cv = _cv(ctrl, hh, pl.DataFrame())
         assert cv is None
 
     @pytest.mark.parametrize(
@@ -634,7 +640,7 @@ class TestControlCv:
         hh = pl.DataFrame(data)
         ctrl = _HHStubControl()
         with pytest.raises(ValueError, match=match):
-            _control_cv(ctrl, hh, pl.DataFrame(), "zone_group_id")
+            _cv(ctrl, hh, pl.DataFrame())
 
     def test_person_level_uses_person_frame(self):
         """Person-level controls should read from person_df, not hh_df."""
@@ -646,7 +652,7 @@ class TestControlCv:
         person = person.rename(renames)
 
         ctrl = _PersonStubControl()
-        cv = _control_cv(ctrl, pl.DataFrame(), person, "zone_group_id")
+        cv = _cv(ctrl, pl.DataFrame(), person)
         assert cv is not None
         assert cv > 0
 
@@ -670,7 +676,7 @@ class TestControlCv:
             data[f"_xw_WGTP{r}"] = [100.0 + d for d in offsets]
         hh = pl.DataFrame(data)
 
-        cv = _control_cv(_HHStubControl(), hh, pl.DataFrame(), "zone_group_id")
+        cv = _cv(_HHStubControl(), hh, pl.DataFrame())
         assert cv == pytest.approx(0.05)
 
     def test_zero_estimate_cells_excluded(self):
@@ -684,7 +690,7 @@ class TestControlCv:
             data[f"_xw_WGTP{r}"] = [100.0, 0.0]
         hh = pl.DataFrame(data)
         ctrl = _HHStubControl()
-        cv = _control_cv(ctrl, hh, pl.DataFrame(), "zone_group_id")
+        cv = _cv(ctrl, hh, pl.DataFrame())
         # Only one valid cell (estimate=100), replicates all equal → CV=0
         assert cv is not None
         assert cv == pytest.approx(0.0)
@@ -701,7 +707,7 @@ class TestComputeMoeImportance:
         hh = pl.DataFrame()
         person = pl.DataFrame()
         with pytest.raises(ValueError, match="Unknown control"):
-            compute_moe_importance(hh, person, ["not_a_control"])
+            compute_control_moe(hh, person, ["not_a_control"])
 
     def test_end_to_end_with_real_registry(self):
         """Use h_size from the real registry with synthetic data."""
@@ -720,7 +726,7 @@ class TestComputeMoeImportance:
 
         hh = pl.DataFrame(data)
         person = pl.DataFrame()
-        result = compute_moe_importance(hh, person, ["h_size"])
+        result = _moe_importance(hh, person, ["h_size"])
 
         assert "h_size" in result
         assert result["h_size"] > 0
@@ -737,7 +743,7 @@ class TestComputeMoeImportance:
         for r in range(1, 81):
             data[f"_xw_WGTP{r}"] = [100.0]
         hh = pl.DataFrame(data)
-        result = compute_moe_importance(hh, pl.DataFrame(), ["h_total"])
+        result = _moe_importance(hh, pl.DataFrame(), ["h_total"])
         # h_total should be omitted (no valid cells)
         assert "h_total" not in result
 
@@ -764,14 +770,10 @@ class TestComputeMoeImportance:
         hh = pl.DataFrame(data)
 
         # the CVs the two groupings produce, asserted before the normalisation
-        assert _control_cv(
-            CONTROLS["h_size"], hh, pl.DataFrame(), "zone_group_id"
-        ) == pytest.approx(0.06)
-        assert _control_cv(
-            CONTROLS["h_workers"], hh, pl.DataFrame(), "zone_group_id"
-        ) == pytest.approx(0.02)
+        assert _cv(CONTROLS["h_size"], hh, pl.DataFrame()) == pytest.approx(0.06)
+        assert _cv(CONTROLS["h_workers"], hh, pl.DataFrame()) == pytest.approx(0.02)
 
-        result = compute_moe_importance(hh, pl.DataFrame(), ["h_size", "h_workers"])
+        result = _moe_importance(hh, pl.DataFrame(), ["h_size", "h_workers"])
         assert result["h_workers"] > result["h_size"]
         assert result["h_workers"] / result["h_size"] == pytest.approx(np.sqrt(3.0))
         # the two importances straddle the default, since their median is it
@@ -811,7 +813,7 @@ class TestCrosstabMoe:
         """_control_cell_moe computes MOE for cross-tab by adding composite column."""
         xtab = register_crosstab("h_size_x_income", ["h_size", "h_income"])
         hh = self._xtab_hh_frame()
-        result = _control_cell_moe(xtab, hh, pl.DataFrame(), "zone_group_id")
+        result = _control_cell_moe(xtab, hh, pl.DataFrame())
         assert result is not None
         assert "control_name" in result.columns
         assert result["control_name"][0] == "h_size_x_income"
@@ -821,7 +823,7 @@ class TestCrosstabMoe:
         """compute_moe_importance returns importance for cross-tab controls."""
         register_crosstab("h_size_x_income", ["h_size", "h_income"])
         hh = self._xtab_hh_frame(n=200)
-        result = compute_moe_importance(hh, pl.DataFrame(), ["h_size", "h_size_x_income"])
+        result = _moe_importance(hh, pl.DataFrame(), ["h_size", "h_size_x_income"])
         assert "h_size_x_income" in result
         assert result["h_size_x_income"] > 0
 
@@ -917,7 +919,7 @@ class TestGridSearch:
             ef_grid=grid,
             selected_ef=5.0,
             balancing=_BALANCING,
-            importance=ImportanceConfig(),
+            importance=dict.fromkeys(targets, 100.0),
         )
         assert len(results) == 3
         assert [r.max_expansion_factor for r in results] == [2.0, 5.0, 10.0]
@@ -939,7 +941,7 @@ class TestGridSearch:
             ef_grid=ef_grid,
             selected_ef=5.0,
             balancing=_BALANCING,
-            importance=ImportanceConfig(),
+            importance=dict.fromkeys(targets, 100.0),
         )
         assert [r.max_expansion_factor for r in results] == expected
 
@@ -953,7 +955,7 @@ class TestGridSearch:
             ef_grid=[5.0],
             selected_ef=5.0,
             balancing=_BALANCING,
-            importance=ImportanceConfig(),
+            importance=dict.fromkeys(targets, 100.0),
         )
         gp = results[0]
         assert gp.mape >= 0
