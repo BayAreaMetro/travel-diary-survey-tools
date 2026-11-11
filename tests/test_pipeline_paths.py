@@ -1,20 +1,4 @@
-"""Paths are built from roots, and a root says where a share is on this machine.
-
-Issue #100. A config that names ``M:/Data/...`` only runs where someone has
-mapped ``M:``. Drive letters are a convention rather than a fact, and Linux has
-none, so a shared config cannot hold every machine's answer.
-
-The split is between the root and everything under it. ``/Data/HomeInterview/Bay
-Area Travel Study 2023/...`` is shared knowledge and belongs in the config where
-it can be reviewed; where that share is mounted is local and belongs in a
-gitignored ``.env``. So a config says ``{{ MTC_DATA }}/Data/...``, which is true
-on every machine, and nothing is overridden -- the config never claims to know
-where the share is.
-
-The alternative, letting the environment silently replace a whole configured
-path, was rejected: the config would state one path while the run used another,
-and the run's own saved copy of "the config used" would record the wrong one.
-"""
+"""Paths are built from roots, and a root says where a share is on this machine."""
 
 from pathlib import Path
 
@@ -41,6 +25,8 @@ steps:
       input: "{{ survey_dir }}/hh.csv"
 """
 
+ENVS_DEFAULT = 'ENVS:\n  SHARED: "/opt/shared"\nd: "{{ SHARED }}/x"'
+
 
 def _config(text: str = ROOTED) -> dict:
     return yaml.safe_load(text)
@@ -51,45 +37,39 @@ def _project(name: str) -> dict:
 
 
 class TestOneNamespace:
-    """Roots, ``ENVS`` defaults and the config's own keys all feed the templating.
-
-    Not a second mechanism beside the substitution that already exists -- the
-    same one, with more sources -- which is why ``{{ output_dir }}`` keeps
-    working unchanged.
-    """
+    """Roots, ``ENVS`` defaults and the config's own keys all feed the templating."""
 
     def test_a_root_comes_from_the_environment(self, monkeypatch):
-        """The machine-specific half, and the only half that comes from outside."""
+        """A root is read from the environment."""
         monkeypatch.setenv("MTC_DATA", "//share/models")
 
         assert template_namespace(_config())["MTC_DATA"] == "//share/models"
 
     def test_the_configs_own_keys_are_still_available(self):
-        """``log_file: "{{ output_dir }}/run.log"`` predates roots and must survive."""
+        """The config's own keys are in the namespace too."""
         assert "output_dir" in template_namespace(_config())
 
-    def test_an_envs_block_supplies_a_committed_default(self):
-        """For a root that genuinely is the same everywhere."""
-        config = _config('ENVS:\n  SHARED: "/opt/shared"\nd: "{{ SHARED }}/x"')
+    @pytest.mark.parametrize(
+        ("env", "expected"),
+        [
+            pytest.param(None, "/opt/shared", id="unset-uses-envs-default"),
+            pytest.param("/mnt/elsewhere", "/mnt/elsewhere", id="environment-wins"),
+            pytest.param("", "/opt/shared", id="empty-is-unset"),
+        ],
+    )
+    def test_envs_block_is_a_default_the_environment_overrides(
+        self, monkeypatch, env: str | None, expected: str
+    ):
+        """``ENVS`` supplies a default; a non-empty environment variable replaces it."""
+        if env is None:
+            monkeypatch.delenv("SHARED", raising=False)
+        else:
+            monkeypatch.setenv("SHARED", env)
 
-        assert template_namespace(config)["SHARED"] == "/opt/shared"
-
-    def test_the_environment_beats_a_committed_default(self, monkeypatch):
-        """The block is a default; a machine is the authority on its own mounts."""
-        monkeypatch.setenv("SHARED", "/mnt/elsewhere")
-        config = _config('ENVS:\n  SHARED: "/opt/shared"\nd: "{{ SHARED }}/x"')
-
-        assert template_namespace(config)["SHARED"] == "/mnt/elsewhere"
-
-    def test_an_empty_variable_is_not_an_instruction(self, monkeypatch):
-        """An exported-but-empty variable is a shell accident, not a value."""
-        monkeypatch.setenv("SHARED", "")
-        config = _config('ENVS:\n  SHARED: "/opt/shared"\nd: "{{ SHARED }}/x"')
-
-        assert template_namespace(config)["SHARED"] == "/opt/shared"
+        assert template_namespace(_config(ENVS_DEFAULT))["SHARED"] == expected
 
     def test_roots_resolve_through_to_a_full_path(self, monkeypatch):
-        """The whole point: a real path, assembled from both halves."""
+        """Root and configured remainder resolve to a full path."""
         monkeypatch.setenv("MTC_DATA", "//share/models")
         monkeypatch.setenv("BOX_DIR", "/box")
 
@@ -99,20 +79,16 @@ class TestOneNamespace:
         assert resolved["log_file"] == "/box/out/run.log"
 
     def test_a_malformed_envs_block_is_refused(self):
-        """A scalar where a mapping belongs would silently contribute nothing."""
+        """A scalar ``ENVS`` block raises."""
         with pytest.raises(TypeError, match="must be a mapping"):
             template_namespace(_config("ENVS: not-a-mapping\nd: x"))
 
 
 class TestAnUnsetRootIsNamed:
-    """Left unresolved it renders literally and fails later as a baffling path."""
+    """An unset root is reported before the run, not rendered literally."""
 
     def test_every_missing_root_is_named_at_once(self, monkeypatch):
-        """Otherwise it is one root per attempt: set, re-run, discover the next.
-
-        The message also has to say where to set them: naming the problem without
-        the remedy just relocates the guessing.
-        """
+        """All unset roots are named in one error that says where to set them."""
         for name in ("MTC_DATA", "BOX_DIR"):
             monkeypatch.delenv(name, raising=False)
         config = _config()
@@ -126,7 +102,7 @@ class TestAnUnsetRootIsNamed:
         assert ".env file beside the project" in message
 
     def test_nothing_is_raised_once_they_are_set(self, monkeypatch):
-        """A correct setup must be silent, or the check gets worked around."""
+        """With every root set, nothing is raised."""
         monkeypatch.setenv("MTC_DATA", "//share/models")
         monkeypatch.setenv("BOX_DIR", "/box")
         config = _config()
@@ -134,24 +110,19 @@ class TestAnUnsetRootIsNamed:
         check_roots_resolved(config, template_namespace(config))
 
     def test_references_are_found_wherever_they_appear(self):
-        """Including inside step params, which is where most of them are."""
+        """References are found at the top level and inside step params."""
         assert _referenced_names(_config()) >= {"MTC_DATA", "BOX_DIR", "survey_dir"}
 
 
 class TestOnlyReferencedPathsAreChecked:
-    """A path nothing reads must not be able to refuse a run.
-
-    bats_2023 declares ``pums_dir`` and names it from commented-out lines only.
-    YAML drops comments before parsing, so a shorthand is in scope exactly when
-    a step still refers to it.
-    """
+    """A path no step refers to cannot refuse a run."""
 
     def test_a_shorthand_a_step_names_is_in_scope(self):
-        """A live reference is what puts a path in scope."""
+        """A shorthand a step refers to is in scope."""
         assert shorthands_used_by_steps(_config()) == {"survey_dir"}
 
     def test_a_shorthand_only_a_comment_names_is_not(self):
-        """This is what stops `pums_dir` refusing a bats_2023 run."""
+        """A shorthand named only in a YAML comment is not in scope."""
         config = _config(
             "pums_dir: /nope\nsteps:\n  - name: load\n    params:\n"
             '      # p: "{{ pums_dir }}/x"\n      q: 1'
@@ -160,19 +131,19 @@ class TestOnlyReferencedPathsAreChecked:
         assert shorthands_used_by_steps(config) == set()
 
     def test_a_declared_but_unused_path_is_not_required_to_exist(self):
-        """Declared, referenced by nothing, missing on disk -- and still fine."""
+        """A declared path no step uses need not exist."""
         check_input_paths({"pums_dir": "Z:/nowhere"}, used=set())
 
 
 class TestMissingInputsFailBeforeTheRun:
-    """Reported at the start, together, rather than one per wasted run."""
+    """Missing input directories are reported together, before the run."""
 
     def test_an_existing_directory_passes(self, tmp_path):
-        """A correct config must be silent, or the check gets bypassed."""
+        """An existing directory raises nothing."""
         check_input_paths({"survey_dir": str(tmp_path)}, used={"survey_dir"})
 
     def test_every_missing_path_is_named_at_once(self):
-        """Otherwise the fix-run-wait loop repeats once per wrong path."""
+        """Every missing directory is named in one error."""
         config = {"survey_dir": "Z:/nowhere", "TM2_shapefile_dir": "Z:/still/nowhere"}
 
         with pytest.raises(ValueError, match=r"director(y|ies) do(es)? not exist") as excinfo:
@@ -182,7 +153,7 @@ class TestMissingInputsFailBeforeTheRun:
             assert key in str(excinfo.value)
 
     def test_output_directories_are_not_required_to_exist(self, tmp_path):
-        """They are created on demand; demanding them up front would be wrong."""
+        """``output_dir`` need not exist; it is created on demand."""
         check_input_paths({"output_dir": str(tmp_path / "unmade")}, used={"output_dir"})
 
     def test_settings_that_are_not_directories_are_ignored(self):
@@ -194,7 +165,7 @@ class TestMissingInputsFailBeforeTheRun:
 
 
 class TestAMissingInputDirectoryCanBeCreated:
-    """Steps that download their inputs need somewhere to put them on a first run."""
+    """A missing input directory whose parent exists can be created on confirmation."""
 
     def _answer(self, monkeypatch, reply: str | None) -> list[str]:
         asked: list[str] = []
@@ -220,7 +191,7 @@ class TestAMissingInputDirectoryCanBeCreated:
 
     @pytest.mark.parametrize("reply", ["n", "", None])
     def test_anything_else_leaves_it_missing(self, monkeypatch, tmp_path, reply):
-        """No, a bare Enter, or no one to ask: the run stops as before."""
+        """No, a bare Enter, or no one to ask: the directory is not made and the check raises."""
         self._answer(monkeypatch, reply)
         path = tmp_path / "census"
 
@@ -238,11 +209,11 @@ class TestAMissingInputDirectoryCanBeCreated:
 
 
 class TestTheShippedConfigs:
-    """What the repository actually contains has to satisfy all of this."""
+    """The project configs in the repository follow these rules."""
 
     @pytest.mark.parametrize("project", ["bats_2019", "bats_2023"])
     def test_every_path_is_built_from_a_root(self, project):
-        """A bare drive letter is the thing this change exists to remove."""
+        """No ``*_dir`` path is a bare path without a root."""
         raw = _project(project)
         bare = [
             f"{key}: {value}"
@@ -254,7 +225,7 @@ class TestTheShippedConfigs:
 
     @pytest.mark.parametrize("project", ["bats_2019", "bats_2023"])
     def test_example_env_declares_every_root_the_config_needs(self, project):
-        """Otherwise the failure names a root nobody has been told how to set."""
+        """``example.env`` lists every root a config needs that ``ENVS`` does not supply."""
         raw = _project(project)
         roots = {
             name
@@ -268,36 +239,18 @@ class TestTheShippedConfigs:
 
 
 class TestShorthandsReferringToShorthands:
-    """A shorthand may refer to another shorthand.
-
-    That is how projects hang every output off one root::
-
-        survey_dir: "M:/.../WeightedDataset"
-        output_dir: "{{ survey_dir }}/pipeline_analysis"
-
-    Substituting in one pass makes that work only when the referenced shorthand
-    is declared *after* the one referring to it, so the same config resolves or
-    emits a literal ``{{ survey_dir }}`` directory depending on the order its
-    keys happen to be written in. These pin the order-independence.
-    """
+    """A shorthand may refer to another shorthand, declared in either order."""
 
     @staticmethod
     def _load(tmp_path, config: dict) -> dict:
-        """Write a config and return it as Pipeline loads it."""
         path = tmp_path / "config.yaml"
         path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
         return Pipeline(config_path=str(path), steps=[]).config
 
     @pytest.mark.parametrize("target_first", [True, False], ids=["target-first", "reference-first"])
     def test_resolution_does_not_depend_on_declaration_order(self, tmp_path, target_first: bool):
-        """Either declaration order gives the identical fully expanded result.
-
-        ``survey_dir`` is rooted in ``tmp_path`` rather than a literal drive
-        because this config sets ``log_file``: ``Pipeline`` creates the log's
-        parent directory on construction, so whatever this resolves to gets made
-        on disk. Pointed at ``M:/``, that means the mapped network share on a
-        Windows machine, and a FileNotFoundError on one without it.
-        """
+        """Either declaration order gives the same fully expanded result."""
+        # Under tmp_path: Pipeline creates the log file's directory on construction.
         survey_dir = str(tmp_path / "survey")
         declarations = [("survey_dir", survey_dir), ("output_dir", "{{ survey_dir }}/out")]
         if not target_first:
@@ -335,9 +288,5 @@ class TestShorthandsReferringToShorthands:
             _resolve_variables({"a": "{{ b }}/x", "b": "{{ a }}/y"})
 
     def test_unknown_reference_is_left_alone(self):
-        """A reference to something undeclared is not an error here.
-
-        Nothing at this layer knows which strings are meant to be paths, so an
-        unrecognised marker is passed through untouched rather than guessed at.
-        """
+        """A reference to something undeclared is passed through untouched."""
         assert _resolve_variables({"a": "{{ nowhere }}/x"})["a"] == "{{ nowhere }}/x"

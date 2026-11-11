@@ -14,69 +14,43 @@ import pytest
 
 from data_canon.codebook.tours import TourCategory, TourDataQuality
 from data_canon.codebook.trips import PurposeCategory
-from processing.completeness import (
-    NO_ZONE_COVERAGE,
-    HouseholdDayNeeds,
-    JointTours,
-    TourClosesAt,
-    UsabilityProfile,
-    cascade_complete,
-    stamp_usable,
-)
-from processing.completeness.profiles import ALL_DAYS
+from processing.completeness import HouseholdDayNeeds, JointTours, UsabilityProfile
 from processing.formatting.kept_records import keep_records, select_profile_columns
 from processing.joint_trips.aggregation import build_joint_trips_table
 from processing.tours.joint_tour_helpers import build_joint_tours_table
-from tests.fixtures.schema_utils import add_missing_tables
+from tests.fixtures.cascade import household, make_profile, stamp
 
-STRICT = UsabilityProfile(
-    "strict",
-    TourClosesAt.PRIMARY_HOME,
-    HouseholdDayNeeds.ALL_MEMBERS,
-    joint_tours=JointTours.FULLY_JOINT,
-    zone_coverage=NO_ZONE_COVERAGE,
-    travel_days=ALL_DAYS,
-)
-LOOSE = UsabilityProfile(
-    "loose",
-    TourClosesAt.PRIMARY_HOME,
-    HouseholdDayNeeds.ALL_MEMBERS,
-    joint_tours=JointTours.PARTIAL,
-    zone_coverage=NO_ZONE_COVERAGE,
-    travel_days=ALL_DAYS,
-)
+STRICT = make_profile("strict", joint_tours=JointTours.FULLY_JOINT)
+LOOSE = make_profile("loose")
+LOOSE_DAYS = make_profile("loose_days", household=HouseholdDayNeeds.NOTHING)
 
 SHOP = PurposeCategory.SHOP.value
+VALID, GAP = TourDataQuality.VALID.value, TourDataQuality.SPATIAL_GAP.value
 
 
 def _household(
     legs: dict[int, list[int | None]],
     purposes: dict[int, int] | None = None,
+    **tours: list,
 ) -> dict[str, pl.DataFrame]:
-    """One joint tour (id 100) with one member tour per person.
+    """One joint tour (id 100) with one member tour per person 1..n.
 
     *legs* gives each person's trips as the joint trip each leg is part of, or
     None for a leg travelled alone. Every record is complete and every tour
-    valid, so only the joint rule can move anything.
+    valid unless *tours* says otherwise.
     """
     people = sorted(legs)
+    n = len(people)
     purposes = purposes or dict.fromkeys(people, SHOP)
-    tours = pl.DataFrame(
-        {
-            "tour_id": [p * 10 for p in people],
-            "person_day_id": people,
-            "person_id": people,
-            "hh_id": [1] * len(people),
-            "joint_tour_id": [100] * len(people),
-            "tour_purpose": [purposes[p] for p in people],
-            "survey_complete": [True] * len(people),
-            "parent_tour_id": [p * 10 for p in people],
-            "tour_data_quality": [TourDataQuality.VALID.value] * len(people),
-            "tour_category": [TourCategory.COMPLETE.value] * len(people),
-        }
+    tables = household(
+        n,
+        hh_id=[1] * n,
+        joint_tour_id=[100] * n,
+        tour_purpose=[purposes[p] for p in people],
+        **tours,
     )
     trip_rows = [(p * 100 + i, p * 10, p, joint) for p in people for i, joint in enumerate(legs[p])]
-    linked_trips = pl.DataFrame(
+    tables["linked_trips"] = pl.DataFrame(
         {
             "linked_trip_id": [r[0] for r in trip_rows],
             "tour_id": [r[1] for r in trip_rows],
@@ -87,46 +61,18 @@ def _household(
         schema_overrides={"joint_trip_id": pl.Int64},
     )
     joint_trip_ids = sorted({r[3] for r in trip_rows if r[3] is not None})
-    return {
-        "households": pl.DataFrame({"hh_id": [1], "survey_complete": [True]}),
-        "persons": pl.DataFrame(
-            {
-                "person_id": people,
-                "hh_id": [1] * len(people),
-                "survey_complete": [True] * len(people),
-                "surveyable": [True] * len(people),
-            }
-        ),
-        "person_days": pl.DataFrame(
-            {
-                "person_day_id": people,
-                "person_id": people,
-                "hh_id": [1] * len(people),
-                "travel_date": [datetime(2023, 5, 1)] * len(people),
-                "survey_complete": [True] * len(people),
-            }
-        ),
-        "tours": tours,
-        "linked_trips": linked_trips,
-        "joint_trips": pl.DataFrame(
-            {
-                "joint_trip_id": joint_trip_ids,
-                "hh_id": [1] * len(joint_trip_ids),
-                "person_day_id": [1] * len(joint_trip_ids),
-                "survey_complete": [True] * len(joint_trip_ids),
-            }
-        ),
-        "joint_tours": pl.DataFrame(
-            {"joint_tour_id": [100], "hh_id": [1], "person_day_id": [1], "survey_complete": [True]}
-        ),
-    }
-
-
-def _stamp(profile: UsabilityProfile, tables: dict) -> dict[str, pl.DataFrame]:
-    working: dict[str, pl.DataFrame | None] = dict(tables)
-    cascade_complete(add_missing_tables(working))
-    stamp_usable(working, profile)
-    return {name: df for name, df in working.items() if df is not None}
+    tables["joint_trips"] = pl.DataFrame(
+        {
+            "joint_trip_id": joint_trip_ids,
+            "hh_id": [1] * len(joint_trip_ids),
+            "person_day_id": [1] * len(joint_trip_ids),
+            "survey_complete": [True] * len(joint_trip_ids),
+        }
+    )
+    tables["joint_tours"] = pl.DataFrame(
+        {"joint_tour_id": [100], "hh_id": [1], "person_day_id": [1], "survey_complete": [True]}
+    )
+    return tables
 
 
 def _on_tour(out: dict[str, pl.DataFrame], profile: UsabilityProfile) -> dict[int, bool]:
@@ -146,7 +92,7 @@ class TestFullyJoint:
         tour is the two of them.
         """
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
-        out = _stamp(STRICT, tables)
+        out = stamp(tables, STRICT)
         assert _on_tour(out, STRICT) == {1: True, 2: True, 3: False}
         assert out["joint_tours"][STRICT.flag].to_list() == [True]
         # Person 3's tour is still a usable tour, just an individual one.
@@ -159,7 +105,7 @@ class TestFullyJoint:
         group of one dissolves: everyone travels alone.
         """
         tables = _household({1: [500, 502], 2: [500, None], 3: [500, 502, None]})
-        out = _stamp(STRICT, tables)
+        out = stamp(tables, STRICT)
         assert _on_tour(out, STRICT) == {1: False, 2: False, 3: False}
         assert out["joint_tours"][STRICT.flag].to_list() == [False]
 
@@ -179,13 +125,13 @@ class TestFullyJoint:
         Work-related counts as work: a model treats a meeting or jobsite as work.
         """
         tables = _household({1: [500], 2: [500], 3: [500]}, {1: SHOP, 2: purpose.value, 3: SHOP})
-        out = _stamp(STRICT, tables)
+        out = stamp(tables, STRICT)
         assert _on_tour(out, STRICT) == {1: True, 2: False, 3: True}
 
     def test_mixed_purposes_dissolve_the_tour(self):
         """One model purpose per joint tour; two purposes is two tours."""
         tables = _household({1: [500], 2: [500]}, {1: SHOP, 2: PurposeCategory.MEAL.value})
-        out = _stamp(STRICT, tables)
+        out = stamp(tables, STRICT)
         assert _on_tour(out, STRICT) == {1: False, 2: False}
         assert out["joint_tours"][STRICT.flag].to_list() == [False]
 
@@ -231,7 +177,7 @@ class TestFullyJoint:
         tables["joint_trips"] = tables["joint_trips"].with_columns(
             (pl.col("joint_trip_id") != 501).alias("survey_complete")
         )
-        out = _stamp(STRICT, tables)
+        out = stamp(tables, STRICT)
         tours = out["tours"].sort("tour_id")
         on = tours.select("tour_id", pl.col(STRICT.joint_tour_id).is_not_null())
         assert dict(on.iter_rows()) == {10: True, 20: True, 30: False, 31: False}
@@ -247,7 +193,7 @@ class TestFullyJoint:
     def test_linked_trips_follow_their_tour(self):
         """A trip is in its joint trip only while its tour is in its joint tour."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
-        out = _stamp(STRICT, tables)
+        out = stamp(tables, STRICT)
         trips = out["linked_trips"].sort("linked_trip_id")
         assert trips[STRICT.joint_trip_id].to_list() == [500, 501, 500, 501, None, None]
         assert trips[STRICT.joint_tour_id].to_list() == [100, 100, 100, 100, None, None]
@@ -261,41 +207,14 @@ class TestPartial:
     def test_a_person_who_leaves_for_a_leg_stays_on_the_tour(self):
         """The survey said they were together, and this profile takes its word."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
-        out = _stamp(LOOSE, tables)
+        out = stamp(tables, LOOSE)
         assert _on_tour(out, LOOSE) == {1: True, 2: True, 3: True}
 
     def test_an_unusable_tour_is_still_not_on_it(self):
         """Partial relaxes the leg rule, not usability."""
-        tables = _household({1: [500], 2: [500], 3: [500]})
-        tables["tours"] = tables["tours"].with_columns(
-            pl.when(pl.col("person_id") == 3)
-            .then(pl.lit(TourDataQuality.SPATIAL_GAP.value))
-            .otherwise(pl.col("tour_data_quality"))
-            .alias("tour_data_quality")
-        )
-        out = _stamp(
-            UsabilityProfile(
-                "loose_days",
-                TourClosesAt.PRIMARY_HOME,
-                "nothing",
-                zone_coverage=NO_ZONE_COVERAGE,
-                joint_tours=JointTours.PARTIAL,
-                travel_days=ALL_DAYS,
-            ),
-            tables,
-        )
-        on = _on_tour(
-            out,
-            UsabilityProfile(
-                "loose_days",
-                TourClosesAt.PRIMARY_HOME,
-                "nothing",
-                zone_coverage=NO_ZONE_COVERAGE,
-                joint_tours=JointTours.PARTIAL,
-                travel_days=ALL_DAYS,
-            ),
-        )
-        assert on == {1: True, 2: True, 3: False}
+        tables = _household({1: [500], 2: [500], 3: [500]}, tour_data_quality=[VALID, VALID, GAP])
+        out = stamp(tables, LOOSE_DAYS)
+        assert _on_tour(out, LOOSE_DAYS) == {1: True, 2: True, 3: False}
 
 
 class TestTheColumnIsPerProfile:
@@ -304,12 +223,7 @@ class TestTheColumnIsPerProfile:
     def test_two_profiles_disagree_on_the_same_table(self):
         """Strict drops person 3; partial keeps them; the id itself never moves."""
         tables = _household({1: [500, 501], 2: [500, 501], 3: [500, None]})
-        working: dict[str, pl.DataFrame | None] = dict(tables)
-        cascade_complete(add_missing_tables(working))
-        stamp_usable(working, STRICT)
-        stamp_usable(working, LOOSE)
-        tours = working["tours"]
-        assert tours is not None
+        tours = stamp(tables, STRICT, LOOSE)["tours"]
         assert tours[STRICT.joint_tour_id].to_list() == [100, 100, None]
         assert tours[LOOSE.joint_tour_id].to_list() == [100, 100, 100]
         # The survey's own record of the group is untouched.
@@ -321,26 +235,12 @@ class TestAGroupOfOneDissolves:
 
     def test_partial_nulls_the_id_when_the_other_tour_is_unusable(self):
         """Two tours in the survey's group; one fails on its own. The other is alone."""
-        tables = _household({1: [500], 2: [500]})
-        tables["tours"] = tables["tours"].with_columns(
-            pl.when(pl.col("person_id") == 2)
-            .then(pl.lit(TourDataQuality.SPATIAL_GAP.value))
-            .otherwise(pl.col("tour_data_quality"))
-            .alias("tour_data_quality")
-        )
-        loose = UsabilityProfile(
-            "loose_days",
-            TourClosesAt.PRIMARY_HOME,
-            "nothing",
-            zone_coverage=NO_ZONE_COVERAGE,
-            joint_tours=JointTours.PARTIAL,
-            travel_days=ALL_DAYS,
-        )
-        out = _stamp(loose, tables)
-        assert out["tours"][loose.joint_tour_id].to_list() == [None, None]
-        assert out["linked_trips"][loose.joint_trip_id].to_list() == [None, None]
-        assert out["joint_tours"][loose.flag].to_list() == [False]
-        assert out["joint_trips"][loose.flag].to_list() == [False]
+        tables = _household({1: [500], 2: [500]}, tour_data_quality=[VALID, GAP])
+        out = stamp(tables, LOOSE_DAYS)
+        assert out["tours"][LOOSE_DAYS.joint_tour_id].to_list() == [None, None]
+        assert out["linked_trips"][LOOSE_DAYS.joint_trip_id].to_list() == [None, None]
+        assert out["joint_tours"][LOOSE_DAYS.flag].to_list() == [False]
+        assert out["joint_trips"][LOOSE_DAYS.flag].to_list() == [False]
 
 
 class TestAJointRecordBelongsToItsHousehold:
@@ -355,12 +255,9 @@ class TestAJointRecordBelongsToItsHousehold:
         stays usable. Persons 2 and 3 must keep every leg: the joint trip is
         still two usable travellers.
         """
-        tables = _household({1: [None, 500, 501], 2: [600, 500, 501], 3: [600, 500, 501]})
-        tables["tours"] = tables["tours"].with_columns(
-            pl.when(pl.col("person_id") == 1)
-            .then(pl.lit(TourDataQuality.SPATIAL_GAP.value))
-            .otherwise(pl.col("tour_data_quality"))
-            .alias("tour_data_quality")
+        tables = _household(
+            {1: [None, 500, 501], 2: [600, 500, 501], 3: [600, 500, 501]},
+            tour_data_quality=[GAP, VALID, VALID],
         )
         tables["person_days"] = pl.concat(
             [
@@ -378,7 +275,7 @@ class TestAJointRecordBelongsToItsHousehold:
         )
         assert tables["joint_trips"]["person_day_id"].to_list() == [1, 1, 1]
 
-        out = _stamp(STRICT, tables)
+        out = stamp(tables, STRICT)
 
         assert out["households"][STRICT.flag].to_list() == [True]
         assert _on_tour(out, STRICT) == {1: False, 2: True, 3: True}
@@ -393,7 +290,7 @@ class TestAJointRecordBelongsToItsHousehold:
 
 
 def _three_person_household(travel_date: object, next_date: object) -> dict[str, pl.DataFrame]:
-    """The real case, household 23314479, with joint tables built by the pipeline.
+    """A three-person household, with joint tables built by the pipeline.
 
     Persons 2 and 3 share all three legs of a shop tour; person 1 joins legs 2
     and 3 only, on a tour that fails quality, so person 1's day is complete but
@@ -413,11 +310,7 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
             "tour_purpose": [SHOP] * 3,
             "survey_complete": [True] * 3,
             "parent_tour_id": [p * 10 for p in people],
-            "tour_data_quality": [
-                TourDataQuality.SPATIAL_GAP.value,
-                TourDataQuality.VALID.value,
-                TourDataQuality.VALID.value,
-            ],
+            "tour_data_quality": [GAP, VALID, VALID],
             "tour_category": [TourCategory.COMPLETE.value] * 3,
         },
         schema_overrides={"joint_tour_id": pl.Int64},
@@ -475,14 +368,13 @@ def _three_person_household(travel_date: object, next_date: object) -> dict[str,
 class TestTheGateKeepsWhatTheCascadeAdmits:
     """Cascade and gate must agree: no joint record is kept or dropped by a different rule.
 
-    This is the shape that failed on real data: the gate refused joint trips the
-    cascade had admitted, because they pointed at one member's unusable day.
+    Here the joint trips name one member's unusable day; the gate must still keep them.
     """
 
     @pytest.mark.parametrize("profile", [STRICT, LOOSE], ids=lambda p: p.name)
     def test_the_gate_passes(self, travel_date, next_date, profile):
         """keep_records raises on any disagreement, so not raising is the assertion."""
-        out = _stamp(profile, _three_person_household(travel_date, next_date))
+        out = stamp(_three_person_household(travel_date, next_date), profile)
         resolved = select_profile_columns(
             out, profile.name, only=("joint_tour_id", "joint_trip_id")
         )
@@ -490,7 +382,7 @@ class TestTheGateKeepsWhatTheCascadeAdmits:
 
     def test_the_two_who_shared_every_leg_keep_their_joint_travel(self, travel_date, next_date):
         """Persons 2 and 3 keep all three joint trips and their joint tour; person 1 is out."""
-        out = _stamp(STRICT, _three_person_household(travel_date, next_date))
+        out = stamp(_three_person_household(travel_date, next_date), STRICT)
         resolved = select_profile_columns(out, STRICT.name, only=("joint_tour_id", "joint_trip_id"))
         kept, _ = keep_records(resolved, STRICT.flag)
 

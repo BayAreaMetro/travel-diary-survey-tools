@@ -1,16 +1,9 @@
 """The bats_2023 cleaner's one race column, from the vendor's race boxes."""
 
-import importlib.util
-from pathlib import Path
-
 import polars as pl
 
 from data_canon.codebook.persons import Race
-
-_PATH = Path(__file__).parents[1] / "projects" / "bats_2023" / "clean_bats_2023.py"
-_spec = importlib.util.spec_from_file_location("clean_bats_2023", _PATH)
-cleaner = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cleaner)
+from projects.bats_2023 import clean_bats_2023 as cleaner
 
 _BOXES = ["race_1", "race_2", "race_3", "race_4", "race_5", "race_997"]
 

@@ -1,26 +1,10 @@
 """A subtour's return leg belongs to the subtour, even when the tour ends there.
 
-``expand_anchor_periods`` marks the first and last trip *touching* the anchor,
-and subtour detection skips both: they are normally the commute in and the
-commute out, which belong to the parent tour. That reasoning holds only while
-something after the subtour leaves the anchor again.
-
-When the tour ends at the anchor -- ``Home -> Work -> Lunch -> Work``, a diary
-day that stops at the workplace -- the last trip touching the anchor *is* the
-subtour's return leg. Skipping it scored the outbound leg as a subtour and the
-trip back to work as no subtour at all, leaving a one-legged subtour that never
-closed.
-
-# What these tests assert
-
-Each case states the itinerary and the subtour number expected per trip, read
-off the definition rather than off the implementation: a subtour is the run of
-trips that leaves an anchor and comes back to that same anchor, and the legs
-that bound the anchor period are the commute and belong to the parent tour.
-
-``assert_subtour_invariants`` then checks the properties that must hold for
-*any* itinerary, so a future change cannot satisfy the worked examples while
-breaking the rule they illustrate.
+A subtour is the run of trips that leaves an anchor and comes back to that same
+anchor; the legs bounding the anchor period are the commute and belong to the
+parent tour. When the tour ends at the anchor (Home > Work > Lunch > Work), the
+last trip touching the anchor is the subtour's return leg, not the commute.
+``assert_subtour_invariants`` checks the properties that hold for any itinerary.
 """
 
 import polars as pl
@@ -108,8 +92,7 @@ def assert_subtour_invariants(legs: list[tuple[int, int]], result: pl.DataFrame)
     [
         # Home > Work > Lunch > Work. Trips 2 and 3 are one round trip away
         # from the workplace and back, so both are subtour 1; trip 1 is the
-        # commute in. This is the regression: nothing leaves the anchor after
-        # the subtour returns, so the return leg used to be skipped.
+        # commute in, and nothing leaves the anchor after the subtour returns.
         pytest.param(
             [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
             [0, 1, 1],
@@ -177,8 +160,8 @@ def assert_subtour_invariants(legs: list[tuple[int, int]], result: pl.DataFrame)
             LocationType.WORK,
             id="two_subtours_are_numbered_separately",
         ),
-        # Home > Work > Lunch > Work > Errand > Work. The same regression as
-        # the first case, reached after an earlier subtour has opened and closed.
+        # Home > Work > Lunch > Work > Errand > Work. The first case again,
+        # reached after an earlier subtour has opened and closed.
         pytest.param(
             [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
             [0, 1, 1, 2, 2],
@@ -243,25 +226,14 @@ def test_subtour_numbering(legs, expected, anchor):
     assert_subtour_invariants(legs, result)
 
 
-class TestInvariantsHoldAcrossItineraries:
-    """The rules above are properties, not just facts about the worked examples."""
-
-    @pytest.mark.parametrize(
-        "legs",
-        [
-            [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
-            [TO_ANCHOR, LEAVE_ANCHOR, AWAY, RETURN_TO_ANCHOR],
-            [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, ANCHOR_TO_HOME],
-            [TO_ANCHOR, LEAVE_ANCHOR, AWAY],
-            [TO_ANCHOR, ANCHOR_TO_HOME],
-            [TO_ANCHOR, LEAVE_ANCHOR, AWAY, ANCHOR_TO_ANCHOR],
-            [TO_ANCHOR, ANCHOR_TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
-            [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, LEAVE_ANCHOR, AWAY],
-            [TO_ANCHOR, LEAVE_ANCHOR, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR],
-            [TO_ANCHOR, LEAVE_ANCHOR, AWAY, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR, RETURN_TO_ANCHOR],
-            [AWAY, AWAY],
-        ],
-    )
-    def test_every_subtour_is_a_closed_round_trip(self, legs):
-        """No itinerary may produce a subtour that does not leave and return."""
-        assert_subtour_invariants(legs, _detect(legs))
+@pytest.mark.parametrize(
+    "legs",
+    [
+        [TO_ANCHOR, ANCHOR_TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR],
+        [TO_ANCHOR, LEAVE_ANCHOR, RETURN_TO_ANCHOR, LEAVE_ANCHOR, AWAY],
+        [TO_ANCHOR, LEAVE_ANCHOR, AWAY, TO_OTHER_ANCHOR, LEAVE_OTHER_ANCHOR, RETURN_TO_ANCHOR],
+    ],
+)
+def test_every_subtour_is_a_closed_round_trip(legs):
+    """Itineraries beyond the worked examples above still yield only closed round trips."""
+    assert_subtour_invariants(legs, _detect(legs))

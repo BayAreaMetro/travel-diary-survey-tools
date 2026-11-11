@@ -1,12 +1,9 @@
-"""The gate that keeps what a usability profile admits, and decides nothing itself.
+"""``keep_usable``: keep what a usability profile admits, then check what survived agrees.
 
-``keep_usable`` reads one verdict column per consumer, stamped upstream by
-``cascade_completeness``, and this profile's own copy of every joint id. It
-filters each table on that table's verdict and then *checks* -- never repairs
--- that what survived agrees with itself: every reference resolves, no joint id
-is carried alone, and every weight that came in is still there. Each of those
-is something the cascade and the weighting guarantee, so a failure is a bug
-upstream and is raised, not patched.
+It filters each table on its own verdict column and this profile's copy of the
+joint ids, then raises, never repairs, if a reference dangles, a joint id is
+carried alone, or weight went missing: each is a guarantee of the cascade or the
+weighting, so a failure is a bug upstream.
 """
 
 import polars as pl
@@ -162,13 +159,7 @@ class TestTheKeptRecordsMustAgree:
             )
 
     def test_a_partly_joint_tour_passes_the_gate(self):
-        """A leg of a joint tour that is not a joint trip is a consistent set.
-
-        A ``partial`` profile keeps such a tour on purpose. Whether a consumer
-        can represent it is that consumer's rule: the CT-RAMP formatter refuses
-        it (``TestPartlySharedToursAreRejectedHere``); the shared gate cannot
-        know the profile's settings, so it must not.
-        """
+        """A joint tour with an unshared leg is consistent; refusing it is a formatter's rule."""
         kept = keep_usable(
             {
                 "tours": _tours([(1, 500, True), (2, 500, True)]).rename({FLAG: "usable_analysis"}),
@@ -203,12 +194,7 @@ class TestTheKeptRecordsMustAgree:
             keep_usable({"tours": tours}, PROFILE)
 
     def test_a_dropped_record_with_weight_is_named(self):
-        """Each dropped record carrying weight is named, not only the total.
-
-        A shortfall in the total says weight was lost; naming the records says
-        where to look. Tour 3 is dropped too but carries nothing, so it is not
-        named.
-        """
+        """Each dropped record carrying weight is named; tour 3 carries nothing and is not."""
         tours = _tours([(1, None, True), (2, None, False), (3, None, False)]).with_columns(
             tour_weight=pl.Series([10.0, 4.0, 0.0])
         )
@@ -256,19 +242,9 @@ class TestAnAdmittedGroupIsLeftAlone:
 
 
 class TestTheGate:
-    """The formatter keeps what the profile admits, and decides nothing itself.
+    """The gate reads the named profile's verdict; it neither re-derives nor cascades it.
 
-    ``cascade_completeness`` stamps one verdict for every consumer; the
-    formatter reads the profile its config names. It does not re-derive
-    admissibility from ``tour_data_quality`` / ``tour_category``: that was a
-    second definition, it disagreed with the DaySim formatter's own version, and
-    once the profile comes from config it cannot know which one was asked for.
-
-    Nor does it cascade. Each table is filtered on its own verdict, which is
-    sound because the cascade already reconciles them -- trips inherit their
-    tour, the upward reductions are ``>= 1``, the household's verdict is
-    carried down, and a joint grouping needs two records on it. The descriptors
-    survive on these fixtures only because the summary log still labels
+    The tour descriptors are on these fixtures because the summary log labels
     exclusions with them.
     """
 
@@ -307,26 +283,8 @@ class TestTheGate:
         assert sorted(kept["tours"]["tour_id"].to_list()) == [1, 3]
         assert sorted(kept["linked_trips"]["tour_id"].to_list()) == [1, 3]
 
-    def test_it_keeps_everything_the_profile_admits(self):
-        """Nothing is excluded when the profile admits every record."""
-        kept = keep_usable(
-            {
-                "tours": self._tours([(1, True), (2, True)]),
-                "linked_trips": self._linked_trips([(1, True), (2, True)]),
-            },
-            "test",
-        )
-
-        assert sorted(kept["tours"]["tour_id"].to_list()) == [1, 2]
-        assert sorted(kept["linked_trips"]["tour_id"].to_list()) == [1, 2]
-
     def test_descriptors_alone_do_not_gate(self):
-        """A frame with tour descriptors but no verdict is a broken frame.
-
-        Filtering on the category alone answers a different question -- it has
-        no reporting completeness and no household-day coherence in it -- so it
-        silently kept tours the profile rejects.
-        """
+        """Tour descriptors without the profile's verdict column raise rather than gate."""
         tours = pl.DataFrame(
             {
                 "tour_id": [1, 2],
@@ -338,12 +296,7 @@ class TestTheGate:
             keep_usable({"tours": tours}, "test")
 
     def test_a_missing_gate_names_what_is_present(self):
-        """The error has to be actionable: which columns *are* there.
-
-        A profile's name comes from config, so it cannot be recognised by shape;
-        silently keeping every record was the old behaviour and is the worst of
-        the options.
-        """
+        """The error names the verdict columns that are present."""
         tours = pl.DataFrame({"tour_id": [1], "usable_ctramp": [True], "survey_complete": [True]})
 
         with pytest.raises(ValueError, match="ctramp"):
@@ -362,11 +315,7 @@ class TestTheGate:
 
 
 class TestZeroWeightIsReportedWithItsCauses:
-    """A kept record with zero weight is reported, not dropped, and its source is named.
-
-    Both weighting steps stop on a usable record without a weight, so a zero that
-    reaches the formatter came from neither of them.
-    """
+    """A kept record with zero weight is reported, not dropped; the weighting did not make it."""
 
     def test_the_message_names_the_supplied_zero_and_the_weighting(self, caplog):
         """Tour 2 is kept with weight 0: it stays, and the warning says where it came from."""

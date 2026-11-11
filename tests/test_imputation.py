@@ -1,4 +1,4 @@
-"""Tests for imputation module."""
+"""Tests for the KNN, random-forest and MICE imputers and their helpers."""
 
 from collections.abc import Callable
 
@@ -25,9 +25,7 @@ from processing.imputation.validation import (
     validate_rf_imputation,
 )
 
-# The three imputers take different arguments and MICE reports per column, so each
-# is wrapped to the same shape -- (frame, flat stats dict) for one target column --
-# and the rules that hold for all three are stated once, as a table.
+# Each imputer wrapped to one shape: (frame, flat stats dict) for one target column.
 Imputer = Callable[[pl.DataFrame, str, list[str]], tuple[pl.DataFrame, dict]]
 
 
@@ -50,20 +48,37 @@ def _mice(df: pl.DataFrame, column: str, features: list[str]) -> tuple[pl.DataFr
     return result, stats[column]
 
 
-ALL_IMPUTERS = [
-    pytest.param(_knn, id="knn"),
-    pytest.param(_rf, id="rf"),
-    pytest.param(_mice, id="mice"),
-]
+KNN_AND_RF = [pytest.param(_knn, id="knn"), pytest.param(_rf, id="rf")]
+ALL_IMPUTERS = [*KNN_AND_RF, pytest.param(_mice, id="mice")]
+
+
+def _validate_knn(weights: str) -> Callable:
+    return lambda df, column: validate_knn_imputation(
+        df,
+        column=column,
+        n_folds=3,
+        sample_pct=10.0,
+        n_neighbors=3,
+        neighbor_weights=weights,
+        random_state=42,
+        numeric_features=["feature"],
+    )
+
+
+def _validate_rf(df: pl.DataFrame, column: str) -> dict:
+    return validate_rf_imputation(
+        df,
+        column=column,
+        n_folds=3,
+        sample_pct=10.0,
+        n_estimators=50,
+        random_state=42,
+        numeric_features=["feature"],
+    )
 
 
 def _non_contiguous_frame() -> pl.DataFrame:
-    """60 rows whose category is determined by the feature, coded 10/20/30.
-
-    Non-contiguous codes are the case that breaks a naive encoder: anything that
-    treats the code as a dense index, or rounds a regression back to an integer,
-    invents codes like 11 or 25 that never appeared in the data.
-    """
+    """60 rows whose category (coded 10/20/30, three nulls) is set by the feature."""
     rng = np.random.default_rng(42)
     feature = rng.normal(size=60)
     codes = np.array([10, 20, 30])
@@ -81,7 +96,7 @@ class TestEveryImputer:
 
     @pytest.mark.parametrize("impute", ALL_IMPUTERS)
     def test_no_missing_values_returns_the_frame_unchanged(self, impute: Imputer):
-        """Should skip imputation when no missing values."""
+        """With nothing missing the frame comes back unchanged."""
         df = pl.DataFrame({"id": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
 
         result_df, stats = impute(df, "value", ["value"])
@@ -90,7 +105,24 @@ class TestEveryImputer:
         assert stats["n_imputed"] == 0
         assert result_df.equals(df)
 
-    @pytest.mark.parametrize("impute", [pytest.param(_knn, id="knn"), pytest.param(_rf, id="rf")])
+    @pytest.mark.parametrize("impute", KNN_AND_RF)
+    def test_continuous_target_is_filled(self, impute: Imputer):
+        """A float target with two nulls in ten rows is filled."""
+        df = pl.DataFrame(
+            {
+                "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+                "y": [2.0, 4.0, None, 8.0, 10.0, 12.0, None, 16.0, 18.0, 20.0],
+            }
+        )
+
+        result_df, stats = impute(df, "y", ["x"])
+
+        assert stats["n_missing"] == 2
+        assert stats["n_imputed"] == 2
+        assert stats["pct_imputed"] == pytest.approx(20.0)
+        assert result_df["y"].null_count() == 0
+
+    @pytest.mark.parametrize("impute", KNN_AND_RF)
     def test_all_missing_values_imputes_nothing(self, impute: Imputer):
         """With no observed value to learn from, nothing is invented."""
         df = pl.DataFrame({"feature": [1.0, 2.0, 3.0], "target": [None, None, None]})
@@ -135,49 +167,18 @@ class TestEveryImputer:
         ],
     )
     def test_a_column_that_is_not_there_raises(self, call: Callable, match: str):
-        """Should raise error for missing column."""
+        """A target column that is not in the frame raises."""
         df = pl.DataFrame({"a": [1, 2, 3]})
 
         with pytest.raises(ValueError, match=match):
             call(df)
 
 
-class TestKNNImputation:
-    """Tests for KNN imputation."""
-
-    def test_basic_knn_imputation(self):
-        """Should impute missing values using KNN."""
-        df = pl.DataFrame(
-            {
-                "id": [1, 2, 3, 4, 5],
-                "feature1": [1.0, 2.0, 3.0, 4.0, 5.0],
-                "feature2": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "target": [100.0, None, 300.0, None, 500.0],
-            }
-        )
-
-        result_df, stats = impute_knn(
-            df,
-            "target",
-            n_neighbors=2,
-            neighbor_weights="uniform",
-            numeric_features=["feature1", "feature2"],
-        )
-
-        # Should have imputed 2 values
-        assert stats["n_missing"] == 2
-        assert stats["n_imputed"] == 2
-        assert stats["pct_imputed"] == pytest.approx(40.0)
-
-        # No nulls should remain
-        assert result_df["target"].null_count() == 0
-
-
 class TestMICEImputation:
-    """Tests for MICE imputation."""
+    """MICE imputation."""
 
     def test_basic_mice_imputation(self):
-        """Should impute correlated columns using MICE, from numeric and categorical features."""
+        """MICE fills correlated columns from numeric and categorical features."""
         df = pl.DataFrame(
             {
                 "id": [1, 2, 3, 4, 5],
@@ -197,19 +198,13 @@ class TestMICEImputation:
             categorical_features=["col4"],
         )
 
-        # Should have imputed values
         assert stats["col1"]["n_imputed"] == 1
         assert stats["col2"]["n_imputed"] == 1
         assert result_df["col1"].null_count() == 0
         assert result_df["col2"].null_count() == 0
 
     def test_mice_with_insufficient_data(self):
-        """Two rows, one observation each: the fallback is that column's own value.
-
-        There is nothing to regress on, so ``IterativeImputer`` stops at the
-        initial fill rather than failing, and each column is completed with the
-        mean of the single value it has.
-        """
+        """With nothing to regress on, each column is filled with its one observed value."""
         df = pl.DataFrame({"col1": [1.0, None], "col2": [None, 2.0]})
 
         result_df, stats = impute_mice(
@@ -223,53 +218,7 @@ class TestMICEImputation:
 
 
 class TestRandomForestImputation:
-    """Tests for Random Forest imputation."""
-
-    def test_basic_rf_categorical_imputation(self):
-        """Should impute categorical values using Random Forest classifier."""
-        rng = np.random.default_rng(42)
-        n = 50
-        feature = rng.normal(size=n).tolist()
-        # Deterministic categories based on feature
-        target = [1 if f > 0 else 2 for f in feature]
-        # Null out some
-        target[0] = None
-        target[5] = None
-        target[10] = None
-
-        df = pl.DataFrame(
-            {
-                "feature": feature,
-                "mode": pl.Series("mode", target, dtype=pl.Int64),
-            }
-        )
-
-        result_df, stats = impute_random_forest(
-            df, "mode", n_estimators=50, random_state=42, numeric_features=["feature"]
-        )
-
-        assert stats["n_missing"] == 3
-        assert stats["n_imputed"] == 3
-        assert result_df["mode"].null_count() == 0
-        # Values should be valid categories
-        assert set(result_df["mode"].to_list()).issubset({1, 2})
-
-    def test_basic_rf_continuous_imputation(self):
-        """Should impute continuous values using Random Forest regressor."""
-        df = pl.DataFrame(
-            {
-                "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-                "y": [2.0, 4.0, None, 8.0, 10.0, 12.0, None, 16.0, 18.0, 20.0],
-            }
-        )
-
-        result_df, stats = impute_random_forest(
-            df, "y", n_estimators=50, random_state=42, numeric_features=["x"]
-        )
-
-        assert stats["n_missing"] == 2
-        assert stats["n_imputed"] == 2
-        assert result_df["y"].null_count() == 0
+    """Random-forest imputation."""
 
     def test_rf_with_categorical_features_returns_feature_importance(self):
         """One-hot encoded categorical features are used, and reported by name."""
@@ -301,23 +250,20 @@ class TestRandomForestImputation:
         assert set(result_df["income"].to_list()).issubset({1, 2, 3})
 
         fi = stats["feature_importance"]
-        # age + gender, with the one-hot columns aggregated back to the source name.
         assert set(fi) == {"age", "gender"}
         assert pytest.approx(sum(fi.values()), abs=0.01) == 1.0
-        # Sorted descending, so the reader can stop at the first few.
         values = list(fi.values())
         assert values == sorted(values, reverse=True)
 
 
 class TestPreimputedStash:
-    """Tests for pre-imputation value stashing."""
+    """Stashing values before imputation overwrites them."""
 
     @pytest.mark.parametrize(
         ("original", "imputed", "expected"),
         [
             pytest.param([1.0, None, 3.0], [1.0, 2.0, 3.0], [1.0, None, 3.0], id="null"),
-            # 999 is PNTA and 995 is MISSING: both are answers, and have to stay
-            # distinguishable from a genuine null after imputation overwrites them.
+            # 999 (PNTA) and 995 (MISSING) stay distinct from a genuine null.
             pytest.param(
                 [1, 999, None, 3, 995],
                 [1, 2, 2, 3, 2],
@@ -327,7 +273,7 @@ class TestPreimputedStash:
         ],
     )
     def test_stash_single_column(self, original: list, imputed: list, expected: list):
-        """Should stash original values including nulls."""
+        """The original values, nulls included, are kept in ``<column>_preimputed``."""
         result_df = stash_preimputed_columns(
             pl.DataFrame({"value": imputed}), pl.DataFrame({"value": original}), ["value"]
         )
@@ -336,7 +282,7 @@ class TestPreimputedStash:
         assert result_df["value"].to_list() == imputed
 
     def test_stash_multiple_columns(self):
-        """Should stash original values for multiple columns."""
+        """Each listed column gets its own stash."""
         original_df = pl.DataFrame({"col1": [1.0, None, 3.0], "col2": [10.0, 20.0, None]})
         imputed_df = pl.DataFrame({"col1": [1.0, 2.0, 3.0], "col2": [10.0, 20.0, 30.0]})
 
@@ -347,10 +293,10 @@ class TestPreimputedStash:
 
 
 class TestValidation:
-    """Tests for imputation validation."""
+    """Imputation validation."""
 
     def test_is_categorical(self):
-        """Should correctly identify categorical columns."""
+        """Integer and string columns are categorical; float is not."""
         df = pl.DataFrame(
             {
                 "int_col": [1, 2, 3],
@@ -365,33 +311,7 @@ class TestValidation:
 
     @pytest.mark.parametrize(
         "validate",
-        [
-            pytest.param(
-                lambda df, column: validate_knn_imputation(
-                    df,
-                    column=column,
-                    n_folds=3,
-                    sample_pct=10.0,
-                    n_neighbors=3,
-                    neighbor_weights="uniform",
-                    random_state=42,
-                    numeric_features=["feature"],
-                ),
-                id="knn",
-            ),
-            pytest.param(
-                lambda df, column: validate_rf_imputation(
-                    df,
-                    column=column,
-                    n_folds=3,
-                    sample_pct=10.0,
-                    n_estimators=50,
-                    random_state=42,
-                    numeric_features=["feature"],
-                ),
-                id="rf",
-            ),
-        ],
+        [pytest.param(_validate_knn("uniform"), id="knn"), pytest.param(_validate_rf, id="rf")],
     )
     def test_categorical_validation_beats_the_majority_class(self, validate: Callable):
         """The feature determines the class, so a bare 0 <= accuracy <= 1 proves nothing."""
@@ -405,36 +325,10 @@ class TestValidation:
 
     @pytest.mark.parametrize(
         "validate",
-        [
-            pytest.param(
-                lambda df, column: validate_knn_imputation(
-                    df,
-                    column=column,
-                    n_folds=3,
-                    sample_pct=10.0,
-                    n_neighbors=3,
-                    neighbor_weights="distance",
-                    random_state=42,
-                    numeric_features=["feature"],
-                ),
-                id="knn",
-            ),
-            pytest.param(
-                lambda df, column: validate_rf_imputation(
-                    df,
-                    column=column,
-                    n_folds=3,
-                    sample_pct=10.0,
-                    n_estimators=50,
-                    random_state=42,
-                    numeric_features=["feature"],
-                ),
-                id="rf",
-            ),
-        ],
+        [pytest.param(_validate_knn("distance"), id="knn"), pytest.param(_validate_rf, id="rf")],
     )
     def test_continuous_validation_reports_error_metrics(self, validate: Callable):
-        """Should validate imputation on continuous data."""
+        """A float target is scored with RMSE, MAE and R2."""
         df = pl.DataFrame(
             {
                 "feature": [1.0, 2.0, 3.0, 4.0, 5.0] * 20,
@@ -449,7 +343,7 @@ class TestValidation:
         assert metrics["rmse"] >= 0
 
     def test_mice_validation(self):
-        """Should validate MICE imputation on multiple columns."""
+        """MICE validation reports one metrics entry per column."""
         df = pl.DataFrame(
             {
                 "col1": [1.0, 2.0, 3.0, 4.0, 5.0] * 20,
@@ -473,10 +367,10 @@ class TestValidation:
 
 
 class TestPrepareColumnForImputation:
-    """Tests for preparing columns for imputation."""
+    """Preparing a column for imputation."""
 
     def test_prepare_income_column(self):
-        """Test preparing income_bin column replaces MISSING/PNTA with null."""
+        """MISSING and PNTA codes are resolved from the codebook and set to null."""
         df = pl.DataFrame(
             {
                 "hh_id": [1, 2, 3, 4, 5],
@@ -493,20 +387,7 @@ class TestPrepareColumnForImputation:
 
 
 class TestDenseIntegerEncoding:
-    """Tests for integer categorical dense encoding / decoding."""
-
-    def test_encodes_non_contiguous_codes(self):
-        """Non-contiguous integer codes should be mapped to dense 0..N."""
-        df = pl.DataFrame({"income_bin": [1, 2, 5, 6, None]})
-        encoded, encodings = encode_integer_categoricals(df, ["income_bin"])
-
-        assert "income_bin" in encodings
-        # Dense codes should be 0..3 for the four unique values
-        assert encodings["income_bin"] == {0: 1, 1: 2, 2: 5, 3: 6}
-        vals = encoded["income_bin"].drop_nulls().to_list()
-        assert sorted(vals) == [0.0, 1.0, 2.0, 3.0]
-        # Null should be preserved
-        assert encoded["income_bin"].null_count() == 1
+    """Dense integer encoding and decoding."""
 
     def test_skips_already_dense_columns(self):
         """Columns coded 0..N-1 should not be re-encoded."""
@@ -523,14 +404,6 @@ class TestDenseIntegerEncoding:
 
         assert encodings == {}
 
-    def test_decode_rounded_basic(self):
-        """Dense float predictions should round and decode to original codes."""
-        mapping = {0: 1, 1: 2, 2: 5, 3: 6}
-        values = np.array([0.3, 0.7, 2.1, 2.9])
-        decoded = decode_rounded(values, mapping)
-
-        assert decoded == [1, 2, 5, 6]
-
     def test_decode_dense_clamps_out_of_range(self):
         """Values outside [0, N-1] should be clamped to the nearest valid key."""
         mapping = {0: 10, 1: 20, 2: 30}
@@ -541,7 +414,7 @@ class TestDenseIntegerEncoding:
 
 
 class TestBuildFeatureMatrix:
-    """Tests for build_feature_matrix feature name tracking."""
+    """Feature names from build_feature_matrix."""
 
     def test_returns_feature_names(self):
         """Feature names should include continuous and one-hot encoded columns."""
@@ -564,10 +437,7 @@ class TestBuildFeatureMatrix:
         assert len(names) == matrix.shape[1]
 
     def test_feature_names_empty_categoricals(self):
-        """With no categoricals the names are the numeric features then the targets.
-
-        The order is what indexes the matrix columns, so it is asserted exactly.
-        """
+        """With no categoricals the names are the numeric features then the targets, in order."""
         df = pl.DataFrame({"target": [1.0, None, 3.0], "feat": [10.0, 20.0, 30.0]})
 
         matrix, _indices, names = build_feature_matrix(df, ["target"], ["feat"], [])
@@ -577,10 +447,9 @@ class TestBuildFeatureMatrix:
 
 
 class TestMethodComparison:
-    """Tests for head-to-head method comparison."""
+    """Head-to-head method comparison."""
 
     def _make_comparison_data(self) -> tuple[dict[str, pl.DataFrame], dict]:
-        """Build a small dataset plus config for comparison tests."""
         df = pl.DataFrame(
             {
                 "feature": [1.0, 2.0, 3.0, 4.0, 5.0] * 20,
@@ -617,7 +486,6 @@ class TestMethodComparison:
         assert len(result) == 3
         assert set(result["method"].to_list()) == {"knn", "rf", "mice"}
 
-        # All rows should reference the same column
         assert result["variable"].unique().to_list() == ["mode"]
         assert result["table"].unique().to_list() == ["persons"]
 
@@ -634,7 +502,6 @@ class TestMethodComparison:
             "f1",
         }.issubset(result.columns)
 
-        # The CSV written to output_path is the same table.
         saved = pl.read_csv(csv_path)
         assert saved.shape == result.shape
         assert set(saved["method"].to_list()) == {"knn", "rf", "mice"}
@@ -642,7 +509,6 @@ class TestMethodComparison:
     def test_comparison_deduplicates_columns(self):
         """Same column configured twice should only produce one set of rows."""
         tables, config = self._make_comparison_data()
-        # Add a duplicate config block with RF method
         config["persons"].append(
             {
                 "method": "rf",
@@ -659,7 +525,6 @@ class TestMethodComparison:
             random_state=42,
         )
 
-        # Still 3 rows (one per method), not 6
         assert len(result) == 3
 
     def test_comparison_splits_mice_columns(self):
@@ -688,7 +553,6 @@ class TestMethodComparison:
             random_state=42,
         )
 
-        # 2 columns x 3 methods = 6 rows
         assert len(result) == 6
         assert set(result["variable"].to_list()) == {"col_a", "col_b"}
         for var in ("col_a", "col_b"):

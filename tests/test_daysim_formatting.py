@@ -1,9 +1,4 @@
-"""Unit tests for DaySim formatter.
-
-Tests person type classification, household composition, mode aggregation,
-tour formatting, and end-to-end transformation from canonical survey data
-to DaySim model format.
-"""
+"""Unit tests for the DaySim formatter, table by table and end to end."""
 
 from datetime import datetime
 
@@ -46,19 +41,15 @@ from processing.formatting.daysim.format_persons import (
 from processing.formatting.daysim.format_tours import format_tours
 from processing.formatting.daysim.format_trips import format_linked_trips
 from processing.link_trips.link import link_trips
-from tests.fixtures import (
+from tests.fixtures.fixtures import (
     add_test_taz_maz_ids,
-    create_day,
-    create_household,
     create_multi_person_household_processed,
-    create_person,
     create_simple_work_tour_processed,
     create_transit_commute_processed,
-    create_unlinked_trip,
-    reported_locations,
-    step_tables,
 )
 from tests.fixtures.locations import HOME_LOCATION, WORK_LOCATION
+from tests.fixtures.records import create_day, create_household, create_person, create_unlinked_trip
+from tests.fixtures.schema_utils import reported_locations, step_tables
 
 
 def _days(*schedule, person_id: int = 101, hh_id: int = 1, person_num: int = 1) -> list[dict]:
@@ -78,70 +69,73 @@ def _days(*schedule, person_id: int = 101, hh_id: int = 1, person_num: int = 1) 
 
 
 class TestDayCompleteness:
-    """Tests for day completeness computation."""
+    """compute_day_completeness: one row per person, a flag per weekday and weekday counts."""
 
-    def test_compute_day_completeness_single_person_weekday(self):
-        """Test day completeness for single person with one complete weekday."""
-        result = compute_day_completeness(pl.DataFrame(_days((TravelDow.MONDAY, True))))
-
-        assert len(result) == 1
-        assert result["hhno"][0] == 1
-        assert result["pno"][0] == 1
-        assert result["mon_complete"][0] == 1
-        assert result["tue_complete"][0] == 0
-        assert result["num_days_complete_3dayweekday"][0] == 0  # Tue+Wed+Thu
-        assert result["num_days_complete_4dayweekday"][0] == 1  # Mon+Tue+Wed+Thu
-        assert result["num_days_complete_5dayweekday"][0] == 1  # Mon-Fri
-
-    def test_compute_day_completeness_full_week(self):
-        """Test day completeness for person with complete week."""
-        result = compute_day_completeness(
-            pl.DataFrame(
-                _days(*[(TravelDow(i), True) for i in range(1, 8)], person_id=201, hh_id=2)
-            )
-        )
-
-        assert len(result) == 1
-        assert result["hhno"][0] == 2
-        assert result["pno"][0] == 1
-        assert result["mon_complete"][0] == 1
-        assert result["sun_complete"][0] == 1
-        assert result["num_days_complete_3dayweekday"][0] == 3
-        assert result["num_days_complete_4dayweekday"][0] == 4
-        assert result["num_days_complete_5dayweekday"][0] == 5
-
-    def test_compute_day_completeness_incomplete_days(self):
-        """Test day completeness with some incomplete days."""
-        result = compute_day_completeness(
-            pl.DataFrame(
+    @pytest.mark.parametrize(
+        ("days", "expected"),
+        [
+            pytest.param(
+                _days((TravelDow.MONDAY, True)),
+                {
+                    1: {
+                        "hhno": 1,
+                        "mon_complete": 1,
+                        "tue_complete": 0,
+                        "num_days_complete_3dayweekday": 0,  # Tue+Wed+Thu
+                        "num_days_complete_4dayweekday": 1,  # Mon+Tue+Wed+Thu
+                        "num_days_complete_5dayweekday": 1,  # Mon-Fri
+                    }
+                },
+                id="one_complete_monday",
+            ),
+            pytest.param(
+                _days(*[(TravelDow(i), True) for i in range(1, 8)], person_id=201, hh_id=2),
+                {
+                    1: {
+                        "hhno": 2,
+                        "mon_complete": 1,
+                        "sun_complete": 1,
+                        "num_days_complete_3dayweekday": 3,
+                        "num_days_complete_4dayweekday": 4,
+                        "num_days_complete_5dayweekday": 5,
+                    }
+                },
+                id="full_week",
+            ),
+            pytest.param(
                 _days(
                     (TravelDow.TUESDAY, True),
                     (TravelDow.WEDNESDAY, False),
                     (TravelDow.THURSDAY, True),
                     person_id=301,
                     hh_id=3,
-                )
-            )
-        )
+                ),
+                {
+                    1: {
+                        "tue_complete": 1,
+                        "wed_complete": 0,
+                        "thu_complete": 1,
+                        "num_days_complete_3dayweekday": 2,
+                    }
+                },
+                id="an_incomplete_day",
+            ),
+            pytest.param(
+                _days((TravelDow.MONDAY, True), person_id=101, person_num=1)
+                + _days((TravelDow.MONDAY, False), person_id=102, person_num=2),
+                {1: {"mon_complete": 1}, 2: {"mon_complete": 0}},
+                id="two_persons",
+            ),
+        ],
+    )
+    def test_compute_day_completeness(self, days, expected):
+        """Each person's row carries the flags and counts of their own days."""
+        result = compute_day_completeness(pl.DataFrame(days))
 
-        assert len(result) == 1
-        assert result["tue_complete"][0] == 1
-        assert result["wed_complete"][0] == 0
-        assert result["thu_complete"][0] == 1
-        assert result["num_days_complete_3dayweekday"][0] == 2  # Tue+Thu only
-
-    def test_compute_day_completeness_multiple_persons(self):
-        """Test day completeness with multiple persons."""
-        person_days = pl.DataFrame(
-            _days((TravelDow.MONDAY, True), person_id=101, person_num=1)
-            + _days((TravelDow.MONDAY, False), person_id=102, person_num=2)
-        )
-
-        result = compute_day_completeness(person_days)
-
-        assert len(result) == 2
-        assert result.filter(pl.col("pno") == 1)["mon_complete"][0] == 1
-        assert result.filter(pl.col("pno") == 2)["mon_complete"][0] == 0
+        assert len(result) == len(expected)
+        for pno, values in expected.items():
+            row = result.filter(pl.col("pno") == pno).row(0, named=True)
+            assert {column: row[column] for column in values} == values, pno
 
 
 class TestPersonFormatting:
@@ -668,111 +662,55 @@ class TestWorkRelatedCountsAsWork:
         assert person_days["uwtours"][0] == 0
 
 
+def _run_daysim(data: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
+    """Run format_daysim over a processed scenario with reported TAZ and MAZ locations."""
+    return format_daysim(
+        **step_tables(
+            "format_daysim",
+            {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
+        ),
+        usability_profile="test",
+    )
+
+
 class TestEndToEndDaysimFormatting:
     """End-to-end integration tests for DaySim formatting."""
 
     def test_format_daysim_simple_work_tour(self):
-        """Test end-to-end formatting with simple work tour scenario."""
-        data = create_simple_work_tour_processed()
+        """One household, one person, one work tour of two trips, with the DaySim columns."""
+        result = _run_daysim(create_simple_work_tour_processed())
 
-        result = format_daysim(
-            **step_tables(
-                "format_daysim",
-                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
+        # table: (rows, DaySim columns it must carry)
+        expected = {
+            "households_daysim": (
+                1,
+                ["hhno", "hhsize", "hhvehs", "hhftw", "hhptw", "hhtaz", "hhincome"],
             ),
-            usability_profile="test",
-        )
-
-        # Verify all expected keys present
-        assert "households_daysim" in result
-        assert "persons_daysim" in result
-        assert "linked_trips_daysim" in result
-        assert "tours_daysim" in result
-
-        # One household, one person, one out-and-back work tour of two trips.
-        assert len(result["households_daysim"]) == 1
-        assert len(result["persons_daysim"]) == 1
-        assert len(result["linked_trips_daysim"]) == 2
-        assert len(result["tours_daysim"]) == 1
+            "persons_daysim": (1, ["hhno", "pno", "pptyp", "pagey", "pgend", "pwtyp"]),
+            "linked_trips_daysim": (
+                2,
+                ["hhno", "pno", "day", "tripno", "mode", "pathtype", "dorp", "opurp", "dpurp"],
+            ),
+            "tours_daysim": (1, ["hhno", "pno", "day", "tour", "pdpurp"]),
+        }
+        for table, (rows, columns) in expected.items():
+            assert len(result[table]) == rows, table
+            assert set(columns) <= set(result[table].columns), table
 
     def test_format_daysim_transit_commute(self):
-        """Test end-to-end formatting with transit commute scenario."""
-        data = create_transit_commute_processed()
+        """Both commute trips are walk-to-transit on the BART path."""
+        trips = _run_daysim(create_transit_commute_processed())["linked_trips_daysim"]
 
-        result = format_daysim(
-            **step_tables(
-                "format_daysim",
-                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
-            ),
-            usability_profile="test",
-        )
-
-        # Verify transit mode detected
-        trips_result = result["linked_trips_daysim"]
-        assert len(trips_result) == 2  # 2 linked trips (AM and PM commute)
-        # Both trips should be walk-to-transit
-        assert all(trips_result["mode"] == DaysimMode.WALK_TRANSIT.value)
-        # Path type should be BART
-        assert all(trips_result["pathtype"] == DaysimPathType.BART.value)
+        assert len(trips) == 2
+        assert all(trips["mode"] == DaysimMode.WALK_TRANSIT.value)
+        assert all(trips["pathtype"] == DaysimPathType.BART.value)
 
     def test_format_daysim_multi_person_household(self):
-        """Test end-to-end formatting with multi-person household."""
-        data = create_multi_person_household_processed()
+        """Four persons, two of them full-time workers."""
+        result = _run_daysim(create_multi_person_household_processed())
 
-        result = format_daysim(
-            **step_tables(
-                "format_daysim",
-                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
-            ),
-            usability_profile="test",
-        )
-
-        # Verify household composition
-        hh_result = result["households_daysim"]
-        assert hh_result["hhsize"][0] == 4
-        assert hh_result["hhftw"][0] == 2
-        assert hh_result["hhptw"][0] == 0
-
-        # Verify person types
-        persons_result = result["persons_daysim"]
-        assert len(persons_result) == 4
-
-    def test_format_daysim_output_schema(self):
-        """Test that output DataFrames have expected DaySim columns."""
-        data = create_simple_work_tour_processed()
-
-        result = format_daysim(
-            **step_tables(
-                "format_daysim",
-                {**data, **reported_locations(data["households"], data["persons"], ["taz", "maz"])},
-            ),
-            usability_profile="test",
-        )
-
-        expected_columns = {
-            "households_daysim": [
-                "hhno",
-                "hhsize",
-                "hhvehs",
-                "hhftw",
-                "hhptw",
-                "hhtaz",
-                "hhincome",
-            ],
-            "persons_daysim": ["hhno", "pno", "pptyp", "pagey", "pgend", "pwtyp"],
-            "linked_trips_daysim": [
-                "hhno",
-                "pno",
-                "day",
-                "tripno",
-                "mode",
-                "pathtype",
-                "dorp",
-                "opurp",
-                "dpurp",
-            ],
-            "tours_daysim": ["hhno", "pno", "day", "tour", "pdpurp"],
-        }
-        for table, columns in expected_columns.items():
-            for col in columns:
-                assert col in result[table].columns, f"{table} is missing {col}"
+        households = result["households_daysim"]
+        assert households["hhsize"][0] == 4
+        assert households["hhftw"][0] == 2
+        assert households["hhptw"][0] == 0
+        assert len(result["persons_daysim"]) == 4

@@ -1,19 +1,4 @@
-"""Tests for the habitual-location tables and the trip-end match.
-
-Covers:
-- Delivery: the survey's coordinates plus further reported ones, numbered, and
-  held equal to the coordinate columns by validation
-- The detection step: appends observed rows, never changes a delivered one,
-  and refuses a delivered table that is not all reported
-- Observed workplaces and schools: stops of their own purpose that lasted long
-  enough, clustered within one buffer, never re-adding a reported location
-- Observed homes: only where the respondent said a day began or ended at home;
-  never from travel alone
-- The match: within the buffer AND an agreeing purpose; an unknown purpose
-  matches nothing, and a stated day start/end counts for homes only
-- Numbering: reported first, then by first visit, whatever the row order
-- The day table, and conformance to the models
-"""
+"""Tests for the habitual-location tables and the trip-end match."""
 
 from datetime import datetime, timedelta
 
@@ -44,6 +29,8 @@ REPORTED, OBSERVED = LocationSource.REPORTED.value, LocationSource.OBSERVED.valu
 
 # Degrees of latitude per metre, for placing points a known distance apart.
 _DEG_PER_M = 1 / 111_320
+# The detection rules as the BATS configs state them.
+_CONFIG = HabitualLocationConfig(buffer_meters=300.0, include_observed_homes=True)
 
 
 def _offset(point: tuple[float, float], meters: float) -> tuple[float, float]:
@@ -143,10 +130,6 @@ def _of(locations: pl.DataFrame, person_id: int, kind: LocationType) -> pl.DataF
     ).sort("location_num")
 
 
-# The detection rules as the BATS configs state them.
-_CONFIG = HabitualLocationConfig(buffer_meters=300.0, include_observed_homes=True)
-
-
 def _not_asked(trips: pl.DataFrame) -> pl.DataFrame:
     """Days for the trips, with no stated start or end."""
     return _days(*((d, None, None) for d in sorted(set(trips["person_day_id"].to_list()))))
@@ -164,14 +147,10 @@ def _build(trips, person_days=None, extra=None, persons=None, *, observed_homes=
     )
 
 
-# --- delivery -----------------------------------------------------------------
-
-
 def test_delivered_rows_reproduce_the_coordinate_columns():
     """Each reported place becomes a numbered primary row; missing ones make none."""
     delivered = _delivered()
 
-    # person 1: home, work, school. person 2: home only (work/school null skipped)
     assert delivered.height == 4
     p1 = delivered.filter(pl.col("person_id") == 1).sort("location_type")
     assert p1["location_type"].to_list() == [
@@ -204,7 +183,7 @@ def test_second_home_beside_the_primary_is_dropped():
 def test_delivered_rows_are_never_changed():
     """Detection appends; every delivered row comes out exactly as it went in."""
     delivered = _delivered(_second_home(OTHER_HOME))
-    locations, _days_table = _build(
+    locations, _ = _build(
         _trips(_trip(1, 10, ALT_WORK, 200), _trip(1, 11, _offset(USUAL_WORK, 100), 200)),
         extra=_second_home(OTHER_HOME),
     )
@@ -253,9 +232,6 @@ def test_validation_holds_rows_and_coordinate_columns_equal(work_lat, agrees):
     assert (errors == []) is agrees
 
 
-# --- stays --------------------------------------------------------------------
-
-
 def test_episodes_include_each_days_first_origin():
     """The day's first origin is a stay; later origins repeat a destination."""
     episodes = build_presence_episodes(
@@ -271,12 +247,9 @@ def test_episodes_include_each_days_first_origin():
     assert starts["dwell_minutes"].item() is None
 
 
-# --- observed workplaces and schools -------------------------------------------
-
-
 def test_long_primary_workplace_stay_makes_a_workplace():
     """A 90+ minute stop at a place called the workplace is an observed workplace."""
-    locations, _days = _build(_trips(_trip(1, 10, ALT_WORK, 120)))
+    locations, _ = _build(_trips(_trip(1, 10, ALT_WORK, 120)))
     work = _of(locations, 1, LocationType.WORK)
     assert work["source"].to_list() == [REPORTED, OBSERVED]
     assert work["is_primary"].to_list() == [True, False]
@@ -295,7 +268,7 @@ def test_long_primary_workplace_stay_makes_a_workplace():
 )
 def test_a_workplace_needs_a_long_enough_stop_of_a_work_purpose(dwell, purpose, made):
     """Work-related stops count, but only at their own four-hour cutoff."""
-    locations, _days = _build(_trips(_trip(1, 10, ALT_WORK, dwell, purpose=purpose)))
+    locations, _ = _build(_trips(_trip(1, 10, ALT_WORK, dwell, purpose=purpose)))
     assert (_of(locations, 1, LocationType.WORK).height == 2) is made
 
 
@@ -316,13 +289,13 @@ def test_stay_length_cutoff_is_tunable():
 )
 def test_school_stay_cutoff_is_per_purpose(purpose, made):
     """College has its own lower cutoff; school-related purposes make nothing."""
-    locations, _days = _build(_trips(_trip(1, 10, ALT_SCHOOL, 50, purpose=purpose)))
+    locations, _ = _build(_trips(_trip(1, 10, ALT_SCHOOL, 50, purpose=purpose)))
     assert (_of(locations, 1, LocationType.SCHOOL).height == 2) is made
 
 
 def test_nearby_repeat_visits_form_one_location():
     """GPS scatter around one building is one location, not several."""
-    locations, _days = _build(
+    locations, _ = _build(
         _trips(
             _trip(1, 10, ALT_WORK, 200),
             _trip(1, 11, _offset(ALT_WORK, 150), 200),
@@ -334,7 +307,7 @@ def test_nearby_repeat_visits_form_one_location():
 
 def test_distinct_worksites_stay_separate():
     """Two places beyond the buffer of one another remain two locations."""
-    locations, _days = _build(
+    locations, _ = _build(
         _trips(_trip(1, 10, ALT_WORK, 200), _trip(1, 11, _offset(ALT_WORK, 400), 200))
     )
     assert _of(locations, 1, LocationType.WORK).height == 3
@@ -342,15 +315,12 @@ def test_distinct_worksites_stay_separate():
 
 def test_cluster_at_the_reported_workplace_is_not_added_again():
     """A stop within the buffer of the reported workplace is that workplace."""
-    locations, _days = _build(
+    locations, _ = _build(
         _trips(_trip(1, 10, _offset(USUAL_WORK, 250), 200), _trip(1, 11, USUAL_WORK, 200))
     )
     work = _of(locations, 1, LocationType.WORK)
-    assert work["source"].to_list() == [LocationSource.REPORTED.value]
+    assert work["source"].to_list() == [REPORTED]
     assert (work["lat"].item(), work["lon"].item()) == USUAL_WORK
-
-
-# --- observed homes ------------------------------------------------------------
 
 
 def test_travel_alone_never_makes_a_home():
@@ -366,7 +336,7 @@ def test_travel_alone_never_makes_a_home():
 def test_day_ending_at_a_home_away_from_the_reported_one_is_another_home(answer):
     """They said the day ended at home, and it is not the one they reported."""
     trips = _trips(_trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19))
-    locations, _days_table = _build(trips, _days((10, None, answer)))
+    locations, _ = _build(trips, _days((10, None, answer)))
     homes = _of(locations, 1, LocationType.HOME)
     assert homes["source"].to_list() == [REPORTED, OBSERVED]
     assert homes["is_primary"].to_list() == [True, False]
@@ -380,9 +350,7 @@ def test_observed_homes_off_keeps_only_the_reported_homes(answer):
         _trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19),
         _trip(1, 11, ALT_WORK, 200),
     )
-    locations, _days_table = _build(
-        trips, _days((10, None, answer), (11, None, None)), observed_homes=False
-    )
+    locations, _ = _build(trips, _days((10, None, answer), (11, None, None)), observed_homes=False)
     assert _of(locations, 1, LocationType.HOME)["source"].to_list() == [REPORTED]
     assert OBSERVED in _of(locations, 1, LocationType.WORK)["source"].to_list()
 
@@ -396,34 +364,31 @@ def test_observed_homes_has_no_default():
 def test_day_beginning_at_another_home_places_it_at_the_first_origin():
     """The first origin is where the day began."""
     trips = _trips(_trip(1, 10, ALT_WORK, 30, purpose=Purpose.GROCERY, origin=OTHER_HOME))
-    locations, _days_table = _build(trips, _days((10, BeginEndDay.OTHER_HOME, None)))
+    locations, _ = _build(trips, _days((10, BeginEndDay.OTHER_HOME, None)))
     assert _of(locations, 1, LocationType.HOME).height == 2
 
 
 def test_day_ending_at_the_reported_home_adds_nothing():
     """Within the buffer of the reported home, the stated home is that home."""
     trips = _trips(_trip(1, 10, _offset(HOME, 200), -1, purpose=Purpose.HOME, origin=ALT_WORK))
-    locations, _days_table = _build(trips, _days((10, None, BeginEndDay.HOME)))
+    locations, _ = _build(trips, _days((10, None, BeginEndDay.HOME)))
     assert _of(locations, 1, LocationType.HOME).height == 1
 
 
 def test_stated_home_at_the_reported_second_home_is_not_added_again():
     """A vendor second home and the day answers naming it are one home."""
     trips = _trips(_trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19))
-    locations, _days_table = _build(
+    locations, _ = _build(
         trips, _days((10, None, BeginEndDay.OTHER_HOME)), extra=_second_home(OTHER_HOME)
     )
     homes = _of(locations, 1, LocationType.HOME)
-    assert homes["source"].to_list() == [LocationSource.REPORTED.value] * 2
-
-
-# --- the match -----------------------------------------------------------------
+    assert homes["source"].to_list() == [REPORTED] * 2
 
 
 def _match(trips, person_days=None, extra=None, persons=None) -> dict:
     """Build the locations, match the trip ends, and return the last trip's row."""
     person_days = person_days if person_days is not None else _not_asked(trips)
-    locations, _days_table = _build(trips, person_days, extra, persons)
+    locations, _ = _build(trips, person_days, extra, persons)
     matched = match_trip_ends(
         trips, locations, MatchConfig(buffer_meters=_CONFIG.buffer_meters), person_days
     )
@@ -524,13 +489,10 @@ def test_a_home_office_is_both_home_and_work():
     assert row["_d_reported_work_id"] is not None
 
 
-# --- numbering -----------------------------------------------------------------
-
-
 def test_observed_locations_are_numbered_by_first_visit():
     """Reported first; then whichever place the person went to first."""
     later, earlier = ALT_WORK, _offset(ALT_WORK, 2000)
-    locations, _days_table = _build(_trips(_trip(1, 11, later, 200), _trip(1, 10, earlier, 200)))
+    locations, _ = _build(_trips(_trip(1, 11, later, 200), _trip(1, 10, earlier, 200)))
     work = _of(locations, 1, LocationType.WORK)
     assert work["location_num"].to_list() == [1, 2, 3]
     assert abs(work["lat"][1] - earlier[0]) < 1e-9
@@ -554,17 +516,15 @@ def test_tables_do_not_depend_on_row_order():
 
 def test_observed_location_without_reported_primary_has_unknown_primacy():
     """With no reported location of that kind, observed primacy is unknown (None)."""
-    locations, _days_table = _build(
-        _trips(_trip(2, 20, ALT_WORK, 200), _trip(2, 21, USUAL_WORK, 210))
-    )
+    locations, _ = _build(_trips(_trip(2, 20, ALT_WORK, 200), _trip(2, 21, USUAL_WORK, 210)))
     work = _of(locations, 2, LocationType.WORK)
-    assert work["source"].to_list() == [LocationSource.OBSERVED.value] * 2
+    assert work["source"].to_list() == [OBSERVED] * 2
     assert work["is_primary"].to_list() == [None, None]
 
 
 def test_observed_identifiers_continue_after_the_delivered_ones():
     """A stated home comes after the delivered primary and second home, as number 3."""
-    locations, _days_table = _build(
+    locations, _ = _build(
         _trips(_trip(1, 10, _offset(OTHER_HOME, 5000), -2, purpose=Purpose.OTHER_RESIDENCE)),
         _days((10, None, BeginEndDay.OTHER_HOME)),
         extra=_second_home(OTHER_HOME),
@@ -574,9 +534,6 @@ def test_observed_identifiers_continue_after_the_delivered_ones():
     assert homes["source"].to_list() == [REPORTED, REPORTED, OBSERVED]
     assert homes["habitual_location_id"][2] == 1 * 1000 + LocationType.HOME.value * 100 + 3
     assert locations["habitual_location_id"].n_unique() == locations.height
-
-
-# --- the day table --------------------------------------------------------------
 
 
 def test_day_row_counts_visits_and_totals_dwell():
@@ -628,6 +585,6 @@ def test_rows_conform_to_models():
         extra=_second_home(_offset(OTHER_HOME, 5000)),
     )
     for row in locations.iter_rows(named=True):
-        HabitualLocationModel(**row)  # raises on any schema violation
+        HabitualLocationModel(**row)
     for row in person_days.iter_rows(named=True):
         HabitualLocationDayModel(**row)

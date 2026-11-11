@@ -10,10 +10,6 @@ from processing.imputation.impute_utils import (
     join_parent_tables,
 )
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 def _make_households():
     return pl.DataFrame(
@@ -46,25 +42,17 @@ def tables() -> dict:
     return {"households": _make_households(), "persons": _make_persons()}
 
 
-# ---------------------------------------------------------------------------
-# join_parent_tables
-# ---------------------------------------------------------------------------
-
-
 class TestJoinParentTables:
     """Tests for join_parent_tables."""
 
     def test_joins_household_columns_to_persons(self, tables):
-        """Should add household columns to persons."""
-        result, added = join_parent_tables(tables["persons"], "persons", tables, ["households"])
+        """Household columns other than the key are joined on hh_id and listed as added."""
+        persons = tables["persons"]
+        result, added = join_parent_tables(persons, "persons", tables, ["households"])
 
-        # Should have added household columns (minus hh_id which already exists)
-        assert "income_bin" in result.columns
-        assert "residence_type" in result.columns
-        assert "home_lat" in result.columns
         assert set(added) == {"income_bin", "residence_type", "home_lat"}
+        assert set(result.columns) == set(persons.columns) | set(added)
 
-        # Values should match via hh_id
         row_p10 = result.filter(pl.col("person_id") == 10)
         assert row_p10["income_bin"][0] == 2
         assert row_p10["residence_type"][0] == 1
@@ -72,24 +60,22 @@ class TestJoinParentTables:
         row_p20 = result.filter(pl.col("person_id") == 20)
         assert row_p20["income_bin"][0] == 5
 
-    def test_no_duplicate_columns(self, tables):
-        """Should skip columns that already exist on child."""
+    def test_no_duplicate_columns(self):
+        """A household column the person frame already has is not joined over it."""
         hh = pl.DataFrame({"hh_id": [1], "age": [99], "extra": [42]})
         persons = pl.DataFrame({"person_id": [10], "hh_id": [1], "age": [3]})
         tables = {"households": hh, "persons": persons}
 
         result, added = join_parent_tables(persons, "persons", tables, ["households"])
 
-        # age already exists on persons, so only extra should be added
         assert "extra" in added
         assert "age" not in added
-        # Persons' own age should be preserved
         assert result["age"][0] == 3
 
     def test_missing_parent_table_warns(self):
-        """Should warn and skip when parent table is missing."""
+        """A join table that is not loaded is skipped."""
         persons = _make_persons()
-        tables = {"persons": persons}  # no households
+        tables = {"persons": persons}
 
         result, added = join_parent_tables(persons, "persons", tables, ["households"])
 
@@ -97,7 +83,7 @@ class TestJoinParentTables:
         assert result.shape == persons.shape
 
     def test_unknown_relationship_raises(self):
-        """Should raise ValueError for undefined FK relationship."""
+        """Joining a table with no declared foreign key raises."""
         persons = _make_persons()
         tables = {"persons": persons, "tours": pl.DataFrame({"tour_id": [1]})}
 
@@ -105,7 +91,7 @@ class TestJoinParentTables:
             join_parent_tables(persons, "persons", tables, ["tours"])
 
     def test_empty_join_tables(self):
-        """Should return unchanged df when join_tables is empty."""
+        """No join tables returns the frame unchanged."""
         persons = _make_persons()
         tables = {"persons": persons, "households": _make_households()}
 
@@ -113,11 +99,6 @@ class TestJoinParentTables:
 
         assert added == []
         assert result.equals(persons)
-
-
-# ---------------------------------------------------------------------------
-# add_household_agg_features
-# ---------------------------------------------------------------------------
 
 
 class TestAddHouseholdAggFeatures:
@@ -137,8 +118,6 @@ class TestAddHouseholdAggFeatures:
 
         assert added == ["n_hh_race=1", "n_hh_race=2"]
         counts = result.sort("person_id").select(added).rows()
-        # Person 10 sees two 2s; 11 and 12 each see one 1 and one 2 -- a tie a
-        # mode would have had to break.
         assert counts == [(0, 2), (1, 1), (1, 1)]
 
     def test_alone_or_with_unknown_members_counts_zero(self):
@@ -189,7 +168,7 @@ class TestAddHouseholdAggFeatures:
         assert shuffled.sort("person_id").equals(result.sort("person_id"))
 
     def test_missing_hh_or_person_id_skips(self):
-        """Should skip gracefully if hh_id or person_id is missing."""
+        """A frame without hh_id and person_id is returned unchanged."""
         df = pl.DataFrame({"some_col": [1, 2, 3]})
 
         result, added = add_household_agg_features(df, ["some_col"])
@@ -211,7 +190,6 @@ class TestAddHouseholdAggFeatures:
                 ],
                 id="two-columns",
             ),
-            # A target that is not on the frame is skipped, not invented.
             pytest.param(
                 ["race", "nonexistent"],
                 ["n_hh_race=1", "n_hh_race=2"],
@@ -222,7 +200,7 @@ class TestAddHouseholdAggFeatures:
     def test_one_count_column_per_code_of_each_existing_target(
         self, targets: list[str], expected_added: list[str]
     ):
-        """Should add one count per code for each target column that exists."""
+        """One count column per code of each target present; absent targets are skipped."""
         df = pl.DataFrame(
             {
                 "hh_id": [1, 1],
@@ -235,78 +213,28 @@ class TestAddHouseholdAggFeatures:
         result, added = add_household_agg_features(df, targets)
 
         assert added == expected_added
-        assert set(expected_added).issubset(result.columns)
-
-
-# ---------------------------------------------------------------------------
-# End-to-end: join → impute → strip
-# ---------------------------------------------------------------------------
-
-
-class TestJoinImputeStripLifecycle:
-    """Integration test for the full join → impute → strip lifecycle."""
-
-    def test_full_lifecycle_preserves_original_schema(self, tables):
-        """After join and strip, df should have same columns as original."""
-        persons = tables["persons"]
-
-        original_cols = set(persons.columns)
-
-        # Join
-        enriched, added = join_parent_tables(persons, "persons", tables, ["households"])
-        assert len(enriched.columns) > len(original_cols)
-
-        # Add agg features
-        enriched, agg_added = add_household_agg_features(enriched, ["race", "gender"])
-        added.extend(agg_added)
-
-        # Strip
-        result = enriched.drop(added, strict=False)
-
-        assert set(result.columns) == original_cols
-        assert len(result) == len(persons)
-
-
-# ---------------------------------------------------------------------------
-# aggregate_from_children (child → parent pivot counts)
-# ---------------------------------------------------------------------------
+        assert set(result.columns) == set(df.columns) | set(expected_added)
 
 
 class TestAggregateFromChildren:
     """Tests for aggregate_from_children."""
 
     def test_basic_pivot_count(self, tables):
-        """Should create one column per unique value in the child field."""
-        hh = tables["households"]
-
+        """Each household counts its persons per employment code, one column per code."""
         config = {"persons": {"pivot_count": ["employment"]}}
-        result, added = aggregate_from_children(hh, "households", tables, config)
+        result, added = aggregate_from_children(tables["households"], "households", tables, config)
 
-        # employment has values 1, 2, 3 → 3 columns
-        assert "persons_count_employment=1" in added
-        assert "persons_count_employment=2" in added
-        assert "persons_count_employment=3" in added
-        assert len(added) == 3
+        assert added == [
+            "persons_count_employment=1",
+            "persons_count_employment=2",
+            "persons_count_employment=3",
+        ]
+        assert result.sort("hh_id").select(added).rows() == [(2, 0, 0), (0, 1, 0), (0, 0, 1)]
 
-        # hh 1 has persons 10 (emp=1) and 11 (emp=1) → count_1=2, count_2=0, count_3=0
-        row_hh1 = result.filter(pl.col("hh_id") == 1)
-        assert row_hh1["persons_count_employment=1"][0] == 2
-        assert row_hh1["persons_count_employment=2"][0] == 0
-        assert row_hh1["persons_count_employment=3"][0] == 0
-
-        # hh 2 has person 20 (emp=2) → count_1=0, count_2=1, count_3=0
-        row_hh2 = result.filter(pl.col("hh_id") == 2)
-        assert row_hh2["persons_count_employment=1"][0] == 0
-        assert row_hh2["persons_count_employment=2"][0] == 1
-
-        # hh 3 has person 30 (emp=3) → count_3=1
-        row_hh3 = result.filter(pl.col("hh_id") == 3)
-        assert row_hh3["persons_count_employment=3"][0] == 1
-
-    def test_missing_child_table_warns(self, tables):
-        """Should warn and skip when child table is not available."""
+    def test_missing_child_table_warns(self):
+        """A pivot table that is not loaded is skipped."""
         hh = _make_households()
-        tables = {"households": hh}  # no persons
+        tables = {"households": hh}
 
         config = {"persons": {"pivot_count": ["employment"]}}
         result, added = aggregate_from_children(hh, "households", tables, config)
@@ -315,7 +243,7 @@ class TestAggregateFromChildren:
         assert result.shape == hh.shape
 
     def test_missing_field_warns(self, tables):
-        """Should warn and skip fields that don't exist on child table."""
+        """A pivot field the table does not have is skipped."""
         hh = tables["households"]
 
         config = {"persons": {"pivot_count": ["nonexistent"]}}
@@ -323,21 +251,18 @@ class TestAggregateFromChildren:
 
         assert added == []
 
-    def test_unknown_relationship_raises(self, tables):
-        """Should raise ValueError for undefined FK relationship."""
+    def test_unknown_relationship_raises(self):
+        """Aggregating households onto persons, a direction with no foreign key, raises."""
         hh = _make_households()
-        tours = pl.DataFrame({"tour_id": [1]})
-        tables = {"households": hh, "tours": tours}
+        tables = {"households": hh, "tours": pl.DataFrame({"tour_id": [1]})}
 
-        # households is asked for as a child of persons, and that direction has
-        # no foreign key declared.
         config = {"households": {"pivot_count": ["hh_id"]}}
         with pytest.raises(ValueError, match="No foreign key relationship"):
             aggregate_from_children(hh, "persons", tables, config)
 
     def test_households_with_no_children_get_zeros(self):
-        """Parent rows with no matching children should have 0 counts."""
-        hh = pl.DataFrame({"hh_id": [1, 2, 99]})  # hh 99 has no persons
+        """A household with no persons counts zero."""
+        hh = pl.DataFrame({"hh_id": [1, 2, 99]})
         persons = pl.DataFrame(
             {
                 "person_id": [10, 20],
@@ -355,7 +280,7 @@ class TestAggregateFromChildren:
             assert row_99[col][0] == 0
 
     def test_multiple_pivot_count_fields_are_added_then_strippable(self, tables):
-        """Every field in pivot_count contributes its own columns, and all strip off."""
+        """Every field in pivot_count adds its own columns, and only those."""
         hh = tables["households"]
         original_cols = set(hh.columns)
 
@@ -372,27 +297,16 @@ class TestAggregateFromChildren:
             "persons_count_student=1",
         ]
 
-        result = enriched.drop(added, strict=False)
-        assert set(result.columns) == original_cols
-
-
-# ---------------------------------------------------------------------------
-# The imputation step with household counts and its self-check together
-# ---------------------------------------------------------------------------
+        assert set(enriched.columns) == original_cols | set(added)
 
 
 def test_household_counts_survive_the_validation_pass():
-    """Household counts and the self-check run together, as in the project configs.
-
-    The imputation pass and its validation pass each build the counts; they
-    must blank missing answers first and build the same columns, or validation
-    asks for columns its frame does not have.
-    """
+    """Imputation and its validation pass build the same household count columns."""
     from processing.imputation.impute import imputation  # noqa: PLC0415
 
     n_hh = 30
     hh_ids = [h for h in range(1, n_hh + 1) for _ in range(3)]
-    # Mixed households, with missing (995) and non-binary (4) answers to impute.
+    # 995 (missing) and 4 (non-binary) are imputed.
     genders = [[2, 1, 1], [1, 2, 995], [2, 2, 4], [1, 1, 2], [995, 2, 1]]
     persons = pl.DataFrame(
         {

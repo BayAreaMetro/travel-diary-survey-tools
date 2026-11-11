@@ -1,15 +1,7 @@
-"""Tests for trip linking: which segments join, and what the joined trip says.
+"""Trip linking: which segments join, and what the joined trip says.
 
-Two halves. ``link_trip_ids`` decides where one journey ends and the next
-begins, from the stop purpose plus the time and distance between segments;
-``aggregate_linked_trips`` then rolls the surviving segments into one row.
-
-The change-mode code used throughout these fixtures is 10. It is passed to
-``link_trip_ids`` as ``change_mode_enum`` and written into
-``d_purpose_category``, so the two agree and the rule under test is exercised.
-It is *not* ``PurposeCategory.CHANGE_MODE``, which is 11; in the real codebook
-10 is ERRAND. The linking rule reads whatever code it is handed, so the value
-is arbitrary here, but do not read these fixtures as codebook examples.
+``link_trip_ids`` decides where one journey ends and the next begins;
+``aggregate_linked_trips`` rolls the surviving segments into one row.
 """
 
 import inspect
@@ -26,10 +18,12 @@ from processing.link_trips.link import (
     link_trip_ids,
     link_trips,
 )
+from tests.fixtures.tour_pipeline import at, leg, unlinked_trips
 from utils.create_ids import create_linked_trip_id, create_tour_ids
 
+# The linking rule reads whatever change-mode code it is handed; 10 is arbitrary
+# here (it is not ``PurposeCategory.CHANGE_MODE``), so these are not codebook examples.
 CHANGE_MODE = 10
-"""The mode-change stop code these fixtures use. See the module docstring."""
 
 WORK = PurposeCategory.WORK.value
 SHOP = PurposeCategory.SHOP.value
@@ -70,10 +64,6 @@ def _trips(legs: list[dict]) -> pl.DataFrame:
     return pl.DataFrame(legs, schema_overrides={"num_travelers": pl.Int64})
 
 
-def _at(hour: int, minute: int, day: int = 1) -> datetime:
-    return datetime(2024, 1, day, hour, minute)
-
-
 def _two_segments(num_travelers: list[int | None]) -> pl.DataFrame:
     """Two segments meeting at a change-mode stop, close in time and space.
 
@@ -83,16 +73,16 @@ def _two_segments(num_travelers: list[int | None]) -> pl.DataFrame:
     return _trips(
         [
             _leg(
-                _at(8, 0),
-                _at(8, 10),
+                at(8, 0),
+                at(8, 10),
                 CHANGE_MODE,
                 o=HOME_COORD,
                 d=STOP_COORD,
                 num_travelers=num_travelers[0],
             ),
             _leg(
-                _at(8, 15),
-                _at(8, 45),
+                at(8, 15),
+                at(8, 45),
                 WORK,
                 o=STOP_COORD,
                 d=WORK_COORD,
@@ -112,16 +102,13 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
     )
 
 
-# Linking rules ----------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("legs", "dwell_buffer_distance", "expected_linked_trips"),
     [
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
-                _leg(_at(8, 15), _at(8, 45), WORK, o=STOP_COORD, d=WORK_COORD),
+                _leg(at(8, 0), at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
+                _leg(at(8, 15), at(8, 45), WORK, o=STOP_COORD, d=WORK_COORD),
             ],
             100,
             1,
@@ -129,8 +116,8 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 30), WORK, o=HOME_COORD, d=WORK_COORD),
-                _leg(_at(9, 0), _at(9, 30), SHOP, o=WORK_COORD, d=STOP_COORD),
+                _leg(at(8, 0), at(8, 30), WORK, o=HOME_COORD, d=WORK_COORD),
+                _leg(at(9, 0), at(9, 30), SHOP, o=WORK_COORD, d=STOP_COORD),
             ],
             100,
             2,
@@ -138,8 +125,8 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 30), CHANGE_MODE, person_id=100, person_day_id=10001),
-                _leg(_at(8, 5), _at(8, 35), CHANGE_MODE, person_id=200, person_day_id=20001),
+                _leg(at(8, 0), at(8, 30), CHANGE_MODE, person_id=100, person_day_id=10001),
+                _leg(at(8, 5), at(8, 35), CHANGE_MODE, person_id=200, person_day_id=20001),
             ],
             100,
             2,
@@ -147,8 +134,8 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
-                _leg(_at(10, 30), _at(11, 0), WORK, o=STOP_COORD, d=WORK_COORD),
+                _leg(at(8, 0), at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
+                _leg(at(10, 30), at(11, 0), WORK, o=STOP_COORD, d=WORK_COORD),
             ],
             100,
             2,
@@ -156,8 +143,8 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
-                _leg(_at(8, 15), _at(8, 45), WORK, o=FAR_COORD, d=WORK_COORD),
+                _leg(at(8, 0), at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
+                _leg(at(8, 15), at(8, 45), WORK, o=FAR_COORD, d=WORK_COORD),
             ],
             10,
             2,
@@ -165,9 +152,9 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
-                _leg(_at(8, 15), _at(8, 25), CHANGE_MODE, o=STOP_COORD, d=STOP_COORD),
-                _leg(_at(8, 30), _at(9, 0), WORK, o=STOP_COORD, d=WORK_COORD),
+                _leg(at(8, 0), at(8, 10), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
+                _leg(at(8, 15), at(8, 25), CHANGE_MODE, o=STOP_COORD, d=STOP_COORD),
+                _leg(at(8, 30), at(9, 0), WORK, o=STOP_COORD, d=WORK_COORD),
             ],
             100,
             1,
@@ -175,10 +162,10 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 30), WORK, person_day_id=10001, o=HOME_COORD, d=WORK_COORD),
-                _leg(_at(9, 0), _at(9, 30), SHOP, person_day_id=10001, o=WORK_COORD, d=STOP_COORD),
-                _leg(_at(8, 0, day=2), _at(8, 30, day=2), WORK, person_day_id=10002, d=WORK_COORD),
-                _leg(_at(9, 0, day=2), _at(9, 30, day=2), SHOP, person_day_id=10002, o=WORK_COORD),
+                _leg(at(8, 0), at(8, 30), WORK, person_day_id=10001, o=HOME_COORD, d=WORK_COORD),
+                _leg(at(9, 0), at(9, 30), SHOP, person_day_id=10001, o=WORK_COORD, d=STOP_COORD),
+                _leg(at(8, 0, day=2), at(8, 30, day=2), WORK, person_day_id=10002, d=WORK_COORD),
+                _leg(at(9, 0, day=2), at(9, 30, day=2), SHOP, person_day_id=10002, o=WORK_COORD),
             ],
             100,
             4,
@@ -186,8 +173,8 @@ def _link(trips: pl.DataFrame, *, split: bool, dwell_buffer_distance: float = 10
         ),
         pytest.param(
             [
-                _leg(_at(8, 0), _at(8, 30), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
-                _leg(_at(8, 0), _at(8, 30), WORK, o=STOP_COORD, d=WORK_COORD),
+                _leg(at(8, 0), at(8, 30), CHANGE_MODE, o=HOME_COORD, d=STOP_COORD),
+                _leg(at(8, 0), at(8, 30), WORK, o=STOP_COORD, d=WORK_COORD),
             ],
             100,
             1,
@@ -204,8 +191,7 @@ def test_linking_rules(legs, dwell_buffer_distance, expected_linked_trips):
 
 
 def test_empty_dataframe():
-    """Should handle empty DataFrame gracefully."""
-    # Create empty dataframe with explicit dtypes to avoid null dtype issues
+    """An empty frame links to an empty frame that still has the id column."""
     trips = pl.DataFrame(
         schema={
             "person_day_id": pl.Int64,
@@ -226,41 +212,26 @@ def test_empty_dataframe():
     assert "linked_trip_id" in result.columns
 
 
-# Occupancy ---------------------------------------------------------------------
-#
-# Two segments joined at a mode-change stop are treated as one journey. If the
-# number of travellers differs across that stop, the more likely reading is that
-# somebody was picked up or dropped off, which makes the stop an activity rather
-# than a transfer. ``split_on_occupancy`` refuses the link in that case.
+# Two segments joined at a mode-change stop with a different number of
+# travellers either side read as a pick-up or drop-off, not a transfer.
+# ``split_on_occupancy`` refuses the link in that case.
+@pytest.mark.parametrize(
+    ("sizes", "split", "linked_trips"),
+    [
+        pytest.param([1, 3], True, 2, id="a_party_change_breaks_the_link_when_enabled"),
+        pytest.param([1, 3], False, 1, id="a_party_change_is_linked_when_disabled"),
+        pytest.param([2, 2], True, 1, id="a_steady_party_still_links"),
+        # A missing party size is missing data, not evidence of a change.
+        pytest.param([None, 3], True, 1, id="unreported_first_size"),
+        pytest.param([1, None], True, 1, id="unreported_second_size"),
+        pytest.param([None, None], True, 1, id="no_size_reported"),
+    ],
+)
+def test_occupancy_split(sizes, split, linked_trips):
+    """A change in party size breaks a link only when splitting is asked for."""
+    result = _link(_two_segments(sizes), split=split)
 
-
-def test_party_change_breaks_the_link_when_enabled():
-    """One traveller becoming three is a pick-up, not a transfer."""
-    result = _link(_two_segments([1, 3]), split=True)
-
-    assert result["linked_trip_id"].n_unique() == 2
-
-
-def test_party_change_is_linked_when_disabled():
-    """Default behaviour is unchanged, so existing projects are unaffected."""
-    result = _link(_two_segments([1, 3]), split=False)
-
-    assert result["linked_trip_id"].n_unique() == 1
-
-
-def test_steady_party_still_links():
-    """Splitting on occupancy must not break an ordinary transfer."""
-    result = _link(_two_segments([2, 2]), split=True)
-
-    assert result["linked_trip_id"].n_unique() == 1
-
-
-@pytest.mark.parametrize("sizes", [[None, 3], [1, None], [None, None]])
-def test_unreported_party_size_does_not_break_the_link(sizes):
-    """A missing party size is missing data, not evidence of a change."""
-    result = _link(_two_segments(sizes), split=True)
-
-    assert result["linked_trip_id"].n_unique() == 1
+    assert result["linked_trip_id"].n_unique() == linked_trips
 
 
 def test_missing_column_is_refused_rather_than_ignored():
@@ -313,9 +284,6 @@ def test_the_choice_has_no_default():
             f"trip linking semantics for every config that stays silent"
         )
         assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
-
-
-# Aggregation -------------------------------------------------------------------
 
 
 def _segments(
@@ -378,8 +346,8 @@ def test_basic_aggregation():
     """Two segments become one row keeping the first origin and the last stop."""
     trips = _segments(
         [
-            (_at(8, 0), _at(8, 10)),
-            (_at(8, 15), _at(8, 45)),
+            (at(8, 0), at(8, 10)),
+            (at(8, 15), at(8, 45)),
         ],
         durations=[10.0, 30.0],
         modes=[ModeType.WALK.value, ModeType.TRANSIT.value],
@@ -392,10 +360,10 @@ def test_basic_aggregation():
     row = result.row(0, named=True)
 
     # Origin comes from the first segment, destination from the last
-    assert row["depart_time"] == _at(8, 0)
+    assert row["depart_time"] == at(8, 0)
     assert (row["o_lat"], row["o_lon"]) == HOME_COORD
     assert row["o_purpose_category"] == PurposeCategory.HOME.value
-    assert row["arrive_time"] == _at(8, 45)
+    assert row["arrive_time"] == at(8, 45)
     assert (row["d_lat"], row["d_lon"]) == WORK_COORD
     assert row["d_purpose_category"] == PurposeCategory.WORK.value
 
@@ -409,8 +377,8 @@ def test_longest_duration_mode_without_transit():
     """With no transit leg the journey takes the mode of its longest segment."""
     trips = _segments(
         [
-            (_at(8, 0), _at(8, 10)),
-            (_at(8, 15), _at(8, 45)),
+            (at(8, 0), at(8, 10)),
+            (at(8, 15), at(8, 45)),
         ],
         durations=[10.0, 30.0],
         modes=[ModeType.WALK.value, ModeType.CAR.value],
@@ -425,18 +393,16 @@ def test_longest_duration_mode_without_transit():
 class TestDwellDuration:
     """``dwell_duration_minutes`` is measured from the timestamps.
 
-    It is the time spent waiting *between* the merged segments, so it is read
-    off the gaps themselves rather than derived by subtracting reported segment
-    durations from elapsed time. Those two quantities round independently, and
-    differencing them used to manufacture negative dwell on trips that had none.
+    It is the waiting time between merged segments, read off the gaps rather
+    than elapsed minus reported durations, which round independently.
     """
 
     def test_dwell_is_the_gap_between_segments(self):
         """Two segments five minutes apart dwell for five minutes."""
         trips = _segments(
             [
-                (_at(8, 0), _at(8, 10)),
-                (_at(8, 15), _at(8, 45)),
+                (at(8, 0), at(8, 10)),
+                (at(8, 15), at(8, 45)),
             ],
             durations=[10.0, 30.0],
         )
@@ -453,9 +419,9 @@ class TestDwellDuration:
         """Three segments have two gaps, and both count."""
         trips = _segments(
             [
-                (_at(8, 0), _at(8, 10)),
-                (_at(8, 15), _at(8, 30)),
-                (_at(8, 37), _at(9, 0)),
+                (at(8, 0), at(8, 10)),
+                (at(8, 15), at(8, 30)),
+                (at(8, 37), at(9, 0)),
             ],
             durations=[10.0, 15.0, 23.0],
         )
@@ -466,20 +432,15 @@ class TestDwellDuration:
 
     def test_single_segment_trip_has_no_dwell(self):
         """One segment has no gap to wait in, so its dwell is exactly zero."""
-        trips = _segments([(_at(8, 0), _at(8, 10))], durations=[10.0])
+        trips = _segments([(at(8, 0), at(8, 10))], durations=[10.0])
 
         result = _aggregate(trips)
 
         assert result.row(0, named=True)["dwell_duration_minutes"] == 0
 
     def test_dwell_survives_durations_that_exceed_elapsed(self):
-        """A segment reported longer than it elapsed must not dwell negatively.
-
-        Vendor durations are whole minutes and elapsed was truncated, so a
-        10.5-minute segment reported as 11 used to yield 10 - 11 = -1 minutes
-        of dwell on a trip with no gap at all. This was 43% of BATS 2023.
-        """
-        trips = _segments([(_at(8, 0), datetime(2024, 1, 1, 8, 10, 30))], durations=[11.0])
+        """A 10.5-minute segment reported as 11 whole minutes still dwells zero, not -1."""
+        trips = _segments([(at(8, 0), at(8, 10).replace(second=30))], durations=[11.0])
 
         result = _aggregate(trips)
 
@@ -488,63 +449,16 @@ class TestDwellDuration:
         assert row["dwell_duration_minutes"] == 0
 
 
-# End to end --------------------------------------------------------------------
-
-
 def test_end_to_end_linking():
     """Three segments, one change-mode stop, become two linked trips."""
-    trips = pl.DataFrame(
-        {
-            "unlinked_trip_id": [1, 2, 3],
-            "person_day_id": [10001, 10001, 10001],
-            "person_id": [100, 100, 100],
-            "hh_id": [10, 10, 10],
-            "depart_time": [_at(8, 0), _at(8, 15), _at(17, 0)],
-            "arrive_time": [_at(8, 10), _at(8, 45), _at(17, 30)],
-            "travel_dow": [1, 1, 1],
-            "depart_date": [datetime(2024, 1, 1)] * 3,
-            "arrive_date": [datetime(2024, 1, 1)] * 3,
-            "depart_hour": [8, 8, 17],
-            "depart_minute": [0, 15, 0],
-            "depart_seconds": [0, 0, 0],
-            "arrive_hour": [8, 8, 17],
-            "arrive_minute": [10, 45, 30],
-            "arrive_seconds": [0, 0, 0],
-            "o_purpose_category": [
-                PurposeCategory.HOME.value,
-                PurposeCategory.CHANGE_MODE.value,
-                PurposeCategory.WORK.value,
-            ],
-            "d_purpose_category": [
-                PurposeCategory.CHANGE_MODE.value,
-                PurposeCategory.WORK.value,
-                PurposeCategory.HOME.value,
-            ],
-            "o_purpose": [
-                Purpose.HOME.value,
-                Purpose.MODE_CHANGE.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-            ],
-            "d_purpose": [
-                Purpose.MODE_CHANGE.value,
-                Purpose.PRIMARY_WORKPLACE.value,
-                Purpose.HOME.value,
-            ],
-            "o_lat": [37.7, 37.71, 37.75],
-            "o_lon": [-122.4, -122.41, -122.45],
-            "d_lat": [37.71, 37.75, 37.7],
-            "d_lon": [-122.41, -122.45, -122.4],
-            "mode_type": [
-                ModeType.WALK.value,
-                ModeType.TRANSIT.value,
-                ModeType.TRANSIT.value,
-            ],
-            "distance_meters": [804.67, 8046.7, 8046.7],
-            "num_travelers": [1, 1, 1],
-            "driver": [0, 0, 0],
-            "duration_minutes": [10.0, 30.0, 30.0],
-            "unlinked_trip_weight": [1.0, 1.0, 1.0],
-        }
+    home, change, work = Purpose.HOME, Purpose.MODE_CHANGE, Purpose.PRIMARY_WORKPLACE
+    walk, transit = {"mode_type": ModeType.WALK.value}, {"mode_type": ModeType.TRANSIT.value}
+    trips = unlinked_trips(
+        [
+            leg(HOME_COORD, STOP_COORD, home, change, at(8), at(8, 10), **walk),
+            leg(STOP_COORD, WORK_COORD, change, work, at(8, 15), at(8, 45), **transit),
+            leg(WORK_COORD, HOME_COORD, work, home, at(17), at(17, 30), **transit),
+        ]
     )
 
     result = link_trips(
@@ -561,24 +475,18 @@ def test_end_to_end_linking():
     assert len(unlinked) == 3
     assert unlinked["linked_trip_id"].n_unique() == 2
 
-    # The journeys themselves are one row each, and the ids are unique there
     linked = result["linked_trips"]
     assert len(linked) == 2
     assert linked["linked_trip_id"].n_unique() == 2
     assert linked["num_segments"].to_list() == [2, 1]
 
 
-# ID creation -------------------------------------------------------------------
-
-
 def test_multiple_trips_same_day():
-    """Should handle multiple trips with same person_day_id correctly."""
-    # Multiple trips sharing the same person_day_id is normal in trip table
+    """Linked trip ids combine person_day_id with the trip's sequence number."""
     trips = pl.DataFrame({"person_day_id": [10001, 10001, 10001], "linked_trip_num": [1, 2, 3]})
 
     result = create_linked_trip_id(trips)
 
-    # Unique ids come from combining person_day_id with the sequence number
     assert result["linked_trip_id"].to_list() == [1000101, 1000102, 1000103]
 
 

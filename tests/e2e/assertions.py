@@ -4,24 +4,6 @@ import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
 
-# ---------------------------------------------------------------------------
-# Table presence
-# ---------------------------------------------------------------------------
-
-
-def assert_tables_non_empty(data: CanonicalData, table_names: list[str]):
-    """Assert that each named table exists and has at least one row."""
-    for name in table_names:
-        df = getattr(data, name, None)
-        assert df is not None, f"Table '{name}' is None"
-        assert isinstance(df, pl.DataFrame), f"Table '{name}' is not a DataFrame"
-        assert df.height > 0, f"Table '{name}' is empty"
-
-
-# ---------------------------------------------------------------------------
-# Referential integrity
-# ---------------------------------------------------------------------------
-
 _FK_CHAINS = [
     ("persons", "hh_id", "households", "hh_id"),
     ("person_days", "person_id", "persons", "person_id"),
@@ -32,6 +14,15 @@ _FK_CHAINS = [
     ("tours", "hh_id", "households", "hh_id"),
     ("tours", "person_day_id", "person_days", "person_day_id"),
 ]
+
+
+def assert_tables_non_empty(data: CanonicalData, table_names: list[str]):
+    """Assert that each named table exists and has at least one row."""
+    for name in table_names:
+        df = getattr(data, name, None)
+        assert df is not None, f"Table '{name}' is None"
+        assert isinstance(df, pl.DataFrame), f"Table '{name}' is not a DataFrame"
+        assert df.height > 0, f"Table '{name}' is empty"
 
 
 def assert_referential_integrity(data: CanonicalData):

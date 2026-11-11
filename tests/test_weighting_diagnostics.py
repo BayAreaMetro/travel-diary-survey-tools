@@ -1,13 +1,4 @@
-"""What a run reports about the weights it produced.
-
-Three things, read together because the document is where they all land. The
-comparer reads two weight sets against each other -- the cases that matter are
-the ones where a plausible-looking implementation still reports the wrong thing:
-a regression run in the wrong direction, an overlap that quietly includes
-records one side never weighted, and a pair with too little in common to say
-anything at all. The cascade counts what carries weight at each level. The
-report then assembles both, once per run and once per fitted profile.
-"""
+"""What a run reports about the weights it produced: the comparer, the cascade, the report."""
 
 import json
 import re
@@ -55,6 +46,10 @@ from processing.weighting.diagnostics.tables import (
 
 HOUSEHOLDS = LEVELS["households"]
 PERSONS = LEVELS["persons"]
+PROFILE = "ctramp"
+FLAG = "usable_ctramp"
+TARGETS = ["h_total", "p_total"]
+ZONE = "01"
 
 
 def _set(name: str, column: str, *, table: str = "households", fitted: bool = True) -> WeightSet:
@@ -67,35 +62,44 @@ def _frame(**columns: list[float]) -> pl.DataFrame:
     return pl.DataFrame(columns)
 
 
+def _log_spaced(n: int, low: float = 10, high: float = 1000) -> np.ndarray:
+    """*n* weights evenly spaced in log between *low* and *high*."""
+    return np.exp(np.linspace(np.log(low), np.log(high), n))
+
+
+def _compare(a, b):
+    """``compare_pair`` of household weights *a* against *b*."""
+    return compare_pair(_frame(a=list(a), b=list(b)), HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
+
+
+def _stats(a, b):
+    """``_compare``, for a pair with enough overlap to report."""
+    stats = _compare(a, b)
+    assert stats is not None
+    return stats
+
+
 class TestFit:
     """The reduced-major-axis line through the scatter."""
 
     def test_slope_recovers_a_known_relationship(self):
         """An exact relationship of ln A = 0.5 ln B reads as a slope of 0.5."""
         log_b = np.linspace(np.log(10), np.log(10_000), 500)
-        df = _frame(a=list(np.exp(0.5 * log_b)), b=list(np.exp(log_b)))
-        stats = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
-
-        assert stats is not None
-        assert stats.slope == pytest.approx(0.5, abs=1e-9)
+        assert _stats(np.exp(0.5 * log_b), np.exp(log_b)).slope == pytest.approx(0.5, abs=1e-9)
 
     def test_weak_correlation_does_not_flatten_the_slope(self):
-        """Regression: a least-squares slope shrinks toward zero as correlation weakens.
+        """A least-squares slope shrinks toward zero as correlation weakens; this one does not.
 
         Two sets with the same spread and r of about 0.5 have a least-squares
-        slope near 0.5, which reads as one set compressing the other when neither
-        does. Measured on bats_2023: least squares gave 0.42 for ours on the
-        vendor's, where the spreads differ by only 0.86.
+        slope near 0.5, which would read as one set compressing the other.
         """
         rng = np.random.default_rng(0)
         common = rng.normal(0, 1, 5000)
         log_a = 5 + common + rng.normal(0, 1, 5000)
         log_b = 5 + common + rng.normal(0, 1, 5000)
-        df = _frame(a=list(np.exp(log_a)), b=list(np.exp(log_b)))
-        stats = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
+        stats = _stats(np.exp(log_a), np.exp(log_b))
 
         least_squares = np.cov(log_a, log_b, bias=True)[0, 1] / log_b.var()
-        assert stats is not None
         assert least_squares == pytest.approx(0.5, abs=0.05)
         assert stats.slope == pytest.approx(1.0, abs=0.05)
 
@@ -104,21 +108,9 @@ class TestFit:
         rng = np.random.default_rng(7)
         log_b = rng.uniform(np.log(20), np.log(2000), 300)
         log_a = 0.4 * log_b + rng.normal(0, 0.5, 300)
-        forward = compare_pair(
-            _frame(a=list(np.exp(log_a)), b=list(np.exp(log_b))),
-            HOUSEHOLDS,
-            _set("a", "a"),
-            _set("b", "b"),
-        )
-        reverse = compare_pair(
-            _frame(a=list(np.exp(log_b)), b=list(np.exp(log_a))),
-            HOUSEHOLDS,
-            _set("a", "a"),
-            _set("b", "b"),
-        )
+        forward = _stats(np.exp(log_a), np.exp(log_b))
+        reverse = _stats(np.exp(log_b), np.exp(log_a))
 
-        assert forward is not None
-        assert reverse is not None
         assert forward.slope * reverse.slope == pytest.approx(1.0)
 
     def test_the_line_passes_through_the_centre(self):
@@ -126,11 +118,26 @@ class TestFit:
         rng = np.random.default_rng(3)
         log_b = rng.uniform(np.log(20), np.log(2000), 400)
         log_a = 1.3 + 0.7 * log_b + rng.normal(0, 0.3, 400)
-        df = _frame(a=list(np.exp(log_a)), b=list(np.exp(log_b)))
-        stats = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
+        stats = _stats(np.exp(log_a), np.exp(log_b))
 
-        assert stats is not None
         assert stats.intercept + stats.slope * log_b.mean() == pytest.approx(log_a.mean())
+
+
+def _fit_table(rows: list[tuple[str, str, float, float | None]]) -> pl.DataFrame:
+    """An h_size fit table from (area, group, error %, SE %) rows, targets all 100."""
+    return pl.DataFrame(
+        {
+            "zone_group_id": [r[0] for r in rows],
+            "control_name": ["h_size"] * len(rows),
+            "category": [r[1] for r in rows],
+            "label": [r[1] for r in rows],
+            "target_total": [100.0] * len(rows),
+            "weighted_total": [100.0 + r[2] for r in rows],
+            "diff": [r[2] for r in rows],
+            "diff_pct": [r[2] for r in rows],
+            "moe_pct": pl.Series([r[3] for r in rows], dtype=pl.Float64),
+        }
+    )
 
 
 class TestFitBars:
@@ -139,23 +146,10 @@ class TestFitBars:
     @staticmethod
     def _bars(rows: list[tuple[str, str, float, float | None]]) -> dict[tuple[str, str], tuple]:
         """(panel, group) -> (color, whisker) from a fit table of (area, group, error %, SE %)."""
-        fit = pl.DataFrame(
-            {
-                "zone_group_id": [r[0] for r in rows],
-                "control_name": ["h_size"] * len(rows),
-                "category": [r[1] for r in rows],
-                "label": [r[1] for r in rows],
-                "target_total": [100.0] * len(rows),
-                "weighted_total": [100.0 + r[2] for r in rows],
-                "diff": [r[2] for r in rows],
-                "diff_pct": [r[2] for r in rows],
-                "moe_pct": pl.Series([r[3] for r in rows], dtype=pl.Float64),
-            }
-        )
-        fig = fit_diverging_figure(fit)
+        fig = fit_diverging_figure(_fit_table(rows))
         panels = [a.text for a in fig.layout.annotations]
         bars = [t for t in fig.data if t.type == "bar"]
-        # A panel with no margin of error anywhere draws no whisker trace
+        # a panel with no margin of error anywhere draws no whisker trace
         whiskers = {t.xaxis: t.error_x.array for t in fig.data if t.type == "scatter"}
         out = {}
         for panel, bar in zip(panels, bars, strict=True):
@@ -195,23 +189,8 @@ class TestFitBars:
 
     def test_every_profile_shares_one_x_range(self):
         """A 12% miss in one profile sets the range for both, so a 2% miss looks small."""
-
-        def fit(error: float) -> pl.DataFrame:
-            return pl.DataFrame(
-                {
-                    "zone_group_id": ["A"],
-                    "control_name": ["h_size"],
-                    "category": ["size_1"],
-                    "label": ["size_1"],
-                    "target_total": [100.0],
-                    "weighted_total": [100.0 + error],
-                    "diff": [error],
-                    "diff_pct": [error],
-                    "moe_pct": [1.0],
-                }
-            )
-
-        tight, loose = fit(2.0), fit(12.0)
+        tight = _fit_table([("A", "size_1", 2.0, 1.0)])
+        loose = _fit_table([("A", "size_1", 12.0, 1.0)])
         assert fit_x_limit([tight]) == 5
         limit = fit_x_limit([tight, loose])
         assert limit == 20
@@ -311,12 +290,9 @@ class TestSummaries:
 
     def test_a_set_against_itself(self):
         """The anchor: no difference anywhere, perfect agreement."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(1000), 200)))
-        stats = compare_pair(
-            _frame(a=weights, b=list(weights)), HOUSEHOLDS, _set("a", "a"), _set("b", "b")
-        )
+        weights = _log_spaced(200)
+        stats = _stats(weights, weights)
 
-        assert stats is not None
         assert stats.median_fold == pytest.approx(1.0)
         assert stats.p90_fold == pytest.approx(1.0)
         assert stats.max_fold == pytest.approx(1.0)
@@ -326,55 +302,40 @@ class TestSummaries:
 
     def test_fold_difference_is_symmetric(self):
         """A record twice as heavy in A and one twice as heavy in B differ equally."""
-        base = np.full(100, 100.0)
-        a = base.copy()
-        b = base.copy()
+        a = np.full(100, 100.0)
+        b = a.copy()
         a[:50] *= 2
         b[50:] *= 2
-        stats = compare_pair(
-            _frame(a=list(a), b=list(b)), HOUSEHOLDS, _set("a", "a"), _set("b", "b")
-        )
+        stats = _stats(a, b)
 
-        assert stats is not None
         assert stats.median_fold == pytest.approx(2.0)
         assert stats.max_fold == pytest.approx(2.0)
 
     def test_a_single_extreme_record_moves_only_the_max(self):
         """The tail number and the typical numbers answer different questions."""
-        weights = np.exp(np.linspace(np.log(10), np.log(1000), 200))
+        weights = _log_spaced(200)
         a = weights.copy()
         a[0] *= 500
-        stats = compare_pair(
-            _frame(a=list(a), b=list(weights)), HOUSEHOLDS, _set("a", "a"), _set("b", "b")
-        )
+        stats = _stats(a, weights)
 
-        assert stats is not None
         assert stats.median_fold == pytest.approx(1.0)
         assert stats.p90_fold == pytest.approx(1.0)
         assert stats.max_fold == pytest.approx(500.0)
 
     def test_rank_correlation_ignores_how_the_scale_is_stretched(self):
         """Same ordering, any monotone rescaling: the ranks agree exactly."""
-        weights = np.exp(np.linspace(np.log(10), np.log(1000), 200))
+        weights = _log_spaced(200)
         rng = np.random.default_rng(5)
-        bent = weights**3 + rng.uniform(0, 1e-6, 200)
-        stats = compare_pair(
-            _frame(a=list(bent), b=list(weights)), HOUSEHOLDS, _set("a", "a"), _set("b", "b")
-        )
+        stats = _stats(weights**3 + rng.uniform(0, 1e-6, 200), weights)
 
-        assert stats is not None
         assert stats.rank_corr == pytest.approx(1.0)
         assert stats.median_fold > 1.0
 
     def test_float_noise_is_no_difference(self):
         """Two fits that agree to 1e-14 read as the same, not as 2% identical."""
-        base = np.exp(np.linspace(np.log(10), np.log(1000), 500))
-        nudged = base * (1 + np.linspace(-2e-14, 2e-14, 500))
-        stats = compare_pair(
-            _frame(a=list(base), b=list(nudged)), HOUSEHOLDS, _set("a", "a"), _set("b", "b")
-        )
+        base = _log_spaced(500)
+        stats = _stats(base, base * (1 + np.linspace(-2e-14, 2e-14, 500)))
 
-        assert stats is not None
         assert stats.max_fold == pytest.approx(1.0)
 
 
@@ -382,30 +343,23 @@ class TestOverlap:
     """Which records a comparison is entitled to read."""
 
     @pytest.mark.parametrize(
-        ("blank", "expected_n"),
+        "blank",
         [
             # a zero weight is an exclusion from that fit, not a small number
-            pytest.param(0.0, 60, id="zero_weights"),
+            pytest.param(0.0, id="zero_weights"),
             # a record one side never weighted says nothing about the difference
-            pytest.param(None, 60, id="null_weights"),
+            pytest.param(None, id="null_weights"),
         ],
     )
-    def test_records_one_side_did_not_weight_are_excluded(self, blank, expected_n):
+    def test_records_one_side_did_not_weight_are_excluded(self, blank):
         """Only records both sets actually weighted are compared."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(1000), 100)))
-        df = _frame(a=[blank] * 40 + weights, b=weights + [blank] * 40)
-        stats = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
-
-        assert stats is not None
-        assert stats.n == expected_n
+        weights = list(_log_spaced(100))
+        assert _stats([blank] * 40 + weights, weights + [blank] * 40).n == 60
 
     def test_too_little_overlap_is_not_reported(self):
         """Below the floor a slope describes the sample, so report nothing."""
-        n = MIN_OVERLAP - 1
-        weights = list(np.exp(np.linspace(np.log(10), np.log(100), n)))
-        df = _frame(a=weights, b=list(weights))
-
-        assert compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b")) is None
+        weights = _log_spaced(MIN_OVERLAP - 1, high=100)
+        assert _compare(weights, weights) is None
 
     def test_missing_column_is_not_an_error(self):
         """A set that does not reach this level is skipped, not a failure."""
@@ -420,19 +374,14 @@ class TestDeciles:
 
     def test_heavy_ties_collapse_bins_rather_than_erroring(self):
         """A set where most weights are equal has fewer than ten distinct edges."""
-        df = _frame(a=[100.0] * 90 + [500.0] * 10, b=[100.0] * 90 + [250.0] * 10)
-        stats = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
-
-        assert stats is not None
+        stats = _stats([100.0] * 90 + [500.0] * 10, [100.0] * 90 + [250.0] * 10)
         assert 0 < len(stats.deciles_ab) < N_DECILES
 
     def test_a_stable_pair_has_a_flat_band(self):
         """Constant offset between the sets means every decile reads the same."""
-        weights = np.exp(np.linspace(np.log(10), np.log(10_000), 500))
-        df = _frame(a=list(weights * 3), b=list(weights))
-        stats = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
+        weights = _log_spaced(500, high=10_000)
+        stats = _stats(weights * 3, weights)
 
-        assert stats is not None
         # the strip never carries more bands than it has room to label
         assert len(stats.deciles_ab) == N_DECILES
         medians = [d.median for d in stats.deciles_ab]
@@ -446,31 +395,19 @@ class TestSampling:
     @pytest.mark.parametrize(
         ("n", "expected_points"),
         [
-            # a level with a quarter-million records still ships a readable scatter
             pytest.param(MAX_POINTS * 3, MAX_POINTS, id="capped"),
-            # under the cap nothing is thrown away
             pytest.param(50, 50, id="every_point_kept"),
         ],
     )
     def test_sample_is_capped(self, n, expected_points):
         """The scatter carries every overlapping record, up to the cap."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(10_000), n)))
-        df = _frame(a=weights, b=list(weights))
-        stats = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
-
-        assert stats is not None
-        assert len(stats.points) == expected_points
+        weights = _log_spaced(n, high=10_000)
+        assert len(_stats(weights, weights).points) == expected_points
 
     def test_sampling_is_reproducible(self):
         """Rerunning on unchanged data must rewrite an identical report."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(10_000), MAX_POINTS * 2)))
-        df = _frame(a=weights, b=list(weights))
-        first = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
-        second = compare_pair(df, HOUSEHOLDS, _set("a", "a"), _set("b", "b"))
-
-        assert first is not None
-        assert second is not None
-        assert first.points == second.points
+        weights = _log_spaced(MAX_POINTS * 2, high=10_000)
+        assert _stats(weights, weights).points == _stats(weights, weights).points
 
 
 class TestWeightSets:
@@ -493,12 +430,7 @@ class TestWeightSets:
         assert survey.columns["households"] == "hh_weight"
 
     def test_reference_sets_are_named_not_discovered(self):
-        """A supplied column need not share the level's base name.
-
-        The vendor's trip weights arrive as ``trip_weight`` while the hierarchy
-        calls that level ``unlinked_trip_weight``, so no suffix rule can reach
-        them and the config states the column outright.
-        """
+        """A supplied column need not share the level's base name, so the config states it."""
         (vendor,) = reference_weight_sets(
             {
                 "vendor": {
@@ -514,9 +446,7 @@ class TestWeightSets:
     @pytest.mark.parametrize(
         "config",
         [
-            # a set reaching no level cannot be compared to anything
             pytest.param({"vendor": {"label": "vendor"}}, id="no_columns"),
-            # with nothing configured the run compares its own fits and stops
             pytest.param(None, id="nothing_configured"),
         ],
     )
@@ -529,51 +459,35 @@ class TestAllPairs:
     """Every comparable pair, at every level both sets reach."""
 
     def test_one_entry_per_pair_per_level(self):
-        """Pairs are unordered, so three sets make three comparisons, not six."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(1000), 100)))
+        """Pairs are unordered, so three sets make three pairs at each of two levels."""
+        weights = list(_log_spaced(100))
         sets = [
-            WeightSet("x", "x", {"households": "x", "persons": "x"}, fitted=True),
-            WeightSet("y", "y", {"households": "y", "persons": "y"}, fitted=True),
-            WeightSet("z", "z", {"households": "z", "persons": "z"}, fitted=True),
+            WeightSet(n, n, {"households": n, "persons": n}, fitted=True) for n in ("x", "y", "z")
         ]
-        table = _frame(x=weights, y=list(weights), z=list(weights))
+        table = _frame(x=weights, y=weights, z=weights)
         pairs = all_pairs({"households": table, "persons": table}, sets)
 
-        # Three sets make three pairs, at each of the two levels.
         assert len(pairs) == 6
         assert {p.level for p in pairs} == {"households", "persons"}
 
     def test_levels_a_set_does_not_reach_are_skipped(self):
         """A set that stops at households says nothing about persons."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(1000), 100)))
+        weights = list(_log_spaced(100))
         sets = [
             WeightSet("x", "x", {"households": "x", "persons": "x"}, fitted=True),
             WeightSet("y", "y", {"households": "y"}, fitted=True),
         ]
-        table = _frame(x=weights, y=list(weights))
+        table = _frame(x=weights, y=weights)
         pairs = all_pairs({"households": table, "persons": table}, sets)
 
         assert [p.level for p in pairs] == ["households"]
 
     def test_nothing_to_pair_is_not_an_error(self):
         """A table the run never built, and a lone set, both yield no pairs."""
-        weights = list(np.exp(np.linspace(np.log(10), np.log(1000), 100)))
+        weights = list(_log_spaced(100))
 
         assert all_pairs({"households": None}, [_set("x", "x"), _set("y", "y")]) == []
         assert all_pairs({"households": _frame(x=weights)}, [_set("x", "x")]) == []
-
-
-# ===========================================================================
-# The weight cascade: what carries weight below the household
-#
-# The cases that matter are the ones where a level disagrees with its parent:
-# a record the profile admits whose household was dropped, and a parent
-# carrying weight with no usable child at all. Both are correct behaviour
-# that the report exists to surface.
-# ===========================================================================
-
-PROFILE = "ctramp"
-FLAG = "usable_ctramp"
 
 
 def _tables(
@@ -712,7 +626,6 @@ class TestRedistribution:
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
         assert row.maximum == 4.0
         assert row.unchanged == 0.0
-        # 4x lands in the top range, over 3x
         assert row.bands == (0.0, 0.0, 0.0, 100.0)
 
     def test_an_exact_factor_stays_in_its_range(self):
@@ -753,19 +666,6 @@ class TestRedistribution:
         )
         row = next(iter(redistribution(tables, profile=PROFILE, usability_flag_col=FLAG)))
         assert row.maximum == 1.0
-
-
-# ===========================================================================
-# Assembling the run's diagnostics document
-#
-# One report covers the whole run, so the cases that matter are the ones about
-# *how many fits* it describes: a single un-profiled fit must still render, and
-# several fits must each get their own pane without the run-level sections
-# being repeated.
-# ===========================================================================
-
-TARGETS = ["h_total", "p_total"]
-ZONE = "01"
 
 
 def _control_totals() -> ControlTotals:
@@ -841,11 +741,7 @@ def _headings(html: str) -> list[tuple[int, str]]:
 
 
 def _numbered_headings(html: str) -> list[int]:
-    """Distinct section numbers, in the order they first appear.
-
-    The per-profile sections repeat once per pane, so a run's numbering is the
-    de-duplicated sequence rather than every heading in the file.
-    """
+    """Distinct section numbers, in the order they first appear across the panes."""
     seen: list[int] = []
     for number, _ in _headings(html):
         if number not in seen:
@@ -862,6 +758,20 @@ def _section(html: str, section_id: str) -> str:
 def _panes(html: str) -> list[str]:
     """The per-profile panes, as raw HTML fragments."""
     return html.split('class="profile-pane"')[1:]
+
+
+def _render(tmp_path, profiles=("ctramp",), *, fits=None, tables=None, **kwargs) -> str:
+    """The report's HTML for one fit per profile, or for *fits*."""
+    fits = fits or {p: _fit(p) for p in profiles}
+    out = generate_report(
+        fits=fits,
+        control_totals=_control_totals(),
+        target_names=TARGETS,
+        tables=_propagated_tables(list(fits)) if tables is None else tables,
+        output_path=tmp_path / "diagnostics.html",
+        **kwargs,
+    )
+    return out.read_text(encoding="utf-8")
 
 
 class TestCellCountImportance:
@@ -980,49 +890,37 @@ class TestGenerateReport:
 
     def test_single_unprofiled_fit_renders(self, tmp_path):
         """A run weighting the whole survey collapses the toggle to one pane."""
-        out = generate_report(
-            fits={None: _fit(None)},
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=_propagated_tables([None]),
-            output_path=tmp_path / "diagnostics.html",
-        )
-        html = out.read_text(encoding="utf-8")
+        html = _render(tmp_path, (None,))
         assert html.count('class="profile-pane"') == 1
         assert 'data-profile="survey"' in html
 
     def test_one_pane_per_fit(self, tmp_path):
-        """Each profile gets a pane and a button; run-level sections appear once."""
-        fits = {p: _fit(p) for p in ("ctramp", "daysim", "analysis")}
-        out = generate_report(
-            fits=fits,
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=_propagated_tables(list(fits)),
-            output_path=tmp_path / "diagnostics.html",
-            run_meta={"PUMS": "2023 &middot; FIPS 06"},
-        )
-        html = out.read_text(encoding="utf-8")
+        """Each profile gets a pane and a button; run-level sections appear once.
+
+        Every pane carries the same section numbers, so a number is an address
+        that does not move under the toggle.
+        """
+        profiles = ("ctramp", "daysim", "analysis")
+        html = _render(tmp_path, profiles, run_meta={"PUMS": "2023 &middot; FIPS 06"})
 
         assert html.count('class="profile-pane"') == 3
-        for profile in fits:
+        assert len({tuple(_headings(pane)) for pane in _panes(html)}) == 1
+        for profile in profiles:
             assert f'data-profile="{profile}"' in html
         # a report shared detached from its run still identifies the run
         assert "2023 &middot; FIPS 06" in html
 
-        # The run-level sections are written once, not once per fit.
         titles = [title for _, title in _headings(html)]
         assert titles.count("Profile Comparison") == 1
         assert titles.count("Weight Cascade") == 1
         cascade = _section(html, "sec-cascade")
-        for profile in fits:
+        for profile in profiles:
             assert f"<th>{profile}</th>" in cascade
             # weight carried for dropped records follows each profile's toggle
             assert f'class="profile-view" data-profile="{profile}"' in cascade
         # every kept record is weighted or the run stops, so only kept counts show
         assert "Unweighted" not in cascade
-        # No geometry was passed, so the crosswalk is left out entirely rather
-        # than rendered as a heading, a sidebar entry and an empty map.
+        # no geometry was passed, so the crosswalk is left out entirely
         assert "Crosswalk Map" not in html
 
     @pytest.mark.parametrize("excluded", [True, False], ids=["excluded", "none"])
@@ -1033,35 +931,16 @@ class TestGenerateReport:
             tables["households"] = tables["households"].with_columns(
                 pl.Series("exclusion_reason", [None, None, None, "no subregion"])
             )
-        out = generate_report(
-            fits={"ctramp": _fit("ctramp")},
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=tables,
-            output_path=tmp_path / "diagnostics.html",
-        )
-        cascade = _section(out.read_text(encoding="utf-8"), "sec-cascade")
+        cascade = _section(_render(tmp_path, tables=tables), "sec-cascade")
 
         assert ("Excluded by the cleaner" in cascade) is excluded
         assert ("<td>no subregion</td>" in cascade) is excluded
 
     def test_omitted_imputation_leaves_no_gap(self, tmp_path):
-        """A run that imputed nothing skips the section without skipping a number.
-
-        Regression: the heading numbers were literals, so a run with nothing to
-        impute rendered 1, 2, 3, 5 -- the section vanished and took its number
-        with it.
-        """
+        """A run that imputed nothing skips the section without skipping a number."""
         fit = _fit("ctramp")
         fit.imputation_summary = []
-        out = generate_report(
-            fits={"ctramp": fit},
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=_propagated_tables(["ctramp"]),
-            output_path=tmp_path / "diagnostics.html",
-        )
-        html = out.read_text(encoding="utf-8")
+        html = _render(tmp_path, fits={"ctramp": fit})
         assert "Fractional Seed Imputation" not in html
         numbers = _numbered_headings(html)
         assert numbers == list(range(1, len(numbers) + 1))
@@ -1079,21 +958,7 @@ class TestGenerateReport:
 
 
 class TestSectionNumbering:
-    """Heading numbers as addresses: consecutive, and fixed under the toggle."""
-
-    def test_panes_share_one_numbering(self, tmp_path):
-        """A section number is an address, so it cannot move under the toggle."""
-        fits = {p: _fit(p) for p in ("ctramp", "daysim", "analysis")}
-        out = generate_report(
-            fits=fits,
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=_propagated_tables(list(fits)),
-            output_path=tmp_path / "diagnostics.html",
-        )
-        panes = _panes(out.read_text(encoding="utf-8"))
-        assert len(panes) == 3
-        assert len({tuple(_headings(pane)) for pane in panes}) == 1
+    """Heading numbers as addresses: fixed under the toggle."""
 
     def test_pane_missing_a_section_keeps_the_others_in_place(self, tmp_path):
         """One profile with nothing to impute must not renumber the other's pane.
@@ -1104,24 +969,15 @@ class TestSectionNumbering:
         """
         fits = {p: _fit(p) for p in ("ctramp", "analysis")}
         fits["analysis"].imputation_summary = []
-        out = generate_report(
-            fits=fits,
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=_propagated_tables(list(fits)),
-            output_path=tmp_path / "diagnostics.html",
-        )
         ctramp, analysis = (
             {title: number for number, title in _headings(pane)}
-            for pane in _panes(out.read_text(encoding="utf-8"))
+            for pane in _panes(_render(tmp_path, fits=fits))
         )
 
-        # Only ctramp renders the imputation section, and it keeps its number.
         imputed = next(t for t in ctramp if t.startswith("Fractional"))
         assert imputed not in analysis
         assert ctramp[imputed] not in analysis.values()
 
-        # Every section both panes do render carries the same number in each.
         for title in ctramp.keys() & analysis.keys():
             assert ctramp[title] == analysis[title]
 
@@ -1135,33 +991,17 @@ class TestComparerSection:
             WeightSet(name=n, label=n, columns={"households": f"hh_weight_{n}"}, fitted=True)
             for n in names
         ]
-        weights = np.exp(np.linspace(np.log(10), np.log(1000), 200))
+        weights = _log_spaced(200)
         table = pl.DataFrame({f"hh_weight_{n}": weights * (i + 1) for i, n in enumerate(names)})
         return Comparison(sets=sets, pairs=all_pairs({"households": table}, sets))
 
-    def _render(self, tmp_path, comparison):
-        """Render a one-profile report carrying *comparison*."""
-        out = generate_report(
-            fits={"ctramp": _fit("ctramp")},
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=_propagated_tables(["ctramp"]),
-            output_path=tmp_path / "diagnostics.html",
-            comparison=comparison,
-        )
-        return out.read_text(encoding="utf-8")
-
     def test_absent_when_nothing_to_compare(self, tmp_path):
         """One weight set has no pair, so the section is left out entirely."""
-        html = self._render(tmp_path, None)
-
-        assert "Weight Set Comparer" not in html
-        titles = [title for _, title in _headings(html)]
-        assert not any(t.startswith("Weight Set Comparer") for t in titles)
+        assert "Weight Set Comparer" not in _render(tmp_path, comparison=None)
 
     def test_pairs_are_embedded_as_data(self, tmp_path):
         """One payload drawn in the browser, not one baked figure per pair."""
-        html = self._render(tmp_path, self._comparison(["ctramp", "vendor"]))
+        html = _render(tmp_path, comparison=self._comparison(["ctramp", "vendor"]))
         comparer = _section(html, "sec-comparer")
         blob = html.split("var DATA = ")[1].split(";\n")[0]
         data = json.loads(blob)
@@ -1188,19 +1028,9 @@ class TestComparerSection:
 class TestNavigationAndDefinitions:
     """The sidebar outline and the Definitions section every header links into."""
 
-    def _render(self, tmp_path, profiles=("ctramp", "analysis")):
-        out = generate_report(
-            fits={p: _fit(p) for p in profiles},
-            control_totals=_control_totals(),
-            target_names=TARGETS,
-            tables=_propagated_tables(list(profiles)),
-            output_path=tmp_path / "diagnostics.html",
-        )
-        return out.read_text(encoding="utf-8")
-
     def test_every_definition_link_has_a_target(self, tmp_path):
         """A header that links to a definition the page does not carry is a dead end."""
-        html = self._render(tmp_path)
+        html = _render(tmp_path, ("ctramp", "analysis"))
         links = set(re.findall(r'href="#(g-[\w]+)"', html))
         targets = set(re.findall(r'id="(g-[\w]+)"', html))
 
@@ -1209,14 +1039,14 @@ class TestNavigationAndDefinitions:
 
     def test_definitions_list_only_what_the_page_uses(self, tmp_path):
         """With nothing to compare, the comparer's statistics are not listed."""
-        html = self._render(tmp_path)
+        html = _render(tmp_path, ("ctramp", "analysis"))
 
         assert 'id="g-ess"' in html
         assert 'id="g-rho"' not in html
 
     def test_sidebar_lists_every_numbered_section(self, tmp_path):
         """One entry per rendered section, carrying the same number as the heading."""
-        html = self._render(tmp_path)
+        html = _render(tmp_path, ("ctramp", "analysis"))
         nav = html[html.index('<nav class="side"') : html.index("</nav>")]
         entries = re.findall(r'data-sec="(\w+)"><span class="n">(\d+)</span>', nav)
 
@@ -1224,7 +1054,7 @@ class TestNavigationAndDefinitions:
 
     def test_section_ids_are_unique(self, tmp_path):
         """Each pane repeats its sections, so their ids carry the profile."""
-        html = self._render(tmp_path)
+        html = _render(tmp_path, ("ctramp", "analysis"))
         ids = re.findall(r'<section id="([^"]+)"', html)
 
         assert len(ids) == len(set(ids))

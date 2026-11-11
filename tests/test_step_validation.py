@@ -1,8 +1,4 @@
-"""Tests for step-aware validation of Pydantic models.
-
-This module tests the selective skip behavior of the pipeline, ensuring that
-fields are only required in their designated pipeline steps.
-"""
+"""A model field is required only in the steps whose contract asks for it."""
 
 from datetime import datetime
 from typing import Any
@@ -31,11 +27,7 @@ COORDINATES = {
 
 
 def trip_row(**overrides: Any) -> dict[str, Any]:
-    """A trip row carrying only the fields that every step needs.
-
-    Deliberately missing ``linked_trip_id``, ``depart_time``/``arrive_time`` and
-    the coordinates, so each test adds back exactly the ones its step requires.
-    """
+    """A trip row without ``linked_trip_id``, the datetimes or the coordinates."""
     row = {
         "unlinked_trip_id": 1,
         "person_id": 101,
@@ -60,7 +52,7 @@ def trip_row(**overrides: Any) -> dict[str, Any]:
 
 
 class TestSelectiveFieldRequirements:
-    """Test that fields are only required in specific steps."""
+    """Which fields each step requires."""
 
     @pytest.mark.parametrize(
         ("field", "step", "required"),
@@ -80,21 +72,17 @@ class TestSelectiveFieldRequirements:
     def test_step_specific_fields_required_only_in_that_step(
         self, field: str, step: str, required: bool
     ):
-        """Fields should only be required in their designated step."""
+        """A field is required only from the step whose contract names it."""
         assert (field in get_required_fields_for_step("unlinked_trips", step)) is required
 
     def test_an_unregistered_step_requires_nothing(self):
-        """A name no step registered has no contract, so it asks for no fields.
-
-        Not a hypothetical: a caller passing a step name that was renamed, or a
-        table a step does not declare, gets an empty set rather than an error.
-        """
+        """An unknown step, or a table the step does not declare, requires no fields."""
         assert get_required_fields_for_step("unlinked_trips", "no_such_step") == set()
         assert get_required_fields_for_step("no_such_table", "extract_tours") == set()
 
 
 class TestStepValidationBehavior:
-    """Test the actual validation behavior across steps."""
+    """Row validation against a step's contract."""
 
     @pytest.mark.parametrize(
         ("row", "step"),
@@ -132,13 +120,12 @@ class TestStepValidationBehavior:
     def test_validation_fails_without_step_specific_fields(
         self, row: dict[str, Any], step: str, match: str
     ):
-        """Should require step-specific fields in their designated step."""
+        """A row missing a field its step requires fails."""
         with pytest.raises(ValueError, match=match):
             validate_row_for_step(row, UnlinkedTripModel, "unlinked_trips", step)
 
     def test_validates_present_fields_even_if_not_required_in_step(self):
-        """Should validate type/constraints of present fields in any step."""
-        # load_data requires nothing of unlinked_trips, but a present field is still checked.
+        """A present field is checked against its constraints even where it is not required."""
         row = trip_row(linked_trip_id=-5)  # invalid: must be >= 1
 
         with pytest.raises(PydanticValidationError, match="greater than or equal"):

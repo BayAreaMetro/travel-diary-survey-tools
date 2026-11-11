@@ -1,14 +1,8 @@
 """The bats_2019 cleaner's usual work mode, from a person's own work trips."""
 
-import importlib.util
-from pathlib import Path
-
 import polars as pl
 
-_PATH = Path(__file__).parents[1] / "projects" / "bats_2019" / "clean_bats_2019.py"
-_spec = importlib.util.spec_from_file_location("clean_bats_2019", _PATH)
-cleaner = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cleaner)
+from projects.bats_2019 import clean_bats_2019 as cleaner
 
 CAR, TRANSIT, WALK = 8, 12, 1
 
@@ -37,7 +31,7 @@ def test_a_tie_goes_to_the_lowest_mode_code():
 
 
 def test_row_order_does_not_change_the_answer():
-    """The bug this replaces: the winner of a tie followed row order."""
+    """Shuffling the rows does not change the winner of a tie."""
     trips = _trips({1: [TRANSIT, CAR, TRANSIT, CAR], 2: [WALK, CAR], 3: [CAR, TRANSIT, WALK]})
     expected = _modes(trips)
     for seed in range(20):
