@@ -10,12 +10,10 @@ from data_canon.codebook.persons import Gender
 from utils.enum_helpers import get_enum_class_for_field, resolve_enum_labels
 from utils.helpers import add_time_columns, expr_haversine, get_income_midpoint
 
-# Fixtures ---------------------------------------------------------------------
-
 
 @pytest.fixture
 def basic_trip_data() -> pl.DataFrame:
-    """Create basic trip data for testing."""
+    """Three trips on one day, each departing on the hour and arriving 30 minutes later."""
     return pl.DataFrame(
         {
             "unlinked_trip_id": [1, 2, 3],
@@ -32,9 +30,6 @@ def basic_trip_data() -> pl.DataFrame:
             "arrive_seconds": [0, 0, 0],
         }
     )
-
-
-# Time columns -----------------------------------------------------------------
 
 
 def test_add_time_columns(basic_trip_data: pl.DataFrame) -> None:
@@ -56,14 +51,11 @@ def test_add_time_columns(basic_trip_data: pl.DataFrame) -> None:
 
 
 def test_add_time_columns_idempotent(basic_trip_data: pl.DataFrame) -> None:
-    """Test that add_time_columns doesn't duplicate if columns exist."""
+    """Running add_time_columns twice gives the same frame."""
     df = add_time_columns(basic_trip_data)
     df2 = add_time_columns(df)
 
     assert df.equals(df2)
-
-
-# Haversine --------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -95,9 +87,6 @@ def test_expr_haversine(
     assert min_m < result["distance"][0] < max_m
 
 
-# Income midpoint --------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("category", "expected"),
     [
@@ -121,9 +110,6 @@ def test_get_income_midpoint_non_response_raises(category: IncomeBroad) -> None:
     """Non-response categories have no midpoint and must raise."""
     with pytest.raises(ValueError, match="Cannot calculate midpoint"):
         get_income_midpoint(category)
-
-
-# Enum helpers -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

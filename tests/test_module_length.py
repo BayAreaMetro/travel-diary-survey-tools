@@ -1,7 +1,4 @@
-"""The module-length check: the repo passes it, and each of its rules holds.
-
-Pre-commit runs the check locally; this runs it in CI, where pre-commit does not.
-"""
+"""The module-length check: the repo passes it in CI, and each of its rules holds."""
 
 import importlib.util
 from pathlib import Path

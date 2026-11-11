@@ -1,10 +1,4 @@
-"""A model's usual workplace: the reported one, else the one found from trips.
-
-Workers whose location varies, or who work remotely, were never asked for a
-workplace. Where their trips show one -- a long enough stay at the same place --
-that place stands in as the usual workplace a model needs before it can make a
-work tour. A reported workplace is never replaced.
-"""
+"""A worker's usual workplace: the reported one, else the observed one with the most time there."""
 
 import polars as pl
 
@@ -13,6 +7,10 @@ from data_canon.codebook.persons import Employment
 from processing.formatting.usual_workplace import fill_usual_workplace
 
 ZONES = ["taz"]
+OBSERVED = LocationSource.OBSERVED.value
+REPORTED = LocationSource.REPORTED.value
+WORKS = Employment.EMPLOYED_FULLTIME.value
+RETIRED = Employment.UNEMPLOYED_NOT_LOOKING.value
 
 
 def _persons(*rows):
@@ -52,12 +50,6 @@ def _days(*rows):
     return pl.DataFrame(
         rows, schema={"habitual_location_id": pl.Int64, "dwell_minutes": pl.Float64}, orient="row"
     )
-
-
-OBSERVED = LocationSource.OBSERVED.value
-WORKS = Employment.EMPLOYED_FULLTIME.value
-RETIRED = Employment.UNEMPLOYED_NOT_LOOKING.value
-REPORTED = LocationSource.REPORTED.value
 
 
 def _fill(persons, workplaces, person_days):

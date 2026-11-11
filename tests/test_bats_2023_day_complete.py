@@ -1,15 +1,9 @@
 """The bats_2023 cleaner's completeness rules: the 995 trip flag and children's days."""
 
-import importlib.util
-from pathlib import Path
-
 import polars as pl
 import pytest
 
-_PATH = Path(__file__).parents[1] / "projects" / "bats_2023" / "clean_bats_2023.py"
-_spec = importlib.util.spec_from_file_location("clean_bats_2023", _PATH)
-cleaner = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cleaner)
+from projects.bats_2023 import clean_bats_2023 as cleaner
 
 
 def test_trip_flag_995_has_no_verdict():

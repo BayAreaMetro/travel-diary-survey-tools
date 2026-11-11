@@ -1,14 +1,12 @@
 """PUMS: reading the official files, and checking the records belong together.
 
 The official files are read from the census folder, downloaded there when
-missing, and written in the Census API's coding (#184). The records are then
-checked for misattribution with facts true of any correct Census extract: a
-damaged file is still a table of real keys and plausible numbers, which nothing
-downstream could detect. 65% of the replicate weights once sat on the wrong
-households for months, and they feed ``moe_based_importance``.
+missing, and written in the Census API's coding. The records are then checked
+for misattribution with facts true of any correct Census extract.
 """
 
 import io
+import random
 import zipfile
 
 import polars as pl
@@ -23,10 +21,8 @@ from processing.weighting.data_prep.pums_data import (
     read_pums,
 )
 
-rng = __import__("random").Random(20260831)
 
-
-def _households(n: int = 400) -> pl.DataFrame:
+def _households(rng: random.Random, n: int = 400) -> pl.DataFrame:
     """Households whose NP agrees with the person table built beside them."""
     sizes = [rng.randint(1, 5) for _ in range(n)]
     weights = [float(rng.randint(5, 300)) for _ in range(n)]
@@ -36,7 +32,7 @@ def _households(n: int = 400) -> pl.DataFrame:
             "NP": sizes,
             "TYPEHUGQ": [1] * n,
             "WGTP": weights,
-            # A replicate is the full weight perturbed, so it tracks it closely.
+            # a replicate is the full weight perturbed, so it tracks it closely
             **{
                 f"WGTP{r}": [w * (1 + rng.uniform(-0.15, 0.15)) for w in weights]
                 for r in range(1, 6)
@@ -45,7 +41,7 @@ def _households(n: int = 400) -> pl.DataFrame:
     )
 
 
-def _persons(hh: pl.DataFrame) -> pl.DataFrame:
+def _persons(rng: random.Random, hh: pl.DataFrame) -> pl.DataFrame:
     rows = []
     for serial, size in zip(hh["SERIALNO"], hh["NP"], strict=True):
         rows.extend((serial, order) for order in range(1, size + 1))
@@ -66,8 +62,9 @@ def _persons(hh: pl.DataFrame) -> pl.DataFrame:
 @pytest.fixture
 def sound() -> tuple[pl.DataFrame, pl.DataFrame]:
     """A household table and the person table that agrees with it."""
-    hh = _households()
-    return hh, _persons(hh)
+    rng = random.Random(20260831)  # noqa: S311
+    hh = _households(rng)
+    return hh, _persons(rng, hh)
 
 
 class TestSoundRecordsPass:
@@ -110,7 +107,7 @@ class TestMisattributionIsCaught:
             check_pums_integrity(hh, persons)
 
     def test_a_type_code_outside_its_domain(self, sound):
-        """How this was first noticed -- TYPEHUGQ holding 502 and 3213."""
+        """TYPEHUGQ holding 3213."""
         hh, persons = sound
         hh = hh.with_columns(
             pl.when(pl.col("SERIALNO") == hh["SERIALNO"][0])
@@ -130,12 +127,7 @@ class TestMisattributionIsCaught:
         ],
     )
     def test_shuffled_replicate_weights(self, sound, table, column, seed, match):
-        """The corruption that survived months of runs, because it looks normal.
-
-        Every value is a real weight and every row has one; they are simply on
-        the wrong records. Only their relationship to the full weight tells, and
-        the person table chunks the same way and fails the same way.
-        """
+        """Every value is a real weight, on the wrong record; only the full weight tells."""
         hh, persons = sound
         if table == "households":
             hh = hh.with_columns(hh[column].shuffle(seed=seed).alias(column))
@@ -185,23 +177,12 @@ class TestMisattributionIsCaught:
 
 
 class TestReplicatesMustAgreeWithEachOther:
-    """The sharp check is relative, because the sound value is not universal.
-
-    A replicate correlates with its full weight to a degree that is a property
-    of the sample -- 0.77 for 2023 California, not necessarily elsewhere. What
-    does hold everywhere is that replicates are built alike, so they must agree
-    with *each other*. Sound data agrees to within 0.009; a partly misattributed
-    file split into populations 0.605 apart.
-    """
+    """Replicates are compared with each other, since how well they track the weight varies."""
 
     def test_a_split_population_is_caught_even_above_the_absolute_bound(self, sound):
-        """The case an absolute threshold alone would wave through.
-
-        Both groups here track their weight well enough to clear 0.5; only their
-        disagreement with each other gives them away.
-        """
+        """Both groups track their weight well enough to clear 0.5, but not each other."""
         hh, persons = sound
-        # Degrade one replicate part-way: still correlated, but visibly less so.
+        # one replicate degraded part-way: still correlated, but visibly less so
         weakened = hh["WGTP4"] * 0.5 + hh["WGTP4"].shuffle(seed=5) * 0.5
         hh = hh.with_columns(weakened.alias("WGTP4"))
 
@@ -209,9 +190,6 @@ class TestReplicatesMustAgreeWithEachOther:
             check_pums_integrity(hh, persons)
 
 
-# ===========================================================================
-# Reading the official files
-# ===========================================================================
 def _official_zip(rows: list[dict[str, str]]) -> bytes:
     """An official-style zip: one CSV, every value text, blanks left blank."""
     buf = io.BytesIO()
@@ -270,21 +248,17 @@ class TestReadingTheOfficialFiles:
             tmp_path / "pums_2023" / "csv_pca.zip",
         )
 
-    def test_not_applicable_is_written_as_the_api_code(self, tmp_path):
-        """A blank income is -60000 and a blank employment status 0, as the API sends."""
+    def test_values_are_written_as_the_api_sends_them(self, tmp_path):
+        """A blank income is -60000, a blank employment status 0, and ADJINC 1.019518.
+
+        The file writes ADJINC as 1019518, with six implied decimals.
+        """
         _write_official(tmp_path, 2023)
 
         hh, per = read_pums(tmp_path, "06", 2023)
 
         assert hh.sort("SERIALNO")["HINCP"].to_list() == [50000.0, -60000.0]
         assert sorted(per["ESR"].to_list()) == [0, 1, 1]
-
-    def test_adjinc_has_its_six_implied_decimals(self, tmp_path):
-        """The file writes 1019518 for the factor the API sends as 1.019518."""
-        _write_official(tmp_path, 2023)
-
-        hh, _ = read_pums(tmp_path, "06", 2023)
-
         assert hh["ADJINC"].unique().to_list() == [1.019518]
 
     def test_pre_2020_names_are_read_as_the_current_ones(self, tmp_path):
@@ -347,14 +321,11 @@ class TestAMissingFileIsDownloaded:
         assert not list(census_dir.rglob("*.part"))
 
 
-# ===========================================================================
-# Values are read exactly, or the read stops
-# ===========================================================================
 class TestConversionIsStrict:
     """A value that is not a number stops the read instead of becoming blank."""
 
     def test_adjinc_reads_as_the_decimal_the_api_sends(self):
-        """The API sends ADJINC as "1.019518", which once became blank as an integer."""
+        """The API sends ADJINC as "1.019518"; it stays a decimal."""
         df = pl.DataFrame({"ADJINC": ["1.019518"], "NP": ["2"]})
         out = _cast_pums_types(df, {"ADJINC", "NP"})
         assert out.row(0) == (1.019518, 2)
@@ -374,7 +345,7 @@ class TestPumsHasNoBlanks:
         check_pums_complete(*sound)
 
     def test_a_blank_is_named_with_its_count(self, sound):
-        """How ADJINC would have been caught: every record blank."""
+        """Every record's ADJINC blank: the variable and the count are named."""
         hh, per = sound
         hh = hh.with_columns(pl.lit(None, dtype=pl.Float64).alias("ADJINC"))
         with pytest.raises(ValueError, match=f"household ADJINC: {hh.height:,} of {hh.height:,}"):

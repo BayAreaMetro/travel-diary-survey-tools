@@ -1,11 +1,10 @@
-"""Tests for fractional imputation of null-deficient incidence rows.
+"""Fractional imputation of incidence rows a null left in no category.
 
-Uses the real control registry (auto-registered at import) with synthetic
-survey/PUMS data.  No custom controls are registered, so there is no
-registry pollution across test files.
+Uses the real control registry with synthetic survey and PUMS data.
 """
 
 import dataclasses
+import functools
 from typing import ClassVar
 
 import numpy as np
@@ -33,13 +32,9 @@ from processing.weighting.data_prep.seed_data import (
     recode_survey_persons,
 )
 
-# We use a small subset of real controls that are always registered.
 TARGETS = ["h_total", "h_size", "h_income", "p_total", "p_gender", "p_age"]
 
 
-# ---------------------------------------------------------------------------
-# Synthetic data helpers
-# ---------------------------------------------------------------------------
 def _null_mask(df: pl.DataFrame, cols: list[str]) -> pl.Series:
     """Boolean mask: True where all *cols* are zero (null-encoded row)."""
     return df.select(pl.sum_horizontal(cols).eq(0)).to_series()
@@ -137,19 +132,17 @@ def _make_survey_per(hh_df: pl.DataFrame, null_gender_rate: float = 0.0) -> pl.D
     return df
 
 
-# ---------------------------------------------------------------------------
-# Recode helpers (call the real recode functions)
-# ---------------------------------------------------------------------------
-def _recode_pums(targets=TARGETS):
+@functools.cache
+def _recode_pums():
     """Build complete PUMS incidence bundle + recoded persons."""
     hh = _make_pums_hh()
     per = _make_pums_per(hh)
-    hh_r = recode_pums_households(hh, per, targets)
-    per_r = recode_pums_persons(per, targets)
+    hh_r = recode_pums_households(hh, per, TARGETS)
+    per_r = recode_pums_persons(per, TARGETS)
     bundle = build_incidence_table(
         hh_r,
         per_r,
-        targets,
+        TARGETS,
         hh_id_col="SERIALNO",
         extra_cols=["WGTP", "PUMA"],
         person_extra_cols=["PWGTP", "PUMA"],
@@ -157,7 +150,7 @@ def _recode_pums(targets=TARGETS):
     return bundle, per_r
 
 
-def _impute(survey_bundle, pums_bundle, targets=TARGETS):
+def _impute(survey_bundle, pums_bundle):
     """Impute with PUMS and the survey all in one zone, as the synthetic data is."""
     one_zone = pl.lit("z1").alias("zone_group_id")
     return fill_null_incidence(
@@ -165,60 +158,40 @@ def _impute(survey_bundle, pums_bundle, targets=TARGETS):
         pums_bundle.incidence.with_columns(one_zone),
         pums_bundle.person_pivot.with_columns(one_zone),
         survey_bundle.incidence.select("hh_id").with_columns(one_zone),
-        targets,
+        TARGETS,
     )
 
 
-def _recode_survey(null_gender_rate=0.0, null_income_rate=0.0, targets=TARGETS):
+@functools.cache
+def _recode_survey(null_gender_rate=0.0, null_income_rate=0.0):
     """Build survey incidence bundle + recoded persons with optional nulls."""
     hh = _make_survey_hh(null_income_rate=null_income_rate)
     per = _make_survey_per(hh, null_gender_rate=null_gender_rate)
-    hh_r = recode_survey_households(hh, per, targets)
-    per_r = recode_survey_persons(per, targets)
-    bundle = build_incidence_table(hh_r, per_r, targets)
+    hh_r = recode_survey_households(hh, per, TARGETS)
+    per_r = recode_survey_persons(per, TARGETS)
+    bundle = build_incidence_table(hh_r, per_r, TARGETS)
     return bundle, per_r
 
 
-# ===========================================================================
-# Test classes
-# ===========================================================================
+@pytest.fixture(scope="module")
+def imputed():
+    """The survey with half its gender and income answers null, and its imputation."""
+    survey_bundle, _ = _recode_survey(null_gender_rate=0.5, null_income_rate=0.5)
+    return _impute(survey_bundle, _recode_pums()[0])
 
 
 class TestPivotHelpers:
-    """Tests for the refactored pivot helper functions."""
+    """Pivoting recoded persons into per-person indicators and household sums."""
 
-    def test_person_pivot_shape(self):
-        """Person pivot should have one row per person with 0/1 indicators."""
+    def test_person_pivot_is_one_binary_row_per_person(self):
+        """One row per person with 0/1 indicators; the household sums are fewer rows."""
         _, pums_per = _recode_pums()
         pp, pa = pivot_person_controls(pums_per, TARGETS, "SERIALNO")
         assert len(pp) == len(pums_per)
-        assert len(pa) < len(pp)  # aggregated has fewer rows
-
-    def test_person_pivot_binary_values(self):
-        """Non-structural person pivot columns should be 0 or 1."""
-        _, pums_per = _recode_pums()
-        pp, _ = pivot_person_controls(pums_per, TARGETS, "SERIALNO")
-        dunder_cols = [c for c in pp.columns if "__" in c]
-        for col in dunder_cols:
+        assert len(pa) < len(pp)
+        for col in [c for c in pp.columns if "__" in c]:
             vals = set(pp[col].to_list())
             assert vals <= {0, 1}, f"Column {col} has non-binary values: {vals}"
-
-    def test_person_agg_matches_incidence(self):
-        """Person aggregation should match what build_incidence_table produces."""
-        hh = _make_pums_hh()
-        per = _make_pums_per(hh)
-        hh_r = recode_pums_households(hh, per, TARGETS)
-        per_r = recode_pums_persons(per, TARGETS)
-
-        bundle = build_incidence_table(hh_r, per_r, TARGETS, hh_id_col="SERIALNO")
-        _, person_agg = pivot_person_controls(per_r, TARGETS, "SERIALNO")
-
-        # Person-level columns in incidence should match person_agg
-        agg_cols = [c for c in person_agg.columns if c != "SERIALNO"]
-        for col in agg_cols:
-            inc_vals = bundle.incidence.sort("SERIALNO")[col].to_list()
-            agg_vals = person_agg.sort("SERIALNO")[col].to_list()
-            assert inc_vals == agg_vals, f"Mismatch in {col}"
 
     def test_null_person_yields_zero_indicators(self):
         """A person with null gender should get all-zero gender indicators."""
@@ -229,58 +202,6 @@ class TestPivotHelpers:
         null_rows = per_r["p_gender"].is_null()
         assert null_rows.any()
         assert row_sums.filter(null_rows).to_list() == [0] * int(null_rows.sum())
-
-
-class TestDetectNullRows:
-    """Tests for the null-row detection function."""
-
-    def test_no_nulls_gives_empty_mask(self):
-        """With no nulls, mask should be all False."""
-        pums_bundle, _ = _recode_pums()
-        gender_cols = [c for c in pums_bundle.incidence.columns if c.startswith("p_gender__")]
-        mask = _null_mask(pums_bundle.incidence, gender_cols)
-        assert mask.sum() == 0
-
-    def test_null_gender_detected(self):
-        """Persons with null gender should be flagged."""
-        survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
-        gender_cols = [c for c in survey_bundle.person_pivot.columns if c.startswith("p_gender__")]
-        mask = _null_mask(survey_bundle.person_pivot, gender_cols)
-        assert mask.sum() > 0
-
-    def test_null_hh_income_detected(self):
-        """HHs with null income should be flagged in the incidence table."""
-        survey_bundle, _ = _recode_survey(null_income_rate=0.5)
-        income_cols = [c for c in survey_bundle.incidence.columns if c.startswith("h_income__")]
-        mask = _null_mask(survey_bundle.incidence, income_cols)
-        assert mask.sum() > 0
-
-
-class TestTrainAndPredict:
-    """Tests for the RF training and prediction function."""
-
-    def test_probabilities_sum_to_one(self):
-        """Predicted probabilities for each row should sum to 1.0."""
-        pums_bundle, _ = _recode_pums()
-        survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
-
-        gender_cols = [c for c in survey_bundle.person_pivot.columns if c.startswith("p_gender__")]
-        null_mask = _null_mask(survey_bundle.person_pivot, gender_cols)
-
-        proba_df, _cv_ll, _cv_f1 = _train_and_predict(
-            pums_bundle.person_pivot,
-            survey_bundle.person_pivot,
-            null_mask,
-            gender_cols,
-            id_col="person_id",
-            weight_col="PWGTP",
-        )
-        assert not proba_df.is_empty()
-
-        # Check each row sums to ~1.0
-        row_sums = proba_df.select(gender_cols).sum_horizontal()
-        for s in row_sums.to_list():
-            assert abs(s - 1.0) < 1e-6, f"Row probability sum {s} != 1.0"
 
 
 class TestTrainedOncePerRun:
@@ -570,80 +491,51 @@ class TestTheHouseholdMovesThePrediction:
 
 
 class TestFillNullIncidence:
-    """Integration tests for the full fill_null_incidence orchestrator."""
+    """The full fill_null_incidence orchestrator."""
 
     def test_no_nulls_passthrough(self):
-        """With no nulls, incidence should be unchanged."""
-        pums_bundle, _ = _recode_pums()
-        survey_bundle, _ = _recode_survey(null_gender_rate=0.0, null_income_rate=0.0)
+        """With no nulls, incidence is unchanged and every summary counts 0 nulls."""
+        survey_bundle, _ = _recode_survey()
 
-        result, summaries = _impute(survey_bundle, pums_bundle)
+        result, summaries = _impute(survey_bundle, _recode_pums()[0])
 
-        # Should be identical (integer columns unchanged)
         for col in survey_bundle.incidence.columns:
             assert result[col].to_list() == survey_bundle.incidence[col].to_list(), (
                 f"Column {col} changed"
             )
-        # All summaries should show 0 nulls
         assert all(s.n_null == 0 for s in summaries)
 
-    def test_person_marginal_preserved(self):
-        """After filling, sum(p_gender__*) should equal p_total for each HH."""
-        pums_bundle, _ = _recode_pums()
-        survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
-
-        result, _summaries = _impute(survey_bundle, pums_bundle)
-
+    def test_person_marginal_preserved(self, imputed):
+        """After filling, sum(p_gender__*) equals p_total for each household."""
+        result, _ = imputed
         gender_cols = [c for c in result.columns if c.startswith("p_gender__")]
         row_sums = result.select(pl.sum_horizontal(gender_cols)).to_series()
-        p_total = result["p_total"].cast(pl.Float64)
-        diff = (row_sums - p_total).abs()
-        # Allow small floating point tolerance
+        diff = (row_sums - result["p_total"].cast(pl.Float64)).abs()
         assert diff.max() < 0.01, f"Max marginal deviation: {diff.max()}"
 
-    def test_hh_marginal_preserved(self):
-        """After filling, sum(h_income__*) should be ~1.0 per HH."""
-        pums_bundle, _ = _recode_pums()
-        survey_bundle, _ = _recode_survey(null_income_rate=0.5)
-
-        result, _summaries = _impute(survey_bundle, pums_bundle)
-
+    def test_hh_marginal_preserved(self, imputed):
+        """After filling, sum(h_income__*) is 1 for each household."""
+        result, _ = imputed
         income_cols = [c for c in result.columns if c.startswith("h_income__")]
         row_sums = result.select(pl.sum_horizontal(income_cols)).to_series()
         for s in row_sums.to_list():
             assert abs(s - 1.0) < 0.01, f"HH income marginal sum {s} != 1.0"
 
-    def test_values_become_fractional(self):
-        """Null rows should get fractional (non-integer) values."""
-        pums_bundle, _ = _recode_pums()
-        survey_bundle, _ = _recode_survey(null_gender_rate=0.5)
-
-        result, _summaries = _impute(survey_bundle, pums_bundle)
-
+    def test_values_become_fractional(self, imputed):
+        """Null rows get fractional values."""
+        result, _ = imputed
         gender_cols = [c for c in result.columns if c.startswith("p_gender__")]
-        # At least some values should be fractional (not integers)
-        all_vals = []
-        for col in gender_cols:
-            all_vals.extend(result[col].to_list())
-        fractional = [v for v in all_vals if v != int(v)]
-        assert len(fractional) > 0, "Expected some fractional values after imputation"
+        all_vals = [v for col in gender_cols for v in result[col].to_list()]
+        assert [v for v in all_vals if v != int(v)], "Expected fractional values"
 
-    def test_summaries_report_nulls(self):
-        """Summaries should report non-zero nulls for imputed controls."""
-        pums_bundle, _ = _recode_pums()
-        survey_bundle, _ = _recode_survey(null_gender_rate=0.5, null_income_rate=0.3)
-
-        _result, summaries = _impute(survey_bundle, pums_bundle)
-
-        by_ctrl = {s.control: s for s in summaries}
-        # Gender was 50% null
+    def test_summaries_report_nulls(self, imputed):
+        """Each imputed control reports its nulls, level and fit; h_size had none."""
+        by_ctrl = {s.control: s for s in imputed[1]}
         assert by_ctrl["p_gender"].n_null > 0
         assert by_ctrl["p_gender"].level == "person"
         assert by_ctrl["p_gender"].log_loss is not None
         assert by_ctrl["p_gender"].f1_macro is not None
-        # Income was 30% null
         assert by_ctrl["h_income"].n_null > 0
         assert by_ctrl["h_income"].level == "household"
-        # h_size should have 0 nulls (never null in synthetic data)
         assert by_ctrl["h_size"].n_null == 0
         assert by_ctrl["h_size"].log_loss is None

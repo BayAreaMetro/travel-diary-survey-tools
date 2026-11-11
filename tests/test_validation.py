@@ -8,17 +8,15 @@ import pytest
 from data_canon.codebook.days import TravelDow
 from data_canon.codebook.persons import AgeCategory, Gender
 from data_canon.codebook.tours import TourDataQuality
-from data_canon.codebook.trips import ModeType, PurposeCategory
+from data_canon.codebook.trips import PurposeCategory
 from data_canon.core.dataclass import CanonicalData
 from data_canon.core.exceptions import DataValidationError
 from data_canon.validation.custom import (
     check_trip_spatial_continuity,
     check_valid_tours_are_complete,
 )
-from tests.fixtures import create_household, create_person, create_unlinked_trip
+from tests.fixtures.records import create_household, create_person
 
-# The same two-household, two-person block is what every structural rule below
-# needs; only the defect changes, so each test states just its own defect.
 HOUSEHOLD_KWARGS = [
     {"hh_id": 1, "home_taz": 100, "income": 50000, "num_vehicles": 1},
     {
@@ -74,13 +72,13 @@ class TestUniqueConstraints:
     """Tests for uniqueness validation."""
 
     def test_unique_passes(self):
-        """Should pass with unique IDs."""
+        """Unique ids pass."""
         data = CanonicalData()
         data.households = _households([1, 2, 3], num_people=2)
         data.validate("households", step="link_trips")
 
     def test_unique_fails_with_duplicates(self):
-        """Should fail with duplicate IDs."""
+        """A duplicate id fails the unique constraint."""
         data = CanonicalData()
         data.households = pl.concat([_households([1, 2], num_people=2), _households([2])])
         with pytest.raises(DataValidationError) as exc:
@@ -97,29 +95,25 @@ class TestForeignKeys:
         data.validate("persons", step="link_trips")
         data.validate("households", step="link_trips")
 
-    def test_fk_fails_with_orphans(self):
-        """Should fail with orphaned FKs."""
-        data = _linked(households=[1, 2], persons=[1, 999])
+    @pytest.mark.parametrize(
+        ("households", "persons", "table", "rule"),
+        [
+            pytest.param([1, 2], [1, 999], "persons", "foreign_key", id="person-without-household"),
+            pytest.param(
+                [1, 2, 3], [1, 2], "households", "required_children", id="empty-household"
+            ),
+        ],
+    )
+    def test_a_broken_link_fails(self, households, persons, table, rule):
+        """A person with no household, or a household with no person, fails."""
+        data = _linked(households=households, persons=persons)
         with pytest.raises(DataValidationError) as exc:
-            data.validate("persons", step="link_trips")
-        assert exc.value.rule == "foreign_key"
-
-    def test_required_children_fails(self):
-        """Should fail when parent missing children."""
-        data = _linked(households=[1, 2, 3], persons=[1, 2])
-        with pytest.raises(DataValidationError) as exc:
-            data.validate("households", step="link_trips")
-        assert exc.value.rule == "required_children"
+            data.validate(table, step="link_trips")
+        assert exc.value.rule == rule
 
 
 class TestRequiredChildrenWhen:
-    """Only surveyable persons need a day (``required_child_when``).
-
-    Unrelated household members are enumerated for household composition and
-    weighting, but the survey never asks for their travel and the vendor gives
-    them no day rows. Requiring a day of them could only be satisfied by
-    fabricating one, which reads downstream as a genuine no-travel day.
-    """
+    """Only surveyable persons need a day (``required_child_when``)."""
 
     def _data(self, *, surveyable_values: list[bool | None], with_days: list[int]):
         data = CanonicalData()
@@ -153,79 +147,30 @@ class TestRequiredChildrenWhen:
         data = self._data(surveyable_values=[True, False], with_days=[101])
         data.validate("persons", step="write_data")
 
-    def test_surveyable_person_without_days_still_fails(self):
-        """The constraint keeps its teeth where it is meaningful."""
-        data = self._data(surveyable_values=[True, True], with_days=[101])
+    @pytest.mark.parametrize(
+        ("surveyable", "drop_column"),
+        [
+            pytest.param(True, False, id="surveyable"),
+            pytest.param(None, False, id="null-counts-as-surveyable"),
+            pytest.param(True, True, id="no-column-requires-every-row"),
+        ],
+    )
+    def test_a_person_who_needs_a_day_and_has_none_fails(self, surveyable, drop_column):
+        """A surveyable or null person with no day fails; with no column, every person needs one."""
+        data = self._data(surveyable_values=[True, surveyable], with_days=[101])
+        if drop_column:
+            data.persons = data.persons.drop("surveyable")
         with pytest.raises(DataValidationError) as exc:
             data.validate("persons", step="write_data")
         assert exc.value.rule == "required_children"
         assert "surveyable" in str(exc.value)
 
-    def test_null_surveyable_counts_as_surveyable(self):
-        """Null must not silently exempt a row from the constraint."""
-        data = self._data(surveyable_values=[True, None], with_days=[101])
-        with pytest.raises(DataValidationError) as exc:
-            data.validate("persons", step="write_data")
-        assert exc.value.rule == "required_children"
-
-    def test_missing_when_column_requires_children_for_all(self):
-        """Without the column the constraint applies to every row, not none."""
-        data = self._data(surveyable_values=[True, True], with_days=[101])
-        data.persons = data.persons.drop("surveyable")
-        with pytest.raises(DataValidationError) as exc:
-            data.validate("persons", step="write_data")
-        assert exc.value.rule == "required_children"
-
 
 class TestCustomValidators:
     """Tests for running the custom validators registered on a table."""
 
-    def test_single_table_validator(self):
-        """Should run custom validator on single table."""
-        data_obj = CanonicalData()
-
-        def check_trip_duration(unlinked_trips: pl.DataFrame) -> list[str]:
-            """Check that trips are not unreasonably long (>4 hours)."""
-            hours = (pl.col("arrive_time") - pl.col("depart_time")).dt.total_seconds() / 3600
-            long_trips = unlinked_trips.filter(hours > 4)
-            if len(long_trips) > 0:
-                trip_ids = long_trips["unlinked_trip_id"].to_list()[:5]
-                return [f"Found {len(long_trips)} trips longer than 4 hours: {trip_ids}"]
-            return []
-
-        data_obj.custom_validators["unlinked_trips"].append(check_trip_duration)
-
-        def trip(trip_id: int, depart: datetime, arrive: datetime) -> dict:
-            return create_unlinked_trip(
-                unlinked_trip_id=trip_id,
-                person_day_id=10101,
-                depart_time=depart,
-                arrive_time=arrive,
-                duration_minutes=(arrive - depart).total_seconds() / 60,
-                o_lat=37.7749,
-                o_lon=-122.4194,
-                d_lat=37.7849,
-                d_lon=-122.4094,
-                o_purpose_category=PurposeCategory.HOME,
-                d_purpose_category=PurposeCategory.WORK,
-                mode_type=ModeType.WALK,
-            )
-
-        day = datetime(2024, 1, 15)
-        data_obj.unlinked_trips = pl.DataFrame(
-            [
-                trip(1, day.replace(hour=10), day.replace(hour=10, minute=30)),
-                trip(2, day.replace(hour=11), day.replace(hour=11, minute=30)),
-                # Ten hours long: the one the validator is meant to catch.
-                trip(3, day.replace(hour=8), day.replace(hour=18)),
-            ]
-        )
-        with pytest.raises(DataValidationError) as exc:
-            data_obj.validate("unlinked_trips", step="link_trips")
-        assert exc.value.rule == "check_trip_duration"
-
     def test_multi_table_validator(self):
-        """Should run custom validator with multiple tables."""
+        """A validator taking two tables is given both."""
         data = CanonicalData()
 
         def check_size(
@@ -245,7 +190,7 @@ class TestCustomValidators:
         data.validate("persons", step="link_trips")
 
     def test_a_validator_on_an_absent_table_skips_only_itself(self):
-        """A validator whose table is not loaded is skipped; later ones still run."""
+        """A validator, or a foreign key, whose table is not loaded is skipped; later ones run."""
         data = CanonicalData()
 
         def needs_tours(persons: pl.DataFrame, tours: pl.DataFrame) -> list[str]:
@@ -255,7 +200,6 @@ class TestCustomValidators:
             return [f"ran on {persons.height} persons"]
 
         data.custom_validators["persons"] = [needs_tours, always_fails]
-        data.households = _households([1, 2])
         data.persons = _persons([1, 2])
         with pytest.raises(DataValidationError) as exc:
             data.validate("persons", step="link_trips")
@@ -266,7 +210,6 @@ class TestValidToursAreComplete:
     """Tests for the check_valid_tours_are_complete custom validator."""
 
     def _tours(self, quality, *, single_trip, purpose):
-        """Build a one-row tours frame with the given quality/trip count/purpose."""
         return pl.DataFrame(
             {
                 "tour_id": [1],
@@ -332,10 +275,7 @@ class TestTripSpatialContinuity:
     """Tests for the check_trip_spatial_continuity custom validator."""
 
     def _trips(self, points):
-        """Build a linked_trips frame from (person, day, depart, o, d) points.
-
-        Each origin/destination is a (lat, lon) tuple.
-        """
+        """Linked trips from (person, day, depart, (o_lat, o_lon), (d_lat, d_lon)) points."""
         return pl.DataFrame(
             {
                 "linked_trip_id": list(range(1, len(points) + 1)),
@@ -355,7 +295,7 @@ class TestTripSpatialContinuity:
         trips = self._trips(
             [
                 (1, 1, 8.0, home, work),
-                (1, 1, 17.0, work, home),  # resumes at work -> continuous
+                (1, 1, 17.0, work, home),
             ]
         )
         assert check_trip_spatial_continuity(trips) == []

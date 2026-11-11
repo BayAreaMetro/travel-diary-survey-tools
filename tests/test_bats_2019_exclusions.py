@@ -1,14 +1,8 @@
 """The bats_2019 cleaner's exclusions, which follow the vendor's weekday weights."""
 
-import importlib.util
-from pathlib import Path
-
 import polars as pl
 
-_PATH = Path(__file__).parents[1] / "projects" / "bats_2019" / "clean_bats_2019.py"
-_spec = importlib.util.spec_from_file_location("clean_bats_2019", _PATH)
-cleaner = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cleaner)
+from projects.bats_2019 import clean_bats_2019 as cleaner
 
 
 def _exclude(subregions: list[int | None], statuses: list[int | None]):

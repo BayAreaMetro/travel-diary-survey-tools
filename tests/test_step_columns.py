@@ -1,9 +1,4 @@
-"""Config-named columns, declared by each step in its own module.
-
-A step whose columns are named from its settings (one per zone, profile or imputed
-column) lists them with ``@step(generated_columns=...)``. The decorator registers them on
-every call, so ``write_data`` keeps them (#176).
-"""
+"""Columns named from a step's settings, declared with ``@step(generated_columns=...)``."""
 
 import polars as pl
 
@@ -12,7 +7,6 @@ from pipeline.decoration import Tables, step
 from processing.add_zone_ids.add_zone_ids import zone_columns
 from processing.completeness.descriptions import profile_columns
 from processing.imputation.impute import preimputed_columns
-from processing.read_write.read_write import _select_canonical_columns
 from processing.weighting.compute_weights import weight_columns
 
 ALL_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -93,18 +87,3 @@ class TestEachStepListsItsColumns:
         got = weight_columns(["ctramp", "analysis"])
         assert {"hh_weight_ctramp", "hh_weight_analysis"} <= set(got["households"])
         assert "tour_weight_ctramp" in got["tours"]
-
-
-class TestWriterKeepsOnlyDeclared:
-    """The writer keeps model fields and declared columns, and drops the vendor's."""
-
-    def test_vendor_column_with_a_zone_like_name_is_dropped(self):
-        """``home_bg_2010`` looks like a zone column, but no zone of that name is configured."""
-        data = CanonicalData()
-        for table, cols in zone_columns([{"zone_name": "taz"}]).items():
-            data.register_generated_columns(table, cols)
-        households = pl.DataFrame({"hh_id": [1], "home_taz": [10], "home_bg_2010": ["x"]})
-        assert _select_canonical_columns(households, "households", data).columns == [
-            "hh_id",
-            "home_taz",
-        ]

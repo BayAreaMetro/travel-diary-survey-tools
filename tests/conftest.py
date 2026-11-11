@@ -18,12 +18,7 @@ from processing.weighting.controls.registry import CONTROLS
 
 @pytest.fixture
 def standard_config() -> CTRAMPConfig:
-    """The CT-RAMP config every formatter test runs under.
-
-    Six modules used to define this separately and had drifted into three
-    variants: one used 60k/150k/240k income thresholds, two left ``age_adult``
-    to its default. None of them depended on the difference.
-    """
+    """The CT-RAMP config every formatter test runs under."""
     return CTRAMPConfig(
         usability_profile="test",
         income_low_threshold=30000,  # $30k ($2000, MTC)

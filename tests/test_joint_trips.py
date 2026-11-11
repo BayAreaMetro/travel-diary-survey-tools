@@ -1,12 +1,4 @@
-"""Tests for joint trip detection functionality.
-
-This test module ensures joint trip detection correctly handles:
-- Config validation (method, covariance shapes, thresholds)
-- Buffer method with strict AND logic
-- Mahalanobis method with diagonal and full covariance
-- Temporal overlap requirements
-- Edge cases (single-person households, no matches, empty data)
-"""
+"""Joint trip detection: config validation, buffer and Mahalanobis matching, edge cases."""
 
 from datetime import datetime, timedelta
 

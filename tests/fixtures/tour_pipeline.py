@@ -5,10 +5,21 @@ cleaning delivers and ``detect_habitual_locations`` completes. Tests that start
 from persons, households and trips go through the same three stages here.
 """
 
+from datetime import datetime
 from typing import Any
 
 import polars as pl
 
+from data_canon.codebook.days import TravelDow
+from data_canon.codebook.persons import AgeCategory, Employment, Student
+from data_canon.codebook.trips import (
+    Driver,
+    ModeType,
+    Purpose,
+    PurposeCategory,
+    PurposeToCategoryMap,
+)
+from processing import link_trips
 from processing.habitual_locations import (
     HabitualLocationConfig,
     MatchConfig,
@@ -20,6 +31,98 @@ from processing.tours.tour_configs import TourConfig
 
 # The habitual-location buffer, the value the BATS configs give both steps.
 BUFFER_METERS = 300.0
+
+HOME = (37.80, -122.40)
+WORK = (37.85, -122.45)
+LUNCH = (37.86, -122.46)
+SHOP = (37.82, -122.42)
+
+HOUSEHOLDS = pl.DataFrame({"hh_id": [1], "home_lat": [HOME[0]], "home_lon": [HOME[1]]})
+
+
+def at(hour: int, minute: int = 0, day: int = 1) -> datetime:
+    """A time on diary day *day*; day 1 is Wednesday 17 January 2024."""
+    return datetime(2024, 1, 16 + day, hour, minute)
+
+
+def person(work: tuple[float, float] | None = WORK, **fields: Any) -> pl.DataFrame:
+    """Person 1 of household 1: a full-time worker at *work* unless *fields* say otherwise."""
+    return pl.DataFrame(
+        {
+            "person_id": [1],
+            "hh_id": [1],
+            "age": [AgeCategory.AGE_35_TO_44.value],
+            "employment": [Employment.EMPLOYED_FULLTIME.value],
+            "student": [Student.NONSTUDENT.value],
+            "school_type": [None],
+            "work_lat": [work[0] if work else None],
+            "work_lon": [work[1] if work else None],
+            "school_lat": [None],
+            "school_lon": [None],
+            **{name: [value] for name, value in fields.items()},
+        },
+        schema_overrides={
+            "school_type": pl.Int64,
+            "work_lat": pl.Float64,
+            "work_lon": pl.Float64,
+            "school_lat": pl.Float64,
+            "school_lon": pl.Float64,
+        },
+    )
+
+
+def leg(
+    o: tuple[float, float],
+    d: tuple[float, float],
+    o_purpose: Purpose,
+    d_purpose: Purpose,
+    depart: datetime,
+    arrive: datetime,
+    **columns: Any,
+) -> dict:
+    """One unlinked trip by car for person 1 on day 1; *columns* override any field.
+
+    Purpose categories are derived, so a leg cannot state a purpose and a
+    category that disagree. The reported duration is read off the timestamps.
+    """
+    return {
+        "person_day_id": 1,
+        "person_id": 1,
+        "hh_id": 1,
+        "travel_dow": TravelDow.WEDNESDAY.value,
+        "depart_time": depart,
+        "arrive_time": arrive,
+        "o_purpose": o_purpose.value,
+        "d_purpose": d_purpose.value,
+        "o_purpose_category": PurposeToCategoryMap.PURPOSE_TO_CATEGORY[o_purpose].value,
+        "d_purpose_category": PurposeToCategoryMap.PURPOSE_TO_CATEGORY[d_purpose].value,
+        "mode_type": ModeType.CAR.value,
+        "o_lat": o[0],
+        "o_lon": o[1],
+        "d_lat": d[0],
+        "d_lon": d[1],
+        "unlinked_trip_weight": 1.0,
+        "distance_meters": 5000.0,
+        "duration_minutes": (arrive - depart).total_seconds() / 60,
+        "num_travelers": 1,
+        "driver": Driver.DRIVER.value,
+        **columns,
+    }
+
+
+def unlinked_trips(legs: list[dict]) -> pl.DataFrame:
+    """The legs as an unlinked_trips frame, numbered from 1."""
+    return pl.DataFrame([{"unlinked_trip_id": i, **row} for i, row in enumerate(legs, start=1)])
+
+
+def link(unlinked: pl.DataFrame) -> dict[str, pl.DataFrame]:
+    """Link trips with the BATS change-mode and transit codes, not splitting on occupancy."""
+    return link_trips(
+        unlinked_trips=unlinked,
+        change_mode_enum=PurposeCategory.CHANGE_MODE.value,
+        transit_mode_enums=[ModeType.TRANSIT.value],
+        split_on_occupancy=False,
+    )
 
 
 def tour_config(**overrides: Any) -> TourConfig:
@@ -65,19 +168,10 @@ def locate_and_extract_tours(
 ) -> dict[str, pl.DataFrame]:
     """Deliver the reported locations, detect the observed ones, then extract tours.
 
-    Args:
-        persons: Persons with work/school addresses and person-category fields.
-        households: Households with the home address.
-        unlinked_trips: Unlinked trips.
-        linked_trips: Linked trips.
-        joint_trips: Joint trips; by default, joint detection found none.
-        person_days: Days with ``begin_day``/``end_day``; by default, not asked.
-        extra: Further reported locations, as ``reported_habitual_locations``
-            takes them (a second home).
-        **kwargs: ``TourConfig`` settings over the BATS ones (see ``tour_config``).
-
-    Returns:
-        The ``extract_tours`` outputs plus both location tables.
+    By default joint detection found nothing and the survey did not ask where
+    days began or ended. *extra* adds reported locations (a second home);
+    *kwargs* are ``TourConfig`` settings over the BATS ones. Returns the
+    ``extract_tours`` outputs plus both location tables.
     """
     person_days = person_days if person_days is not None else days_not_asked(linked_trips)
     if joint_trips is None:
@@ -103,3 +197,13 @@ def locate_and_extract_tours(
         habitual_match=MatchConfig(buffer_meters=BUFFER_METERS),
     )
     return {**tours, **located}
+
+
+def link_and_extract_tours(
+    persons: pl.DataFrame, households: pl.DataFrame, legs: list[dict], **kwargs: Any
+) -> dict[str, pl.DataFrame]:
+    """Link the legs, then run ``locate_and_extract_tours`` on the result."""
+    linked = link(unlinked_trips(legs))
+    return locate_and_extract_tours(
+        persons, households, linked["unlinked_trips"], linked["linked_trips"], **kwargs
+    )

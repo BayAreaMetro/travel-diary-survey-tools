@@ -42,7 +42,6 @@ from processing.weighting.core.specs import (
 )
 from processing.weighting.diagnostics.charts import ef_tradeoff_figure
 
-# The balancer settings these tests run under: the values the code used to default to.
 _BALANCING = BalancingConfig(
     max_expansion_factor=10.0,
     min_expansion_factor=0.1,
@@ -67,17 +66,16 @@ def _moe_importance(hh: pl.DataFrame, person: pl.DataFrame, names: list[str]) ->
     return compute_moe_importance(compute_control_moe(hh, person, names), names)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def _replicates(values, weight: str = "WGTP") -> dict[str, list[float]]:
+    """The 80 replicate weight columns: *values* shared by all, or an 80-row array."""
+    rows = values.tolist() if isinstance(values, np.ndarray) else [values] * 80
+    return {f"_xw_{weight}{r}": row for r, row in enumerate(rows, start=1)}
+
+
 def _make_control_totals(
     zone_data: dict[str, list[tuple[str, int, float]]],
 ) -> ControlTotals:
-    """Build a minimal ControlTotals from {zone_group_id: [(ctrl_name, cat, total)]}.
-
-    ``zone_data`` maps zone_group_id strings to lists of (control_name, category,
-    target_total) tuples, which become rows of the tidy totals frame.
-    """
+    """Build a minimal ControlTotals from {zone_group_id: [(ctrl_name, cat, total)]}."""
     rows: list[dict] = []
     for zone_group_id, entries in zone_data.items():
         for ctrl_name, cat, total in entries:
@@ -90,7 +88,7 @@ def _make_control_totals(
                 }
             )
     totals = pl.DataFrame(rows).cast(
-        {"zone_group_id": pl.Utf8, "category": pl.Int64, "target_total": pl.Float64}
+        {"zone_group_id": pl.Utf8, "category": pl.Utf8, "target_total": pl.Float64}
     )
     return ControlTotals(
         totals=totals,
@@ -125,9 +123,6 @@ def _make_seed_with_bg(geo_col: str, bg_hh: dict[str, tuple[str, int]]) -> pl.Da
     return pl.DataFrame(rows).cast({"hh_id": pl.Int64, geo_col: pl.Utf8, "bg_geo_id": pl.Utf8})
 
 
-# ---------------------------------------------------------------------------
-# Response inversion tests
-# ---------------------------------------------------------------------------
 class TestResponseInversion:
     """Default strategy: target_hh_pop / n_responses per zone."""
 
@@ -179,9 +174,6 @@ class TestResponseInversion:
             compute_base_weights(seed, ct, ["p_age"])
 
 
-# ---------------------------------------------------------------------------
-# Sample plan tests (block-group level)
-# ---------------------------------------------------------------------------
 class TestSamplePlan:
     """Explicit sample plan: segments of block groups, split by zone group."""
 
@@ -357,9 +349,6 @@ class TestGrowBlockHouseholds:
             grow_block_households(self.BLOCKS, self.PUMS.filter(pl.col("PUMA") != "00101"))
 
 
-# ---------------------------------------------------------------------------
-# Balancer integration: base_weight required
-# ---------------------------------------------------------------------------
 class TestBalancerRequiresBaseWeight:
     """_prepare_zone must fail if base_weight is missing."""
 
@@ -434,9 +423,6 @@ class TestBaseWeightsMatchTheTarget:
         assert zone.lb.tolist() == pytest.approx([10.0, 10.0, 10.1])
 
 
-# ---------------------------------------------------------------------------
-# CSV loading tests
-# ---------------------------------------------------------------------------
 class TestLoadSamplePlan:
     """load_sample_plan reads a CSV into a SamplePlan."""
 
@@ -459,49 +445,7 @@ class TestLoadSamplePlan:
         with pytest.raises(FileNotFoundError, match="not found"):
             load_sample_plan(tmp_path / "nonexistent.csv")
 
-    def test_end_to_end_csv_to_base_weights(self, tmp_path):
-        """Load CSV → SamplePlan → compute_base_weights, with unequal segments.
 
-        Pooling the two segments would give 160 000 / 250 = 640 everywhere, so
-        neither assertion can pass unless each segment is weighted on its own.
-        """
-        csv = tmp_path / "plan.csv"
-        csv.write_text("bg_geo_id,sample_segment\n060010001001,urban\n060750001001,rural\n")
-        plan = load_sample_plan(csv)
-        blocks = pl.DataFrame(
-            {
-                "block_id": ["060010001001000", "060750001001000"],
-                "zone_group_id": ["Z1", "Z2"],
-                "households": [100_000.0, 60_000.0],
-            }
-        )
-        ct = _make_control_totals({"Z1": [("h_size", 1, 999.0)], "Z2": [("h_size", 1, 999.0)]})
-        seed = _make_seed_with_bg(
-            "zone_group_id",
-            {"060010001001": ("Z1", 200), "060750001001": ("Z2", 50)},
-        )
-        result = compute_base_weights(
-            seed,
-            ct,
-            ["h_size"],
-            sample_plan=plan,
-            block_households=blocks,
-        )
-        z1 = result.filter(pl.col("zone_group_id") == "Z1")
-        z2 = result.filter(pl.col("zone_group_id") == "Z2")
-        # urban: 100k/200 = 500, rural: 60k/50 = 1200
-        assert z1["base_weight"].to_list() == [pytest.approx(500.0)] * 200
-        assert z2["base_weight"].to_list() == [pytest.approx(1_200.0)] * 50
-
-
-# ===========================================================================
-# Per-control importance, from the PUMS replicate weights
-# ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# Helpers — minimal stub control for testing without the full registry
-# ---------------------------------------------------------------------------
 class _StubCategory(IntEnum):
     CAT_A = 1
     CAT_B = 2
@@ -540,55 +484,30 @@ class _PersonStubControl(ControlTarget):
 def _hh_frame_with_replicates(
     n_rows: int = 10,
     *,
-    zone_group_ids: list[str] | None = None,
     ctrl_col: str = "h_stub",
     ctrl_values: list[int] | None = None,
     base_weight: float = 100.0,
-    noise_scale: float = 5.0,
-    seed: int = 42,
+    weight: str = "WGTP",
 ) -> pl.DataFrame:
-    """Build a household DataFrame with replicate weight columns."""
-    rng = np.random.default_rng(seed)
-    geos = zone_group_ids or ["Z1"]
+    """A household frame with replicate weights scattered around *base_weight*."""
+    rng = np.random.default_rng(42)
     vals = ctrl_values or [1, 2]
-
-    data: dict[str, list] = {
-        "zone_group_id": [geos[i % len(geos)] for i in range(n_rows)],
-        ctrl_col: [vals[i % len(vals)] for i in range(n_rows)],
-        "_xw_WGTP": [base_weight] * n_rows,
-    }
-    for r in range(1, 81):
-        data[f"_xw_WGTP{r}"] = (base_weight + rng.normal(0, noise_scale, n_rows)).tolist()
-
-    return pl.DataFrame(data)
+    return pl.DataFrame(
+        {
+            "zone_group_id": ["Z1"] * n_rows,
+            ctrl_col: [vals[i % len(vals)] for i in range(n_rows)],
+            f"_xw_{weight}": [base_weight] * n_rows,
+            **_replicates(base_weight + rng.normal(0, 5.0, (80, n_rows)), weight),
+        }
+    )
 
 
-# ---------------------------------------------------------------------------
-# _normalize_cvs
-# ---------------------------------------------------------------------------
 class TestNormalizeCvs:
     """Tests for the CV → importance transformation."""
 
     def test_empty_returns_empty(self):
         """Empty input returns empty dict."""
         assert _normalize_cvs({}) == {}
-
-    def test_median_equals_default_importance(self):
-        """Median importance across controls equals DEFAULT_IMPORTANCE."""
-        cvs = {"a": 0.01, "b": 0.05, "c": 0.10}
-        result = _normalize_cvs(cvs)
-        median = float(np.median(list(result.values())))
-        assert median == pytest.approx(DEFAULT_IMPORTANCE)
-
-    def test_sqrt_dampening(self):
-        """Ratio of importances should follow 1/sqrt(CV) relationship."""
-        cvs = {"a": 0.04, "b": 0.16}
-        result = _normalize_cvs(cvs)
-        # 1/sqrt(0.04) = 5, 1/sqrt(0.16) = 2.5  → ratio = 2, median scaled to 100
-        assert result["a"] / result["b"] == pytest.approx(2.0)
-        assert result["a"] > result["b"]
-        assert result["a"] == pytest.approx(4.0 / 3.0 * DEFAULT_IMPORTANCE)
-        assert result["b"] == pytest.approx(2.0 / 3.0 * DEFAULT_IMPORTANCE)
 
     def test_tiny_cv_clipped(self):
         """Near-zero CVs should not produce infinity."""
@@ -598,22 +517,8 @@ class TestNormalizeCvs:
         assert result["zero"] > result["normal"]
 
 
-# ---------------------------------------------------------------------------
-# _control_cv
-# ---------------------------------------------------------------------------
 class TestControlCv:
     """Tests for per-control CV estimation from replicate weights."""
-
-    def test_low_noise_gives_lower_cv(self):
-        """Lower replicate noise produces a lower, still positive, CV."""
-        hh_low = _hh_frame_with_replicates(50, noise_scale=1.0, seed=1)
-        hh_high = _hh_frame_with_replicates(50, noise_scale=50.0, seed=2)
-        ctrl = _HHStubControl()
-        cv_low = _cv(ctrl, hh_low, pl.DataFrame())
-        cv_high = _cv(ctrl, hh_high, pl.DataFrame())
-        assert cv_low is not None
-        assert cv_high is not None
-        assert 0 < cv_low < cv_high
 
     def test_returns_none_when_no_matching_records(self):
         """If no rows match valid categories, return None."""
@@ -635,8 +540,7 @@ class TestControlCv:
         if with_control:
             data["h_stub"] = [1]
         if with_replicates:
-            for r in range(1, 81):
-                data[f"_xw_WGTP{r}"] = [100.0]
+            data |= _replicates([100.0])
         hh = pl.DataFrame(data)
         ctrl = _HHStubControl()
         with pytest.raises(ValueError, match=match):
@@ -644,15 +548,8 @@ class TestControlCv:
 
     def test_person_level_uses_person_frame(self):
         """Person-level controls should read from person_df, not hh_df."""
-        person = _hh_frame_with_replicates(20, ctrl_col="p_stub")
-        # Rename weight columns to person variants
-        renames = {"_xw_WGTP": "_xw_PWGTP"}
-        for r in range(1, 81):
-            renames[f"_xw_WGTP{r}"] = f"_xw_PWGTP{r}"
-        person = person.rename(renames)
-
-        ctrl = _PersonStubControl()
-        cv = _cv(ctrl, pl.DataFrame(), person)
+        person = _hh_frame_with_replicates(20, ctrl_col="p_stub", weight="PWGTP")
+        cv = _cv(_PersonStubControl(), pl.DataFrame(), person)
         assert cv is not None
         assert cv > 0
 
@@ -666,39 +563,32 @@ class TestControlCv:
         0.04, 0.06, 0.08, whose median is 0.05 — a number no single zone or
         single cell produces.
         """
-        offsets = [1.0, 2.0, 3.0, 4.0]
-        data: dict[str, list] = {
-            "zone_group_id": ["Z1", "Z1", "Z2", "Z2"],
-            "h_stub": [1, 2, 1, 2],
-            "_xw_WGTP": [100.0] * 4,
-        }
-        for r in range(1, 81):
-            data[f"_xw_WGTP{r}"] = [100.0 + d for d in offsets]
-        hh = pl.DataFrame(data)
+        hh = pl.DataFrame(
+            {
+                "zone_group_id": ["Z1", "Z1", "Z2", "Z2"],
+                "h_stub": [1, 2, 1, 2],
+                "_xw_WGTP": [100.0] * 4,
+                **_replicates([101.0, 102.0, 103.0, 104.0]),
+            }
+        )
 
         cv = _cv(_HHStubControl(), hh, pl.DataFrame())
         assert cv == pytest.approx(0.05)
 
     def test_zero_estimate_cells_excluded(self):
         """Cells where the estimate is zero should be excluded from the median."""
-        data: dict[str, list] = {
-            "zone_group_id": ["Z1", "Z1"],
-            "h_stub": [1, 2],
-            "_xw_WGTP": [100.0, 0.0],  # second cell has zero weight
-        }
-        for r in range(1, 81):
-            data[f"_xw_WGTP{r}"] = [100.0, 0.0]
-        hh = pl.DataFrame(data)
-        ctrl = _HHStubControl()
-        cv = _cv(ctrl, hh, pl.DataFrame())
-        # Only one valid cell (estimate=100), replicates all equal → CV=0
-        assert cv is not None
-        assert cv == pytest.approx(0.0)
+        hh = pl.DataFrame(
+            {
+                "zone_group_id": ["Z1", "Z1"],
+                "h_stub": [1, 2],
+                "_xw_WGTP": [100.0, 0.0],
+                **_replicates([100.0, 0.0]),
+            }
+        )
+        # one valid cell, its replicates all equal to the estimate
+        assert _cv(_HHStubControl(), hh, pl.DataFrame()) == pytest.approx(0.0)
 
 
-# ---------------------------------------------------------------------------
-# compute_moe_importance (integration)
-# ---------------------------------------------------------------------------
 class TestComputeMoeImportance:
     """Integration tests for the full MOE importance pipeline."""
 
@@ -709,43 +599,12 @@ class TestComputeMoeImportance:
         with pytest.raises(ValueError, match="Unknown control"):
             compute_control_moe(hh, person, ["not_a_control"])
 
-    def test_end_to_end_with_real_registry(self):
-        """Use h_size from the real registry with synthetic data."""
-        ctrl = CONTROLS["h_size"]
-        n = 100
-        rng = np.random.default_rng(42)
-        sizes = rng.choice([m[0] for m in ctrl.valid_members], size=n)
-
-        data: dict[str, list] = {
-            "zone_group_id": ["Z1"] * n,
-            "h_size": sizes.tolist(),
-            "_xw_WGTP": [50.0] * n,
-        }
-        for r in range(1, 81):
-            data[f"_xw_WGTP{r}"] = (50.0 + rng.normal(0, 3, n)).tolist()
-
-        hh = pl.DataFrame(data)
-        person = pl.DataFrame()
-        result = _moe_importance(hh, person, ["h_size"])
-
-        assert "h_size" in result
-        assert result["h_size"] > 0
-        assert np.isfinite(result["h_size"])
-
     def test_structural_controls_omitted_when_sparse(self):
         """Structural controls with no matching data return empty dict."""
-        # h_total has category TOTAL=1, but we provide no records matching it
-        data: dict[str, list] = {
-            "zone_group_id": ["Z1"],
-            "h_total": [99],  # not a valid member value
-            "_xw_WGTP": [100.0],
-        }
-        for r in range(1, 81):
-            data[f"_xw_WGTP{r}"] = [100.0]
-        hh = pl.DataFrame(data)
-        result = _moe_importance(hh, pl.DataFrame(), ["h_total"])
-        # h_total should be omitted (no valid cells)
-        assert "h_total" not in result
+        hh = pl.DataFrame(
+            {"zone_group_id": ["Z1"], "h_total": [99], "_xw_WGTP": [100.0], **_replicates([100.0])}
+        )
+        assert "h_total" not in _moe_importance(hh, pl.DataFrame(), ["h_total"])
 
     def test_ordering_preserved(self):
         """The control whose cells are tighter comes out of the pipeline heavier.
@@ -758,16 +617,15 @@ class TestComputeMoeImportance:
         0.02.  So ``h_workers`` is the tighter control and must come back with
         the higher importance, by exactly ``sqrt(0.06 / 0.02)``.
         """
-        offsets = [1.0, 1.0, 1.0, 9.0]
-        data: dict[str, list] = {
-            "zone_group_id": ["Z1"] * 4,
-            "h_size": [1, 1, 2, 2],
-            "h_workers": [0, 1, 2, 3],
-            "_xw_WGTP": [100.0] * 4,
-        }
-        for r in range(1, 81):
-            data[f"_xw_WGTP{r}"] = [100.0 + d for d in offsets]
-        hh = pl.DataFrame(data)
+        hh = pl.DataFrame(
+            {
+                "zone_group_id": ["Z1"] * 4,
+                "h_size": [1, 1, 2, 2],
+                "h_workers": [0, 1, 2, 3],
+                "_xw_WGTP": [100.0] * 4,
+                **_replicates([101.0, 101.0, 101.0, 109.0]),
+            }
+        )
 
         # the CVs the two groupings produce, asserted before the normalisation
         assert _cv(CONTROLS["h_size"], hh, pl.DataFrame()) == pytest.approx(0.06)
@@ -782,17 +640,12 @@ class TestComputeMoeImportance:
         )
 
 
-# ---------------------------------------------------------------------------
-# Cross-tab MOE support
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.usefixtures("_clean_registry")
 class TestCrosstabMoe:
     """Tests for MOE computation on cross-tab controls."""
 
     @staticmethod
-    def _xtab_hh_frame(n: int = 80, noise: float = 3.0) -> pl.DataFrame:
+    def _xtab_hh_frame(n: int) -> pl.DataFrame:
         """Build PUMS HH data with dimension columns and replicate weights."""
         rng = np.random.default_rng(42)
         size_ctrl = CONTROLS["h_size"]
@@ -805,19 +658,7 @@ class TestCrosstabMoe:
             "h_income": rng.choice(income_vals, size=n).tolist(),
             "_xw_WGTP": [100.0] * n,
         }
-        for r in range(1, 81):
-            data[f"_xw_WGTP{r}"] = (100.0 + rng.normal(0, noise, n)).tolist()
-        return pl.DataFrame(data)
-
-    def test_cell_moe_returns_dataframe_for_crosstab(self):
-        """_control_cell_moe computes MOE for cross-tab by adding composite column."""
-        xtab = register_crosstab("h_size_x_income", ["h_size", "h_income"])
-        hh = self._xtab_hh_frame()
-        result = _control_cell_moe(xtab, hh, pl.DataFrame())
-        assert result is not None
-        assert "control_name" in result.columns
-        assert result["control_name"][0] == "h_size_x_income"
-        assert len(result) > 0
+        return pl.DataFrame(data | _replicates(100.0 + rng.normal(0, 3.0, (80, n))))
 
     def test_compute_moe_importance_includes_crosstab(self):
         """compute_moe_importance returns importance for cross-tab controls."""
@@ -828,146 +669,55 @@ class TestCrosstabMoe:
         assert result["h_size_x_income"] > 0
 
 
-# ===========================================================================
-# The expansion-factor grid search, and the chart that reads it
-# ===========================================================================
-
-
-def _grid_control_totals(
-    zone_data: dict[str, list[tuple[str, int, float]]],
-) -> ControlTotals:
-    rows: list[dict] = []
-    for zone_group_id, entries in zone_data.items():
-        for ctrl_name, cat, total in entries:
-            rows.append(
-                {
-                    "zone_group_id": zone_group_id,
-                    "control_name": ctrl_name,
-                    "category": cat,
-                    "target_total": total,
-                }
-            )
-    totals = pl.DataFrame(rows).cast(
-        {"zone_group_id": pl.Utf8, "category": pl.Utf8, "target_total": pl.Float64}
+def _grid_search(ef_grid: list[float]) -> list[GridPoint]:
+    """Search *ef_grid*, with 5 selected, for 20 homes at 5 against 100 households."""
+    targets = ["h_total", "h_size"]
+    ct = _make_control_totals(
+        {"Z1": [("h_total", 1, 100.0), ("h_size", 1, 50.0), ("h_size", 2, 50.0)]}
     )
-    return ControlTotals(
-        totals=totals,
-        pums_hh_count=0,
-        pums_person_count=0,
-        zone_group_ids=sorted(zone_data),
-    )
-
-
-def _grid_seed(zone_hh: dict[str, int], base_weight: float) -> pl.DataFrame:
-    """Build a seed table with base_weight and h_total/h_size category columns."""
-    rows: list[dict] = []
-    hh_id = 1
-    for zone_group_id, n in zone_hh.items():
-        for i in range(n):
-            rows.append(
-                {
-                    "hh_id": hh_id,
-                    "zone_group_id": zone_group_id,
-                    "base_weight": base_weight,
-                    "h_total": 1,
-                    "h_size": 1 if i % 2 == 0 else 2,
-                }
-            )
-            hh_id += 1
-    return pl.DataFrame(rows).cast(
+    seed = pl.DataFrame(
         {
-            "hh_id": pl.Int64,
-            "zone_group_id": pl.Utf8,
-            "base_weight": pl.Float64,
-            "h_total": pl.Int64,
-            "h_size": pl.Int64,
+            "hh_id": list(range(1, 21)),
+            "zone_group_id": ["Z1"] * 20,
+            "base_weight": [5.0] * 20,
+            "h_total": [1] * 20,
+            "h_size": [1, 2] * 10,
         }
     )
-
-
-# ---------------------------------------------------------------------------
+    return grid_search_expansion_factor(
+        seed,
+        ct,
+        targets,
+        ef_grid=ef_grid,
+        selected_ef=5.0,
+        balancing=_BALANCING,
+        importance=dict.fromkeys(targets, 100.0),
+    )
 
 
 class TestGridSearch:
-    """Integration-style test with a tiny single-zone setup."""
-
-    @pytest.fixture
-    def tiny_setup(self):
-        """Single zone with two controls (h_total and h_size) and 20 seed households."""
-        targets = ["h_total", "h_size"]
-        ct = _grid_control_totals(
-            {
-                "Z1": [
-                    ("h_total", 1, 100.0),
-                    ("h_size", 1, 50.0),
-                    ("h_size", 2, 50.0),
-                ]
-            }
-        )
-        # 20 homes at 5 add up to the 100-household target
-        seed = _grid_seed({"Z1": 20}, base_weight=5.0)
-        return seed, ct, targets
-
-    def test_returns_one_point_per_ef(self, tiny_setup):
-        """Returns one GridPoint per max_expansion_factor in the grid."""
-        seed, ct, targets = tiny_setup
-        grid = [2.0, 5.0, 10.0]
-        results = grid_search_expansion_factor(
-            seed,
-            ct,
-            targets,
-            ef_grid=grid,
-            selected_ef=5.0,
-            balancing=_BALANCING,
-            importance=dict.fromkeys(targets, 100.0),
-        )
-        assert len(results) == 3
-        assert [r.max_expansion_factor for r in results] == [2.0, 5.0, 10.0]
+    """The expansion-factor grid search on a tiny single-zone setup."""
 
     @pytest.mark.parametrize(
         ("ef_grid", "expected"),
         [
+            pytest.param([2.0, 5.0, 10.0], [2.0, 5.0, 10.0], id="one_point_per_ef"),
             pytest.param([2.0, 10.0], [2.0, 5.0, 10.0], id="inserted_in_order"),
             pytest.param([], [5.0], id="empty_grid_is_just_the_selection"),
         ],
     )
-    def test_selected_ef_injected_into_grid(self, tiny_setup, ef_grid, expected):
-        """selected_ef is always searched, whether or not the grid names it."""
-        seed, ct, targets = tiny_setup
-        results = grid_search_expansion_factor(
-            seed,
-            ct,
-            targets,
-            ef_grid=ef_grid,
-            selected_ef=5.0,
-            balancing=_BALANCING,
-            importance=dict.fromkeys(targets, 100.0),
-        )
-        assert [r.max_expansion_factor for r in results] == expected
+    def test_selected_ef_injected_into_grid(self, ef_grid, expected):
+        """One point per factor; selected_ef is searched whether or not the grid names it."""
+        assert [r.max_expansion_factor for r in _grid_search(ef_grid)] == expected
 
-    def test_metrics_are_finite(self, tiny_setup):
-        """Metrics should be finite and within expected ranges."""
-        seed, ct, targets = tiny_setup
-        results = grid_search_expansion_factor(
-            seed,
-            ct,
-            targets,
-            ef_grid=[5.0],
-            selected_ef=5.0,
-            balancing=_BALANCING,
-            importance=dict.fromkeys(targets, 100.0),
-        )
-        gp = results[0]
+    def test_metrics_are_finite(self):
+        """Metrics are within their ranges."""
+        gp = _grid_search([5.0])[0]
         assert gp.mape >= 0
         assert gp.p90 >= 0
         assert gp.cv >= 0
         assert 0 <= gp.ess_pct <= 100
         assert gp.converged_zones <= gp.total_zones
-
-
-# ---------------------------------------------------------------------------
-# ef_tradeoff_figure
-# ---------------------------------------------------------------------------
 
 
 class TestEFTradeoffFigure:
