@@ -79,57 +79,40 @@ def format_joint_tour(
     )
 
     if not linked_trips_canonical.is_empty():
-        joint_trip_stats = (
-            linked_trips_canonical.filter(pl.col("joint_tour_id").is_not_null())
-            .sort(["joint_tour_id", "depart_time", "arrive_time"])
+        joint_trips = linked_trips_canonical.filter(pl.col("joint_tour_id").is_not_null()).sort(
+            "joint_tour_id", "depart_time", "arrive_time"
+        )
+        party = joint_trips.group_by("joint_tour_id").agg(
+            pl.col("person_id").n_unique().alias("num_travelers"),
+            pl.col("access_mode").drop_nulls().first().alias("tour_access_mode"),
+            pl.col("egress_mode").drop_nulls().first().alias("tour_egress_mode"),
+        )
+        # Stops are one member's: every member makes the same trips, so counting
+        # them all multiplies each leg by the party size.
+        stops = (
+            joint_trips.join(
+                joint_tours_formatted.select("joint_tour_id", "person_id"),
+                on=["joint_tour_id", "person_id"],
+                how="semi",
+            )
             .group_by("joint_tour_id")
             .agg(
-                [
-                    pl.col("person_id").n_unique().alias("num_travelers"),
-                    (
-                        pl.when(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
-                        .then(1)
-                        .sum()
-                        - 1
-                    )
-                    .clip(lower_bound=0)
-                    .alias("num_ob_stops"),
-                    (
-                        pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
-                        .then(1)
-                        .sum()
-                        - 1
-                    )
-                    .clip(lower_bound=0)
-                    .alias("num_ib_stops"),
-                    pl.col("access_mode")
-                    .filter(pl.col("access_mode").is_not_null())
-                    .first()
-                    .alias("tour_access_mode"),
-                    pl.col("egress_mode")
-                    .filter(pl.col("egress_mode").is_not_null())
-                    .first()
-                    .alias("tour_egress_mode"),
-                ]
+                _stops(TourDirection.OUTBOUND).alias("num_ob_stops"),
+                _stops(TourDirection.INBOUND).alias("num_ib_stops"),
             )
         )
-        joint_tours_formatted = joint_tours_formatted.join(
-            joint_trip_stats, on="joint_tour_id", how="left"
-        ).with_columns(
-            [
-                pl.col("num_ob_stops").fill_null(0),
-                pl.col("num_ib_stops").fill_null(0),
-                pl.lit(None).alias("tour_access_mode"),
-                pl.lit(None).alias("tour_egress_mode"),
-            ]
+        joint_tours_formatted = (
+            joint_tours_formatted.join(party, on="joint_tour_id", how="left")
+            .join(stops, on="joint_tour_id", how="left")
+            .with_columns(pl.col("num_ob_stops", "num_ib_stops").fill_null(0))
         )
     else:
         joint_tours_formatted = joint_tours_formatted.with_columns(
-            [
-                pl.lit(None).cast(pl.Int64).alias("num_travelers"),
-                pl.lit(0).alias("num_ob_stops"),
-                pl.lit(0).alias("num_ib_stops"),
-            ]
+            pl.lit(None).cast(pl.Int64).alias("num_travelers"),
+            pl.lit(0).alias("num_ob_stops"),
+            pl.lit(0).alias("num_ib_stops"),
+            pl.lit(None).cast(pl.Int64).alias("tour_access_mode"),
+            pl.lit(None).cast(pl.Int64).alias("tour_egress_mode"),
         )
 
     if not unlinked_trips_canonical.is_empty():
@@ -209,6 +192,11 @@ def format_joint_tour(
     )
 
 
+def _stops(direction: TourDirection) -> pl.Expr:
+    """Stops on one half of a tour: its trips in *direction* less the one reaching the end."""
+    return ((pl.col("tour_direction") == direction.value).sum() - 1).clip(lower_bound=0)
+
+
 def _composition(joint_tours: pl.DataFrame, age_adult: int) -> pl.DataFrame:
     """Each joint tour's party: adults only, children only, or both.
 
@@ -237,7 +225,7 @@ def _composition(joint_tours: pl.DataFrame, age_adult: int) -> pl.DataFrame:
 def _representative_tour(
     joint_tours: pl.DataFrame, linked_trips_canonical: pl.DataFrame, config: CTRAMPConfig
 ) -> pl.DataFrame:
-    """Reduce each joint tour's member tours to the representative member's.
+    """Reduce each joint tour's member tours to the representative member's, with their person_id.
 
     Falls back to the lowest person number when the member trips needed to choose
     a representative are absent, so a caller passing tours alone still gets one
@@ -268,7 +256,7 @@ def _representative_tour(
         return (
             joint_tours.sort(["joint_tour_id", "person_id"])
             .unique(subset="joint_tour_id", keep="first", maintain_order=True)
-            .select(["joint_tour_id", *columns])
+            .select(["joint_tour_id", "person_id", *columns])
         )
 
     representative = joint_tours.join(chosen, on=["joint_tour_id", "person_id"], how="semi")
@@ -278,7 +266,7 @@ def _representative_tour(
         pl.concat([representative, remainder])
         .sort(["joint_tour_id", "person_id"])
         .unique(subset="joint_tour_id", keep="first", maintain_order=True)
-        .select(["joint_tour_id", *columns])
+        .select(["joint_tour_id", "person_id", *columns])
     )
 
 

@@ -8,6 +8,7 @@ import pytest
 
 from data_canon.codebook.ctramp import (
     AtWorkFreq,
+    CTRAMPModeType,
     CTRAMPPersonType,
     CTRAMPTourCategory,
     FreeParkingChoice,
@@ -25,7 +26,7 @@ from data_canon.codebook.persons import (
     Student,
 )
 from data_canon.codebook.tours import TourDirection
-from data_canon.codebook.trips import PurposeCategory
+from data_canon.codebook.trips import AccessEgressMode, ModeType, PurposeCategory
 from data_canon.models.ctramp import (
     AllTripCTRAMPModel,
     HouseholdCTRAMPModel,
@@ -610,8 +611,7 @@ def test_basic_joint_tour(standard_config):
     """An adult and a child on one shopping tour: joint tour 0, no stops, adults and children."""
     households, persons = two_person_household(age=AgeCategory.AGE_5_TO_15)
     tours = shared_tour(PurposeCategory.SHOP)
-    # Only person 101's trips: stops are counted over every member trip given.
-    trips = trips_for(tours.filter(pl.col("person_id") == 101))
+    trips = trips_for(tours)
 
     result = format_all(
         tours,
@@ -630,6 +630,44 @@ def test_basic_joint_tour(standard_config):
     assert result["num_ob_stops"][0] == 0
     assert result["num_ib_stops"][0] == 0
     assert result["tour_composition"][0] == TourComposition.ADULTS_AND_CHILDREN.value
+
+
+def test_joint_tour_stops_are_one_members(standard_config):
+    """Two members each stopping once on the way out make a tour with one outbound stop."""
+    households, persons = two_person_household()
+    tours = shared_tour(PurposeCategory.SHOP)
+    trips = trips_for(tours)
+    stop_legs = trips.filter(pl.col("tour_direction") == TourDirection.OUTBOUND.value).with_columns(
+        pl.col("linked_trip_id") + 100, pl.col("joint_trip_id") + 2
+    )
+
+    result = format_all(tours, pl.concat([trips, stop_legs]), persons, households, standard_config)
+
+    assert result["joint_tours"].select("num_ob_stops", "num_ib_stops").row(0) == (1, 0)
+
+
+@pytest.mark.parametrize(
+    ("access", "expected"),
+    [
+        pytest.param(AccessEgressMode.WALK, CTRAMPModeType.WLK_LOC_WLK, id="walked"),
+        pytest.param(AccessEgressMode.CAR_HOUSEHOLD, CTRAMPModeType.DRV_LOC_WLK, id="drove"),
+    ],
+)
+def test_joint_transit_tour_mode_follows_its_access(standard_config, access, expected):
+    """A joint transit tour is drive-transit when its members drove to transit."""
+    households, persons = two_person_household()
+    tours = shared_tour(PurposeCategory.SHOP).with_columns(
+        pl.lit(ModeType.TRANSIT.value).alias("tour_mode")
+    )
+    trips = trips_for(tours).with_columns(
+        pl.lit(ModeType.TRANSIT.value).alias("mode_type"),
+        pl.lit(access.value).alias("access_mode"),
+        pl.lit(AccessEgressMode.WALK.value).alias("egress_mode"),
+    )
+
+    result = format_all(tours, trips, persons, households, standard_config)
+
+    assert result["joint_tours"]["tour_mode"][0] == expected.value
 
 
 LEVELS = [

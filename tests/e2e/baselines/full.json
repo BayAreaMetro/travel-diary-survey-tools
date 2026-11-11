@@ -1908,30 +1908,28 @@
    },
    "num_ib_stops": {
     "counts": {
-     "1": 6,
-     "2": 3
+     "0": 9
     },
-    "distinct": 2,
+    "distinct": 1,
     "dtype": "Int64",
-    "hash": "6bab7d31f3dce3ad",
-    "max": 2.0,
-    "min": 1.0,
+    "hash": "aff24e1891407fc1",
+    "max": 0.0,
+    "min": 0.0,
     "nulls": 0,
-    "sum": 12.0
+    "sum": 0.0
    },
    "num_ob_stops": {
     "counts": {
-     "1": 3,
-     "2": 3,
-     "3": 3
+     "0": 6,
+     "1": 3
     },
-    "distinct": 3,
+    "distinct": 2,
     "dtype": "Int64",
-    "hash": "b2e04653d6bfb59c",
-    "max": 3.0,
-    "min": 1.0,
+    "hash": "7b4d0ac96946713e",
+    "max": 1.0,
+    "min": 0.0,
     "nulls": 0,
-    "sum": 18.0
+    "sum": 3.0
    },
    "orig_taz": {
     "counts": {
