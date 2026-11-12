@@ -51,44 +51,16 @@ def _no_cliques(all_trip_ids: pl.Series) -> tuple[pl.DataFrame, list[list[int]]]
     )
 
 
-def _resolve_clique_conflict(
-    clique: list[int],
-    existing_clique: list[int],
-    disjoint_cliques: list[list[int]],
-    node_to_clique: dict[int, list[int]],
-) -> list[int]:
-    """Keep the larger of two overlapping cliques; the existing one wins a tie.
-
-    Args:
-        clique: New clique being considered
-        existing_clique: Previously assigned clique
-        disjoint_cliques: List of accepted cliques (mutated)
-        node_to_clique: Mapping of nodes to their cliques (mutated)
-
-    Returns:
-        The losing clique
-    """
-    if len(clique) <= len(existing_clique):
-        return clique
-
-    disjoint_cliques.remove(existing_clique)
-    for node in existing_clique:
-        del node_to_clique[node]
-    disjoint_cliques.append(clique)
-    for node in clique:
-        node_to_clique[node] = clique
-    return existing_clique
-
-
 def detect_disjoint_cliques(
     filtered_pairs: pl.DataFrame,
     all_trip_ids: pl.Series,
 ) -> tuple[pl.DataFrame, list[list[int]]]:
     """Detect maximal disjoint cliques, preferring larger ones.
 
-    Finds all maximal cliques and, where two share a trip, keeps the larger
-    (the one found first on a tie), so each trip belongs to at most one joint
-    trip group. Losing cliques are returned for review.
+    Finds all maximal cliques. A clique sharing a trip with accepted ones
+    replaces them only if it is larger than each (the earlier wins a tie), so
+    each trip belongs to at most one joint trip group. Losing cliques are
+    returned for review.
 
     Args:
         filtered_pairs: DataFrame with trip pairs that passed similarity
@@ -127,19 +99,19 @@ def detect_disjoint_cliques(
     flagged_cliques = []
 
     for clique in valid_cliques:
-        conflict_node = next((n for n in clique if n in node_to_clique), None)
-
-        if conflict_node is None:
-            disjoint_cliques.append(clique)
-            for node in clique:
-                node_to_clique[node] = clique
+        # Every accepted clique sharing a trip with this one, once each.
+        rivals = list({id(c): c for n in clique if (c := node_to_clique.get(n))}.values())
+        if any(len(clique) <= len(rival) for rival in rivals):
+            flagged_cliques.append(clique)
             continue
-
-        flagged_cliques.append(
-            _resolve_clique_conflict(
-                clique, node_to_clique[conflict_node], disjoint_cliques, node_to_clique
-            )
-        )
+        for rival in rivals:
+            disjoint_cliques.remove(rival)
+            for node in rival:
+                del node_to_clique[node]
+            flagged_cliques.append(rival)
+        disjoint_cliques.append(clique)
+        for node in clique:
+            node_to_clique[node] = clique
 
     logger.info(
         "Resolved to %d disjoint cliques, flagged %d conflicts",
