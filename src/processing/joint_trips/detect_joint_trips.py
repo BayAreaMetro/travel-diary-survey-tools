@@ -26,28 +26,6 @@ from .similarity import (
 logger = logging.getLogger(__name__)
 
 
-def _create_empty_results(
-    linked_trips: pl.DataFrame,
-    person_days: pl.DataFrame,
-) -> dict[str, pl.DataFrame]:
-    """Create empty result structure when no joint trips are detected."""
-    linked_trips_with_joints = linked_trips.with_columns(
-        [pl.lit(None, dtype=pl.Int64).alias("joint_trip_id")]
-    )
-    empty_joint_trips = pl.DataFrame(
-        schema={
-            "joint_trip_id": pl.Int64,
-            "hh_id": pl.Int64,
-            "travel_date": person_days.schema["travel_date"],
-            "num_joint_travelers": pl.Int64,
-        }
-    )
-    return {
-        "linked_trips": linked_trips_with_joints,
-        "joint_trips": empty_joint_trips,
-    }
-
-
 def _filter_multi_person_households(
     linked_trips: pl.DataFrame,
 ) -> pl.DataFrame:
@@ -303,21 +281,8 @@ def detect_joint_trips(
         person_days.select("person_day_id", "travel_date"), on="person_day_id", how="left"
     )
 
-    if len(candidate_trips) == 0:
-        logger.warning(
-            "No multi-person households found. No joint trips possible, returning empty results."
-        )
-        return _create_empty_results(linked_trips, person_days)
-
     # Create trip pairs and apply filters
     trip_pairs = _create_and_filter_trip_pairs(candidate_trips)
-
-    if len(trip_pairs) == 0:
-        logger.warning(
-            "No temporally overlapping trip pairs found. "
-            "No joint trips detected, consider checking data quality."
-        )
-        return _create_empty_results(linked_trips, person_days)
 
     # Compute pairwise distances
     trip_pairs = compute_pairwise_distances(trip_pairs)
@@ -335,13 +300,6 @@ def detect_joint_trips(
             matching.covariance,
             matching.get_distance_threshold(),
         )
-
-    if len(filtered_pairs) == 0:
-        logger.warning(
-            "No joint trips detected. Consider relaxing thresholds or "
-            "checking data quality (GPS accuracy, time synchronization)."
-        )
-        return _create_empty_results(linked_trips, person_days)
 
     # Detect joint trips using clique detection
     clique_assignments, flagged_conflicts = detect_disjoint_cliques(
@@ -369,6 +327,15 @@ def detect_joint_trips(
     )
 
     joint_trips_table = build_joint_trips_table(linked_trips_with_joints, person_days)
+    if joint_trips_table.is_empty():
+        logger.warning(
+            "No joint trips found: %s trips in multi-person households, "
+            "%s pairs overlapping in time, 0 pairs matched by method=%s. "
+            "If this survey should have joint travel, check the data or the matching thresholds.",
+            f"{candidate_trips.height:,}",
+            f"{trip_pairs.height:,}",
+            matching.method,
+        )
 
     # Compare against reported num_travelers (logging only)
     validate_against_num_travelers(linked_trips_with_joints, matching.log_discrepancies)

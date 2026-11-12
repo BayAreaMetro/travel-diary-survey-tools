@@ -1,5 +1,7 @@
 """Joint trip detection: config validation, buffer and Mahalanobis matching, edge cases."""
 
+import logging
+import re
 from datetime import datetime, timedelta
 
 import polars as pl
@@ -292,7 +294,7 @@ def test_detect_matching_trips_buffer():
 def test_detect_non_matching_trips():
     """Five hours apart is the same route at different times, not joint travel."""
     households, linked_trips = _household(
-        [datetime(2024, 1, 15, 9, 0), datetime(2024, 1, 15, 14, 0)]
+        [datetime(2024, 1, 15, 9, 0), datetime(2024, 1, 15, 9, 5), datetime(2024, 1, 15, 14, 0)]
     )
 
     result = detect_joint_trips(
@@ -302,10 +304,9 @@ def test_detect_non_matching_trips():
         matching=_buffer(),
     )
 
-    updated_trips = result["linked_trips"]
-
-    assert updated_trips["joint_trip_id"].null_count() == len(updated_trips)
-    assert len(result["joint_trips"]) == 0
+    joint_ids = result["linked_trips"].sort("person_id")["joint_trip_id"].to_list()
+    assert joint_ids[0] == joint_ids[1] is not None
+    assert joint_ids[2] is None
 
 
 def test_a_chain_of_departures_is_resolved_into_one_group():
@@ -340,35 +341,53 @@ def test_a_chain_of_departures_is_resolved_into_one_group():
     assert result["joint_trips"]["num_joint_travelers"].to_list() == [2]
 
 
-def test_single_person_household():
-    """A household of one has nobody to travel with, and takes its own branch."""
-    households, linked_trips = _household([datetime(2024, 1, 15, 9, 0)])
-
-    result = detect_joint_trips(
-        linked_trips=linked_trips,
-        person_days=days_not_asked(linked_trips),
-        households=households,
-        matching=_buffer(),
+def _far_apart(linked_trips: pl.DataFrame) -> pl.DataFrame:
+    """The second member's trip ends 50 km from the first's."""
+    return linked_trips.with_columns(
+        pl.when(pl.col("person_id") == 2).then(37.4).otherwise(pl.col("d_lat")).alias("d_lat")
     )
 
-    assert result["linked_trips"]["joint_trip_id"].null_count() == 1
-    assert len(result["joint_trips"]) == 0
 
+@pytest.mark.parametrize(
+    ("depart_times", "edit", "counts"),
+    [
+        pytest.param(
+            [datetime(2024, 1, 15, 9, 0)], None, "0 trips in multi-person", id="one_person"
+        ),
+        pytest.param(
+            [datetime(2024, 1, 15, 9, 0), datetime(2024, 1, 15, 14, 0)],
+            None,
+            "0 pairs overlapping",
+            id="no_overlap",
+        ),
+        pytest.param(
+            [datetime(2024, 1, 15, 9, 0), datetime(2024, 1, 15, 9, 0)],
+            _far_apart,
+            "1 pairs overlapping in time, 0 pairs matched",
+            id="no_match",
+        ),
+    ],
+)
+def test_no_joint_trips_warns(caplog, depart_times, edit, counts):
+    """With no joint trip at all, the step warns how far detection got and returns no groups."""
+    households, linked_trips = _household(depart_times)
+    if edit is not None:
+        linked_trips = edit(linked_trips)
 
-def test_empty_input():
-    """Test handling of empty input DataFrames."""
-    households, linked_trips = _household([datetime(2024, 1, 15, 9, 0)])
+    with caplog.at_level(logging.WARNING):
+        result = detect_joint_trips(
+            linked_trips=linked_trips,
+            person_days=days_not_asked(linked_trips),
+            households=households,
+            matching=_buffer(),
+        )
 
-    result = detect_joint_trips(
-        linked_trips=linked_trips.clear(),
-        person_days=days_not_asked(linked_trips.clear()),
-        households=households.clear(),
-        matching=_buffer(),
+    assert re.search(f"No joint trips found: .*{counts}", caplog.text)
+    assert result["linked_trips"]["joint_trip_id"].null_count() == len(linked_trips)
+    assert result["joint_trips"].is_empty()
+    assert {"joint_trip_id", "hh_id", "hh_day_id", "travel_date"} <= set(
+        result["joint_trips"].columns
     )
-
-    # Should handle gracefully
-    assert len(result["linked_trips"]) == 0
-    assert len(result["joint_trips"]) == 0
 
 
 class TestGroupingMembership:
