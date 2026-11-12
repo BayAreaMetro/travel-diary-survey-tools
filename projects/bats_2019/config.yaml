@@ -241,6 +241,7 @@ steps:
         state_fips: "06"
         pums_year: 2019
         pums_weights: independent
+        household_income: all_members
         census_dir: "{{ census_dir }}"
 
       # Which profiles decide who carries weight, one weight set each, suffixed

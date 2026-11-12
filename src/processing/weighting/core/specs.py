@@ -133,6 +133,18 @@ class ImputationSummary:
 # ---------------------------------------------------------------------------
 # PUMS Configuration
 # ---------------------------------------------------------------------------
+class HouseholdIncome(StrEnum):
+    """Whose income the survey's household income counts, so the PUMS target counts the same.
+
+    PUMS household income (``HINCP``) counts every member of the household.
+    """
+
+    # Every member: HINCP as it is.
+    ALL_MEMBERS = "all_members"
+    # Related members only: each nonrelative's personal income is taken out of HINCP.
+    RELATED_MEMBERS = "related_members"
+
+
 class PumsWeights(StrEnum):
     """Which PUMS weight each level of target sums.
 
@@ -213,6 +225,13 @@ class CensusConfig(BaseModel):
             "Which PUMS weight the targets sum: `household` (persons take their "
             "household's weight), `person` (households take the mean of their members' "
             "person weights) or `independent` (each level keeps its own)."
+        ),
+    )
+    household_income: HouseholdIncome = Field(
+        description=(
+            "Whose income the survey's household income question covers: `all_members`, "
+            "or `related_members` when the questionnaire told respondents to leave out "
+            "roommates and other nonrelatives. The PUMS income target is built to match."
         ),
     )
     census_dir: str = Field(
@@ -355,6 +374,7 @@ class WeightingConfig:
     state_fips: str
     pums_year: int
     pums_weights: PumsWeights
+    household_income: HouseholdIncome
     use_imputed_values: bool
     census_dir: Path
     weight_profiles: tuple[str, ...] = ()

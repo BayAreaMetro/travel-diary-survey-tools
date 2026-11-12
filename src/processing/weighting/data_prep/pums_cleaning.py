@@ -9,7 +9,7 @@ import logging
 
 import polars as pl
 
-from processing.weighting.core.specs import PumsWeights
+from processing.weighting.core.specs import HouseholdIncome, PumsWeights
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +20,13 @@ _HOUSING_UNIT = 1
 #: Outside this range it is not a factor, such as the official file's integer form (#184).
 _ADJINC_RANGE = (0.5, 2.0)
 
+#: ``RELSHIPP`` for roommate/housemate (34) and other nonrelative (36). Unmarried
+#: partners (22, 24) and foster children (35) count as related, as the survey does.
+_NONRELATIVES = (34, 36)
+
 _HH_REQUIRED = ("SERIALNO", "NP", "TYPEHUGQ", "WGTP", "HINCP", "ADJINC")
 _PERSON_REQUIRED = ("SERIALNO", "PWGTP")
+_NONRELATIVE_INCOME_REQUIRED = ("SERIALNO", "PINCP", "RELSHIPP")
 
 
 def clean_pums(
@@ -29,13 +34,15 @@ def clean_pums(
     person_df: pl.DataFrame,
     *,
     pums_weights: PumsWeights,
+    household_income: HouseholdIncome,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Apply the PUMS rules, in order.
 
     1. `drop_vacant_homes`
     2. `drop_group_quarters`
     3. `adjust_income`
-    4. `apply_pums_weights`
+    4. `exclude_nonrelative_income`, when *household_income* is ``related_members``
+    5. `apply_pums_weights`
 
     Raises:
         KeyError: If a column a rule reads is missing.
@@ -45,6 +52,8 @@ def clean_pums(
     hh_df, person_df = drop_vacant_homes(hh_df, person_df)
     hh_df, person_df = drop_group_quarters(hh_df, person_df)
     hh_df = adjust_income(hh_df)
+    if household_income == HouseholdIncome.RELATED_MEMBERS:
+        hh_df = exclude_nonrelative_income(hh_df, person_df)
     return apply_pums_weights(hh_df, person_df, pums_weights)
 
 
@@ -96,6 +105,38 @@ def adjust_income(hh_df: pl.DataFrame) -> pl.DataFrame:
         raise ValueError(msg)
     logger.info("PUMS rule income: HINCP x ADJINC, factor %.6f to %.6f", factor.min(), factor.max())
     return hh_df.with_columns(pl.col("HINCP") * pl.col("ADJINC"))
+
+
+def exclude_nonrelative_income(hh_df: pl.DataFrame, person_df: pl.DataFrame) -> pl.DataFrame:
+    """Take roommates' and other nonrelatives' income out of household income.
+
+    For a survey that asked for related members' income only. Each nonrelative's
+    ``PINCP``, in the PUMS year's dollars and with a loss or "under 15" counted as
+    nothing, comes off the household's adjusted ``HINCP``. A household this takes
+    below zero is set to zero; one already below zero stays where it was.
+    """
+    _require(person_df, _NONRELATIVE_INCOME_REQUIRED, "person")
+    nonrelative_income = (
+        person_df.filter(pl.col("RELSHIPP").is_in(_NONRELATIVES))
+        .join(hh_df.select("SERIALNO", "ADJINC"), on="SERIALNO", how="inner")
+        .group_by("SERIALNO")
+        .agg((pl.col("PINCP").clip(lower_bound=0) * pl.col("ADJINC")).sum().alias("_nonrel"))
+    )
+    hh_df = hh_df.join(nonrelative_income, on="SERIALNO", how="left").with_columns(
+        pl.col("_nonrel").fill_null(0.0)
+    )
+    removed = hh_df.filter(pl.col("_nonrel") > 0)
+    logger.info(
+        "PUMS rule income: nonrelatives' income left out of %s of %s households, $%s in all",
+        f"{removed.height:,}",
+        f"{hh_df.height:,}",
+        f"{removed['_nonrel'].sum():,.0f}",
+    )
+    return hh_df.with_columns(
+        pl.max_horizontal(
+            pl.col("HINCP") - pl.col("_nonrel"), pl.min_horizontal(pl.col("HINCP"), 0.0)
+        ).alias("HINCP")
+    ).drop("_nonrel")
 
 
 def apply_pums_weights(

@@ -223,6 +223,7 @@ def compute_weights(
         state_fips=census.state_fips,
         pums_year=census.pums_year,
         pums_weights=census.pums_weights,
+        household_income=census.household_income,
         sample_plan=sample_plan,
         census_dir=Path(census.census_dir),
         expansion_factor_grid=diagnostics.expansion_factor_grid,
