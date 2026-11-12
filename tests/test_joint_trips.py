@@ -10,6 +10,7 @@ from data_canon.codebook.days import TravelDow
 from data_canon.codebook.trips import Driver, ModeType, PurposeCategory
 from processing.joint_trips import (
     JointTripConfig,
+    clique_detection,
     detect_joint_trips,
 )
 from processing.joint_trips.aggregation import build_joint_trips_table
@@ -426,3 +427,27 @@ class TestGroupingMembership:
             build_joint_trips_table(
                 linked_trips.join(assignments, on="linked_trip_id"), days_not_asked(linked_trips)
             )
+
+
+@pytest.mark.parametrize(
+    "found",
+    [
+        pytest.param([[1, 2], [3, 4], [2, 3, 5]], id="pairs_found_first"),
+        pytest.param([[2, 3, 5], [1, 2], [3, 4]], id="group_found_first"),
+    ],
+)
+def test_a_group_overlapping_two_pairs_replaces_both(monkeypatch, found):
+    """Trips 2, 3 and 5 overlap pairs {1, 2} and {3, 4}: the group wins and both pairs lose."""
+    monkeypatch.setattr(clique_detection.nx, "find_cliques", lambda _graph: iter(found))
+    pairs = pl.DataFrame(
+        [(1, 2), (3, 4), (2, 3), (2, 5), (3, 5)],
+        schema=["linked_trip_id", "linked_trip_id_b"],
+        orient="row",
+    )
+
+    assigned, _ = clique_detection.detect_disjoint_cliques(pairs, pl.Series([1, 2, 3, 4, 5]))
+
+    clique = dict(assigned.iter_rows())
+    assert clique[2] == clique[3] == clique[5] is not None
+    assert clique[1] is None
+    assert clique[4] is None
