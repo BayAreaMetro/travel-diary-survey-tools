@@ -23,13 +23,13 @@
 #
 # -- Inputs (read only) ---------------------------------------------------------
 survey_dir: "{{ MTC_DATA }}/Data/HomeInterview/Bay Area Travel Study 2018-2019/Data/Final Version with Imputations/Final Updated Dataset as of 10-18-2021"
-weights_dir: "{{ survey_dir }}/weights"  # the vendor's weights
 census_dir: "{{ MTC_DATA }}/Data/Census/BATS Weighting"  # PUMS and Census geography
 TM1_shapefile_dir: "{{ TM1_CLONE }}/utilities/geographies"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
 
 # -- Outputs ------------------------------------------------------------------
 output_dir: "{{ BOX_DIR }}/Surveys/Travel Diary Survey/BATS_across_years/20260327"
+output_weights_dir: "{{ output_dir }}/weights"  # the vendor's weights, extracted by the cleaner
 log_file: "{{ output_dir }}/pipeline_2019.log"  # If not set, logs just to console
 # Distance within which a trip end is at a habitual location (home, work,
 # school). detect_habitual_locations and extract_tours each have their own
@@ -52,7 +52,7 @@ steps:
     validate_output: true
     params:
       weight_col_suffix: sphone_wkday  # This will look for weight columns with the suffix "_sphone_wkday" in each dataframe, e.g. "daywt_sphone_wkday"
-      weights_dir: "{{ weights_dir }}"
+      weights_dir: "{{ output_weights_dir }}"
 
   # - name: imputation
   #   validate_input: true
@@ -225,13 +225,13 @@ steps:
       weight_profiles: [ctramp_rsg, analysis_rsg]
       weights:
         hh_weight:
-          weight_path: "{{ weights_dir }}/households_weights.csv"
+          weight_path: "{{ output_weights_dir }}/households_weights.csv"
         person_weight:
-          weight_path: "{{ weights_dir }}/persons_weights.csv"
+          weight_path: "{{ output_weights_dir }}/persons_weights.csv"
         person_day_weight:
-          weight_path: "{{ weights_dir }}/person_days_weights.csv"
+          weight_path: "{{ output_weights_dir }}/person_days_weights.csv"
         unlinked_trip_weight:
-          weight_path: "{{ weights_dir }}/unlinked_trips_weights.csv"
+          weight_path: "{{ output_weights_dir }}/unlinked_trips_weights.csv"
 
   - name: compute_weights
     validate_input: true
