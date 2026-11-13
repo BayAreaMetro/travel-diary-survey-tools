@@ -823,7 +823,23 @@ class TestMapeLeavesOutRowsWithNoTarget:
                 "diff_pct": [10.0, 20.0, 0.0],
             }
         )
-        assert zone_fit_summary(fit, ["h_total", "h_size"])["mape"].item() == 15.0
+        assert zone_fit_summary(fit)["mape"].item() == 15.0
+
+
+def test_zone_totals_are_h_total_and_p_total():
+    """A control that covers only some households or persons doesn't set the totals."""
+    fit = pl.DataFrame(
+        {
+            "zone_group_id": [ZONE] * 4,
+            "control_name": ["h_children", "h_total", "p_education", "p_total"],
+            "category": ["children_1_plus", "total", "college", "total"],
+            "target_total": [30.0, 100.0, 120.0, 250.0],
+            "weighted_total": [30.0, 102.0, 120.0, 245.0],
+            "diff_pct": [0.0, 2.0, 0.0, -2.0],
+        }
+    )
+    row = zone_fit_summary(fit).row(0, named=True)
+    assert (row["hh_target"], row["per_target"]) == (100.0, 250.0)
 
 
 class TestCellCountEmptyCategories:
