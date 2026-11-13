@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 _HH_INFRA = {"SERIALNO", "PUMA", "STATE", "WGTP", "TYPEHUGQ", "ADJINC"}
 
 
-_PERSON_INFRA = {"SERIALNO", "SPORDER", "PUMA", "STATE", "PWGTP"}
+# PINCP and RELSHIPP: nonrelatives' income, for HouseholdIncome.RELATED_MEMBERS.
+_PERSON_INFRA = {"SERIALNO", "SPORDER", "PUMA", "STATE", "PWGTP", "PINCP", "RELSHIPP"}
 
 
 # Variable renames between pre-2020 and 2020+ PUMS vintages.
@@ -67,6 +68,7 @@ _OFFICIAL_URL = "https://www2.census.gov/programs-surveys/acs/data/pums/{year}/1
 #: Checked record by record against the API for California 2023.
 _NOT_APPLICABLE = {
     "HINCP": -60000,  # vacant homes and group quarters
+    "PINCP": -19999,  # under 15
     "VEH": -1,  # vacant homes and group quarters
     "ESR": 0,  # under 16
     "WKHP": 0,  # did not work
@@ -371,7 +373,7 @@ def _cast_pums_types(df: pl.DataFrame, expected_vars: set[str]) -> pl.DataFrame:
     # String ID columns that should stay as strings
     string_cols = {"SERIALNO", "PUMA"}
     # Written with a fractional part; every other variable read is a whole number
-    decimal_vars = {"HINCP", "PWGTP", "WGTP", "WKHP", "ADJINC"}
+    decimal_vars = {"HINCP", "PINCP", "PWGTP", "WGTP", "WKHP", "ADJINC"}
 
     casts = []
     for col_name in df.columns:

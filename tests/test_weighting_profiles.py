@@ -17,7 +17,12 @@ from processing.weighting.core.hierarchy import (
     weight_col_for,
     weight_columns_for,
 )
-from processing.weighting.core.specs import PumsWeights, WeightingConfig, resolve_fitted_profiles
+from processing.weighting.core.specs import (
+    HouseholdIncome,
+    PumsWeights,
+    WeightingConfig,
+    resolve_fitted_profiles,
+)
 
 STRICT = "ctramp"
 RELAXED = "analysis"
@@ -31,6 +36,7 @@ def _config(**overrides) -> WeightingConfig:
         state_fips="06",
         pums_year=2023,
         pums_weights=PumsWeights.INDEPENDENT,
+        household_income=HouseholdIncome.ALL_MEMBERS,
         use_imputed_values=True,
         census_dir=Path("census"),
         **overrides,

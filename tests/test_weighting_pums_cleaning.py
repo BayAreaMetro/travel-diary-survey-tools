@@ -3,14 +3,17 @@
 import polars as pl
 import pytest
 
-from processing.weighting.core.specs import PumsWeights
+from processing.weighting.core.specs import HouseholdIncome, PumsWeights
 from processing.weighting.data_prep.pums_cleaning import (
     adjust_income,
     apply_pums_weights,
     clean_pums,
     drop_group_quarters,
     drop_vacant_homes,
+    exclude_nonrelative_income,
 )
+
+ROOMMATE, OTHER_NONRELATIVE, SPOUSE, UNMARRIED_PARTNER, FOSTER_CHILD = 34, 36, 21, 22, 35
 
 
 @pytest.fixture
@@ -116,15 +119,79 @@ def test_replicates_must_pair_up(occupied):
         apply_pums_weights(hh, per.drop("PWGTP1"), PumsWeights.HOUSEHOLD)
 
 
-def test_clean_pums_runs_every_rule(households, persons):
-    """Vacant and group quarters gone, income adjusted, weights set."""
-    hh, per = clean_pums(households, persons, pums_weights=PumsWeights.HOUSEHOLD)
+def _household(hincp: float, members: list[tuple[int, float]]) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """One household with ADJINC 1.1, already adjusted; *members* are (RELSHIPP, PINCP)."""
+    hh = pl.DataFrame({"SERIALNO": ["H"], "HINCP": [hincp], "ADJINC": [1.1]})
+    per = pl.DataFrame(
+        {
+            "SERIALNO": ["H"] * len(members),
+            "RELSHIPP": [r for r, _ in members],
+            "PINCP": [float(p) for _, p in members],
+        }
+    )
+    return hh, per
+
+
+@pytest.mark.parametrize(
+    ("hincp", "members", "expected"),
+    [
+        pytest.param(110_000, [(20, 60_000), (ROOMMATE, 40_000)], 66_000, id="roommate_removed"),
+        pytest.param(
+            110_000, [(20, 60_000), (OTHER_NONRELATIVE, 10_000)], 99_000, id="other_nonrelative"
+        ),
+        pytest.param(
+            110_000,
+            [(SPOUSE, 40_000), (UNMARRIED_PARTNER, 10_000), (FOSTER_CHILD, 5_000)],
+            110_000,
+            id="relatives_kept",
+        ),
+        pytest.param(
+            50_000,
+            [(ROOMMATE, -5_000), (ROOMMATE, -19_999)],
+            50_000,
+            id="loss_and_under_15_add_nothing",
+        ),
+        pytest.param(30_000, [(ROOMMATE, 40_000)], 0, id="floored_at_zero"),
+        pytest.param(-2_000, [(ROOMMATE, 40_000)], -2_000, id="a_loss_stays_where_it_was"),
+    ],
+)
+def test_nonrelatives_income_is_left_out(hincp, members, expected):
+    """Each nonrelative's PINCP x ADJINC comes off HINCP; relatives' income stays."""
+    hh = exclude_nonrelative_income(*_household(float(hincp), members))
+    assert hh["HINCP"][0] == pytest.approx(expected)
+    assert hh.columns == ["SERIALNO", "HINCP", "ADJINC"]
+
+
+@pytest.mark.parametrize(
+    ("household_income", "expected"),
+    [
+        pytest.param(HouseholdIncome.ALL_MEMBERS, [51_000.0, 20_200.0], id="all_members"),
+        pytest.param(HouseholdIncome.RELATED_MEMBERS, [40_800.0, 20_200.0], id="related_members"),
+    ],
+)
+def test_clean_pums_runs_every_rule(households, persons, household_income, expected):
+    """Vacant and group quarters gone, income adjusted (H1's roommate out if asked), weights set."""
+    persons = persons.with_columns(
+        pl.Series("RELSHIPP", [20, ROOMMATE, 20, 37, 38]),
+        pl.Series("PINCP", [40_000.0, 10_000.0, 20_000.0, 0.0, 0.0]),
+    )
+    hh, per = clean_pums(
+        households,
+        persons,
+        pums_weights=PumsWeights.HOUSEHOLD,
+        household_income=household_income,
+    )
     assert sorted(hh["SERIALNO"].to_list()) == ["H1", "H2"]
-    assert hh.sort("SERIALNO")["HINCP"].to_list() == pytest.approx([51_000.0, 20_200.0])
+    assert hh.sort("SERIALNO")["HINCP"].to_list() == pytest.approx(expected)
     assert per.sort("SERIALNO", "SPORDER")["PWGTP"].to_list() == [100.0, 100.0, 50.0]
 
 
 def test_a_missing_column_is_named(households, persons):
     """No rule runs on a table that lacks what it reads."""
     with pytest.raises(KeyError, match="ADJINC"):
-        clean_pums(households.drop("ADJINC"), persons, pums_weights=PumsWeights.INDEPENDENT)
+        clean_pums(
+            households.drop("ADJINC"),
+            persons,
+            pums_weights=PumsWeights.INDEPENDENT,
+            household_income=HouseholdIncome.ALL_MEMBERS,
+        )

@@ -322,6 +322,7 @@ steps:
         state_fips: "06"
         pums_year: 2023
         pums_weights: independent
+        household_income: related_members  # the questionnaire leaves out roommates' income
         census_dir: "{{ census_dir }}"
 
       # -- Sample Plan Path ------------------------------------------------

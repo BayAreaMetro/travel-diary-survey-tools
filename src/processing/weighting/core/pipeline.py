@@ -264,7 +264,10 @@ class WeightingPipeline:
             load_replicate_weights=self.balancing.moe_based_importance,
         )
         self.pums_hh, self.pums_per = clean_pums(
-            self.pums_hh, self.pums_per, pums_weights=self.config.pums_weights
+            self.pums_hh,
+            self.pums_per,
+            pums_weights=self.config.pums_weights,
+            household_income=self.config.household_income,
         )
 
         # Ensure that PUMA is 0 padded to 5 digits for consistency with crosswalk
