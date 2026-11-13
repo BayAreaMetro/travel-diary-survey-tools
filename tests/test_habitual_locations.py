@@ -82,7 +82,7 @@ def _trip(
     person_id: int,
     person_day_id: int,
     dest: tuple[float, float],
-    dwell: int,
+    dwell: int | None,
     purpose: Purpose = Purpose.PRIMARY_WORKPLACE,
     origin: tuple[float, float] = HOME,
     origin_purpose: Purpose = Purpose.HOME,
@@ -326,8 +326,8 @@ def test_cluster_at_the_reported_workplace_is_not_added_again():
 def test_travel_alone_never_makes_a_home():
     """Nights at "another residence" may be a friend's flat: only the respondent knows."""
     trips = _trips(
-        _trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19),
-        _trip(1, 11, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19),
+        _trip(1, 10, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE, hour=19),
+        _trip(1, 11, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE, hour=19),
     )
     assert _of(_build(trips)[0], 1, LocationType.HOME).height == 1
 
@@ -335,7 +335,7 @@ def test_travel_alone_never_makes_a_home():
 @pytest.mark.parametrize("answer", [BeginEndDay.OTHER_HOME, BeginEndDay.HOME])
 def test_day_ending_at_a_home_away_from_the_reported_one_is_another_home(answer):
     """They said the day ended at home, and it is not the one they reported."""
-    trips = _trips(_trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19))
+    trips = _trips(_trip(1, 10, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE, hour=19))
     locations, _ = _build(trips, _days((10, None, answer)))
     homes = _of(locations, 1, LocationType.HOME)
     assert homes["source"].to_list() == [REPORTED, OBSERVED]
@@ -347,7 +347,7 @@ def test_day_ending_at_a_home_away_from_the_reported_one_is_another_home(answer)
 def test_observed_homes_off_keeps_only_the_reported_homes(answer):
     """Off, a stated day end adds no home; workplaces are still found."""
     trips = _trips(
-        _trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19),
+        _trip(1, 10, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE, hour=19),
         _trip(1, 11, ALT_WORK, 200),
     )
     locations, _ = _build(trips, _days((10, None, answer), (11, None, None)), observed_homes=False)
@@ -377,7 +377,7 @@ def test_day_ending_at_the_reported_home_adds_nothing():
 
 def test_stated_home_at_the_reported_second_home_is_not_added_again():
     """A vendor second home and the day answers naming it are one home."""
-    trips = _trips(_trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19))
+    trips = _trips(_trip(1, 10, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE, hour=19))
     locations, _ = _build(
         trips, _days((10, None, BeginEndDay.OTHER_HOME)), extra=_second_home(OTHER_HOME)
     )
@@ -446,7 +446,7 @@ def test_other_residence_agrees_only_with_a_home_that_is_not_the_primary():
     """It is how people code arriving at their second home, never their main one."""
     second_home = _second_home(OTHER_HOME)
     at_second = _match(
-        _trips(_trip(1, 10, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE)), extra=second_home
+        _trips(_trip(1, 10, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE)), extra=second_home
     )
     at_primary = _match(
         _trips(
@@ -505,7 +505,7 @@ def test_tables_do_not_depend_on_row_order():
         _trip(1, 10, _offset(ALT_WORK, 120), 200, origin=ALT_WORK, hour=14),
         _trip(1, 11, _offset(ALT_WORK, 2000), 200),
         _trip(1, 12, ALT_SCHOOL, 100, purpose=Purpose.COLLEGE),
-        _trip(1, 12, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, origin=ALT_SCHOOL, hour=18),
+        _trip(1, 12, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE, origin=ALT_SCHOOL, hour=18),
     ]
     person_days = _days((10, None, None), (11, None, None), (12, None, BeginEndDay.OTHER_HOME))
     forward = _build(_trips(*rows), person_days)
@@ -579,7 +579,7 @@ def test_rows_conform_to_models():
         _trips(
             _trip(1, 10, ALT_WORK, 120),
             _trip(1, 12, ALT_SCHOOL, 200, purpose=Purpose.K12_SCHOOL),
-            _trip(1, 13, OTHER_HOME, -2, purpose=Purpose.OTHER_RESIDENCE, hour=19),
+            _trip(1, 13, OTHER_HOME, None, purpose=Purpose.OTHER_RESIDENCE, hour=19),
         ),
         _days((10, None, None), (12, None, None), (13, None, BeginEndDay.OTHER_HOME)),
         extra=_second_home(_offset(OTHER_HOME, 5000)),

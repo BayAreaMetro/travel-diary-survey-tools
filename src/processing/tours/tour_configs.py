@@ -295,8 +295,8 @@ class TourConfig(BaseModel):
     default_activity_duration_minutes: float = Field(
         default=240.0,
         description=(
-            "Default activity duration in minutes for last trip of day "
-            "when calculating duration tie-breaker (legacy: 4 hours)."
+            "Activity duration in minutes the tour-purpose scoring assumes for a "
+            "trip with no next departure that day (d_activity_duration is null)."
         ),
     )
 
