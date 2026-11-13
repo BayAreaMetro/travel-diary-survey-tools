@@ -107,13 +107,7 @@ def get_inmf_code_from_counts(
         return 0
     # Each count capped to the codebook maximum (ceiling semantics).
     key = tuple(min(n, _INMF_MAXES[purpose]) for purpose, n in counts.items())
-    code = _INMF_REVERSE_LOOKUP.get(key)
-
-    if code is None:
-        # Defensive fallback (shouldn't happen if capping is correct)
-        return 0
-
-    return code
+    return _INMF_REVERSE_LOOKUP[key]
 
 
 def aggregate_tour_statistics(

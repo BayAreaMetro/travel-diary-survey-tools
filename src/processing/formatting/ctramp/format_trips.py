@@ -6,6 +6,7 @@ import polars as pl
 
 from data_canon.codebook.tours import TourDirection
 from data_canon.codebook.trips import Purpose
+from utils.helpers import METERS_PER_MILE
 
 from .ctramp_config import CTRAMPConfig
 from .mode_mappings import aggregate_transit_submode, ctramp_mode_expression
@@ -178,7 +179,7 @@ def format_individual_trip(
 
     individual_trips = individual_trips.with_columns(
         pl.col("depart_time").dt.hour().alias("depart_hour")
-    ).with_columns((pl.col("distance_meters") / 1609.34).alias("distance_survey"))
+    ).with_columns((pl.col("distance_meters") / METERS_PER_MILE).alias("distance_survey"))
 
     individual_trips_ctramp = individual_trips.with_columns(
         pl.col(f"o_{config.taz_field}").cast(pl.Int64).alias("orig_taz"),
