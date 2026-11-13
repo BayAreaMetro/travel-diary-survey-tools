@@ -263,7 +263,7 @@ def _pane(
         fit.weights.select("hh_id", "hh_weight"), on="hh_id", how="left"
     )
     imputation_table, imputation_chart = _imputation_blocks(fit, target_names, pums_incidence)
-    zone_fit = zone_fit_summary(control_table, target_names)
+    zone_fit = zone_fit_summary(control_table)
     return {
         "profile": profile_label(fit.profile),
         "key": profile_key(fit.profile),

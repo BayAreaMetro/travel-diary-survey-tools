@@ -564,7 +564,6 @@ class WeightingPipeline:
         fit.seed_incidence = compute_base_weights(
             fit.seed_incidence,
             self.control_totals,
-            names,
             sample_plan=self.config.sample_plan,
             block_households=self.grown_block_households() if self.config.sample_plan else None,
         )

@@ -130,14 +130,14 @@ class TestResponseInversion:
         """Each zone gets its own ratio, and the seed's own columns survive."""
         ct = _make_control_totals(
             {
-                "A": [("h_size", 1, 5_000.0), ("h_size", 2, 5_000.0)],
-                "B": [("h_size", 1, 80_000.0), ("h_size", 2, 20_000.0)],
+                "A": [("h_total", 1, 10_000.0)],
+                "B": [("h_total", 1, 100_000.0)],
             }
         )
         seed = _make_seed("zone_group_id", {"A": 50, "B": 200}).with_columns(
             pl.lit(42).alias("extra_col")
         )
-        result = compute_base_weights(seed, ct, ["h_size"])
+        result = compute_base_weights(seed, ct)
 
         zone_a = result.filter(pl.col("zone_group_id") == "A")
         zone_b = result.filter(pl.col("zone_group_id") == "B")
@@ -149,29 +149,19 @@ class TestResponseInversion:
         assert result["extra_col"].to_list() == [42] * 250
         assert sorted(result["hh_id"].to_list()) == list(range(1, 251))
 
-    def test_uses_first_hh_control(self):
-        """When multiple controls present, uses first HH-level for total."""
-        ct = _make_control_totals(
-            {
-                "Z1": [
-                    ("h_size", 1, 60_000.0),
-                    ("h_size", 2, 40_000.0),
-                    ("h_income", 1, 50_000.0),
-                    ("h_income", 2, 50_000.0),
-                ],
-            }
-        )
+    def test_reads_h_total_not_another_household_control(self):
+        """A household control that leaves households out doesn't set the base weight."""
+        ct = _make_control_totals({"Z1": [("h_children", 1, 30_000.0), ("h_total", 1, 100_000.0)]})
         seed = _make_seed("zone_group_id", {"Z1": 100})
-        # h_size is first HH control → total 100_000, base_weight = 1000
-        result = compute_base_weights(seed, ct, ["h_size", "h_income"])
+        result = compute_base_weights(seed, ct)
         assert result["base_weight"][0] == pytest.approx(1_000.0)
 
-    def test_no_hh_controls_raises(self):
-        """Fail if no household-level control in targets."""
-        ct = _make_control_totals({"Z1": [("p_age", 1, 1_000.0)]})
+    def test_no_h_total_raises(self):
+        """Fail if the control totals have no h_total target."""
+        ct = _make_control_totals({"Z1": [("h_size", 1, 1_000.0)]})
         seed = _make_seed("zone_group_id", {"Z1": 10})
-        with pytest.raises(ValueError, match="no household-level control"):
-            compute_base_weights(seed, ct, ["p_age"])
+        with pytest.raises(ValueError, match="no h_total target"):
+            compute_base_weights(seed, ct)
 
 
 class TestSamplePlan:
@@ -200,7 +190,7 @@ class TestSamplePlan:
     @staticmethod
     def _weights(seed, plan, blocks, zones=("Z1",)) -> pl.DataFrame:
         ct = _make_control_totals({z: [("h_size", 1, 999.0)] for z in zones})
-        return compute_base_weights(seed, ct, ["h_size"], sample_plan=plan, block_households=blocks)
+        return compute_base_weights(seed, ct, sample_plan=plan, block_households=blocks)
 
     def test_single_segment_all_bgs(self):
         """All BGs in one segment and zone → weight = households / responses."""
@@ -309,7 +299,6 @@ class TestSamplePlan:
             compute_base_weights(
                 seed,
                 ct,
-                ["h_size"],
                 sample_plan=plan,
             )
 
