@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from utils.helpers import expr_haversine
+from utils.helpers import METERS_PER_MILE, expr_haversine
 
 from .ctramp_config import CTRAMPConfig
 
@@ -149,7 +149,7 @@ def calc_fixed_location_distances(
     # If unit is miles, convert from meters
     if config.distance_unit == "miles":
         distances = distances.with_columns(
-            (pl.col(f"{fixed_type}_distance_meters") / 1609.34).alias(
+            (pl.col(f"{fixed_type}_distance_meters") / METERS_PER_MILE).alias(
                 f"{fixed_type}_distance_miles"
             )
         ).select(["person_id", f"{fixed_type}_distance_miles"])

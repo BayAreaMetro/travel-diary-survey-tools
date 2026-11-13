@@ -15,7 +15,7 @@ from pipeline.decoration import Tables, step
 from pipeline.step_registry import get_all_required_fields
 from processing.habitual_locations import reported_habitual_locations
 from utils.create_ids import create_household_days
-from utils.helpers import expr_haversine
+from utils.helpers import METERS_PER_MILE, expr_haversine
 
 logger = logging.getLogger(__name__)
 
@@ -764,7 +764,7 @@ def clean_trips(unlinked_trips: pl.DataFrame) -> pl.DataFrame:
 
     # Conver distance to meters
     unlinked_trips = unlinked_trips.with_columns(
-        (pl.col("distance_miles") * 1609.34).alias("distance_meters")
+        (pl.col("distance_miles") * METERS_PER_MILE).alias("distance_meters")
     )
 
     # If distance is null, recalculate it from lat/lon

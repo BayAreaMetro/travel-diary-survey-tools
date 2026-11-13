@@ -1562,11 +1562,11 @@
    "distance_survey": {
     "distinct": 33,
     "dtype": "Float64",
-    "hash": "5e64d6e31ee66988",
-    "max": 5.043185,
-    "min": 0.129246,
+    "hash": "89f46123374b6f6d",
+    "max": 5.043173,
+    "min": 0.129245,
     "nulls": 0,
-    "sum": 403.32596
+    "sum": 403.324957
    },
    "hh_id": {
     "distinct": 56,
@@ -3486,20 +3486,20 @@
    "school_distance_survey": {
     "distinct": 6,
     "dtype": "Float64",
-    "hash": "2a4063923e50c51a",
-    "max": 5.043185,
-    "min": 0.988231,
+    "hash": "086abb7d30e39c7b",
+    "max": 5.043173,
+    "min": 0.988229,
     "nulls": 81,
-    "sum": 47.832714
+    "sum": 47.832595
    },
    "work_distance_survey": {
     "distinct": 15,
     "dtype": "Float64",
-    "hash": "1efe7f2542cd95c8",
-    "max": 5.043185,
-    "min": 0.496228,
+    "hash": "e64e2d65107309cf",
+    "max": 5.043173,
+    "min": 0.496227,
     "nulls": 57,
-    "sum": 106.791759
+    "sum": 106.791494
    }
   },
   "rows": 102,
