@@ -353,14 +353,12 @@ class LinkedTripModel(BaseModel):
     distance_meters: float = schema_field(ge=0)
     depart_time: datetime = schema_field()
     arrive_time: datetime = schema_field()
-    # Derivable, and tour aggregation recomputes it differently; see issue #81
-    # for whether it stays on the schema.
-    d_activity_duration: int = schema_field(
+    d_activity_duration: int | None = schema_field(
+        default=None,
         description=(
-            "Whole minutes spent at the trip destination before the next departure "
-            "(activity duration at the destination). Sentinel values: -1 when the "
-            "destination is home; -2 for the last trip of a person-day (no "
-            "subsequent departure)."
+            "Whole minutes spent at the trip destination before the person's next "
+            "departure that day. None for the last trip of a person-day, whose stay "
+            "has no recorded end."
         ),
     )
     tour_direction: TourDirection = schema_field()
@@ -728,8 +726,8 @@ class HabitualLocationDayModel(BaseModel):
             "Total measurable minutes spent at this location on this day. None "
             "when no visit that day had a measurable duration, which is not the "
             "same as zero: a stay that ran past the last trip of the day has no "
-            "recorded end, and arrivals home carry no duration at all (see "
-            "LinkedTripModel.d_activity_duration sentinels)."
+            "recorded end. Always None at home, whose stays run past the day's "
+            "ends, so a total would be only the part of the day that was seen."
         ),
     )
     n_visits: int = schema_field(

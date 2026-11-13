@@ -98,38 +98,6 @@ def add_mode_priority_column(
     return df.with_columns([mode_expr.cast(pl.Int32).alias(alias)])
 
 
-def add_activity_duration_column(
-    df: pl.DataFrame,
-    default_minutes: float = 240.0,
-    alias: str = "activity_duration",
-) -> pl.DataFrame:
-    """Add activity duration column to dataframe.
-
-    Calculates time spent at each destination as the time between
-    arrival and the next trip's departure. For the last trip of the day,
-    uses the provided default duration.
-
-    Args:
-        df: DataFrame with arrive_time, depart_time, person_id, person_day_id columns
-        default_minutes: Default duration for last trip of day (default: 240)
-        alias: Column name for the duration values
-
-    Returns:
-        DataFrame with added activity_duration column (in minutes)
-    """
-    return df.with_columns(
-        [
-            (
-                pl.col("depart_time").shift(-1).over(["person_id", "person_day_id"])
-                - pl.col("arrive_time")
-            )
-            .dt.total_minutes()
-            .fill_null(default_minutes)
-            .alias(alias)
-        ]
-    )
-
-
 def add_purpose_score_column(
     df: pl.DataFrame,
     config: TourConfig,

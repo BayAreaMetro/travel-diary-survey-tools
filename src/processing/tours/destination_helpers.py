@@ -13,7 +13,6 @@ from data_canon.codebook.trips import PurposeCategory
 from utils.helpers import expr_haversine
 
 from .priority_utils import (
-    add_activity_duration_column,
     add_mode_priority_column,
     add_purpose_priority_column,
     add_purpose_score_column,
@@ -60,10 +59,11 @@ def calculate_tour_purpose_and_destination(
     linked_trips = add_mode_priority_column(
         linked_trips, config.mode_hierarchy, alias="_mode_priority"
     )
-    linked_trips = add_activity_duration_column(
-        linked_trips,
-        config.default_activity_duration_minutes,
-        alias="_activity_duration",
+    linked_trips = linked_trips.with_columns(
+        pl.col("d_activity_duration")
+        .cast(pl.Float64)
+        .fill_null(config.default_activity_duration_minutes)
+        .alias("_activity_duration")
     )
 
     # The return leg to the anchor and mode changes are not candidates (see docstring)

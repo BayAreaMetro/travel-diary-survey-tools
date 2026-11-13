@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from data_canon.codebook.trips import AccessEgressMode, Driver, ModeType, PurposeCategory
+from data_canon.codebook.trips import AccessEgressMode, Driver, ModeType
 from pipeline.decoration import Tables, step
 from utils.create_ids import create_linked_trip_id
 from utils.enum_helpers import resolve_enum_labels
@@ -368,8 +368,8 @@ def _access_egress(unlinked_trips: pl.DataFrame, transit_mode_codes: list) -> pl
 def _add_d_activity_duration(linked_trips: pl.DataFrame) -> pl.DataFrame:
     """Add whole minutes spent at each destination before the person's next departure.
 
-    Ordered within each person-day. Sentinels: -1 when the destination is home;
-    -2 for the last trip of a person-day (no subsequent departure).
+    Ordered within each person-day; null for the day's last trip, which has no
+    next departure.
     """
     return (
         linked_trips.sort(["person_id", "person_day_id", "depart_time", "arrive_time"])
@@ -380,11 +380,8 @@ def _add_d_activity_duration(linked_trips: pl.DataFrame) -> pl.DataFrame:
             .alias("_next_depart_time")
         )
         .with_columns(
-            pl.when(pl.col("d_purpose_category") == PurposeCategory.HOME.value)
-            .then(pl.lit(-1))
-            .when(pl.col("_next_depart_time").is_null())
-            .then(pl.lit(-2))
-            .otherwise((pl.col("_next_depart_time") - pl.col("arrive_time")).dt.total_minutes())
+            (pl.col("_next_depart_time") - pl.col("arrive_time"))
+            .dt.total_minutes()
             .cast(pl.Int64)
             .alias("d_activity_duration")
         )

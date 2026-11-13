@@ -2,10 +2,7 @@
 
 import polars as pl
 
-# Sentinel values of d_activity_duration that are not real dwell times
-# (see LinkedTripModel.d_activity_duration): -1 = destination is home,
-# -2 = last trip of the person-day (no subsequent departure).
-_DWELL_SENTINELS = (-1, -2)
+from data_canon.codebook.trips import PurposeCategory
 
 
 def build_presence_episodes(linked_trips: pl.DataFrame) -> pl.DataFrame:
@@ -23,8 +20,8 @@ def build_presence_episodes(linked_trips: pl.DataFrame) -> pl.DataFrame:
 
     Returns:
         One row per stay with ``person_id``, ``person_day_id``, ``lat``, ``lon``,
-        ``purpose``, ``purpose_category``, ``dwell_minutes`` (null where the
-        duration is a sentinel or the stay is a day's first origin),
+        ``purpose``, ``purpose_category``, ``dwell_minutes`` (null at home,
+        for the day's last stay and for its first origin),
         ``seen_at`` (when the person was there), ``is_day_start`` and
         ``is_day_end``.
     """
@@ -40,7 +37,8 @@ def build_presence_episodes(linked_trips: pl.DataFrame) -> pl.DataFrame:
         pl.col("d_lon").alias("lon"),
         pl.col("d_purpose").alias("purpose"),
         pl.col("d_purpose_category").alias("purpose_category"),
-        pl.when(pl.col("d_activity_duration").is_in(_DWELL_SENTINELS))
+        # Home stays run past the day's ends; their seen part would mislead as a total.
+        pl.when(pl.col("d_purpose_category") == PurposeCategory.HOME.value)
         .then(None)
         .otherwise(pl.col("d_activity_duration"))
         .cast(pl.Float64)

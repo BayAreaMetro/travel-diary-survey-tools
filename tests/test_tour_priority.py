@@ -1,14 +1,11 @@
 """Tests for tour priority calculation utilities."""
 
-import datetime
-
 import polars as pl
 import pytest
 
 from data_canon.codebook.tours import PersonCategory
 from data_canon.codebook.trips import ModeType, PurposeCategory
 from processing.tours.priority_utils import (
-    add_activity_duration_column,
     add_mode_priority_column,
     add_purpose_priority_column,
     add_purpose_score_column,
@@ -71,50 +68,6 @@ class TestAddModePriorityColumn:
 
         # Priority is the mode's index in the hierarchy
         assert result["mode_priority"].to_list() == [3, 2, 0]
-
-
-class TestAddActivityDurationColumn:
-    """Test add_activity_duration_column function."""
-
-    @pytest.mark.parametrize(
-        ("kwargs", "expected"),
-        [
-            pytest.param(
-                {}, [300.0, 360.0, 240.0], id="the_last_trip_takes_the_240_minute_default"
-            ),
-            pytest.param(
-                {"default_minutes": 120.0},
-                [300.0, 360.0, 120.0],
-                id="that_default_is_configurable",
-            ),
-        ],
-    )
-    def test_adds_duration_column(self, kwargs, expected):
-        """Activity duration is arrival here until departure on the next trip.
-
-        The last trip of the day has no next departure to measure against, so
-        it falls back to the configured default.
-        """
-        df = pl.DataFrame(
-            {
-                "person_id": [1, 1, 1],
-                "person_day_id": [1, 1, 1],
-                "arrive_time": [
-                    datetime.datetime(2023, 1, 1, 8, 0),
-                    datetime.datetime(2023, 1, 1, 12, 0),
-                    datetime.datetime(2023, 1, 1, 17, 0),
-                ],
-                "depart_time": [
-                    datetime.datetime(2023, 1, 1, 8, 30),
-                    datetime.datetime(2023, 1, 1, 13, 0),
-                    datetime.datetime(2023, 1, 1, 18, 0),
-                ],
-            }
-        )
-
-        result = add_activity_duration_column(df, **kwargs)
-
-        assert result["activity_duration"].to_list() == expected
 
 
 def _score_trips(person_category, purpose_category, durations):
