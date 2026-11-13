@@ -10,6 +10,8 @@ from data_canon.core.labeled_enum import LabeledEnum
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+METERS_PER_MILE = 1609.344
+
 
 def get_income_midpoint(income_enum: LabeledEnum) -> int:
     """Calculate the midpoint dollar value for an income category enum.
@@ -155,7 +157,7 @@ def expr_haversine(
     if units in ["kilometers", "km"]:
         distance = distance / 1000.0
     elif units in ["miles", "mi"]:
-        distance = distance / 1609.344
+        distance = distance / METERS_PER_MILE
 
     # Return null if any coordinate is null, otherwise return distance
     return pl.when(all_coords_valid).then(distance).otherwise(None)
