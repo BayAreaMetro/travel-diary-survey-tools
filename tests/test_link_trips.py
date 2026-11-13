@@ -18,7 +18,7 @@ from processing.link_trips.link import (
     link_trip_ids,
     link_trips,
 )
-from tests.fixtures.tour_pipeline import at, leg, unlinked_trips
+from tests.fixtures.tour_pipeline import at, leg, link, unlinked_trips
 from utils.create_ids import create_linked_trip_id, create_tour_ids
 
 # The linking rule reads whatever change-mode code it is handed; 10 is arbitrary
@@ -479,6 +479,22 @@ def test_end_to_end_linking():
     assert len(linked) == 2
     assert linked["linked_trip_id"].n_unique() == 2
     assert linked["num_segments"].to_list() == [2, 1]
+
+
+def test_activity_duration_runs_to_the_next_departure():
+    """Home at noon and out at 2pm is two hours at home; the day's last stay has no end."""
+    home, work, shop = Purpose.HOME, Purpose.PRIMARY_WORKPLACE, Purpose.GROCERY
+    trips = unlinked_trips(
+        [
+            leg(HOME_COORD, WORK_COORD, home, work, at(8), at(8, 30)),
+            leg(WORK_COORD, HOME_COORD, work, home, at(11, 30), at(12)),
+            leg(HOME_COORD, STOP_COORD, home, shop, at(14), at(14, 20)),
+        ]
+    )
+
+    linked = link(trips)["linked_trips"].sort("depart_time")
+
+    assert linked["d_activity_duration"].to_list() == [180, 120, None]
 
 
 def test_multiple_trips_same_day():

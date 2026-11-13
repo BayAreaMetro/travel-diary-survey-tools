@@ -179,7 +179,7 @@ LINKED_TRIP = {
     "driver": Driver.DRIVER,
     "num_travelers": 1,
     "distance_meters": 8046.72,
-    "d_activity_duration": -2,
+    "d_activity_duration": None,
     "num_unlinked_trips": 1,
     "tour_direction": TourDirection.OUTBOUND,
     "linked_trip_weight": 1.0,

@@ -2356,13 +2356,13 @@
     "nulls": 0
    },
    "d_activity_duration": {
-    "distinct": 29,
+    "distinct": 28,
     "dtype": "Int64",
-    "hash": "566b88c05707fcab",
+    "hash": "2ec12519b22d53cb",
     "max": 550.0,
-    "min": -2.0,
-    "nulls": 0,
-    "sum": 90359.0
+    "min": 0.0,
+    "nulls": 306,
+    "sum": 91270.0
    },
    "d_lat": {
     "distinct": 34,
