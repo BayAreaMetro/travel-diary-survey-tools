@@ -191,30 +191,17 @@ def apply_fit_merges(
     return result.sort("control_name", "category", "label", "zone_group_id")
 
 
-def _first_control_name(target_names: list[str], level: ControlLevel) -> str | None:
-    """Return the first control name at *level*, or None."""
-    ctrls = resolve_targets(target_names, level)
-    return ctrls[0].name if ctrls else None
-
-
-def zone_fit_summary(
-    fit: pl.DataFrame,
-    target_names: list[str],
-) -> pl.DataFrame:
+def zone_fit_summary(fit: pl.DataFrame) -> pl.DataFrame:
     """Per-zone summary: HH/Person pop target & weighted, %Err, MAPE.
 
-    Population totals are derived by summing categories of one representative
-    control at each level (any control's categories partition the population).
+    The household and person totals are the ``h_total`` and ``p_total``
+    targets; a run without ``p_total`` shows no person total.
 
     Returns columns: zone_group_id, hh_target, hh_weighted, hh_pct_err,
     per_target, per_weighted, per_pct_err, mape.
     """
-    hh_ctrl = _first_control_name(target_names, ControlLevel.HOUSEHOLD)
-    per_ctrl = _first_control_name(target_names, ControlLevel.PERSON)
 
-    def _pop(zf: pl.DataFrame, ctrl_name: str | None) -> tuple[float, float, float]:
-        if ctrl_name is None:
-            return 0.0, 0.0, 0.0
+    def _pop(zf: pl.DataFrame, ctrl_name: str) -> tuple[float, float, float]:
         cf = zf.filter(pl.col("control_name") == ctrl_name)
         target = cf["target_total"].sum() or 0.0
         weighted = cf["weighted_total"].sum() or 0.0
@@ -232,8 +219,8 @@ def zone_fit_summary(
         p90 = abs_errs.quantile(0.9, interpolation="higher") or 0.0
         max_err = abs_errs.max() or 0.0
 
-        ht, hw, he = _pop(zf, hh_ctrl)
-        pt, pw, pe = _pop(zf, per_ctrl)
+        ht, hw, he = _pop(zf, "h_total")
+        pt, pw, pe = _pop(zf, "p_total")
         rows.append(
             {
                 "zone_group_id": z,

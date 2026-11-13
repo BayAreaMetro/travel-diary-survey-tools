@@ -9,8 +9,8 @@ expansion-factor constraints.
 
 This module provides two paths:
 
-1. **Response inversion** (default) — ``target_hh_pop / n_responses``
-   per zone.  Works whenever PUMS-derived control totals are available
+1. **Response inversion** (default) — the zone's ``h_total`` target
+   divided by its responding households.  Works whenever PUMS-derived control totals are available
    (always, in our pipeline).
 
 2. **Sample plan** — a [`SamplePlan`][processing.weighting.core.specs.SamplePlan]
@@ -33,8 +33,6 @@ from pathlib import Path
 
 import polars as pl
 
-from processing.weighting.controls.base import ControlLevel
-from processing.weighting.controls.registry import CONTROLS
 from processing.weighting.core.specs import ControlTotals, SamplePlan
 
 logger = logging.getLogger(__name__)
@@ -80,7 +78,6 @@ def load_sample_plan(path: str | Path) -> SamplePlan:
 def compute_base_weights(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
-    targets: list[str],
     *,
     sample_plan: str | Path | SamplePlan | None = None,
     block_households: pl.DataFrame | None = None,
@@ -93,9 +90,7 @@ def compute_base_weights(
             must also contain ``bg_geo_id`` (assigned via
             [`PumaCrosswalk.assign_block_groups`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.assign_block_groups]).
         control_totals: PUMS-derived targets from
-            ``aggregate_control_totals``.
-        targets: Control registry names (used to identify the master HH
-            control).
+            ``aggregate_control_totals``; response inversion reads ``h_total``.
         sample_plan: Optional sample plan.  Accepts a file path (loaded
             via [`load_sample_plan`][processing.weighting.balancing.base_weights.load_sample_plan])
             or an already-loaded
@@ -110,8 +105,8 @@ def compute_base_weights(
         *seed* with an additional ``base_weight`` column (Float64).
 
     Raises:
-        ValueError: If no household-level control is found in *targets*,
-            or if a zone, or a segment within a zone, has zero survey responses.
+        ValueError: If *control_totals* has no ``h_total`` target, or if a zone,
+            or a segment within a zone, has zero survey responses.
     """
     if sample_plan is not None:
         plan = sample_plan if isinstance(sample_plan, SamplePlan) else load_sample_plan(sample_plan)
@@ -125,7 +120,7 @@ def compute_base_weights(
         return seed.join(hh_weights, on="hh_id", how="left")
 
     logger.info("Using PUMS-target response inversion for base weights")
-    zone_weights = _zone_weights_from_response_inversion(seed, control_totals, targets)
+    zone_weights = _zone_weights_from_response_inversion(seed, control_totals)
 
     return seed.join(
         zone_weights,
@@ -141,28 +136,15 @@ def compute_base_weights(
 def _zone_weights_from_response_inversion(
     seed: pl.DataFrame,
     control_totals: ControlTotals,
-    targets: list[str],
 ) -> pl.DataFrame:
-    """Return ``(zone_group_id, base_weight)`` via zone_target_hh_pop / zone_n_responses.
-
-    A zone's household target is the sum of the first household-level
-    control's category targets there; only that total is used, not the
-    category targets themselves.
-    """
-    hh_names = [t for t in targets if CONTROLS[t].level == ControlLevel.HOUSEHOLD]
-    if not hh_names:
-        msg = (
-            f"Cannot compute base weights: no household-level control found in targets={targets!r}"
-        )
+    """Return ``(zone_group_id, base_weight)``: each zone's ``h_total`` over its responses."""
+    h_total = control_totals.totals.filter(pl.col("control_name") == "h_total")
+    if h_total.is_empty():
+        msg = "Cannot compute base weights: the control totals have no h_total target"
         raise ValueError(msg)
 
-    ref_var_name = hh_names[0]
-
-    # Total HH population target per zone (sum across categories)
-    zone_targets = (
-        control_totals.totals.filter(pl.col("control_name") == ref_var_name)
-        .group_by("zone_group_id")
-        .agg(pl.col("target_total").sum().alias("_zone_target_hh"))
+    zone_targets = h_total.group_by("zone_group_id").agg(
+        pl.col("target_total").sum().alias("_zone_target_hh")
     )
 
     # Count survey responses per zone
@@ -222,11 +204,7 @@ def _zone_weights_from_response_inversion(
             "_init_total": "Init Total",
         }
     )
-    logger.info(
-        "Base weights (response inversion, reference=%s):\n%s",
-        ref_var_name,
-        zw_wide,
-    )
+    logger.info("Base weights (response inversion, from h_total):\n%s", zw_wide)
 
     return zone_weights.select("zone_group_id", "base_weight")
 
