@@ -48,6 +48,7 @@ steps:
         unlinked_trips: "{{ survey_dir }}/trip.tsv"
 
   - name: clean_2019_bats
+    file: clean_bats_2019.py
     validate_input: false
     validate_output: true
     params:

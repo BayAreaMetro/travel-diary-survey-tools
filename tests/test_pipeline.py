@@ -1,12 +1,13 @@
 """Tests for the Pipeline runner: step args and run()."""
 
-from pathlib import Path
+import sys
 
 import polars as pl
 import pytest
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+import processing
 from data_canon.core.exceptions import DataValidationError
 from pipeline.decoration import step
 from pipeline.pipeline import Pipeline
@@ -302,13 +303,21 @@ class TestRun:
 
     @pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
     def test_pipeline_run_with_log_file(self, tmp_path, monkeypatch, absolute: bool):
-        """A log path is taken as given: an absolute one as is, a relative one from the cwd."""
-        monkeypatch.chdir(tmp_path)
-        log_file = tmp_path / "test.log" if absolute else Path("pipeline.log")
+        """An absolute log path is taken as is; a relative one is read from the config's folder.
+
+        The run is launched from elsewhere, so a relative path read from the
+        launch folder would land in the wrong place.
+        """
+        project = tmp_path / "project"
+        project.mkdir()
+        launched_from = tmp_path / "elsewhere"
+        launched_from.mkdir()
+        monkeypatch.chdir(launched_from)
+        log_file = tmp_path / "test.log" if absolute else project / "pipeline.log"
         configured = str(log_file) if absolute else "pipeline.log"
 
         config_path = _write_config(
-            tmp_path,
+            project,
             {"log_file": configured, "steps": [{"name": "test_step"}]},
         )
 
@@ -329,3 +338,111 @@ class TestRun:
         with pytest.raises(ValueError, match=r"unknown keys \['cache'\]"):
             _pipeline(tmp_path, noop, cache=True).run()
         assert ran == []
+
+
+class TestBuiltInSteps:
+    """Built-in steps and their output models need no listing by the runner."""
+
+    def test_a_built_in_step_is_available_unpassed(self, tmp_path):
+        """A config naming a built-in step needs nothing passed for it."""
+        config_path = _write_config(tmp_path, {"steps": [{"name": "final_check"}]})
+
+        pipeline = Pipeline(config_path=config_path)
+
+        assert pipeline.steps["final_check"] is processing.final_check
+
+    def test_a_project_step_cannot_take_a_built_in_name(self, tmp_path):
+        """A project step adds to the built-ins; one of the same name stops at setup."""
+        config_path = _write_config(tmp_path, {"steps": [{"name": "link_trips"}]})
+
+        def link_trips(canonical_data, **kwargs):
+            pass
+
+        with pytest.raises(ValueError, match=r"\['link_trips'\] have the name of a built-in"):
+            Pipeline(config_path=config_path, steps=[link_trips])
+
+    def test_a_step_brings_its_output_models(self, tmp_path):
+        """A table named in ``output_models`` is validated against its model once written."""
+
+        class _Output(BaseModel):
+            n: int = Field(ge=1)
+
+        @step(validate_input=False, validate_output=True, output_models={"model_input": _Output})
+        def writes_model_input() -> dict[str, pl.DataFrame]:
+            return {"model_input": pl.DataFrame({"n": [0]})}  # invalid: n >= 1
+
+        with pytest.raises(DataValidationError):
+            _pipeline(tmp_path, writes_model_input).run()
+
+
+_STEP_FILE = """
+import polars as pl
+from pipeline.decoration import step
+
+CALLS = []
+
+
+@step(validate_input=False)
+def clean_survey() -> dict[str, pl.DataFrame]:
+    CALLS.append("clean_survey")
+    return {}
+
+
+@step(validate_input=False)
+def tidy_survey() -> dict[str, pl.DataFrame]:
+    CALLS.append("tidy_survey")
+    return {}
+
+
+def not_a_step() -> None:
+    pass
+"""
+
+
+class TestStepFiles:
+    """A project step names its file on its step entry."""
+
+    @staticmethod
+    def _config(tmp_path, *entries: dict) -> str:
+        (tmp_path / "project_steps.py").write_text(_STEP_FILE, encoding="utf-8")
+        return _write_config(tmp_path, {"steps": list(entries)})
+
+    def test_steps_from_one_file_run_from_one_import(self, tmp_path):
+        """Two steps naming the same file both run, and the file is imported once."""
+        config_path = self._config(
+            tmp_path,
+            {"name": "clean_survey", "file": "project_steps.py"},
+            {"name": "tidy_survey", "file": "project_steps.py"},
+        )
+
+        pipeline = Pipeline(config_path=config_path)
+        pipeline.run()
+
+        assert pipeline.steps["clean_survey"].__module__ == "project_steps"
+        assert sys.modules["project_steps"].CALLS == ["clean_survey", "tidy_survey"]
+
+    @pytest.mark.parametrize(
+        ("entry", "match"),
+        [
+            pytest.param(
+                {"name": "clean_survey", "file": "project_steps"}, "must be a .py file", id="no_py"
+            ),
+            pytest.param(
+                {"name": "clean_survey", "file": "missing.py"}, "not found", id="missing_file"
+            ),
+            pytest.param(
+                {"name": "clean_bats", "file": "project_steps.py"},
+                r"has no @step\(\) function named 'clean_bats'",
+                id="step_not_in_file",
+            ),
+            pytest.param(
+                {"name": "not_a_step", "file": "project_steps.py"},
+                r"has no @step\(\) function named 'not_a_step'",
+                id="a_plain_function",
+            ),
+        ],
+    )
+    def test_a_bad_file_entry_stops_at_setup(self, tmp_path, entry, match):
+        """The file must be a .py file that holds a @step() function of the step's name."""
+        with pytest.raises(ValueError, match=match):
+            Pipeline(config_path=self._config(tmp_path, entry))

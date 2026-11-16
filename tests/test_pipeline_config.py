@@ -1,10 +1,5 @@
-"""Each project's ``config.yaml`` agrees with its ``run.py`` and with the steps it names.
+"""Each project's ``config.yaml`` names steps that exist, with settings they take."""
 
-The runners are parsed with :mod:`ast`, not imported: importing ``run.py`` maps
-network drives and reads ``.env``.
-"""
-
-import ast
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,9 +12,6 @@ from pipeline.config import resolve_templates
 from pipeline.pipeline import Pipeline
 
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
-
-# Name of the list each runner passes to ``Pipeline(steps=...)``.
-STEP_LIST_NAME = "processing_steps"
 
 # Every consumer of a usability profile, and the key it names them under.
 _PROFILE_CONSUMERS = (
@@ -34,14 +26,10 @@ _ALWAYS_STAMPED = frozenset({"survey_complete"})
 
 
 def _project_dirs() -> list[Path]:
-    """Every project directory holding both a config and a runner."""
+    """Every project directory holding a config."""
     if not PROJECTS_DIR.is_dir():
         return []
-    return sorted(
-        d
-        for d in PROJECTS_DIR.iterdir()
-        if (d / "config.yaml").is_file() and (d / "run.py").is_file()
-    )
+    return sorted(d for d in PROJECTS_DIR.iterdir() if (d / "config.yaml").is_file())
 
 
 def _steps(config_path: Path) -> list[dict]:
@@ -53,33 +41,20 @@ def _config_step_names(config_path: Path) -> list[str]:
     return [step["name"] for step in _steps(config_path)]
 
 
-def _runner_step_names(run_path: Path) -> set[str]:
-    """Names in the runner's ``processing_steps`` list, which are the ``__name__`` keys."""
-    tree = ast.parse(run_path.read_text(encoding="utf-8"), filename=str(run_path))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.List):
-            continue
-        if any(
-            isinstance(target, ast.Name) and target.id == STEP_LIST_NAME for target in node.targets
-        ):
-            return {elt.id for elt in node.value.elts if isinstance(elt, ast.Name)}
-
-    pytest.fail(f"No `{STEP_LIST_NAME} = [...]` assignment found in {run_path}")
-
-
 @pytest.mark.parametrize("project_dir", _project_dirs(), ids=lambda p: p.name)
-def test_config_steps_are_registered_in_runner(project_dir: Path):
-    """Every step a config names is passed to the Pipeline (the runner may pass more)."""
-    config_steps = _config_step_names(project_dir / "config.yaml")
-    registered = _runner_step_names(project_dir / "run.py")
+def test_config_steps_are_built_in_or_name_their_file(project_dir: Path):
+    """Every step a config names is a built-in step or a project step with a ``file:``."""
+    config_path = project_dir / "config.yaml"
+    unknown = [
+        s["name"]
+        for s in _steps(config_path)
+        if "file" not in s and s["name"] not in processing.__all__
+    ]
 
-    unregistered = [name for name in config_steps if name not in registered]
-
-    assert not unregistered, (
-        f"{project_dir.name}/config.yaml names step(s) "
-        f"{', '.join(repr(n) for n in unregistered)} that {project_dir.name}/run.py "
-        f"never passes to Pipeline(steps=[...]). The run aborts on the first one. "
-        f"Import the function and add it to `{STEP_LIST_NAME}`."
+    assert not unknown, (
+        f"{project_dir.name}/config.yaml names step(s) {', '.join(repr(n) for n in unknown)} "
+        "that are not built in and name no file. The run aborts before the first step. "
+        "Give the step entry a `file:`."
     )
 
 
@@ -138,4 +113,4 @@ def test_config_keys_are_taken_by_their_steps(project_dir: Path):
 
 def test_projects_are_discovered():
     """At least one project is found, so the tests above do not pass on zero cases."""
-    assert _project_dirs(), f"No project (config.yaml + run.py) found under {PROJECTS_DIR}"
+    assert _project_dirs(), f"No project (config.yaml) found under {PROJECTS_DIR}"

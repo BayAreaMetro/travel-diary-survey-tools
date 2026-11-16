@@ -36,6 +36,7 @@ def setup_logging(
         if isinstance(h, logging.StreamHandler) and "LogCapture" not in type(h).__name__
     ]:
         root_logger.removeHandler(h)
+        h.close()  # a replaced log file is closed, not left open
 
     # Console handler with Unicode error handling for Windows
     stdout_stream = (

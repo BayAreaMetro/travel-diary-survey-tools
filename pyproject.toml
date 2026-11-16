@@ -57,6 +57,9 @@ dev = [
     "mkdocs-literate-nav>=0.6.1",
 ]
 
+[project.scripts]
+surveypipe = "pipeline.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

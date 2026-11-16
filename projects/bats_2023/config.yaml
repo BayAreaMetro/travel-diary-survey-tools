@@ -47,6 +47,7 @@ steps:
         unlinked_trips: "{{ survey_dir }}/trip.csv"
 
   - name: clean_2023_bats
+    file: clean_bats_2023.py
     validate_input: false
     params:
       # How a child's day counts as complete. "vendor": only with the adult's proxy

@@ -331,6 +331,7 @@ def _drop_excess_fields(
         },
         "habitual_location_days": {"habitual_location_id", "dwell_minutes"},
     },
+    output_models=MODEL_MAP,
 )
 def format_ctramp(
     tables: Tables,
