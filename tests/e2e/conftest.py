@@ -294,7 +294,6 @@ def _build_config(steps: tuple[str, ...], data_dir: Path, output_dir: Path) -> d
 
 def _run_pipeline(steps: tuple[str, ...]):
     """Run the pipeline over the given steps. Returns (result, output_dir, tmp)."""
-    import processing
     from pipeline.pipeline import Pipeline
 
     tmp = Path(tempfile.mkdtemp(prefix="e2e_"))
@@ -305,17 +304,8 @@ def _run_pipeline(steps: tuple[str, ...]):
     config_path = output_dir / "config.yaml"
     config_path.write_text(yaml.safe_dump(_build_config(steps, data_dir, output_dir)))
 
-    data_models = {}
-    for step, tables in FORMATTED_TABLES.items():
-        if step in steps:
-            data_models.update(tables)
-
-    # Every step function is passed; the config decides which run.
-    pipeline = Pipeline(
-        config_path=config_path,
-        steps=[getattr(processing, n) for n in STEP_ORDER],
-        data_models=data_models,
-    )
+    # Every step is built in, and each formatter brings its output models.
+    pipeline = Pipeline(config_path=config_path)
     return pipeline.run(), output_dir, tmp
 
 

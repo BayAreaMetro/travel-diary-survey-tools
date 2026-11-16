@@ -1,9 +1,11 @@
 """Pipeline execution module for running data processing steps."""
 
+import importlib.util
 import inspect
 import logging
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ValidationError
 
+import processing
 from data_canon.core.dataclass import CanonicalData
 from pipeline.config import (
     check_input_paths,
@@ -25,7 +28,7 @@ from pipeline.logger import setup_logging
 logger = logging.getLogger(__name__)
 
 # The keys a step entry in the config may carry.
-_STEP_KEYS = frozenset({"name", "params", "validate_input", "validate_output"})
+_STEP_KEYS = frozenset({"name", "file", "params", "validate_input", "validate_output"})
 
 
 def _check_config_keys(
@@ -101,6 +104,76 @@ def _build_settings(
         raise ValueError(msg) from e
 
 
+def _steps_from_files(step_entries: list[dict], config_dir: Path) -> list[Callable]:
+    """The project steps the config names a ``file`` for, each file imported once.
+
+    Args:
+        step_entries: The config's ``steps`` list.
+        config_dir: The folder of the config file, which a relative ``file`` is read from.
+
+    Raises:
+        ValueError: If a ``file`` is not a ``.py`` file or doesn't exist, or the
+            step isn't a ``@step()`` function in it.
+    """
+    modules: dict[Path, object] = {}
+    found = []
+    for entry in step_entries:
+        if "file" not in entry:
+            continue
+        name, path = entry["name"], (config_dir / entry["file"]).resolve()
+        if path.suffix != ".py":
+            msg = f"Step '{name}': file must be a .py file, got '{entry['file']}'."
+            raise ValueError(msg)
+        if not path.is_file():
+            msg = f"Step '{name}': file '{entry['file']}' not found at {path}."
+            raise ValueError(msg)
+        if path not in modules:
+            modules[path] = _import_file(path)
+        func = getattr(modules[path], name, None)
+        if not hasattr(func, "contract"):
+            msg = (
+                f"Step '{name}': {path.name} has no @step() function named '{name}'. "
+                "The step's name is its function's name, which may differ from the file's."
+            )
+            raise ValueError(msg)
+        found.append(func)
+    return found
+
+
+def _import_file(path: Path) -> object:
+    """Import the module at *path*, named after its file."""
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    if spec is None or spec.loader is None:
+        msg = f"Cannot import {path}."
+        raise ValueError(msg)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[path.stem] = module  # the module's own classes resolve their imports through it
+    spec.loader.exec_module(module)
+    return module
+
+
+def _with_builtins(custom: list[Callable]) -> dict[str, Callable]:
+    """Every built-in step, plus *custom*, by name.
+
+    Raises:
+        ValueError: If a custom step has a built-in step's name.
+    """
+    names = [f.__name__ for f in custom]
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        msg = f"Project step(s) {repeated} are given more than once."
+        raise ValueError(msg)
+    clashes = sorted(n for n in names if n in processing.__all__)
+    if clashes:
+        msg = (
+            f"Project step(s) {clashes} have the name of a built-in step. Rename "
+            "them: a project step adds to the built-in steps, it never replaces one."
+        )
+        raise ValueError(msg)
+    builtins = {name: getattr(processing, name) for name in processing.__all__}
+    return {**builtins, **{f.__name__: f for f in custom}}
+
+
 class Pipeline:
     """Class to run a data processing pipeline based on a configuration file."""
 
@@ -111,23 +184,32 @@ class Pipeline:
         self,
         config_path: str | Path,
         steps: list[Callable] | None = None,
-        data_models: dict[str, Any] | None = None,
         log_file_mode: str = "a",
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
+        Every built-in step (``processing.__all__``) is available without being
+        passed. A project's own step names its file on its step entry
+        (``file: clean_bats_2023.py``, relative to the config's folder); *steps*
+        adds steps directly, for callers without a config file of their own. A
+        formatter step brings the models of the files it writes, so none are
+        passed either.
+
         Args:
             config_path: Path to the YAML configuration.
-            steps: Optional list of processing step functions.
-            data_models: Optional dictionary of extra data models for validation.
-                These will be added to the default data models in CanonicalData object.
+            steps: Project step functions passed directly.
             log_file_mode: File open mode for the log file. Use "a" to append
                 (default) or "w" to overwrite at the start of each run.
+
+        Raises:
+            ValueError: If a project step has a built-in step's name, or two
+                project steps share a name.
         """
         self.config_path = config_path
         self.config = self._load_config()
         self.data = CanonicalData()
-        self.steps = {func.__name__: func for func in steps or []}
+        from_files = _steps_from_files(self.config.get("steps", []), Path(config_path).parent)
+        self.steps = _with_builtins([*(steps or []), *from_files])
 
         # A log file gets console + file logging; none gets console only
         log_filename = self.config.get("log_file") or None
@@ -136,10 +218,6 @@ class Pipeline:
             logger.info("Log file: %s", log_filename)
         else:
             logger.info("Console-only logging enabled")
-
-        # Add extra data models if provided
-        if data_models:
-            self.data.add_models(data_models)
 
     def _load_config(self) -> dict[str, Any]:
         """Load the pipeline configuration from a YAML file.
@@ -282,12 +360,12 @@ class Pipeline:
             return
 
         named = ", ".join(f"'{name}'" for name in missing)
-        registered = ", ".join(sorted(self.steps)) or "(none)"
+        custom = ", ".join(sorted(set(self.steps) - set(processing.__all__))) or "(none)"
         label = "Step" if len(missing) == 1 else "Steps"
         msg = (
-            f"{label} {named} not found in pipeline steps. Every step named in "
-            f"the config must be passed to Pipeline(steps=[...]); add the "
-            f"function to the runner's step list. Registered steps: {registered}."
+            f"{label} {named} not found in pipeline steps: not a built-in step, and "
+            f"not one of the project's own steps passed to Pipeline(steps=[...]) "
+            f"({custom}). Built-in steps: {', '.join(sorted(processing.__all__))}."
         )
         raise ValueError(msg)
 

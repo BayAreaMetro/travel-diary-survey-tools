@@ -6,25 +6,10 @@ import os
 from pathlib import Path
 
 import yaml
-from clean_bats_2019 import clean_2019_bats
 from dotenv import load_dotenv
 
 from pipeline.decoration import Tables, step
 from pipeline.pipeline import Pipeline
-from processing import (
-    add_existing_weights,
-    add_zone_ids,
-    cascade_usability,
-    compute_weights,
-    detect_habitual_locations,
-    detect_joint_trips,
-    extract_tours,
-    format_daysim,
-    imputation,
-    link_trips,
-    load_data,
-    write_data,
-)
 
 # Load environment variables from .env file
 # Useful for CENSUS API keys or other sensitive information
@@ -72,22 +57,9 @@ def custom_foo_bar(tables: Tables) -> dict:
     return dict(tables)
 
 
-# Set up custom steps dictionary ----------------------------------
+# The project's own steps; every built-in step is available without listing it.
 processing_steps = [
     custom_foo_bar,
-    load_data,
-    clean_2019_bats,
-    imputation,
-    add_zone_ids,
-    link_trips,
-    detect_habitual_locations,
-    detect_joint_trips,
-    extract_tours,
-    cascade_usability,
-    format_daysim,
-    write_data,
-    add_existing_weights,
-    compute_weights,
 ]
 
 

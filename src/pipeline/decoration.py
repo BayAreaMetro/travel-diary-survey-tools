@@ -122,6 +122,7 @@ def step(
     produces: dict[str, set[str]] | None = None,
     optional: dict[str, set[str]] | None = None,
     generated_columns: Callable[..., dict[str, Any]] | None = None,
+    output_models: dict[str, type[BaseModel]] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for pipeline steps with automatic validation.
 
@@ -145,6 +146,11 @@ def step(
     accepts. The decorator registers them on every call, so ``write_data`` keeps
     them.
 
+    A step that writes tables outside the canonical survey, such as a model's
+    input files, names their models in ``output_models``. They are added to the
+    run's tables when the step runs, so any run that includes the step validates
+    what it writes, and no runner has to list them.
+
     The default value is to only validate inputs to avoid duplicate validation.
     Recommend putting a final_check step at the end of the pipeline
     to validate all tables after all processing is complete.
@@ -158,6 +164,7 @@ def step(
             columns it reads when present.
         generated_columns: Function from some of the step's settings to the config-named
             columns it writes, per table.
+        output_models: Model for each non-canonical table the step returns, by name.
 
     Example:
         >>> @step(
@@ -212,6 +219,8 @@ def step(
                 kwargs["tables"] = tables
 
             _register_generated(generated_columns, func, kwargs, canonical_data)
+            if output_models:
+                canonical_data.add_models(output_models)
 
             # A step that takes a flag itself (write_data) gets the value in force,
             # whether the caller passed it or the decorator default applies.

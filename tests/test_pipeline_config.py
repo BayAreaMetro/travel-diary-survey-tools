@@ -18,7 +18,7 @@ from pipeline.pipeline import Pipeline
 
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 
-# Name of the list each runner passes to ``Pipeline(steps=...)``.
+# Name of the list of the project's own steps each runner passes to ``Pipeline(steps=...)``.
 STEP_LIST_NAME = "processing_steps"
 
 # Every consumer of a usability profile, and the key it names them under.
@@ -68,18 +68,20 @@ def _runner_step_names(run_path: Path) -> set[str]:
 
 
 @pytest.mark.parametrize("project_dir", _project_dirs(), ids=lambda p: p.name)
-def test_config_steps_are_registered_in_runner(project_dir: Path):
-    """Every step a config names is passed to the Pipeline (the runner may pass more)."""
-    config_steps = _config_step_names(project_dir / "config.yaml")
-    registered = _runner_step_names(project_dir / "run.py")
+def test_config_steps_are_built_in_or_the_runners(project_dir: Path):
+    """Every step a config names is built in, names its file, or is passed by the runner."""
+    config_path = project_dir / "config.yaml"
+    config_steps = _config_step_names(config_path)
+    from_files = {s["name"] for s in _steps(config_path) if "file" in s}
+    available = set(processing.__all__) | from_files | _runner_step_names(project_dir / "run.py")
 
-    unregistered = [name for name in config_steps if name not in registered]
+    unknown = [name for name in config_steps if name not in available]
 
-    assert not unregistered, (
+    assert not unknown, (
         f"{project_dir.name}/config.yaml names step(s) "
-        f"{', '.join(repr(n) for n in unregistered)} that {project_dir.name}/run.py "
-        f"never passes to Pipeline(steps=[...]). The run aborts on the first one. "
-        f"Import the function and add it to `{STEP_LIST_NAME}`."
+        f"{', '.join(repr(n) for n in unknown)} that are not built in, name no file, and "
+        f"are not passed by {project_dir.name}/run.py. The run aborts before the first "
+        "step. Give the step entry a `file:`."
     )
 
 

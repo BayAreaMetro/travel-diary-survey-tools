@@ -6,32 +6,10 @@ import os
 from pathlib import Path
 
 import yaml
-from clean_bats_2023 import clean_2023_bats
 from dotenv import load_dotenv
 
-from data_canon.models import (
-    ctramp as ctramp_models,
-)
-from data_canon.models import (
-    daysim as daysim_models,
-)
 from pipeline.decoration import Tables, step
 from pipeline.pipeline import Pipeline
-from processing import (
-    add_existing_weights,
-    add_zone_ids,
-    cascade_usability,
-    compute_weights,
-    detect_habitual_locations,
-    detect_joint_trips,
-    extract_tours,
-    format_ctramp,
-    format_daysim,
-    imputation,
-    link_trips,
-    load_data,
-    write_data,
-)
 
 # Load environment variables from .env file
 # Useful for CENSUS API keys or other sensitive information
@@ -80,42 +58,11 @@ def custom_foo_bar(tables: Tables) -> dict:
     return dict(tables)
 
 
-# Set up custom steps dictionary ----------------------------------
+# The project's own steps; every built-in step is available without listing it.
 processing_steps = [
     custom_foo_bar,
-    load_data,
-    clean_2023_bats,
-    add_zone_ids,
-    link_trips,
-    detect_habitual_locations,
-    detect_joint_trips,
-    imputation,
-    extract_tours,
-    cascade_usability,
-    format_ctramp,
-    format_daysim,
-    write_data,
-    add_existing_weights,
-    compute_weights,
 ]
 
-
-new_models = {
-    # Daysim models
-    "households_daysim": daysim_models.HouseholdDaysimModel,
-    "persons_daysim": daysim_models.PersonDaysimModel,
-    "days_daysim": daysim_models.PersonDayDaysimModel,
-    "linked_trips_daysim": daysim_models.LinkedTripDaysimModel,
-    "tours_daysim": daysim_models.TourDaysimModel,
-    # CT-RAMP models
-    "households_ctramp": ctramp_models.HouseholdCTRAMPModel,
-    "persons_ctramp": ctramp_models.PersonCTRAMPModel,
-    "mandatory_locations_ctramp": ctramp_models.MandatoryLocationCTRAMPModel,
-    "individual_tours_ctramp": ctramp_models.IndividualTourCTRAMPModel,
-    "individual_trips_ctramp": ctramp_models.IndividualTripCTRAMPModel,
-    "joint_tours_ctramp": ctramp_models.JointTourCTRAMPModel,
-    "joint_trips_ctramp": ctramp_models.JointTripCTRAMPModel,
-}
 
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
@@ -136,7 +83,6 @@ if __name__ == "__main__":
     pipeline = Pipeline(
         config_path=config_path,
         steps=processing_steps,
-        data_models=new_models,
     )
 
     # Save a copy of the config used into the output directory

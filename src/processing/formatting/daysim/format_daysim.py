@@ -44,6 +44,13 @@ import logging
 
 import polars as pl
 
+from data_canon.models.daysim import (
+    HouseholdDaysimModel,
+    LinkedTripDaysimModel,
+    PersonDayDaysimModel,
+    PersonDaysimModel,
+    TourDaysimModel,
+)
 from pipeline.decoration import Tables, step
 from processing.formatting.usable_records import keep_usable
 from processing.formatting.usual_workplace import fill_usual_workplace
@@ -55,6 +62,14 @@ from .format_tours import format_tours
 from .format_trips import format_linked_trips
 
 logger = logging.getLogger(__name__)
+
+OUTPUT_MODELS = {
+    "households_daysim": HouseholdDaysimModel,
+    "persons_daysim": PersonDaysimModel,
+    "days_daysim": PersonDayDaysimModel,
+    "linked_trips_daysim": LinkedTripDaysimModel,
+    "tours_daysim": TourDaysimModel,
+}
 
 
 @step(
@@ -82,6 +97,7 @@ logger = logging.getLogger(__name__)
         },
         "habitual_location_days": {"habitual_location_id", "dwell_minutes"},
     },
+    output_models=OUTPUT_MODELS,
 )
 def format_daysim(
     tables: Tables,
