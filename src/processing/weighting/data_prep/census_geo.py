@@ -118,7 +118,7 @@ def _census_api_key() -> str:
             "every request.\n"
             f"  1. Sign up (free, instant): {_KEY_SIGNUP_URL}\n"
             "  2. Set CENSUS_KEY in your environment or .env file "
-            "(the runner scripts call load_dotenv())."
+            "(the pipeline reads the nearest .env at or above the config's folder)."
         )
         raise RuntimeError(msg)
     return key

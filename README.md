@@ -12,7 +12,7 @@ Tools for processing and validating travel diary survey data into standardized f
 - [Quick Start](#quick-start)
   - [1. Installing UV & Virtual Environment Setup](#1-installing-uv--virtual-environment-setup)
   - [2. Configuration](#2-configuration)
-  - [3. Pipeline Runner](#3-pipeline-runner)
+  - [3. Running a project](#3-running-a-project)
 - [Data Models and Validation](#data-models-and-validation)
   - [`step` Decorator and Validation](#step-decorator-and-validation)
 - [Additional Documentation](#additional-documentation)
@@ -48,13 +48,13 @@ Tools for processing and validating travel diary survey data into standardized f
 
 ## Architecture
 
-The usage pattern for the pipeline is a bit different than the typical numbered scripts you might see elsewhere. *There is no monolithic integrated script*. Instead there is a standardized data processing pipeline that is configurable via YAML files and executed via a runner script.
+The usage pattern for the pipeline is a bit different than the typical numbered scripts you might see elsewhere. *There is no monolithic integrated script*. Instead there is a standardized data processing pipeline that is configurable via YAML files and run with one command.
 
 There are three main components:
 
 * **Setup**
-    * Each project has a runner, `projects/<project>/run.py`, as the point of entry, and
-    * a pipeline configuration, `projects/<project>/config.yaml`
+    * Each project has a pipeline configuration, `projects/<project>/config.yaml`, run with
+      `uv run surveypipe run projects/<project>/config.yaml` (or press run on its `run.py`)
 * **Pipeline Execution**
     * The central `Pipeline` class defined in `src/pipeline/pipeline.py`
     * A set of modular processing steps, one package each under `src/processing/`
@@ -69,7 +69,7 @@ There are three main components:
 flowchart LR
   subgraph Pipeline[Pipeline steps, in run order]
     direction TB
-    Setup(["projects/#lt;project#gt;/<br/>run.py + config.yaml"]) --> Load
+    Setup(["projects/#lt;project#gt;/<br/>config.yaml"]) --> Load
     Load([load_data]) --> Clean(["clean_#lt;project#gt;"]) --> Impute([imputation]) --> Link([link_trips])
     Link --> Hab([detect_habitual_locations]) --> Joint([detect_joint_trips]) --> Tours([extract_tours])
     Tours --> Zones([add_zone_ids]) --> Comp
@@ -168,7 +168,7 @@ The pipeline is configured using YAML files that specify input data, steps, and 
 # projects/<project>/config.yaml
 
 # Directory shorthands. "{{ name }}" is replaced by another key in this file, or by
-# a root such as MTC_DATA set in your environment or a .env file beside the project.
+# a root such as MTC_DATA set in your environment or a .env file at or above the project.
 survey_dir: "{{ MTC_DATA }}/path/to/survey/data"
 output_dir: "{{ BOX_DIR }}/path/to/output"
 TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefiles"
@@ -184,6 +184,7 @@ steps:
         unlinked_trips: "{{ survey_dir }}/trip.csv"
 
   - name: clean_2023_bats  # the project's own cleaning step
+    file: clean_bats_2023.py
     params:
       child_day_complete: vendor
 
@@ -216,66 +217,38 @@ steps:
 
 A setting with no default in the code must be given here, and a key the step does not take is an error, so a misspelt setting fails before the run starts rather than being ignored. See [Configuring a step](https://bayareametro.github.io/travel-diary-survey-tools/pipeline/#configuring-a-step) for how settings reach a step.
 
-### 3. Pipeline Runner
+### 3. Running a project
 
-You need a runner script to execute the pipeline, typically `projects/<project>/run.py`. It imports the shared steps and any project-specific ones, and hands them to the `Pipeline`. The goal is to **keep the core pipeline code generalized for maintainability, but allow for custom logic to be injected as needed**: a project's cleaning step lives beside its runner, not in `src/`.
-
-```python
-# projects/<project>/run.py (abridged from projects/bats_2023/run.py)
-from pathlib import Path
-
-from clean_bats_2023 import clean_2023_bats  # the project's own step, tagged with @step()
-
-from pipeline.pipeline import Pipeline
-from processing import (
-    add_zone_ids,
-    cascade_usability,
-    compute_weights,
-    detect_habitual_locations,
-    detect_joint_trips,
-    extract_tours,
-    format_ctramp,
-    format_daysim,
-    imputation,
-    link_trips,
-    load_data,
-    write_data,
-)
-
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
-
-# Every step the config names must be in this list. The config decides the order.
-processing_steps = [
-    load_data,
-    clean_2023_bats,
-    imputation,
-    link_trips,
-    detect_habitual_locations,
-    detect_joint_trips,
-    extract_tours,
-    add_zone_ids,
-    cascade_usability,
-    compute_weights,
-    format_ctramp,
-    format_daysim,
-    write_data,
-]
-
-if __name__ == "__main__":
-    pipeline = Pipeline(
-        config_path=CONFIG_PATH,
-        steps=processing_steps,
-    )
-    result = pipeline.run()
-```
-
-To run, press the green arrow in your IDE, or run from command line:
+Run a project with the `surveypipe` command, naming its config:
 
 ```bash
-uv run python projects/bats_2023/run.py
+uv run surveypipe run projects/bats_2023/config.yaml
 ```
 
-**Logging**: The pipeline automatically creates a log file in the output directory (e.g., `output/pipeline.log`) that contains all console output plus additional debugging information.
+Or press run on the project's `run.py` in your editor; it goes through the same code:
+
+```python
+# projects/bats_2023/run.py
+from pathlib import Path
+
+from pipeline.cli import run
+
+if __name__ == "__main__":
+    run(Path(__file__).parent / "config.yaml")
+```
+
+Every built-in step is available by name. A project's own step, such as its cleaner, names the file that holds it, next to its other settings. The step's name is the name of its `@step()` function, which may differ from the file's:
+
+```yaml
+  - name: clean_2023_bats
+    file: clean_bats_2023.py  # read from the config's folder
+```
+
+The goal is to **keep the core pipeline code generalized for maintainability, but allow for custom logic to be injected as needed**: a project's cleaning step lives beside its config, not in `src/`.
+
+Before the run, the nearest `.env` at or above the config's folder is read, so the roots it sets (`MTC_DATA`, `CENSUS_KEY` and so on) reach the config. A relative path anywhere in the config is read from the config's folder, wherever you launch from. The resolved config, with every `{{ name }}` filled in, is saved beside the outputs as `<project folder>_<config name>.yaml`, such as `bats_2023_config.yaml`.
+
+**Logging**: If the config sets `log_file` (e.g., `log_file: "{{ output_dir }}/pipeline_2023.log"`), the run writes all console output there, plus debugging detail. Without it, the run logs to the console only.
 
 ---
 
@@ -390,7 +363,7 @@ The plan to handle this is to create tours with maximum granularity and flexibil
 ```
 travel-diary-survey-tools/
 ├── scripts/                        # Helper scripts (column matrix generator, module length check, ...)
-├── projects/                       # One folder per survey: config.yaml, run.py, its cleaning step
+├── projects/                       # One folder per survey: config.yaml, its cleaning step, run.py
 │   ├── bats_2019/
 │   └── bats_2023/
 ├── src/

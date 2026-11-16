@@ -2,8 +2,8 @@
 # Cleaning
 
 Cleaning is project-specific: each project writes its own step, such as
-`clean_2023_bats` in `projects/bats_2023/clean_bats_2023.py`, and its runner
-passes it to `Pipeline(steps=[...])` with the shared steps. It runs right after
+`clean_2023_bats` in `projects/bats_2023/clean_bats_2023.py`, and names that
+file on its step entry (`file: clean_bats_2023.py`). It runs right after
 `load_data` and turns the vendor's tables into canonical ones, so every later
 step can rely on the canonical schema.
 
