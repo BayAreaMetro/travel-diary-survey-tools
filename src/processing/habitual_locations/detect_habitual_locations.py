@@ -5,7 +5,7 @@ import logging
 import polars as pl
 
 from data_canon.codebook.generic import LocationSource
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 
 from .episodes import build_presence_episodes
 from .habitual_location_configs import HabitualLocationConfig
@@ -143,9 +143,7 @@ def add_observed_locations(
     },
 )
 def detect_habitual_locations(
-    habitual_locations: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    person_days: pl.DataFrame,
+    tables: Tables,
     locations: HabitualLocationConfig,
 ) -> dict[str, pl.DataFrame]:
     """Find observed homes, workplaces and schools, and record presence per day.
@@ -156,9 +154,8 @@ def detect_habitual_locations(
     docstring for the rules.
 
     Args:
-        habitual_locations: The delivered table, reported locations only.
-        linked_trips: Linked trips.
-        person_days: Days with ``begin_day``/``end_day``.
+        tables: ``habitual_locations`` (the delivered table, reported locations
+            only), ``linked_trips`` and ``person_days``.
         locations: Detection and matching rules, including whether to add
             observed homes. See ``HabitualLocationConfig``.
 
@@ -166,9 +163,9 @@ def detect_habitual_locations(
         ``habitual_locations`` and ``habitual_location_days``.
     """
     observed, location_days = add_observed_locations(
-        habitual_locations,
-        linked_trips,
-        person_days,
+        tables["habitual_locations"],
+        tables["linked_trips"],
+        tables["person_days"],
         locations,
     )
     return {"habitual_locations": observed, "habitual_location_days": location_days}

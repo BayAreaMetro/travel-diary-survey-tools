@@ -8,6 +8,10 @@ import geopandas as gpd
 import plotly.graph_objects as go
 import polars as pl
 
+from processing.weighting.data_prep.crosswalk import zone_to_group
+
+from .table_html import profile_key
+
 _MAP_SIMPLIFY_M = 10  # boundary tolerance; sub-pixel at regional zoom
 
 
@@ -43,20 +47,20 @@ def _build_tooltips(
     for a zone is listed together rather than the map being drawn per profile.
     """
     tooltips: dict[str, str] = {}
-    for geo_id in target_4326["study_geoid"]:
-        rows = xw.filter(pl.col("study_geoid") == geo_id).sort(
+    for zone_id in target_4326["target_zone_id"]:
+        rows = xw.filter(pl.col("target_zone_id") == zone_id).sort(
             "allocation_weight",
             descending=True,
         )
         if rows.is_empty():
-            tooltips[geo_id] = f"Zone {geo_id}: no PUMA overlap"
+            tooltips[zone_id] = f"Zone {zone_id}: no PUMA overlap"
             continue
         zone_pop = rows["population"].sum()
-        header = f"Zone {geo_id} (BG 2020 person pop {zone_pop:,.0f})"
+        header = f"Zone {zone_id} (Census block population {zone_pop:,.0f})"
         seeded = [
-            f"{profile or 'survey'} {counts[geo_id]:,}"
+            f"{profile_key(profile)} {counts[zone_id]:,}"
             for profile, counts in sample_counts.items()
-            if geo_id in counts
+            if zone_id in counts
         ]
         if seeded:
             header += " — sample households: " + " · ".join(seeded)
@@ -67,7 +71,7 @@ def _build_tooltips(
             if aw < 0.01:  # noqa: PLR2004
                 continue
             lines.append(f"  PUMA {r['puma_id']}: {aw:.2f}%")
-        tooltips[geo_id] = "<br>".join(lines)
+        tooltips[zone_id] = "<br>".join(lines)
     return tooltips
 
 
@@ -79,7 +83,7 @@ def _build_zone_labels_and_colors(
     """Build zone labels and colors for centroid labels."""
     zone_labels: list[str] = []
     zone_colors: list[str] = []
-    for gid in target_4326["study_geoid"]:
+    for gid in target_4326["target_zone_id"]:
         gname = zone_to_group_name.get(gid)
         label = f"Zone {gid} ({gname})" if gname else f"Zone {gid}"
         zone_labels.append(label)
@@ -104,7 +108,7 @@ def _build_zone_group_index(
 
     # Assign each ungrouped zone its own cycling colour
     for _, row in target_4326.iterrows():
-        gid = row["study_geoid"]
+        gid = row["target_zone_id"]
         if gid not in zone_to_group_idx:
             zone_to_group_idx[gid] = next_idx % len(_GROUP_FILLS)
             next_idx += 1
@@ -121,7 +125,7 @@ def _add_zone_traces(
     group_rows: dict[int, list] = defaultdict(list)
     group_tooltips: dict[int, list[str]] = defaultdict(list)
     for _, row in target_4326.iterrows():
-        gi = zone_to_group_idx.get(row["study_geoid"], 0)
+        gi = zone_to_group_idx.get(row["target_zone_id"], 0)
         group_rows[gi].append(row)
         group_tooltips[gi].append(row["tooltip"])
 
@@ -199,7 +203,6 @@ def crosswalk_figure(
     crosswalk_df: pl.DataFrame,
     seeds: Mapping[str | None, pl.DataFrame] | None = None,
     zone_groups: dict[str, list[str]] | None = None,
-    simplify_tolerance_m: float = _MAP_SIMPLIFY_M,
 ) -> go.Figure:
     """Build an interactive Plotly map of the crosswalk.
 
@@ -215,27 +218,25 @@ def crosswalk_figure(
 
     Args:
         puma_gdf: PUMA boundary polygons (must have ``puma_id`` column).
-        target_gdf: Target zone polygons (must have ``study_geoid`` column).
-        crosswalk_df: Crosswalk table with ``puma_id``, ``study_geoid``,
+        target_gdf: Target zone polygons (must have ``target_zone_id`` column).
+        crosswalk_df: Crosswalk table with ``puma_id``, ``target_zone_id``,
             ``population``, ``allocation_weight``.
         seeds: Each profile's seed, keyed by profile name (must contain
-            ``study_geoid``).  Per-zone counts appear in the tooltip.
+            ``target_zone_id``).  Per-zone counts appear in the tooltip.
         zone_groups: Optional zone group mapping.  When provided, grouped zones
             share a fill colour and labels include the group name.
-        simplify_tolerance_m: Boundary simplification tolerance in metres.
-            Zero keeps full TIGER precision.
 
     Returns:
         go.Figure
     """
-    puma_4326 = _simplified(puma_gdf, simplify_tolerance_m)
-    target_4326 = _simplified(target_gdf, simplify_tolerance_m)
+    puma_4326 = _simplified(puma_gdf, _MAP_SIMPLIFY_M)
+    target_4326 = _simplified(target_gdf, _MAP_SIMPLIFY_M)
     study_boundary = target_4326.dissolve()
 
     # Build tooltip per target zone showing allocation weights
     xw = crosswalk_df.select(
         "puma_id",
-        "study_geoid",
+        "target_zone_id",
         "population",
         "allocation_weight",
     )
@@ -243,18 +244,18 @@ def crosswalk_figure(
     # Per-zone seed counts, one entry per fitted profile (Polars only)
     sample_counts: dict[str | None, dict[str, int]] = {}
     for profile, seed in (seeds or {}).items():
-        if "study_geoid" not in seed.columns:
+        if "target_zone_id" not in seed.columns:
             continue
         sample_counts[profile] = dict(
-            seed.filter(pl.col("study_geoid").is_not_null())
-            .group_by("study_geoid")
+            seed.filter(pl.col("target_zone_id").is_not_null())
+            .group_by("target_zone_id")
             .len()
             .iter_rows()
         )
 
     tooltips = _build_tooltips(target_4326, xw, sample_counts)
     target_4326 = target_4326.copy()
-    target_4326["tooltip"] = target_4326["study_geoid"].map(tooltips)
+    target_4326["tooltip"] = target_4326["target_zone_id"].map(tooltips)
 
     fig = go.Figure()
 
@@ -308,12 +309,7 @@ def crosswalk_figure(
 
     # Zone labels at centroids — colour-matched to group
     zone_centroids = target_4326.to_crs("EPSG:5070").centroid.to_crs("EPSG:4326")
-    zone_to_group_name: dict[str, str] = {}
-    if zone_groups:
-        for gname, zones in zone_groups.items():
-            for z in zones:
-                zone_to_group_name[z] = gname
-
+    zone_to_group_name = zone_to_group(zone_groups or {})
     zone_labels, zone_colors = _build_zone_labels_and_colors(
         target_4326, zone_to_group_idx, zone_to_group_name
     )

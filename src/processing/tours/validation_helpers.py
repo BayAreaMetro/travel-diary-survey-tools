@@ -94,16 +94,16 @@ def _open_end_facts(
       a connecting leg is missing. Same defect as an internal spatial gap, just
       at the tour boundary rather than inside it.
 
-    Returns one row per tour_id. Missing coordinate columns yield all-false
-    facts so schema-only frames and coordinate-free unit tests still grade.
+    Returns one row per tour_id. Without coordinate columns (schema-only
+    frames, coordinate-free unit tests) nothing can be said about what
+    surrounds a tour, which is precisely the diary-edge case: no observed trip
+    either side. So both edges are true and every other fact false; defaulting
+    the edges to false would silently grade a partial tour VALID.
     """
     facts = linked_trips.select("tour_id").unique()
     required = (*_GAP_COORD_COLS, "arrive_time", "person_id")
     if any(c not in linked_trips.columns for c in required):
-        # Without coordinates nothing can be said about what surrounds a tour,
-        # which is precisely the diary-edge case: no observed trip either side.
-        # Defaulting the edges to true keeps a partial tour partial, where
-        # defaulting them to false would silently grade it VALID.
+        # Edges true keeps a partial tour partial (see docstring)
         return facts.with_columns(
             [
                 pl.lit(value=True).alias("_start_edge"),
@@ -294,10 +294,7 @@ def validate_and_correct_tours(
     tours = tours.with_columns(
         pl.when(other_home_tour & no_destination & pl.col("_moved_home").fill_null(value=False))
         .then(pl.lit(TourDataQuality.OTHER_HOME))
-        # Only a *closed* tour can be faulted for having no destination: it went
-        # out and came back with nothing in between. A partial tour has no
-        # activity because half of it was never observed, so its open end is the
-        # fact worth reporting, not the missing stop.
+        # Only a closed tour can lack a destination (docstring, item 1)
         .when(no_destination)
         .then(pl.lit(TourDataQuality.NO_DESTINATION))
         .when(

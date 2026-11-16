@@ -8,6 +8,7 @@ Kept as a leaf module with minimal imports to avoid circular dependencies.
 
 import logging
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import NamedTuple
 
@@ -15,7 +16,6 @@ import numpy as np
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
-from processing.completeness import usable_col_for
 from processing.weighting.data_prep.crosswalk import GeographyConfig
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,8 @@ class ControlSpec:
     Attributes:
         name: Registry name (must exist in ``CONTROLS``).
         importance: Explicit importance weight for the balancer.  ``None`` means use
-            the default (100 for normal controls, 1000 for structural) or
-            the MOE-derived value when ``moe_based_importance`` is enabled.
+            ``default_importance``, or the MOE-derived value when
+            ``moe_based_importance`` is enabled.
         dimensions: For cross-tab controls only: list of dimension control names
             (e.g. ``["h_size", "h_income"]``).  ``None`` for standard controls.
         merges: For cross-tab controls only: per-dimension merge specs applied
@@ -51,16 +51,16 @@ class ControlTotals:
     """Result of PUMS control-total aggregation.
 
     Attributes:
-        totals: Tidy frame with columns: [geo_id, control_name, category, target_total]
+        totals: Tidy frame with columns: [zone_group_id, control_name, category, target_total]
         pums_hh_count: Total PUMS housing unit records (before weighting).
         pums_person_count: Total PUMS person records.
-        geo_ids: Unique geography IDs in the totals.
+        zone_group_ids: Unique geography IDs in the totals.
     """
 
     totals: pl.DataFrame
     pums_hh_count: int
     pums_person_count: int
-    geo_ids: list[str]
+    zone_group_ids: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -92,14 +92,13 @@ class IncidenceBundle:
     person_pivot: pl.DataFrame
     household_pivot: pl.DataFrame
 
-    def filter_households(
-        self, hh_ids: list | pl.Series, hh_id_col: str = "hh_id"
-    ) -> "IncidenceBundle":
+    def filter_households(self, hh_ids: list | pl.Series) -> "IncidenceBundle":
         """Return a new bundle keeping only the given household IDs."""
+        keep = pl.col("hh_id").is_in(hh_ids)
         return IncidenceBundle(
-            incidence=self.incidence.filter(pl.col(hh_id_col).is_in(hh_ids)),
-            person_pivot=self.person_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
-            household_pivot=self.household_pivot.filter(pl.col(hh_id_col).is_in(hh_ids)),
+            incidence=self.incidence.filter(keep),
+            person_pivot=self.person_pivot.filter(keep),
+            household_pivot=self.household_pivot.filter(keep),
         )
 
 
@@ -134,20 +133,31 @@ class ImputationSummary:
 # ---------------------------------------------------------------------------
 # PUMS Configuration
 # ---------------------------------------------------------------------------
-@dataclass
-class PUMSSource:
-    """Configuration for PUMS data source.
+class HouseholdIncome(StrEnum):
+    """Whose income the survey's household income counts, so the PUMS target counts the same.
 
-    Attributes:
-        state_fips: Two-digit FIPS code for the state (e.g. "06" for California).
-        pums_year: ACS 1-year PUMS vintage (e.g. 2022).
-        puma_ids: Optional list of PUMA codes to fetch. If None, fetches all PUMAs in
-            the state (can be large).
+    PUMS household income (``HINCP``) counts every member of the household.
     """
 
-    state_fips: str
-    pums_year: int
-    puma_ids: list[str] | None = None
+    # Every member: HINCP as it is.
+    ALL_MEMBERS = "all_members"
+    # Related members only: each nonrelative's personal income is taken out of HINCP.
+    RELATED_MEMBERS = "related_members"
+
+
+class PumsWeights(StrEnum):
+    """Which PUMS weight each level of target sums.
+
+    The ACS weights persons and households separately, so person weights summed
+    over a household's members need not equal its household weight times its size.
+    """
+
+    # Persons take their household's weight: the two kinds of target agree.
+    HOUSEHOLD = "household"
+    # Households take the mean of their members' person weights: they agree the other way.
+    PERSON = "person"
+    # Each level keeps its own weight, and the fit shows where the two disagree.
+    INDEPENDENT = "independent"
 
 
 # ==============================================================================
@@ -210,13 +220,26 @@ class CensusConfig(BaseModel):
 
     state_fips: str = Field(description="Two-digit state FIPS code, e.g. '06'.")
     pums_year: int = Field(description="ACS PUMS 1-year vintage the controls are built from.")
-    pums_households: str | None = Field(
-        default=None,
-        description="Local PUMS household file; fetched from the Census API when not given.",
+    pums_weights: PumsWeights = Field(
+        description=(
+            "Which PUMS weight the targets sum: `household` (persons take their "
+            "household's weight), `person` (households take the mean of their members' "
+            "person weights) or `independent` (each level keeps its own)."
+        ),
     )
-    pums_persons: str | None = Field(
-        default=None,
-        description="Local PUMS person file; fetched from the Census API when not given.",
+    household_income: HouseholdIncome = Field(
+        description=(
+            "Whose income the survey's household income question covers: `all_members`, "
+            "or `related_members` when the questionnaire told respondents to leave out "
+            "roommates and other nonrelatives. The PUMS income target is built to match."
+        ),
+    )
+    census_dir: str = Field(
+        description=(
+            "Folder of the census data the weighting reads: the official PUMS files "
+            "in `pums_<year>/`, and Census geography and block counts in "
+            "`census_<vintage>/`. A missing file is downloaded there on first use."
+        ),
     )
 
 
@@ -236,9 +259,7 @@ class DiagnosticsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    output_path: str | None = Field(
-        description="Where the HTML report is written; null for the cache directory."
-    )
+    output_path: str = Field(description="Where the HTML report is written.")
     expansion_factor_grid: list[float] | None = Field(
         description=(
             "max_expansion_factor values to re-run balancing at, charting fit "
@@ -264,10 +285,19 @@ class BalancingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_expansion_factor: float = Field(
-        description="Upper bound on a weight, as a multiple of its seed weight."
+        description="Upper bound on a weight, as a multiple of its base weight."
     )
     min_expansion_factor: float = Field(
-        description="Lower bound on a weight, as a multiple of its seed weight."
+        description="Lower bound on a weight, as a multiple of its base weight."
+    )
+    max_base_weight_gap: float = Field(
+        ge=0,
+        description=(
+            "Stop before balancing if a zone's base weights add up to more than this "
+            "share above or below its household target. The expansion factor limits "
+            "are multiples of the base weights, so they only mean what they say when "
+            "the base weights already add up to the target."
+        ),
     )
     min_weight: float | None = Field(description="Absolute weight floor; null for none.")
     max_weight: float | None = Field(
@@ -281,22 +311,14 @@ class BalancingConfig(BaseModel):
     default_importance: float = Field(
         description="Importance for a control without its own, when not MOE-derived."
     )
-
-
-@dataclass
-class ImportanceConfig:
-    """Importance weighting configuration.
-
-    Determines how per-control importance weights are computed:
-
-    - ``explicit`` — YAML-declared overrides (always highest precedence).
-    - ``moe_based`` — derive importance from PUMS replicate-weight CVs.
-    - ``default`` — fallback value when neither of the above applies.
-    """
-
-    explicit: dict[str, float] = field(default_factory=dict)
-    moe_based: bool = False
-    default: float = 100.0
+    min_survey_share_ratio: float = Field(
+        ge=0,
+        description=(
+            "Stop before balancing if any group's share of its area's survey records, "
+            "divided by its share of the area's PUMS, is below this. Such a group cannot "
+            "be weighted up to its target; merge it, or lower this to accept the miss."
+        ),
+    )
 
 
 def resolve_fitted_profiles(
@@ -338,50 +360,40 @@ class WeightingConfig:
     """Top-level configuration for the weighting pipeline.
 
     Groups the parameters that are *not* already covered by
-    [`ControlRegistryConfig`][processing.weighting.core.specs.ControlRegistryConfig],
-    [`BalancingConfig`][processing.weighting.core.specs.BalancingConfig], or
-    [`ImportanceConfig`][processing.weighting.core.specs.ImportanceConfig]
+    [`ControlRegistryConfig`][processing.weighting.core.specs.ControlRegistryConfig] or
+    [`BalancingConfig`][processing.weighting.core.specs.BalancingConfig]
     — primarily Census/geography settings and pipeline plumbing.
+
+    ``weight_profiles`` names the usability profiles that decide who carries
+    weight, one fit each. It is required: with several profiles stamped there is
+    no defensible default, and picking silently would weight a different
+    universe than the formatters emit.
     """
 
     geography: GeographyConfig
     state_fips: str
     pums_year: int
-    # Which usability profiles decide who carries weight, one fit each. Required:
-    # with several profiles stamped there is no defensible default, and picking
-    # silently would weight a different universe than the formatters emit.
+    pums_weights: PumsWeights
+    household_income: HouseholdIncome
+    use_imputed_values: bool
+    census_dir: Path
     weight_profiles: tuple[str, ...] = ()
     max_unplaceable_share: float = 0.01
-    pums_households: str | None = None
-    pums_persons: str | None = None
     sample_plan: str | None = None
-    cache_dir: Path | None = None
     expansion_factor_grid: list[float] | None = None
     strict_survey_nulls: bool = False
-    _fitted_profiles: tuple[str, ...] = field(default=(), init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Reject a weighting universe that is unstated or names a profile twice."""
-        self._fitted_profiles = resolve_fitted_profiles(self.weight_profiles)
-
-    @property
-    def fitted_profiles(self) -> tuple[str, ...]:
-        """One entry per balancing run."""
-        return self._fitted_profiles
-
-    def flag_for(self, profile: str) -> str:
-        """The verdict column the fit for *profile* is gated on.
-
-        A profile names both its gate and its weights -- ``usable_<profile>`` and
-        ``hh_weight_<profile>`` -- so there is no second setting to disagree with
-        the first.
-        """
-        return usable_col_for(profile)
+        self.weight_profiles = resolve_fitted_profiles(self.weight_profiles)
 
 
 @dataclass
 class ControlRegistryConfig:
-    """Parsed control definitions, merge specs, and derived target names.
+    """Parsed control definitions, 1-D merge specs, and derived target names.
+
+    Cross-tab merges are not here: they are applied when the cross-tab is
+    registered, from ``ControlSpec.merges``.
 
     Built via [`from_yaml`][processing.weighting.core.specs.ControlRegistryConfig.from_yaml]
     from the YAML ``controls`` block.
@@ -389,7 +401,6 @@ class ControlRegistryConfig:
 
     specs: list[ControlSpec]
     target_names: list[str]
-    crosstab_merges: list[MergeSpec]
     merges_1d: list[MergeSpec]
 
     @classmethod
@@ -399,26 +410,27 @@ class ControlRegistryConfig:
         specs = [ControlSpec(**{k: v for k, v in c.items() if k in _spec_keys}) for c in controls]
         target_names = [s.name for s in specs]
 
-        crosstab_merges: list[MergeSpec] = []
         merges_1d: list[MergeSpec] = []
 
+        def lower(groups: dict[str, list[str]]) -> dict[str, list[str]]:
+            # Group names are lower case downstream, so a label written AAPI is aapi
+            return {
+                label.lower(): [m.lower() for m in members] for label, members in groups.items()
+            }
+
         for c in controls:
-            # Cross-tab merges are applied at registration time, not here.
-            # Only parse 1-D merges and zone-specific merges.
             global_labels: set[str] = set()
             if c.get("merge"):
-                merges_1d.append(MergeSpec(control=c["name"], groups=c["merge"]))
-                global_labels = set(c["merge"].keys())
-            for zone_id, groups in c.get("zone_merges", {}).items():
+                merges_1d.append(MergeSpec(control=c["name"], groups=lower(c["merge"])))
+                global_labels = set(lower(c["merge"]))
+            for zone_id, raw_groups in c.get("zone_merges", {}).items():
+                groups = lower(raw_groups)
                 overlap = set(groups.keys()) & global_labels
                 if overlap:
                     msg = (
-                        "Control '%s' zone_merges for '%s' redefines global "
-                        "merge label(s) %s — the zone merge is redundant "
-                        "because the global merge already applies everywhere.",
-                        c["name"],
-                        zone_id,
-                        sorted(overlap),
+                        f"Control '{c['name']}' zone_merges for '{zone_id}' redefines global "
+                        f"merge label(s) {sorted(overlap)} — the zone merge is redundant "
+                        "because the global merge already applies everywhere."
                     )
                     raise ValueError(msg)
                 merges_1d.append(MergeSpec(control=c["name"], groups=groups, zones=[zone_id]))
@@ -426,7 +438,6 @@ class ControlRegistryConfig:
         return cls(
             specs=specs,
             target_names=target_names,
-            crosstab_merges=crosstab_merges,
             merges_1d=merges_1d,
         )
 
@@ -434,11 +445,6 @@ class ControlRegistryConfig:
     def importance_overrides(self) -> dict[str, float]:
         """Explicit importance overrides from YAML."""
         return {s.name: s.importance for s in self.specs if s.importance is not None}
-
-    @property
-    def all_merges(self) -> list[MergeSpec]:
-        """All merge specs (crosstab + 1-D) for diagnostics."""
-        return self.crosstab_merges + self.merges_1d
 
 
 @dataclass
@@ -460,20 +466,21 @@ class SamplePlan:
     """Stratified sampling plan mapping Census block groups to segments.
 
     Each row represents a Census block group.  Block groups that share
-    the same ``sample_segment`` are treated as a single stratum for
-    initial-weight computation:
-    ``base_weight = segment_bg_pop / segment_n_responses``.
+    the same ``sample_segment`` form one stratum, split by zone group
+    for initial-weight computation:
+    ``base_weight = cell_households / cell_n_responses``.
 
-    Block-group population totals are sourced from the crosswalk
-    ([`PumaCrosswalk.block_group_populations`][processing.weighting.data_prep.crosswalk.PumaCrosswalk.block_group_populations]), not from this table.
+    Household counts come from the decennial Census, grown to the PUMS year
+    ([`grow_block_households`][processing.weighting.balancing.base_weights.grow_block_households]),
+    not from this table.
 
     Attributes:
         strata: Required columns:
 
             * ``bg_geo_id``  (str) — 12-character Census block-group FIPS code.
             * ``sample_segment`` (str) — sampling-stratum label.  All block
-              groups sharing a segment get the same base weight.
-    """  # noqa: E501
+              groups sharing a segment, within one zone, get the same base weight.
+    """
 
     strata: pl.DataFrame
 
@@ -500,7 +507,7 @@ class SamplePlan:
 class ZoneStatus(NamedTuple):
     """Per-zone convergence diagnostics."""
 
-    geo_id: str
+    zone_group_id: str
     converged: bool
     iterations: int
     delta: float
@@ -519,7 +526,7 @@ class ZoneInput(NamedTuple):
     importance: np.ndarray
     master_idx: int
     max_iterations: int
-    geo_id: str
+    zone_group_id: str
     verbose: bool = True
 
 
@@ -536,9 +543,9 @@ class ZoneResult(NamedTuple):
 
 
 class GeographyCoverage(NamedTuple):
-    """How much of one profile's universe the control geography can place.
+    """How much of one profile's universe the target zones can place.
 
-    A household the control polygons do not contain belongs to no balancing zone,
+    A household the target zones do not contain belongs to no zone group,
     so no fit can give it a weight. That is a bound on what the weighting can
     answer, not a defect in the household, and it is counted so a reader sees the
     bound rather than inferring it from nulls.
@@ -550,7 +557,7 @@ class GeographyCoverage(NamedTuple):
 
     @property
     def n_unplaceable(self) -> int:
-        """Households in the profile that the control geography cannot place."""
+        """Households in the profile that the target zones cannot place."""
         return self.n_universe - self.n_placed
 
     @property
@@ -569,23 +576,23 @@ class ProfileFit:
     diagnostics describe and the checks read.
 
     Attributes:
-        profile: Usability profile fitted, or None for a single un-suffixed set.
-            Suffixes every weight column this fit writes.
+        profile: Usability profile fitted. Suffixes every weight column this
+            fit writes.
         usability_flag_col: The column that gated the seed and will gate the
-            propagation. Equal to *profile* whenever a profile was named.
+            propagation: ``usable_<profile>``, or ``survey_complete`` itself.
         seed_incidence: The seed this fit was solved from, carrying its own
             ``base_weight`` once balancing has run.
         pre_imputation_incidence: The same seed before null imputation, for the
             diagnostics report.
         imputation_summary: Per-control imputation metadata for this seed.
-        coverage: How much of the profile's universe had a control geography.
+        coverage: How much of the profile's universe was in a target zone.
         weights: Balancer output, keyed by ``hh_id``, carrying the *base* weight
             column name -- the suffix is applied where it is joined on.
         statuses: Per-zone convergence diagnostics.
         grid_results: Expansion-factor grid points, when a grid was configured.
     """
 
-    profile: str | None
+    profile: str
     usability_flag_col: str
     seed_incidence: pl.DataFrame
     pre_imputation_incidence: pl.DataFrame

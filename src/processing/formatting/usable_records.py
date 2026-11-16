@@ -1,6 +1,6 @@
 """Select the records a formatter may see, by reading a verdict rather than making one.
 
-A formatter does not decide which records exist. `cascade_completeness` decides
+A formatter does not decide which records exist. `cascade_usability` decides
 that once, for every consumer, and stamps it as a usability profile; this reads
 the profile the config names and keeps what it admits.
 
@@ -11,8 +11,8 @@ the output. Filtering on the same verdict the weighting used, and checking that
 the records kept carry every weight that came in, makes the two agree.
 
 Which records survive is decided by
-[`keep_records`][processing.completeness.kept_records.keep_records], which lives
-beside the cascade so the weighting can read the same answer.
+[`keep_records`][processing.formatting.kept_records.keep_records], which the
+weighting also runs, so both read the same answer.
 
 Weights and joint ids are read for the profile this consumer names, so its
 universe, its weights and its joint tours are the same universe. Where a record
@@ -27,27 +27,15 @@ import logging
 import polars as pl
 
 from data_canon.codebook.tours import TourDataQuality
-from processing.completeness import usable_col_for
-from processing.completeness.kept_records import (
+from processing.formatting.kept_records import (
     GATED_TABLES,
-    KeepLedger,
+    WEIGHT_COLUMNS,
     keep_records,
     select_profile_columns,
 )
+from processing.usability import usable_col_for
 
 logger = logging.getLogger(__name__)
-
-# What each table's weight is called, for the zero-weight report and the total check.
-_WEIGHT_COLUMNS = {
-    "households": "hh_weight",
-    "persons": "person_weight",
-    "person_days": "person_day_weight",
-    "tours": "tour_weight",
-    "linked_trips": "linked_trip_weight",
-    "unlinked_trips": "unlinked_trip_weight",
-    "joint_trips": "joint_trip_weight",
-    "joint_tours": "joint_tour_weight",
-}
 
 # Each table's own id, to name the records a failing check found.
 _ID_COLUMNS = {
@@ -66,7 +54,7 @@ _MAX_NAMED = 10
 
 
 def _log_ledger(
-    ledger: KeepLedger,
+    excluded: dict[str, int],
     kept: dict[str, pl.DataFrame],
     usability_flag_col: str,
 ) -> None:
@@ -78,10 +66,8 @@ def _log_ledger(
         f"Records kept for the model, gated on {usability_flag_col}:",
         "",
         f"  {'table':<16}{'not ' + usability_flag_col:>22}{'kept':>12}",
+        *(f"  {name:<16}{-excluded.get(name, 0):>22,}{kept[name].height:>12,}" for name in rows),
     ]
-    for name in rows:
-        excluded = ledger.excluded.get(name, 0)
-        lines.append(f"  {name:<16}{-excluded:>22,}{kept[name].height:>12,}")
     logger.info("\n".join(lines))
 
 
@@ -103,14 +89,14 @@ def keep_usable(
 
     Raises:
         ValueError: If a gated table carries no verdict, which means
-            `cascade_completeness` did not run or stamped a different profile.
+            `cascade_usability` did not run or stamped a different profile.
     """
     tables = select_profile_columns(tables, usability_profile)
     usability_flag_col = usable_col_for(usability_profile)
 
-    kept, ledger = keep_records(tables, usability_flag_col)
+    kept, excluded = keep_records(tables, usability_flag_col)
     _check_totals_kept(tables, kept, usability_flag_col)
-    _log_ledger(ledger, kept, usability_flag_col)
+    _log_ledger(excluded, kept, usability_flag_col)
     _log_exclusion_summary(tables.get("tours"), tables.get("linked_trips"), usability_flag_col)
     _warn_zero_weight(kept, usability_flag_col)
     return kept
@@ -131,7 +117,7 @@ def _check_totals_kept(
     Raises:
         ValueError: Naming the table, how much went missing, and which records.
     """
-    for name, col in _WEIGHT_COLUMNS.items():
+    for name, col in WEIGHT_COLUMNS.items():
         if name not in before or name not in kept or col not in before[name].columns:
             continue
         dropped = before[name].filter(
@@ -164,14 +150,14 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
       the run on a usable record without a weight, so a zero here means the
       weights did not come from either step: supplied some other way, or edited
       after it.
-    * **null** -- no weight was ever estimated. Either the control geography could
-      not place the household, so it belonged to no balancing zone, or no
+    * **null** -- no weight was ever estimated. Either the target zones could
+      not place the household, so it belonged to no zone group, or no
       weighting step ran at all.
 
     Neither is an error and neither is a drop: expanding to nothing is recoverable,
     deleting the record is not.
     """
-    for name, weight_col in _WEIGHT_COLUMNS.items():
+    for name, weight_col in WEIGHT_COLUMNS.items():
         df = tables.get(name)
         if df is None or weight_col not in df.columns:
             continue
@@ -191,8 +177,8 @@ def _warn_zero_weight(tables: dict[str, pl.DataFrame], usability_flag_col: str) 
             )
         if n_null:
             logger.warning(
-                "%d %s admitted by %s have no %s at all: either the control geography "
-                "could not place the household, so it was in no balancing zone, or no "
+                "%d %s admitted by %s have no %s at all: either the target zones "
+                "could not place the household, so it was in no zone group, or no "
                 "weighting step ran.",
                 n_null,
                 name,
@@ -269,8 +255,8 @@ def _log_exclusion_summary(
 
     lines = [
         f"Tours and member trips excluded by {usability_flag_col}.",
-        '  "incomplete" = flagged incomplete via the household>person>day>trip cascade; '
-        '"newly unusable" = otherwise-complete records.',
+        '  "incomplete" = survey_complete is false (the survey did not collect the '
+        'record fully); "newly unusable" = complete records the profile still rejects.',
         "",
         *_exclusion_grid("TOURS", excluded, tours.height),
     ]

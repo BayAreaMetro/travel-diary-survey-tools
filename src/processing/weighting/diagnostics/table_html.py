@@ -7,6 +7,16 @@ spanned headers.
 import re
 
 
+def profile_label(profile: str | None) -> str:
+    """How a profile is named to a reader."""
+    return profile or "the survey"
+
+
+def profile_key(profile: str | None) -> str:
+    """How a profile is named in markup and keys, for the toggle to address."""
+    return profile or "survey"
+
+
 def tag(name: str, text: str, **attrs: str) -> str:
     """Wrap *text* in an HTML element with optional attributes."""
     attr_str = "".join(f' {k.rstrip("_")}="{v}"' for k, v in attrs.items()) if attrs else ""

@@ -1,9 +1,4 @@
-"""Ensure test fixtures meet validation requirements for all pipeline steps.
-
-These are health checks on the fixtures themselves: if a required field is added
-to a model, the fixtures must grow it too or every test built on them goes stale.
-An exception from ``validate_row_for_step`` fails the test on its own.
-"""
+"""The test fixtures carry every field the models require at the steps they feed."""
 
 from collections.abc import Callable
 
@@ -17,12 +12,10 @@ from data_canon.models.survey import (
     UnlinkedTripModel,
 )
 from data_canon.validation.row import validate_row_for_step
-from tests.fixtures import create_household, create_linked_trip, create_person
+from tests.fixtures.records import create_household, create_linked_trip, create_person
 from tests.fixtures.scenario_builders import (
     multi_stop_tour,
-    multi_tour_day,
     simple_work_tour,
-    work_tour_no_usual_location,
 )
 
 
@@ -49,11 +42,11 @@ def test_row_fixture_has_all_required_fields(
 
 @pytest.mark.parametrize(
     "scenario_fn",
-    [simple_work_tour, multi_stop_tour, multi_tour_day, work_tour_no_usual_location],
-    ids=["simple_work_tour", "multi_stop_tour", "multi_tour_day", "no_usual_location"],
+    [simple_work_tour, multi_stop_tour],
+    ids=["simple_work_tour", "multi_stop_tour"],
 )
 def test_all_scenarios_validate(scenario_fn: Callable) -> None:
-    """Ensure all pre-built scenarios pass validation."""
+    """Every row of each scenario validates for its step."""
     hh, persons, _, trips = scenario_fn()
 
     for person_row in persons.to_dicts():

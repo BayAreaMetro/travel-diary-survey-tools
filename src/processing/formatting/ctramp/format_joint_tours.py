@@ -66,32 +66,8 @@ def format_joint_tour(
         how="left",
     )
 
-    participants_with_ages = joint_tours.join(
-        persons_canonical.select(["person_id", "age"]),
-        on="person_id",
-        how="left",
-    )
-    composition_agg = (
-        participants_with_ages.group_by("joint_tour_id")
-        .agg(
-            [
-                (pl.col("age") < config.age_adult).any().alias("has_children"),
-                (pl.col("age") >= config.age_adult).any().alias("has_adults"),
-            ]
-        )
-        .with_columns(
-            pl.when(pl.col("has_children") & pl.col("has_adults"))
-            .then(pl.lit(TourComposition.ADULTS_AND_CHILDREN.value))
-            .when(pl.col("has_children"))
-            .then(pl.lit(TourComposition.CHILDREN_ONLY.value))
-            .otherwise(pl.lit(TourComposition.ADULTS_ONLY.value))
-            .alias("Composition")
-        )
-    )
     joint_tours_formatted = participants_agg.join(
-        composition_agg.select(["joint_tour_id", "Composition"]),
-        on="joint_tour_id",
-        how="left",
+        _composition(joint_tours, config.age_adult), on="joint_tour_id", how="left"
     )
 
     # Income only: a joint record's weight and rate come from its own columns, never
@@ -103,57 +79,40 @@ def format_joint_tour(
     )
 
     if not linked_trips_canonical.is_empty():
-        joint_trip_stats = (
-            linked_trips_canonical.filter(pl.col("joint_tour_id").is_not_null())
-            .sort(["joint_tour_id", "depart_time", "arrive_time"])
+        joint_trips = linked_trips_canonical.filter(pl.col("joint_tour_id").is_not_null()).sort(
+            "joint_tour_id", "depart_time", "arrive_time"
+        )
+        party = joint_trips.group_by("joint_tour_id").agg(
+            pl.col("person_id").n_unique().alias("num_travelers"),
+            pl.col("access_mode").drop_nulls().first().alias("tour_access_mode"),
+            pl.col("egress_mode").drop_nulls().first().alias("tour_egress_mode"),
+        )
+        # Stops are one member's: every member makes the same trips, so counting
+        # them all multiplies each leg by the party size.
+        stops = (
+            joint_trips.join(
+                joint_tours_formatted.select("joint_tour_id", "person_id"),
+                on=["joint_tour_id", "person_id"],
+                how="semi",
+            )
             .group_by("joint_tour_id")
             .agg(
-                [
-                    pl.col("person_id").n_unique().alias("num_travelers"),
-                    (
-                        pl.when(pl.col("tour_direction") == TourDirection.OUTBOUND.value)
-                        .then(1)
-                        .sum()
-                        - 1
-                    )
-                    .clip(lower_bound=0)
-                    .alias("num_ob_stops"),
-                    (
-                        pl.when(pl.col("tour_direction") == TourDirection.INBOUND.value)
-                        .then(1)
-                        .sum()
-                        - 1
-                    )
-                    .clip(lower_bound=0)
-                    .alias("num_ib_stops"),
-                    pl.col("access_mode")
-                    .filter(pl.col("access_mode").is_not_null())
-                    .first()
-                    .alias("tour_access_mode"),
-                    pl.col("egress_mode")
-                    .filter(pl.col("egress_mode").is_not_null())
-                    .first()
-                    .alias("tour_egress_mode"),
-                ]
+                _stops(TourDirection.OUTBOUND).alias("num_ob_stops"),
+                _stops(TourDirection.INBOUND).alias("num_ib_stops"),
             )
         )
-        joint_tours_formatted = joint_tours_formatted.join(
-            joint_trip_stats, on="joint_tour_id", how="left"
-        ).with_columns(
-            [
-                pl.col("num_ob_stops").fill_null(0),
-                pl.col("num_ib_stops").fill_null(0),
-                pl.lit(None).alias("tour_access_mode"),
-                pl.lit(None).alias("tour_egress_mode"),
-            ]
+        joint_tours_formatted = (
+            joint_tours_formatted.join(party, on="joint_tour_id", how="left")
+            .join(stops, on="joint_tour_id", how="left")
+            .with_columns(pl.col("num_ob_stops", "num_ib_stops").fill_null(0))
         )
     else:
         joint_tours_formatted = joint_tours_formatted.with_columns(
-            [
-                pl.lit(None).cast(pl.Int64).alias("num_travelers"),
-                pl.lit(0).alias("num_ob_stops"),
-                pl.lit(0).alias("num_ib_stops"),
-            ]
+            pl.lit(None).cast(pl.Int64).alias("num_travelers"),
+            pl.lit(0).alias("num_ob_stops"),
+            pl.lit(0).alias("num_ib_stops"),
+            pl.lit(None).cast(pl.Int64).alias("tour_access_mode"),
+            pl.lit(None).cast(pl.Int64).alias("tour_egress_mode"),
         )
 
     if not unlinked_trips_canonical.is_empty():
@@ -174,9 +133,7 @@ def format_joint_tour(
                 pl.col("income"),
                 pl.lit(SchoolType.MISSING.value),
                 NO_EMPLOYMENT,
-                config.income_low_threshold,
-                config.income_med_threshold,
-                config.income_high_threshold,
+                config,
             ).alias("tour_purpose_ctramp"),
             ctramp_mode_expression(
                 pl.col("tour_mode"),
@@ -216,9 +173,8 @@ def format_joint_tour(
     return joint_tours_formatted.select(
         [
             pl.col("hh_id"),
-            # WARNING: Canonical processing uses joint_tour_id. CT-RAMP's legacy
-            # joint-tour schema calls this household-scoped number tour_id.
-            # Rename only at the output boundary to avoid conflating the identifiers.
+            # CT-RAMP calls the household-scoped joint-tour number tour_id; renamed
+            # only here so it is never confused with the canonical joint_tour_id.
             pl.col("_ctramp_joint_tour_id").alias("tour_id"),
             pl.col("tour_category"),
             pl.col("tour_purpose_ctramp").alias("tour_purpose"),
@@ -236,10 +192,40 @@ def format_joint_tour(
     )
 
 
+def _stops(direction: TourDirection) -> pl.Expr:
+    """Stops on one half of a tour: its trips in *direction* less the one reaching the end."""
+    return ((pl.col("tour_direction") == direction.value).sum() - 1).clip(lower_bound=0)
+
+
+def _composition(joint_tours: pl.DataFrame, age_adult: int) -> pl.DataFrame:
+    """Each joint tour's party: adults only, children only, or both.
+
+    Args:
+        joint_tours: Member tours carrying each member's ``age`` category.
+        age_adult: The first ``AgeCategory`` code counted as an adult.
+    """
+    return (
+        joint_tours.group_by("joint_tour_id")
+        .agg(
+            (pl.col("age") < age_adult).any().alias("has_children"),
+            (pl.col("age") >= age_adult).any().alias("has_adults"),
+        )
+        .select(
+            "joint_tour_id",
+            pl.when(pl.col("has_children") & pl.col("has_adults"))
+            .then(pl.lit(TourComposition.ADULTS_AND_CHILDREN.value))
+            .when(pl.col("has_children"))
+            .then(pl.lit(TourComposition.CHILDREN_ONLY.value))
+            .otherwise(pl.lit(TourComposition.ADULTS_ONLY.value))
+            .alias("Composition"),
+        )
+    )
+
+
 def _representative_tour(
     joint_tours: pl.DataFrame, linked_trips_canonical: pl.DataFrame, config: CTRAMPConfig
 ) -> pl.DataFrame:
-    """Reduce each joint tour's member tours to the representative member's.
+    """Reduce each joint tour's member tours to the representative member's, with their person_id.
 
     Falls back to the lowest person number when the member trips needed to choose
     a representative are absent, so a caller passing tours alone still gets one
@@ -270,7 +256,7 @@ def _representative_tour(
         return (
             joint_tours.sort(["joint_tour_id", "person_id"])
             .unique(subset="joint_tour_id", keep="first", maintain_order=True)
-            .select(["joint_tour_id", *columns])
+            .select(["joint_tour_id", "person_id", *columns])
         )
 
     representative = joint_tours.join(chosen, on=["joint_tour_id", "person_id"], how="semi")
@@ -280,7 +266,7 @@ def _representative_tour(
         pl.concat([representative, remainder])
         .sort(["joint_tour_id", "person_id"])
         .unique(subset="joint_tour_id", keep="first", maintain_order=True)
-        .select(["joint_tour_id", *columns])
+        .select(["joint_tour_id", "person_id", *columns])
     )
 
 
@@ -326,11 +312,10 @@ def joint_weight_columns(
     ``n_members / weight``.
 
     The count comes from the member table the caller already grouped, not from the
-    joint record. It matches what the weighting summed over because the CT-RAMP
-    filters drop an unusable member's tour and its trips upstream, then demote any
-    group left with fewer than two participants -- not because of the joint
-    record's own flag, and not because of the zero-weight filter, which only ever
-    removes whole households.
+    joint record. It matches what the weighting summed over because both read the
+    same usability profile: the cascade voids the joint ids of any grouping the
+    profile rejects and dissolves any left with fewer than two members, and
+    ``keep_usable`` keeps exactly the records the profile admits.
 
     Args:
         available: Columns present on the frame the expressions will run against.

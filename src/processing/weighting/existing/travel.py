@@ -8,22 +8,19 @@ import logging
 
 import polars as pl
 
-from processing.weighting.core.hierarchy import (
-    LEVELS,
-    weight_columns_for,
-)
-from processing.weighting.core.propagation import (
-    is_usable,
-)
+from processing.weighting.core.hierarchy import LEVELS, weight_columns_for
+from processing.weighting.core.propagation import is_usable, zero_unusable
 from processing.weighting.existing.population import SCALE_TOL, apply_usability
 
 logger = logging.getLogger(__name__)
 
 
-# Travel: unlinked trips follow their day; linked trips and tours are the mean
-# of their final trips. ``preserve_travel_totals`` decides only whether a kept
-# day's dropped trips hand their weight to its kept ones.
 TRAVEL_TABLES = frozenset({"unlinked_trips", "linked_trips", "tours"})
+"""Unlinked trips follow their day; linked trips and tours are the mean of their final trips.
+
+``preserve_travel_totals`` decides only whether a kept day's dropped trips hand
+their weight to its kept ones.
+"""
 
 
 # Overlays on travel: always the sum of their kept members, derived last.
@@ -63,12 +60,7 @@ def gate_travel(
         df = tables.get(table_name)
         if df is None or usability_flag_col not in df.columns:
             continue
-        tables[table_name] = df.with_columns(
-            pl.when(is_usable(usability_flag_col))
-            .then(pl.col(weight_col))
-            .otherwise(0.0)
-            .alias(weight_col)
-        )
+        tables[table_name] = df.with_columns(zero_unusable(weight_col, usability_flag_col))
     return {}
 
 
@@ -126,16 +118,18 @@ def check_usable_were_supplied(
     *,
     usability_flag_col: str,
 ) -> None:
-    """Stop on a usable record the supplier gave no weight (0 or none), or pass.
+    """Stop on usable records the supplier gave no weight (0 or none), or pass.
 
     Supplied weights only move between records, in proportion to what was
     supplied, so such a record would end at 0 and reach the model counting for
     nothing. Stopping here names the cause: this profile admits records outside
-    the supplier's universe.
+    the supplier's universe. Every table is checked before stopping, so one run
+    shows the whole gap rather than its first level.
 
     Raises:
-        ValueError: Naming the table, how many records, and the weight column.
+        ValueError: Naming each table, how many records, and the weight column.
     """
+    gaps: list[str] = []
     for table, weight_col in has_weight.items():
         df = tables.get(table)
         if df is None or usability_flag_col not in df.columns:
@@ -143,14 +137,17 @@ def check_usable_were_supplied(
         usable = df.filter(is_usable(usability_flag_col))
         zero = usable.filter(pl.col(weight_col).fill_null(0.0) <= 0).height
         if zero:
-            msg = (
+            gaps.append(
                 f"{table}: {zero} of {usable.height} record(s) admitted by "
-                f"{usability_flag_col} were supplied no {weight_col} (0 or none). The "
-                "profile admits records the supplier did not weight; make them unusable "
-                "under it, or supply their weights."
+                f"{usability_flag_col} were supplied no {weight_col} (0 or none)"
             )
-            logger.error(msg)
-            raise ValueError(msg)
+    if gaps:
+        msg = (
+            "; ".join(gaps) + ". The profile admits records the supplier did not weight; "
+            "make them unusable under it, or supply their weights."
+        )
+        logger.error(msg)
+        raise ValueError(msg)
 
 
 def trips_follow_their_day(

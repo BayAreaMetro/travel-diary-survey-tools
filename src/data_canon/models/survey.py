@@ -1,10 +1,7 @@
-"""Data models for trip linking and tour building.
+"""Pydantic models for the canonical survey tables.
 
-This module uses Pydantic for data validation.
-
-Models represent individual records (rows) rather than entire DataFrames.
-Use the validate_* functions to validate Polars DataFrames by iterating
-through rows.
+Models represent individual records (rows) rather than entire DataFrames;
+``CanonicalData.validate`` checks a table against its model row by row.
 
 Any field without None as an allowed type is considered required core data.
 
@@ -23,7 +20,7 @@ The usability columns are deliberately **not** declared below. A project names
 its profiles in config -- ``ctramp`` and ``analysis`` are this
 project's names, not the schema's -- so which of them a run produces is a
 project's choice. Declaring one would promise a column that a config need never
-ask for. ``cascade_completeness`` registers whichever it stamps as generated
+ask for. ``cascade_usability`` registers whichever it stamps as generated
 columns, each described by what it admits, which says more than a fixed field
 could: the description names the actual rules that profile relaxed.
 
@@ -36,7 +33,7 @@ counts and that it cannot be negative, so these columns are still described and
 still checked. See [`processing.weighting.core.hierarchy`]
 [processing.weighting.core.hierarchy].
 
-See [`processing.completeness`][processing.completeness] for the per-level rules
+See [`processing.usability`][processing.usability] for the per-level rules
 and the admission vocabulary.
 """
 
@@ -80,6 +77,14 @@ from data_canon.codebook.trips import (
 )
 from data_canon.core.schema_field import schema_field
 
+# Shared by the joint trip and joint tour tables.
+_GROUP_HH_DAY_ID = (
+    "The household-day this grouping happened on, shared by every member's "
+    "day. Not any one member's person_day_id: a grouping belongs to the household's "
+    "day, and a member's own day can be unusable while the others' are not."
+)
+_GROUP_TRAVEL_DATE = "The household-day's date, repeated here so it reads without a lookup."
+
 
 # Data Models ------------------------------------------------------------------
 class HouseholdModel(BaseModel):
@@ -93,6 +98,15 @@ class HouseholdModel(BaseModel):
     income: int | None = schema_field(ge=0, default=None)
     income_bin: IncomeBroad = schema_field()
     num_vehicles: int = schema_field(ge=0)
+    exclusion_reason: str | None = schema_field(
+        default=None,
+        description=(
+            "Why the project cleaner dropped this household, or null when kept. Any "
+            "reason makes every one of the household's days unusable under every "
+            "usability profile, and the household with them. survey_complete, the "
+            "vendor's verdict, is untouched."
+        ),
+    )
     survey_complete: bool = schema_field()
 
 
@@ -134,9 +148,7 @@ class PersonModel(BaseModel):
     commute_subsidy_use_free_parking: BooleanYesNo | None = schema_field(default=None)
     # Uses commute subsidy: Discounted (partially subsidized) parking at work
     commute_subsidy_use_discounted_parking: BooleanYesNo | None = schema_field(default=None)
-    # NOTE: is proxy is vague.
-    # Better and more flexible would be to have proxy_person_id on the proxied person
-    # This allows for multiple proxy reporters and is more explicit.
+    # NOTE: vague; a proxy_person_id on the proxied person would allow several reporters
     is_proxy: bool | None = schema_field(default=None)
     surveyable: bool | None = schema_field(
         default=None,
@@ -154,7 +166,7 @@ class PersonModel(BaseModel):
     survey_tech: SurveyTech = schema_field(
         description=(
             "The technology that collected this person's travel: a call center, a "
-            "form (browser, tablet or paper), or GPS (a phone app). A person whose "
+            "browser, or GPS (a phone app). A person whose "
             "travel was reported by someone else carries the technology it was "
             "reported through; one whose travel was never collected is MISSING."
         ),
@@ -178,10 +190,7 @@ class PersonDayModel(BaseModel):
         ge=1,
         fk_to="persons.person_id",
         required_child=True,
-        # Only surveyable persons must have a day. Unrelated household members
-        # file no travel and the vendor gives them no day rows, so requiring
-        # one of them can only be satisfied by fabricating a day that reads as
-        # a genuine no-travel day.
+        # Unrelated members file no travel; requiring their day would mean fabricating one
         required_child_when="surveyable",
     )
     person_day_id: int = schema_field(ge=1, unique=True)
@@ -203,6 +212,15 @@ class PersonDayModel(BaseModel):
             "Where the respondent said the day ended. Null where the survey did "
             "not ask. HOME or OTHER_HOME puts a home of theirs at the day's last "
             "trip destination; away from every reported home, that is another home."
+        ),
+    )
+    exclusion_reason: str | None = schema_field(
+        default=None,
+        description=(
+            "Why the project cleaner dropped this day, or null when kept. Any reason "
+            "makes the day unusable under every usability profile, and its "
+            "household-date incomplete where a profile needs every member's day. "
+            "survey_complete, the vendor's verdict, is untouched."
         ),
     )
     survey_complete: bool | None = schema_field(default=False)
@@ -229,13 +247,12 @@ class HouseholdDayModel(BaseModel):
         description=(
             "Every surveyable member's day on this date is complete, as the vendor "
             "judged each one; False where no surveyable member has a day on it. "
-            "Stamped by the cascade_completeness step. Under a profile that asks "
+            "Stamped by the cascade_usability step. Under a profile that asks "
             "for whole household-days, a person-day is only usable within one."
         ),
     )
-    # The usable-side mirror is stamped once per usability profile, as
-    # usable_{profile}. Those names come from config, so they cannot be model
-    # fields; cascade_completeness registers them as generated columns.
+    # usable_{profile} is named from config, so cascade_usability registers it
+    # as a generated column instead of a field here.
 
 
 class UnlinkedTripModel(BaseModel):
@@ -336,15 +353,12 @@ class LinkedTripModel(BaseModel):
     distance_meters: float = schema_field(ge=0)
     depart_time: datetime = schema_field()
     arrive_time: datetime = schema_field()
-    # This field is derivable, and tour aggregation already recomputes it with
-    # different semantics rather than reading it. See issue #81 for whether it
-    # should stay on the schema at all.
-    d_activity_duration: int = schema_field(
+    d_activity_duration: int | None = schema_field(
+        default=None,
         description=(
-            "Whole minutes spent at the trip destination before the next departure "
-            "(activity duration at the destination). Sentinel values: -1 when the "
-            "destination is home; -2 for the last trip of a person-day (no "
-            "subsequent departure)."
+            "Whole minutes spent at the trip destination before the person's next "
+            "departure that day. None for the last trip of a person-day, whose stay "
+            "has no recorded end."
         ),
     )
     tour_direction: TourDirection = schema_field()
@@ -561,17 +575,9 @@ class JointTripModel(BaseModel):
     joint_trip_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     hh_day_id: int = schema_field(
-        ge=1,
-        fk_to="household_days.hh_day_id",
-        description=(
-            "The household-day this grouping happened on, shared by every member's "
-            "day. Not any one member's person_day_id: a grouping belongs to the household's "
-            "day, and a member's own day can be unusable while the others' are not."
-        ),
+        ge=1, fk_to="household_days.hh_day_id", description=_GROUP_HH_DAY_ID
     )
-    travel_date: datetime = schema_field(
-        description="The household-day's date, repeated here so it reads without a lookup.",
-    )
+    travel_date: datetime = schema_field(description=_GROUP_TRAVEL_DATE)
     num_joint_travelers: int = schema_field(
         ge=2,
         description=(
@@ -601,17 +607,9 @@ class JointTourModel(BaseModel):
     joint_tour_id: int = schema_field(ge=1, unique=True)
     hh_id: int = schema_field(ge=1, fk_to="households.hh_id")
     hh_day_id: int = schema_field(
-        ge=1,
-        fk_to="household_days.hh_day_id",
-        description=(
-            "The household-day this grouping happened on, shared by every member's "
-            "day. Not any one member's person_day_id: a grouping belongs to the household's "
-            "day, and a member's own day can be unusable while the others' are not."
-        ),
+        ge=1, fk_to="household_days.hh_day_id", description=_GROUP_HH_DAY_ID
     )
-    travel_date: datetime = schema_field(
-        description="The household-day's date, repeated here so it reads without a lookup.",
-    )
+    travel_date: datetime = schema_field(description=_GROUP_TRAVEL_DATE)
     num_participants: int = schema_field(
         ge=2,
         description=(
@@ -728,8 +726,8 @@ class HabitualLocationDayModel(BaseModel):
             "Total measurable minutes spent at this location on this day. None "
             "when no visit that day had a measurable duration, which is not the "
             "same as zero: a stay that ran past the last trip of the day has no "
-            "recorded end, and arrivals home carry no duration at all (see "
-            "LinkedTripModel.d_activity_duration sentinels)."
+            "recorded end. Always None at home, whose stays run past the day's "
+            "ends, so a total would be only the part of the day that was seen."
         ),
     )
     n_visits: int = schema_field(

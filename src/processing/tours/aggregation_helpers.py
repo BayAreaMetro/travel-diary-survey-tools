@@ -79,7 +79,11 @@ def _aggregate_and_classify_tours(
     Groups trips by tour and calculates tour-level attributes including mode,
     timing, locations, and counts. Records what each tour is anchored on
     (``tour_type``) and, separately, how completely it reaches that anchor
-    (``tour_category``).
+    (``tour_category``). These are two independent facts and must not share a
+    column: ``TourType.WORK_BASED`` and ``TourCategory.PARTIAL_END`` are both
+    2, so writing the type into ``tour_category`` made every subtour read as
+    "start at home, end not at home". Data quality is graded separately, by
+    ``validate_and_correct_tours``.
 
     Args:
         linked_trips: Enhanced trip data with priorities and flags
@@ -120,7 +124,6 @@ def _aggregate_and_classify_tours(
             # Counts
             pl.col("linked_trip_id").count().alias("trip_count"),
             # Flags for classification
-            pl.col("subtour_num").first().alias("_subtour_num"),
             pl.col("_anchor_location_type").first().alias("_anchor_location_type"),
             pl.col("_o_at_anchor").first().alias("_o_at_anchor"),
             pl.col("_d_at_anchor").last().alias("_d_at_anchor"),
@@ -161,13 +164,8 @@ def _aggregate_and_classify_tours(
     one_trip_count = tours.filter(pl.col("trip_count") == 1).height
     logger.info("Tours: %d total, %d with a single trip", len(tours), one_trip_count)
 
-    # Classify what the tour is anchored on, and -- separately -- how completely
-    # it reaches that anchor. These are two orthogonal facts and must not share a
-    # column: TourType.WORK_BASED and TourCategory.PARTIAL_END are both 2, so
-    # writing the type into tour_category made every subtour read as
-    # "start at home, end not at home" and lose its boundary information.
-    # Validation separately flags data quality issues (tour_num=0, etc.).
-    is_subtour = pl.col("_subtour_num") > 0
+    # What the tour is anchored on, and separately how completely it reaches it
+    is_subtour = pl.col("subtour_num") > 0
     anchored_at_school = pl.col("_anchor_location_type") == LocationType.SCHOOL.value
     tours = tours.with_columns(
         [
@@ -210,12 +208,15 @@ def _assign_half_tour(
     is carried by ``parent_tour_id`` / ``subtour_num`` / ``tour_type`` -- so
     direction never encodes "this is a subtour".
 
+    A tour with no primary destination has null destination times, so neither
+    rule applies and its trips default to outbound.
+
     Args:
         linked_trips: Linked trips with tour_id assignments
         tours: Tour table with dest_arrive_time and dest_depart_time
 
     Returns:
-        Linked trips with half_tour_type (TourDirection enum) column added
+        Linked trips with a ``tour_direction`` (TourDirection) column added
         and tours with outbound and inbound modes added
     """
     logger.info("Assigning half-tour classification...")
@@ -244,10 +245,8 @@ def _assign_half_tour(
             # Inbound: trip departs after final departure from primary dest
             .when(pl.col("depart_time") >= pl.col("dest_depart_time"))
             .then(pl.lit(TourDirection.INBOUND))
-            # Single-trip tours have no non-last trip, so they have no primary
-            # destination and the times above are null. They are flagged
-            # SINGLE_TRIP and dropped by the formatters, so the direction is
-            # never read; outbound is the harmless default.
+            # A tour with no primary destination has null times; outbound is the
+            # default (see docstring)
             .otherwise(pl.lit(TourDirection.OUTBOUND))
             .alias("tour_direction"),
         ]
@@ -294,15 +293,16 @@ def aggregate_tour_attributes(
     """Aggregate trip data to tour-level records with attributes.
 
     Calculates tour attributes from trip data:
-    - Tour purpose: Highest priority destination, with duration tie-breaker
-      (When priorities equal, selects trip with longest activity duration)
+    - Tour purpose: the primary destination's purpose, chosen by
+      ``config.tour_purpose_method`` (duration-weighted score, or priority
+      rank with activity duration breaking ties)
     - Tour mode: Highest priority trip mode
     - Timing: First departure and last arrival
-    - Counts: Number of trips and stops
+    - Counts: Number of trips
 
-    IMPORTANT: Work-based subtours are aggregated separately with their own
-    tour_id (which includes subtour_num in the last 2 digits). The final output
-    includes both home-based tours and work-based subtours as separate records.
+    Work- and school-based subtours are aggregated separately with their own
+    tour_id (``tour_num * 1000 + subtour_num * 10`` after the person_day_id).
+    The output holds home-based tours and subtours as separate records.
 
     Args:
         linked_trips: Linked trips with tour_id
@@ -311,7 +311,7 @@ def aggregate_tour_attributes(
 
     Returns:
         Tuple of: (enhanced_linked_trips, tours)
-        - enhanced_linked_trips: Input trips with tour_id and subtour_id added
+        - enhanced_linked_trips: Input trips with ``tour_direction`` added
     """
     logger.info("Aggregating tour data...")
 

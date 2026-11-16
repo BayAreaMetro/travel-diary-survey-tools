@@ -31,11 +31,11 @@ flowchart TD
     S0(["Survey HH + Person"]) --> S1("Recode + pivot") --> SI[["Survey incidence"]]
   end
 
-  NI("Null imputation on survey only\nRF trained on PUMS incidence")
+  NI("Fractional imputation on survey only\nRF trained on PUMS by zone and household")
 
   subgraph shared_stage ["**Shared incidence transforms**"]
     direction TD
-    G1("Zone assignment\n• assign survey HHs\n• allocate PUMAs to control zones")
+    G1("Zone assignment\n• assign survey HHs\n• allocate PUMAs to zone groups")
     G2("Create cross-tab targets")
     G3("Apply merges\ncollapse merged categories")
     G1 --> G2
@@ -117,9 +117,13 @@ seed, weights or diagnostics.
     weight_profiles: [ctramp, daysim]
     sample_plan: data/sample_plan.csv
     max_unplaceable_share: 0.01
+    use_imputed_values: false
     census:
       state_fips: "06"
       pums_year: 2023
+      pums_weights: independent
+      household_income: related_members
+      census_dir: data/census
     geography:
       target_zones:
         file: zones/counties.shp
@@ -132,11 +136,13 @@ seed, weights or diagnostics.
     balancing:
       max_expansion_factor: 5.0
       min_expansion_factor: 0.01
+      max_base_weight_gap: 0.005
       min_weight: 1
       max_iterations: 10000
       n_workers: 8
       moe_based_importance: true
       default_importance: 100
+      min_survey_share_ratio: 0.25
     controls:
       - name: h_total
         importance: 200

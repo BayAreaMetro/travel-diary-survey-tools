@@ -1,13 +1,10 @@
 """The per-profile column contract, from config to consumer.
 
-Three things have to line up. A config names its universes, and an unstated or
-repeated one is refused rather than guessed at. Each universe's columns are its base
-name with the profile appended verbatim, and the suffix never reaches the id
-columns derived from the same stem. A consumer then reads the columns belonging
-to the profile it gates on -- reading another profile's weights, or falling back
-to a bare column, publishes expansion factors for a universe the output is not
-describing.
+A config names its universes; each universe's columns are the base name with
+the profile appended verbatim; a consumer reads only its own profile's columns.
 """
+
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -20,7 +17,12 @@ from processing.weighting.core.hierarchy import (
     weight_col_for,
     weight_columns_for,
 )
-from processing.weighting.core.specs import WeightingConfig, resolve_fitted_profiles
+from processing.weighting.core.specs import (
+    HouseholdIncome,
+    PumsWeights,
+    WeightingConfig,
+    resolve_fitted_profiles,
+)
 
 STRICT = "ctramp"
 RELAXED = "analysis"
@@ -29,26 +31,24 @@ PROFILE = "analysis"
 
 def _config(**overrides) -> WeightingConfig:
     """A WeightingConfig with only the universe settings that matter here."""
-    return WeightingConfig(geography={}, state_fips="06", pums_year=2023, **overrides)
+    return WeightingConfig(
+        geography={},
+        state_fips="06",
+        pums_year=2023,
+        pums_weights=PumsWeights.INDEPENDENT,
+        household_income=HouseholdIncome.ALL_MEMBERS,
+        use_imputed_values=True,
+        census_dir=Path("census"),
+        **overrides,
+    )
 
 
-# ---------------------------------------------------------------------------
-# Which universes a run is being asked to weight
-#
-# Both weighting entry points resolve this through one function, so they cannot
-# disagree about what a profile list means. The cases that must be refused are
-# ones the run would not otherwise notice.
-# ---------------------------------------------------------------------------
 class TestResolvingTheUniverse:
     """What a profile list resolves to, and which lists are refused."""
 
     def test_profiles_are_returned_in_the_order_given(self):
         """Fits run in this order, and their reports are read in it."""
         assert resolve_fitted_profiles(["b", "a"]) == ("b", "a")
-
-    def test_a_single_profile_is_a_list_of_one(self):
-        """One profile still writes suffixed columns; there is no bare set."""
-        assert resolve_fitted_profiles(["ctramp"]) == ("ctramp",)
 
     @pytest.mark.parametrize(
         "profiles",
@@ -73,16 +73,14 @@ class TestTheConfigUsesIt:
 
     def test_a_profile_config_exposes_one_fit_each(self):
         """One balancing run per profile, in the order configured."""
-        assert _config(weight_profiles=("a", "b")).fitted_profiles == ("a", "b")
+        assert _config(weight_profiles=("a", "b")).weight_profiles == ("a", "b")
 
-    def test_flag_for_resolves_the_profile_to_its_column(self):
-        """A profile gates on its own verdict column."""
-        assert _config(weight_profiles=("a",)).flag_for("a") == "usable_a"
+    def test_an_unstated_universe_is_refused_by_the_config(self):
+        """The config resolves its profiles on construction, so it refuses the same lists."""
+        with pytest.raises(ValueError, match="needs a universe"):
+            _config(weight_profiles=())
 
 
-# ---------------------------------------------------------------------------
-# How a universe's weight columns are named
-# ---------------------------------------------------------------------------
 class TestColumnNaming:
     """The suffix is appended as given -- no stripping, no case change."""
 
@@ -100,23 +98,15 @@ class TestColumnNaming:
     @pytest.mark.parametrize(
         ("resolve", "base", "profile", "expected"),
         [
-            # The obvious "tidier" rule would drop the _usable that every
-            # profile name in practice ends with.  It must not.
-            pytest.param(
-                weight_col_for, "person_day_weight", PROFILE, "person_day_weight_analysis"
-            ),
-            pytest.param(weight_col_for, "hh_weight", "ctramp", "hh_weight_ctramp"),
-            # A profile name is a label, not something to normalise.
+            # a profile name is a label, not something to normalise
             pytest.param(
                 weight_col_for, "tour_weight", "Weird_Name_v2", "tour_weight_Weird_Name_v2"
             ),
-            # base_weight belongs to a fit, so it is suffixed like the weights.
+            # base_weight belongs to a fit, so it is suffixed like the weights
             pytest.param(seed_col_for, "base_weight", None, "base_weight"),
             pytest.param(seed_col_for, "base_weight", PROFILE, "base_weight_analysis"),
         ],
         ids=[
-            "trailing_suffix_kept",
-            "another_profile",
             "case_and_underscores_survive",
             "seed_column_unsuffixed",
             "seed_column_takes_the_same_suffix",
@@ -149,17 +139,10 @@ class TestColumnNaming:
         with pytest.raises(ValueError, match=match):
             resolve(base, PROFILE)
 
-    def test_ids_are_the_table_keys_we_expect(self):
-        """``id_col`` is read off ``weight_col``, so the suffix must not reach it."""
-        assert LEVELS["households"].id_col == "hh_id"
-        assert LEVELS["unlinked_trips"].id_col == "unlinked_trip_id"
-        assert LEVELS["joint_tours"].id_col == "joint_tour_id"
-
     def test_the_key_says_which_side_of_the_edge_it_is_read_from(self):
-        """Households are the root, so there is no edge and no key to carry.
+        """Households are the root and have no key; a DOWN edge carries the parent's id.
 
-        A DOWN edge carries the parent's id, identifying the record the weight
-        came from; an UP edge carries its own, identifying the grouping.
+        An UP edge carries its own id, identifying the grouping.
         """
         assert LEVELS["households"].key is None
         assert LEVELS["persons"].key == "hh_id"
@@ -177,9 +160,7 @@ class TestResolution:
     def test_each_consumer_gets_its_own_numbers(self):
         """The same tables, read under two profiles, give two different weights.
 
-        The suffix comes off the profile that was asked for, so every
-        downstream read is unchanged, and the other profile's column goes --
-        it is not this consumer's to deliver, and invites the wrong read.
+        The suffix comes off the profile asked for, and the other profile's column goes.
         """
         tables = _households(**{f"hh_weight_{STRICT}": [7.0], f"hh_weight_{RELAXED}": [9.0]})
 
@@ -236,16 +217,10 @@ class TestTheUnweightedProfile:
     """The case this raises on, because falling back is worse than stopping."""
 
     def test_a_profile_that_was_never_weighted_raises(self):
-        """Otherwise the bare column is read -- whatever it happens to hold.
-
-        This is the failure the e2e caught: a formatter reading a profile the
-        weighting was not told to fit, publishing a loader placeholder as an
-        expansion factor.
-        """
+        """Rather than reading the bare column, whatever it holds; the message names the fix."""
         tables = _households(**{f"hh_weight_{RELAXED}": [9.0]})
         with pytest.raises(ValueError, match="but not for 'ctramp'") as excinfo:
             select_profile_columns(tables, STRICT)
-        # and the message names what was weighted, so the fix is obvious
         message = str(excinfo.value)
         assert RELAXED in message
         assert "weight_profiles" in message

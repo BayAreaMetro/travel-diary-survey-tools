@@ -94,7 +94,7 @@ import logging
 
 import polars as pl
 
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.habitual_locations import MatchConfig
 from utils.create_ids import create_tour_ids
 
@@ -104,18 +104,21 @@ from .detection_helpers import (
     expand_anchor_periods,
     identify_home_based_tours,
 )
-from .joint_tour_helpers import build_joint_tours_table, identify_joint_tours
+from .joint_tour_helpers import (
+    build_joint_tours_table,
+    identify_joint_tours,
+    without_joint_tours,
+)
 from .location_helpers import add_anchor_flags, classify_trip_locations
 from .tour_configs import TourConfig
 from .validation_helpers import validate_and_correct_tours
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 @step(
     requires={
-        "persons": {"person_id", "age", "employment", "student", "school_type"},
+        "persons": {"person_id", "age", "employment", "student"},
         "unlinked_trips": {"person_day_id", "linked_trip_id", "depart_time", "arrive_time"},
         "linked_trips": {
             "person_day_id",
@@ -137,6 +140,7 @@ logger = logging.getLogger(__name__)
             "source",
         },
         "person_days": {"person_day_id", "hh_day_id", "travel_date", "begin_day", "end_day"},
+        "joint_trips": set(),  # whether any exist
     },
     produces={
         "unlinked_trips": {"tour_id", "joint_tour_id"},
@@ -146,14 +150,9 @@ logger = logging.getLogger(__name__)
     },
 )
 def extract_tours(
-    persons: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
-    linked_trips: pl.DataFrame,
-    habitual_locations: pl.DataFrame,
-    person_days: pl.DataFrame,
+    tables: Tables,
     extraction: TourConfig,
     habitual_match: MatchConfig,
-    joint_trips: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Extract hierarchical tour structures from linked trip data.
 
@@ -161,22 +160,16 @@ def extract_tours(
     and temporal patterns. See module docstring for complete algorithm description.
 
     Args:
-        persons: Person attributes, for the person category purpose priority is
-            ranked by.
-        unlinked_trips: Individual trip segments. Will receive tour_id assignment.
-        linked_trips: Journey records with coordinates and timing. Required columns:
-            person_id, person_day_id, o_lon, o_lat, d_lon, d_lat, depart_time, arrive_time.
-        habitual_locations: The person's habitual locations, from
-            ``detect_habitual_locations``. Read only.
-        person_days: Days with ``begin_day``/``end_day``. A day stated to begin or end
-            at home counts beside the trip purpose at its first origin or last
-            destination.
+        tables: ``persons`` (for the person category purpose priority is ranked
+            by), ``unlinked_trips``, ``linked_trips``, ``habitual_locations``
+            (from ``detect_habitual_locations``, read only), ``person_days``
+            (a day stated to begin or end at home counts beside the trip purpose
+            at its first origin or last destination) and ``joint_trips`` (joint
+            tours are identified when there are any).
         extraction: Tour-building rules. See ``TourConfig``.
         habitual_match: Whether a trip end is at a habitual location, and the
             distance within which it returns to a tour's primary destination.
             The tours' own setting, separate from ``detect_habitual_locations``'.
-        joint_trips: Optional joint trip aggregations. If provided, enables joint
-            tour identification based on stable participant groups.
 
     Returns:
         Dictionary containing:
@@ -187,13 +180,22 @@ def extract_tours(
             - tours: Aggregated tour records with purpose, mode, timing, trip counts,
               tour_data_quality and joint_tour_id
             - joint_tours: One record per joint tour
+
+        ``person_category`` (worker/student, joined on so purpose priority can
+        be ranked) is dropped with the underscored working columns: it predates
+        the underscore convention and is derived from ``persons``, not a survey
+        fact.
     """
     logger.info("Building tours from linked trip data...")
+    persons = tables["persons"]
+    unlinked_trips = tables["unlinked_trips"]
+    linked_trips = tables["linked_trips"]
+    habitual_locations = tables["habitual_locations"]
+    person_days = tables["person_days"]
 
     person_categories = persons.select("person_id", extraction.person_category_expression())
 
-    msg = f"Processing {len(persons)} persons, {len(linked_trips)} trips"
-    logger.info(msg)
+    logger.info("Processing %d persons, %d trips", len(persons), len(linked_trips))
 
     # Step 1: Say which habitual location each trip end is at, and classify it
     linked_trips_classified = classify_trip_locations(
@@ -231,19 +233,15 @@ def extract_tours(
     )
 
     # Step 6: Identify joint tours (tours where all trips involve same group)
-    if joint_trips is not None and len(joint_trips) > 0:
+    if len(tables["joint_trips"]) > 0:
         linked_trips_with_tour_dir, tours = identify_joint_tours(
             linked_trips_with_tour_dir,
             tours,
         )
     else:
-        # No joint trips, add null joint_tour_id columns
-        linked_trips_with_tour_dir = linked_trips_with_tour_dir.with_columns(
-            pl.lit(None, dtype=pl.Int64).alias("joint_tour_id")
-        )
-        tours = tours.with_columns(pl.lit(None, dtype=pl.Int64).alias("joint_tour_id"))
+        linked_trips_with_tour_dir, tours = without_joint_tours(linked_trips_with_tour_dir, tours)
 
-    # Step 7: Validate tours and correct data quality issues
+    # Step 7: Grade each tour's data quality
     # Sorted: tours come out of group_bys in no fixed order, so runs would differ.
     tours = validate_and_correct_tours(
         tours,
@@ -258,25 +256,20 @@ def extract_tours(
         how="left",
     )
 
-    # Drop temporary columns, any starting with underscore. ``person_category``
-    # is the same kind of thing -- a worker/student label joined on so purpose
-    # priority can be ranked -- it just predates the underscore convention, and
-    # it is derivable from the persons table rather than a survey fact.
-    for df in [linked_trips_with_tour_dir, tours]:
-        _cols = df.columns
-        for c in _cols:
-            if c.startswith("_") or c == "person_category":
-                df.drop_in_place(c)
-
-    msg = (
-        f"Tour building complete: {len(linked_trips_with_tour_dir)} "
-        f"linked trips, {len(tours)} tours."
-        "\nTour count may increase due to sub-tours being identified."
+    # Drop working columns: underscored ones, and person_category (see docstring)
+    linked_trips_with_tour_dir, tours = (
+        df.drop([c for c in df.columns if c.startswith("_") or c == "person_category"])
+        for df in (linked_trips_with_tour_dir, tours)
     )
-    logger.info(msg)
 
-    # Step 9: Collapse the member tours into the canonical joint_tours table, so
-    # the group is a record in its own right rather than a grouping key.
+    logger.info(
+        "Tour building complete: %d linked trips, %d tours."
+        "\nTour count may increase due to sub-tours being identified.",
+        len(linked_trips_with_tour_dir),
+        len(tours),
+    )
+
+    # Step 9: Collapse member tours into joint_tours, one record per group
     joint_tours = build_joint_tours_table(tours, person_days)
 
     return {

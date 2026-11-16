@@ -18,12 +18,7 @@ from processing.weighting.controls.registry import CONTROLS
 
 @pytest.fixture
 def standard_config() -> CTRAMPConfig:
-    """The CT-RAMP config every formatter test runs under.
-
-    Six modules used to define this separately and had drifted into three
-    variants: one used 60k/150k/240k income thresholds, two left ``age_adult``
-    to its default. None of them depended on the difference.
-    """
+    """The CT-RAMP config every formatter test runs under."""
     return CTRAMPConfig(
         usability_profile="test",
         income_low_threshold=30000,  # $30k ($2000, MTC)
@@ -50,6 +45,7 @@ def pums_households() -> pl.DataFrame:
             "VEH": [1, 2, 0],
             "NOC": [0, 2, 0],
             "TYPEHUGQ": [1, 1, 1],
+            "ADJINC": [1.019518, 1.019518, 1.019518],
         }
     )
 
@@ -63,7 +59,9 @@ def pums_persons() -> pl.DataFrame:
             "SPORDER": [1, 2, 1, 2, 3, 4, 1],
             "PUMA": ["00100", "00100", "00100", "00100", "00100", "00100", "00200"],
             "ST": ["06", "06", "06", "06", "06", "06", "06"],
-            "PWGTP": [100.0, 100.0, 200.0, 200.0, 200.0, 200.0, 150.0],
+            # Not the household weight: the ACS weights persons on their own, so a
+            # target summed on the wrong one comes out different.
+            "PWGTP": [90.0, 130.0, 180.0, 230.0, 220.0, 190.0, 160.0],
             "AGEP": [35, 33, 40, 38, 10, 7, 65],
             "SEX": [1, 2, 1, 2, 1, 2, 2],
             "ESR": [1, 1, 1, 6, 0, 0, 6],  # 0 = under 16

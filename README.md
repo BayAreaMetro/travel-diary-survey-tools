@@ -73,7 +73,7 @@ flowchart LR
     Load([load_data]) --> Clean(["clean_#lt;project#gt;"]) --> Impute([imputation]) --> Link([link_trips])
     Link --> Hab([detect_habitual_locations]) --> Joint([detect_joint_trips]) --> Tours([extract_tours])
     Tours --> Zones([add_zone_ids]) --> Comp
-    Comp["<b>cascade_completeness</b><br/>• usable_ctramp<br/>• usable_daysim<br/>• usable_analysis"] --> Weights
+    Comp["<b>cascade_usability</b><br/>• usable_ctramp<br/>• usable_daysim<br/>• usable_analysis"] --> Weights
     PUMS[/PUMS + sample plan/] --> Weights
     Weights["<b>compute_weights</b><br/>for each profile:<br/>seed → balance<br/>→ propagate"]
     Weights --> CT([format_ctramp]) --> Write([write_data])
@@ -97,7 +97,7 @@ flowchart LR
   style DS fill:#ffe0b2,color:#000
 ```
 
-The profile names are the bats_2023 project's; each project declares its own under `cascade_completeness`. Each formatter keeps the records, and reads the weights, of the profile named after it.
+The profile names are the bats_2023 project's; each project declares its own under `cascade_usability`. Each formatter keeps the records, and reads the weights, of the profile named after it.
 
 
 ### Pipeline Steps
@@ -176,7 +176,6 @@ TM2_shapefile_dir: "{{ TM2PY_UTILS_CLONE }}/tm2py_utils/inputs/maz_taz/shapefile
 steps:
   - name: load_data
     validate_input: false  # overrides the step's @step() default; leave it out to keep that
-    cache: true
     params:
       input_paths:
         households: "{{ survey_dir }}/hh.csv"
@@ -205,7 +204,7 @@ steps:
           shapefile: "{{ TM2_shapefile_dir }}/tazs_TM2_2_5.shp"
           zone_id_field: "TAZ_NODE"
 
-  # ... cascade_completeness, compute_weights, format_ctramp, format_daysim
+  # ... cascade_usability, compute_weights, format_ctramp, format_daysim
 
   - name: write_data
     validate_input: true
@@ -230,7 +229,7 @@ from clean_bats_2023 import clean_2023_bats  # the project's own step, tagged wi
 from pipeline.pipeline import Pipeline
 from processing import (
     add_zone_ids,
-    cascade_completeness,
+    cascade_usability,
     compute_weights,
     detect_habitual_locations,
     detect_joint_trips,
@@ -255,7 +254,7 @@ processing_steps = [
     detect_joint_trips,
     extract_tours,
     add_zone_ids,
-    cascade_completeness,
+    cascade_usability,
     compute_weights,
     format_ctramp,
     format_daysim,
@@ -266,7 +265,6 @@ if __name__ == "__main__":
     pipeline = Pipeline(
         config_path=CONFIG_PATH,
         steps=processing_steps,
-        caching=Path(".cache/2023"),
     )
     result = pipeline.run()
 ```
@@ -275,9 +273,6 @@ To run, press the green arrow in your IDE, or run from command line:
 
 ```bash
 uv run python projects/bats_2023/run.py
-
-# Clear cache before running
-uv run python projects/bats_2023/run.py --clear-cache
 ```
 
 **Logging**: The pipeline automatically creates a log file in the output directory (e.g., `output/pipeline.log`) that contains all console output plus additional debugging information.
@@ -407,9 +402,8 @@ travel-diary-survey-tools/
 │   ├── pipeline/ <---------------- # Pipeline orchestration code.
 │   │   ├── pipeline.py             # Pipeline: runs the configured steps
 │   │   ├── config.py               # Config loading and {{ }} templates
-│   │   ├── decoration.py           # @step(): validation, caching, contracts
-│   │   ├── step_registry.py        # What each step requires and produces
-│   │   └── cache.py
+│   │   ├── decoration.py           # @step(): validation, contracts
+│   │   └── step_registry.py        # What each step requires and produces
 │   ├── processing/ <-------------- # Processing steps go here, one package each!
 │   │   ├── read_write/
 │   │   ├── imputation/
@@ -418,7 +412,7 @@ travel-diary-survey-tools/
 │   │   ├── joint_trips/
 │   │   ├── tours/
 │   │   ├── add_zone_ids/
-│   │   ├── completeness/
+│   │   ├── usability/
 │   │   ├── weighting/
 │   │   ├── final_check/
 │   │   └── formatting/ <---------- # Define bespoke output formatting here!

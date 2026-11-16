@@ -34,6 +34,16 @@ def incorporate_day_into_ids(
     Both formulas are invertible: the original IDs can always be recovered from
     the CTRAMP IDs.
 
+    A household or person expanded to X day-records carries weight W/X on each,
+    so the weights still sum to W; a household's days are its household-days,
+    not its person-day rows. ``telecommute_time`` is carried onto persons when
+    present, as ``format_persons``' work-from-home indicator.
+
+    ``person_days`` is already limited to the profile's usable days (and so to
+    its travel days). Tours, linked trips and joint trips are kept only on those
+    days, so every one of them joins back to a person record; their order is
+    kept.
+
     Args:
         households: Canonical households (one row per household).
         persons: Canonical persons (one row per person).
@@ -48,10 +58,7 @@ def incorporate_day_into_ids(
         each table is expanded to the person-day level and hh_id / person_id
         reflect the day-encoded IDs.
     """
-    # Build a person-day map: original person_id →
-    # (ctramp_person_id, ctramp_hh_id[, telecommute_time]).
-    # telecommute_time is carried through when present so format_persons can use
-    # it directly as the WFH indicator instead of relying on job_type alone.
+    # original person_id -> (ctramp_person_id, ctramp_hh_id[, telecommute_time])
     _day_cols = [
         pl.col("person_id"),
         pl.col("person_day_id").alias("ctramp_person_id"),
@@ -61,10 +68,7 @@ def incorporate_day_into_ids(
         _day_cols.append(pl.col("telecommute_time"))
     person_day_map = person_days.select(_day_cols)
 
-    # Count survey days per household and per person for weight scaling.
-    # When a household/person is expanded to X day-records, each copy must
-    # carry weight W/X so the sum of weights is preserved across the expansion.
-    # A household's days are its household-days, not its person-day rows.
+    # Days per household and per person, to divide the weights by.
     hh_day_unique = person_days.select("hh_id", pl.col("hh_day_id").alias("ctramp_hh_id")).unique()
     hh_num_days = hh_day_unique.group_by("hh_id").agg(pl.len().alias("num_hh_days"))
     person_num_days = person_days.group_by("person_id").agg(pl.len().alias("num_person_days"))
@@ -109,36 +113,24 @@ def incorporate_day_into_ids(
         len(persons),
     )
 
-    # The `person_days` table has already been filtered to the profile's usable days,
-    # which fall only on the days of the week it takes (its travel_days). Tours,
-    # trips, and joint trips must also be restricted to those days so that every
-    # tour/trip record can be joined back to a person record. The inner joins drop
-    # the rest and bring each record its household-day, keeping the records in
-    # order as the semi-joins they replace did.
     valid_days = person_days.select("person_day_id", "hh_day_id")
 
-    # Update tours: drop non-target days, then encode CTRAMP IDs
-    if len(tours) > 0 and "person_day_id" in tours.columns:
-        tours = (
-            tours.join(valid_days, on="person_day_id", how="inner", maintain_order="left")
+    def to_day_ids(df: pl.DataFrame) -> pl.DataFrame:
+        """Keep *df* on the usable days, with the day-encoded hh_id and person_id."""
+        if len(df) == 0 or "person_day_id" not in df.columns:
+            return df
+        return (
+            df.join(valid_days, on="person_day_id", how="inner", maintain_order="left")
             .with_columns(
                 pl.col("hh_day_id").alias("hh_id"), pl.col("person_day_id").alias("person_id")
             )
             .drop("hh_day_id")
         )
 
-    # Update linked_trips: drop non-target days, then encode CTRAMP IDs
-    if len(linked_trips) > 0 and "person_day_id" in linked_trips.columns:
-        linked_trips = (
-            linked_trips.join(valid_days, on="person_day_id", how="inner", maintain_order="left")
-            .with_columns(
-                pl.col("hh_day_id").alias("hh_id"), pl.col("person_day_id").alias("person_id")
-            )
-            .drop("hh_day_id")
-        )
+    tours = to_day_ids(tours)
+    linked_trips = to_day_ids(linked_trips)
 
-    # Update joint_trips: a joint trip belongs to its household-day. Dropping those
-    # on household-days that are not target days follows the joins above.
+    # A joint trip belongs to its household-day.
     if len(joint_trips) > 0:
         joint_trips = joint_trips.join(
             valid_days.select("hh_day_id").unique(), on="hh_day_id", how="semi"

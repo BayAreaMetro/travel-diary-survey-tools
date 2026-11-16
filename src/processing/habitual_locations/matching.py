@@ -27,7 +27,7 @@ from .habitual_location_configs import MatchConfig
 
 # Answers to "where did the day begin/end?" that name a home, as the purpose
 # that says the same thing.
-_STATED_DAY_PURPOSE = {
+STATED_DAY_PURPOSE = {
     BeginEndDay.HOME.value: Purpose.HOME,
     BeginEndDay.OTHER_HOME.value: Purpose.OTHER_RESIDENCE,
 }
@@ -90,9 +90,9 @@ def with_stated_day_ends(points: pl.DataFrame, person_days: pl.DataFrame) -> pl.
     Returns:
         The points with ``stated_purpose`` and ``stated_purpose_category``.
     """
-    stated_purpose = {code: p.value for code, p in _STATED_DAY_PURPOSE.items()}
+    stated_purpose = {code: p.value for code, p in STATED_DAY_PURPOSE.items()}
     stated_category = {
-        code: PurposeToCategoryMap.get_category(p).value for code, p in _STATED_DAY_PURPOSE.items()
+        code: PurposeToCategoryMap.get_category(p).value for code, p in STATED_DAY_PURPOSE.items()
     }
     answer = (
         pl.when(pl.col("is_day_start"))
@@ -199,8 +199,9 @@ def match_points(
 def best_match(matches: pl.DataFrame) -> pl.DataFrame:
     """Pick one location per point: the nearest, then the lower identifier.
 
-    Only locations of one kind should compete; the identifier breaks exact ties
-    so the answer never depends on row order.
+    Which kinds compete is the caller's choice: ``match_trip_ends`` filters to
+    one kind first, ``build_location_days`` lets every kind compete. The
+    identifier breaks exact ties so the answer never depends on row order.
     """
     return (
         matches.sort(["_pt", "_d", "habitual_location_id"])

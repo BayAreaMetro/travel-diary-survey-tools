@@ -1,11 +1,10 @@
-"""Putting the survey and the PUMS on the same map.
+"""Putting the survey and the PUMS on the same map, on synthetic geometries.
 
-The crosswalk redistributes PUMA-level control totals onto the target zones, by
-rasterizing the block populations and cross-tabulating them with sub-pixel
-coverage. Synthetic geometries throughout -- no Census API or TIGER downloads.
-Beside it sit the two things that go wrong at the edges: households the control
-geography cannot place at all, and the Census API failing mid-run.
+The crosswalk, households the control geography cannot place, and the Census
+API failing mid-run.
 """
+
+from typing import ClassVar
 
 import geopandas as gpd
 import numpy as np
@@ -15,11 +14,9 @@ import requests
 from rasterio.transform import from_bounds
 from shapely.geometry import box
 
-from processing.weighting.core.specs import ControlSpec, ControlTotals
 from processing.weighting.data_prep import census_geo
 from processing.weighting.data_prep.census_geo import puma_vintage_for_pums_year
 from processing.weighting.data_prep.control_data import (
-    build_control_totals,
     recode_pums_households,
     recode_pums_persons,
 )
@@ -29,6 +26,7 @@ from processing.weighting.data_prep.crosswalk import (
     TargetZoneConfig,
     _load_target_zones,
 )
+from processing.weighting.data_prep.incidence import aggregate_control_totals, build_incidence_table
 from processing.weighting.diagnostics.crosswalk_map import crosswalk_figure
 from processing.weighting.validation.coverage import check_control_geography_coverage
 from utils.crosswalk import (
@@ -39,9 +37,6 @@ from utils.crosswalk import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Fixtures: synthetic geographies
-# ---------------------------------------------------------------------------
 @pytest.fixture
 def two_pumas() -> gpd.GeoDataFrame:
     """Two adjacent rectangular PUMAs covering a 2000m x 1000m region.
@@ -98,9 +93,148 @@ def target_zone_file(three_target_zones, tmp_path) -> str:
     return str(path)
 
 
-# ---------------------------------------------------------------------------
-# Tests: census_geo helpers
-# ---------------------------------------------------------------------------
+def _serve_census(monkeypatch, blocks: dict[str, int], counties=("001",)) -> list[dict]:
+    """Answer Census API requests from *blocks*, recording each request's params."""
+    asked: list[dict] = []
+
+    def fake_get(_url, params, timeout):  # noqa: ARG001
+        asked.append(params)
+        if params["get"] == "NAME":
+            return [["NAME", "state", "county"]] + [
+                [f"County {c}, California", "06", c] for c in counties
+            ]
+        header = [params["get"], "state", "county", "tract", "block"]
+        return [header] + [[str(n), g[:2], g[2:5], g[5:11], g[11:]] for g, n in blocks.items()]
+
+    monkeypatch.setattr(census_geo, "_census_get", fake_get)
+    return asked
+
+
+class TestBlockHouseholds:
+    """Sample-plan base weights count households, block by block."""
+
+    BLOCKS: ClassVar[dict[str, int]] = {
+        "060010001001001": 7,
+        "060010001001000": 3,
+        "060010001002000": 5,
+    }
+
+    def test_one_row_per_block(self, monkeypatch, tmp_path):
+        """Each block keeps its own count, sorted by GEOID."""
+        _serve_census(monkeypatch, self.BLOCKS)
+
+        result = census_geo.get_block_households("06", 2023, tmp_path)
+
+        assert result.rows() == [
+            ("060010001001000", 3),
+            ("060010001001001", 7),
+            ("060010001002000", 5),
+        ]
+
+    @pytest.mark.parametrize(
+        ("pums_year", "variable", "file"),
+        [
+            (2023, "H1_002N", "census_2020/block_households_06.parquet"),
+            (2019, "H003002", "census_2010/block_households_06.parquet"),
+        ],
+    )
+    def test_asks_for_occupied_units_and_saves_them_by_vintage(
+        self, monkeypatch, tmp_path, pums_year, variable, file
+    ):
+        """Each vintage names households in its own Census variable and folder."""
+        asked = _serve_census(monkeypatch, self.BLOCKS)
+
+        census_geo.get_block_households("06", pums_year, tmp_path)
+
+        assert [p["get"] for p in asked if p["get"] != "NAME"] == [variable]
+        assert (tmp_path / file).exists()
+
+    def test_2010_is_fetched_one_county_at_a_time(self, monkeypatch, tmp_path):
+        """The 2010 endpoint has no statewide block query."""
+        asked = _serve_census(monkeypatch, self.BLOCKS, counties=("001", "075"))
+
+        census_geo.get_block_households("06", 2019, tmp_path)
+
+        assert sorted(p["in"] for p in asked if p["get"] != "NAME") == [
+            "state:06 county:001",
+            "state:06 county:075",
+        ]
+
+    def test_a_saved_file_is_read_not_fetched(self, monkeypatch, tmp_path):
+        """Once downloaded, later runs read the file and ask the API nothing."""
+        asked = _serve_census(monkeypatch, self.BLOCKS)
+        first = census_geo.get_block_households("06", 2023, tmp_path)
+        n_asked = len(asked)
+
+        second = census_geo.get_block_households("06", 2023, tmp_path)
+
+        assert first.equals(second)
+        assert len(asked) == n_asked
+
+    def test_an_empty_response_stops(self, monkeypatch, tmp_path):
+        """No counts means no base weights, so the run should not go on."""
+        _serve_census(monkeypatch, {})
+
+        with pytest.raises(ValueError, match="returned no H1_002N blocks"):
+            census_geo.get_block_households("06", 2023, tmp_path)
+        assert not list(tmp_path.rglob("*.parquet*"))
+
+
+class TestBlockPopulation:
+    """Every block gets its own population, or the files do not belong together."""
+
+    def _write(self, folder, blocks, population):
+        folder.mkdir(parents=True)
+        gpd.GeoDataFrame(
+            {"GEOID20": blocks}, geometry=[box(0, 0, 1, 1)] * len(blocks), crs="EPSG:4326"
+        ).to_parquet(folder / "tl_2020_06_tabblock20.parquet")
+        pl.DataFrame(
+            {"block_id": list(population), "block_pop": list(population.values())}
+        ).write_parquet(folder / "block_population_06.parquet")
+
+    def test_population_is_joined_by_block(self, tmp_path):
+        """Each block carries its own count."""
+        self._write(
+            tmp_path / "census_2020",
+            ["060010001001000", "060010001001001"],
+            {"060010001001001": 4, "060010001001000": 9},
+        )
+
+        gdf = census_geo.get_block_gdf("06", 2023, tmp_path)
+
+        assert dict(zip(gdf["block_id"], gdf["block_pop"], strict=True)) == {
+            "060010001001000": 9,
+            "060010001001001": 4,
+        }
+
+    def test_a_block_without_population_stops(self, tmp_path):
+        """A missing count is not a zero: the files are mismatched or damaged."""
+        self._write(
+            tmp_path / "census_2020", ["060010001001000", "060010001001001"], {"060010001001000": 9}
+        )
+
+        with pytest.raises(ValueError, match="1 of 2 blocks"):
+            census_geo.get_block_gdf("06", 2023, tmp_path)
+
+
+class TestCountyNames:
+    """County names come from the Census, without the state the API appends."""
+
+    def test_names_drop_the_state(self, monkeypatch, tmp_path):
+        """'Alameda County, California' is shown as 'Alameda County'."""
+        payload = [
+            ["NAME", "state", "county"],
+            ["Alameda County, California", "06", "001"],
+            ["San Francisco County, California", "06", "075"],
+        ]
+        monkeypatch.setattr(census_geo, "_census_get", lambda *_a, **_k: payload)
+
+        result = census_geo.get_county_names("06", 2023, tmp_path)
+
+        assert result.rows() == [("06001", "Alameda County"), ("06075", "San Francisco County")]
+        assert (tmp_path / "census_2020" / "county_names_06.parquet").exists()
+
+
 class TestPumaVintage:
     """Verify correct PUMA vintage is returned for a given PUMS year."""
 
@@ -118,9 +252,6 @@ class TestPumaVintage:
             puma_vintage_for_pums_year(2011)
 
 
-# ---------------------------------------------------------------------------
-# Tests: target zone loading
-# ---------------------------------------------------------------------------
 class TestLoadTargetZones:
     """Tests for _load_target_zones helper function."""
 
@@ -128,14 +259,14 @@ class TestLoadTargetZones:
         """Zones load the same from a GeoDataFrame and from a file path."""
         for source in (three_target_zones, target_zone_file):
             gdf = _load_target_zones(source, "target_id")
-            assert "study_geoid" in gdf.columns
+            assert "target_zone_id" in gdf.columns
             assert len(gdf) == 3
 
     def test_single_boundary_mode(self, three_target_zones):
-        """When id_field is None, should dissolve to a single geometry with study_geoid=1."""
+        """When id_field is None, should dissolve to a single geometry with target_zone_id=1."""
         gdf = _load_target_zones(three_target_zones, None)
         assert len(gdf) == 1
-        assert gdf["study_geoid"].iloc[0] == "1"
+        assert gdf["target_zone_id"].iloc[0] == "1"
 
     def test_missing_id_field_raises(self, three_target_zones):
         """Test that a missing ID field raises a ValueError."""
@@ -143,11 +274,8 @@ class TestLoadTargetZones:
             _load_target_zones(three_target_zones, "nonexistent_col")
 
 
-# ---------------------------------------------------------------------------
-# Tests: rasterization
-# ---------------------------------------------------------------------------
 def _grid(bounds, resolution):
-    """Inline helper replacing the removed _compute_grid."""
+    """The transform and shape of a grid over *bounds* at *resolution*."""
     minx, miny, maxx, maxy = bounds
     w = int(np.ceil((maxx - minx) / resolution))
     h = int(np.ceil((maxy - miny) / resolution))
@@ -155,98 +283,140 @@ def _grid(bounds, resolution):
     return transform, (h, w)
 
 
-class TestRasterization:
-    """Tests for rasterization helpers: _rasterize_weights and _rasterize_categorical."""
+def test_resolution_must_be_positive_and_is_kept_as_given():
+    """A negative resolution is refused; a positive one is not rounded or clamped."""
 
-    def test_population_raster_conserves_total(self, uniform_blocks):
-        """Rasterized population should approximately conserve total population."""
-        transform, shape = _grid((0, 0, 2000, 1000), resolution=100)
-        arr = _rasterize_weights(uniform_blocks, "pop20", transform, shape)
-
-        total = float(arr.sum())
-        expected = uniform_blocks["pop20"].sum()
-        assert abs(total - expected) / expected < 0.05, f"Got {total}, expected {expected}"
-
-    def test_categorical_raster_labels_all_zones(self, two_pumas):
-        """Verify that categorical raster produces integer labels that map back to original IDs."""
-        transform, shape = _grid((0, 0, 2000, 1000), resolution=100)
-        arr, int_to_id = _rasterize_categorical(two_pumas, "puma_id", transform, shape)
-
-        # Should have 2 unique non-zero values
-        unique = set(arr[arr > 0].ravel())
-        assert len(unique) == 2
-
-        # Lookup should map back to original IDs
-        assert set(int_to_id.values()) == {"A", "B"}
-
-
-# ---------------------------------------------------------------------------
-# Tests: Pydantic config models
-# ---------------------------------------------------------------------------
-class TestGeographyConfig:
-    """Tests for GeographyConfig validation and defaults."""
-
-    def test_negative_resolution_raises(self):
-        """Resolution must be positive."""
-        with pytest.raises(ValueError, match="positive"):
-            GeographyConfig(
-                target_zones=TargetZoneConfig(file="zones.shp", id_field=None),
-                resolution=-100,
-                min_allocation=0.0,
-                zone_groups=None,
-            )
-
-    def test_a_positive_resolution_is_kept_as_given(self):
-        """The validator returns the value; it does not round or clamp it."""
-        config = GeographyConfig(
+    def config(resolution: int) -> GeographyConfig:
+        return GeographyConfig(
             target_zones=TargetZoneConfig(file="zones.shp", id_field=None),
-            resolution=250,
+            resolution=resolution,
             min_allocation=0.0,
             zone_groups=None,
         )
 
-        assert config.resolution == 250
+    with pytest.raises(ValueError, match="positive"):
+        config(-100)
+    assert config(250).resolution == 250
 
 
-# ---------------------------------------------------------------------------
-# Tests: household target zone assignment
-# ---------------------------------------------------------------------------
 class TestAssignHouseholds:
     """Test PumaCrosswalk.assign_households via a minimal instance."""
 
     @staticmethod
-    def _make_xw(target_gdf: gpd.GeoDataFrame) -> PumaCrosswalk:
-        """Build a bare PumaCrosswalk with only target_gdf set."""
+    def _make_xw(target_gdf: gpd.GeoDataFrame, puma_gdf: gpd.GeoDataFrame) -> PumaCrosswalk:
+        """Build a bare PumaCrosswalk with only the zone and PUMA polygons set."""
         obj = object.__new__(PumaCrosswalk)
         obj.target_gdf = _load_target_zones(target_gdf, "target_id")
+        obj.puma_gdf = puma_gdf
         obj.zone_groups = {}
         obj._zone_remap = {}
         return obj
 
-    def test_assigns_correct_zones(self, three_target_zones):
-        """Households should be assigned to the correct target zones based on their home coord."""
+    def test_assigns_home_puma(self, three_target_zones, two_pumas):
+        """Zone 2 straddles PUMAs A and B; each of its homes gets the one PUMA it is in."""
         hh = pl.DataFrame(
             {
-                "hh_id": [1, 2, 3, 4],
-                "home_lon": [350.0, 1000.0, 1650.0, -999.0],
-                "home_lat": [500.0, 500.0, 500.0, 500.0],
-                "extra_col": ["keep_me"] * 4,
+                "hh_id": [1, 2, 3, 4, 5],
+                "home_lon": [350.0, 900.0, 1100.0, 1650.0, -999.0],
+                "home_lat": [500.0] * 5,
+                "extra_col": ["keep_me"] * 5,
             }
         )
         target = three_target_zones.copy().set_crs("EPSG:4326", allow_override=True)
+        pumas = two_pumas.copy().set_crs("EPSG:4326", allow_override=True)
 
-        xw = self._make_xw(target)
-        result = xw.assign_households(hh)
-        assert "ctrl_geoid" in result.columns
-        assert result.height == 4
+        result = self._make_xw(target, pumas).assign_households(hh).sort("hh_id")
+        assert result["zone_group_id"].to_list() == ["1", "2", "2", "3", None]
+        assert result["home_puma"].to_list() == ["A", "A", "B", "B", None]
+        assert result["extra_col"].to_list() == ["keep_me"] * 5
 
-        assigned = result.select("hh_id", "ctrl_geoid").sort("hh_id")
-        assert assigned[0, "ctrl_geoid"] == "1"
-        assert assigned[1, "ctrl_geoid"] == "2"
-        assert assigned[2, "ctrl_geoid"] == "3"
-        assert assigned[3, "ctrl_geoid"] is None
-        # the households' own columns come back untouched
-        assert result.sort("hh_id")["extra_col"].to_list() == ["keep_me"] * 4
+
+class TestAssignBlocks:
+    """PumaCrosswalk.assign_blocks gives each Census block one PUMA and at most one zone."""
+
+    @staticmethod
+    def _make_xw(zone_groups: dict[str, list[str]] | None = None) -> PumaCrosswalk:
+        """PUMAs A (x 0-1000) and B (1000-2000); zones 1 (0-600) and 2 (600-1800)."""
+        zones = gpd.GeoDataFrame(
+            {"target_id": ["1", "2"]},
+            geometry=[box(0, 0, 600, 1000), box(600, 0, 1800, 1000)],
+            crs="EPSG:5070",
+        )
+        obj = object.__new__(PumaCrosswalk)
+        obj.target_gdf = _load_target_zones(zones, "target_id")
+        obj.puma_gdf = gpd.GeoDataFrame(
+            {"puma_id": ["A", "B"]},
+            geometry=[box(0, 0, 1000, 1000), box(1000, 0, 2000, 1000)],
+            crs="EPSG:5070",
+        )
+        obj.zone_groups = zone_groups or {}
+        obj._zone_remap = {z: g for g, zs in obj.zone_groups.items() for z in zs}
+        return obj
+
+    @staticmethod
+    def _blocks() -> gpd.GeoDataFrame:
+        """Ten 200 m blocks from x = 0 to 2000, after one far outside both PUMAs.
+
+        The outside block comes first, so dropping it shifts every row after it:
+        a block's ID must stay with its own geometry.
+        """
+        return gpd.GeoDataFrame(
+            {"block_id": ["OUT", *(f"B{i:02d}" for i in range(10))]},
+            geometry=[
+                box(5000, 0, 5200, 1000),
+                *(box(i * 200, 0, i * 200 + 200, 1000) for i in range(10)),
+            ],
+            crs="EPSG:5070",
+        )
+
+    def test_each_block_gets_its_puma_and_zone(self):
+        """A block outside every zone keeps its PUMA, so the PUMA's total counts it."""
+        result = self._make_xw().assign_blocks(self._blocks()).sort("block_id")
+        assert result["block_id"].to_list() == [f"B{i:02d}" for i in range(10)]
+        assert result["puma_id"].to_list() == ["A"] * 5 + ["B"] * 5
+        assert result["zone_group_id"].to_list() == ["1"] * 3 + ["2"] * 6 + [None]
+
+    def test_zone_groups_name_the_balancing_zone(self):
+        """Blocks take the group their zone balances in."""
+        xw = self._make_xw({"G": ["1", "2"]})
+        result = xw.assign_blocks(self._blocks()).sort("block_id")
+        assert result["zone_group_id"].to_list() == ["G"] * 9 + [None]
+
+    def test_zones_are_named_by_their_census_counties(self):
+        """A zone in one county takes its name; one across counties lists each share."""
+        xw = self._make_xw()
+        # blocks 0-4 sit in county 001, blocks 5-9 in county 013, 100 people each
+        county = ["06001"] * 5 + ["06013"] * 5
+        xw.block_gdf = gpd.GeoDataFrame(
+            {
+                "block_id": [f"{c}{i:010d}" for i, c in enumerate(county)],
+                "block_pop": [100] * 10,
+            },
+            geometry=[box(i * 200, 0, i * 200 + 200, 1000) for i in range(10)],
+            crs="EPSG:5070",
+        )
+        names = pl.DataFrame(
+            {
+                "county_fips": ["06001", "06013"],
+                "county_name": ["Alameda County", "Contra Costa County"],
+            }
+        )
+        assert xw.zone_counties(names) == {
+            "1": "Alameda County",
+            "2": "Contra Costa County 67%, Alameda County 33%",
+        }
+
+    def test_a_county_without_a_census_name_stops(self):
+        """A county code the Census does not name is not guessed at."""
+        xw = self._make_xw()
+        xw.block_gdf = gpd.GeoDataFrame(
+            {"block_id": ["060010000000001"], "block_pop": [100]},
+            geometry=[box(0, 0, 200, 1000)],
+            crs="EPSG:5070",
+        )
+        empty = pl.DataFrame(schema={"county_fips": pl.Utf8, "county_name": pl.Utf8})
+        with pytest.raises(ValueError, match="no name for counties"):
+            xw.zone_counties(empty)
 
 
 class TestAssignBlockGroups:
@@ -282,24 +452,21 @@ class TestAssignBlockGroups:
         ]
 
 
-# ---------------------------------------------------------------------------
-# Tests: full crosswalk (integration with exactextract)
-# ---------------------------------------------------------------------------
 class TestCrossTabulation:
     """Integration tests: exactextract cross-tabulation with coverage fractions."""
 
     def test_cross_tabulate_runs_on_real_geometry(
         self, two_pumas, three_target_zones, uniform_blocks
     ):
-        """The exactextract path runs end to end and conserves the population.
+        """Rasterising and cross-tabulating runs end to end and conserves the population.
 
-        Sub-block boundaries make the per-cell split approximate here, so the
-        exact arithmetic is asserted in ``TestCrossTabMath`` below on a grid
-        built for it.
+        The exact arithmetic is asserted in ``TestCrossTabMath`` on a grid built for it.
         """
         transform, shape = _grid((0, 0, 2000, 1000), resolution=50)
         pop_arr = _rasterize_weights(uniform_blocks, "pop20", transform, shape)
         puma_arr, int_to_puma = _rasterize_categorical(two_pumas, "puma_id", transform, shape)
+        assert len(set(puma_arr[puma_arr > 0].ravel())) == 2
+        assert set(int_to_puma.values()) == {"A", "B"}
 
         result = _cross_tabulate(pop_arr, puma_arr, int_to_puma, transform, three_target_zones)
 
@@ -307,20 +474,11 @@ class TestCrossTabulation:
         assert result["population"].sum() == pytest.approx(1000.0, abs=50)
 
 
-# ---------------------------------------------------------------------------
-# Tests: strict cross-tabulation math (sub-pixel coverage)
-# ---------------------------------------------------------------------------
 class TestCrossTabMath:
-    """Exact arithmetic verification of the PUMA x target-zone cross-tab.
+    """Exact PUMA x target-zone populations with sub-pixel coverage.
 
-    Uses a 4x4 grid (100m cells, 400x400m region) with two PUMAs split
-    at x=200 and three target zones with a *middle zone that straddles
-    the PUMA boundary at non-cell-aligned x=150 and x=250*.
-
-    This forces exactextract to produce fractional coverage (0.5) on the
-    boundary cells, so we can verify the ``pop * coverage`` math exactly.
-
-    Grid layout (100m cells, each cell labelled ``pop / puma_int``)::
+    A 4x4 grid of 100 m cells; PUMA A is x < 200 and B the rest. Zones L, M
+    and R split at x = 150 and 250, so the boundary cells are half covered::
 
         ┌───────┬───────┬───────┬───────┐
      y3 │ 10/A  │ 10/A  │ 20/B  │ 20/B  │
@@ -332,149 +490,49 @@ class TestCrossTabMath:
      y0 │ 30/A  │ 30/A  │ 40/B  │ 40/B  │
         └───────┴───────┴───────┴───────┘
          x0      x1      x2      x3
-              |   |=========|   |
-             150  zone M   250
 
-    Zone L:  x=[0, 150]   -> full col0 + half col1 (coverage=0.5)
-    Zone M:  x=[150, 250] -> half col1 + half col2  (coverage=0.5 each)
-    Zone R:  x=[250, 400] -> half col2 + full col3
-
-    Expected cross-tab (sum of pop * coverage by PUMA, target), column by
-    column::
-
-    col0: x=[0,100],  cells: (y0,x0)=30, (y1,x0)=30, (y2,x0)=10, (y3,x0)=10.  PUMA=A
-    col1: x=[100,200], cells: 30, 30, 10, 10.  PUMA=A
-    col2: x=[200,300], cells: 40, 40, 20, 20.  PUMA=B
-    col3: x=[300,400], cells: 40, 40, 20, 20.  PUMA=B
-
-    Zone L (x=0..150): full coverage on col0, 50% coverage on col1
-      PUMA A only: (30+30+10+10)*1.0 + (30+30+10+10)*0.5 = 80 + 40 = 120
-
-    Zone M (x=150..250): 50% coverage on col1 (PUMA A), 50% on col2 (PUMA B)
-      PUMA A: (30+30+10+10)*0.5 = 40
-      PUMA B: (40+40+20+20)*0.5 = 60
-
-    Zone R (x=250..400): 50% on col2, full on col3
-      PUMA B: (40+40+20+20)*0.5 + (40+40+20+20)*1.0 = 60 + 120 = 180
-
-    Total: 120 + 40 + 60 + 180 = 400  ✓
-    (sum of all cell values = 4*(30+30+10+10) + ... = 80+80+120+120=400 ✓)
-
-    Allocation weights:
-      PUMA A total = 120 + 40 = 160
-        w(A->L) = 120/160 = 0.75,  w(A->M) = 40/160 = 0.25
-      PUMA B total = 60 + 180 = 240
-        w(B->M) = 60/240 = 0.25,   w(B->R) = 180/240 = 0.75
+    Each A column holds 80 and each B column 120. L gets 80 + 40 from A; M
+    gets 40 from A and 60 from B; R gets 60 + 120 from B.
     """
 
-    @pytest.fixture
-    def grid_4x4(self):
-        """Build the 4x4 test grid and run _cross_tabulate once.
-
-        Returns the raw inputs *and* the cross-tab result so every test
-        in this class can validate different properties without re-running
-        the expensive exactextract call.
-        """
-        transform = from_bounds(0, 0, 400, 400, 4, 4)
-        shape = (4, 4)
-
-        # Population: top half 10/20, bottom half 30/40
+    def test_population_by_puma_and_zone(self):
+        """A to L 120, A to M 40, B to M 60, B to R 180."""
         pop = np.array(
             [[10, 10, 20, 20], [10, 10, 20, 20], [30, 30, 40, 40], [30, 30, 40, 40]],
             dtype=np.float32,
         )
-        # PUMA labels: left=1(A), right=2(B) at x=200
-        puma = np.array(
-            [[1, 1, 2, 2], [1, 1, 2, 2], [1, 1, 2, 2], [1, 1, 2, 2]],
-            dtype=np.int32,
-        )
-        int_to_puma = {1: "A", 2: "B"}
-
-        # Target zones straddle PUMA boundary at non-cell-aligned positions
+        puma = np.array([[1, 1, 2, 2]] * 4, dtype=np.int32)
         zones = gpd.GeoDataFrame(
             {"target_id": ["L", "M", "R"]},
-            geometry=[
-                box(0, 0, 150, 400),  # half-cell overlap with col 1
-                box(150, 0, 250, 400),  # half-cell from PUMA A + half from B
-                box(250, 0, 400, 400),  # half-cell overlap with col 2
-            ],
+            geometry=[box(0, 0, 150, 400), box(150, 0, 250, 400), box(250, 0, 400, 400)],
             crs="EPSG:5070",
         )
-        result = _cross_tabulate(pop, puma, int_to_puma, transform, zones)
-        return {
-            "pop": pop,
-            "puma": puma,
-            "int_to_puma": int_to_puma,
-            "transform": transform,
-            "shape": shape,
-            "zones": zones,
-            "result": result,
-        }
-
-    def test_population_by_puma_and_zone(self, grid_4x4):
-        """Verify exact population totals with sub-pixel coverage."""
-        result = grid_4x4["result"]
+        result = _cross_tabulate(
+            pop, puma, {1: "A", 2: "B"}, from_bounds(0, 0, 400, 400, 4, 4), zones
+        )
 
         def _pop(source_id: str, target_id: str) -> float:
             return result.filter(
                 (pl.col("source_id") == source_id) & (pl.col("target_id") == target_id)
             )["population"].sum()
 
-        # Zone L (x=0..150): PUMA A only
         assert _pop("A", "L") == pytest.approx(120.0, abs=1)
-        # Zone M (x=150..250): straddles boundary
         assert _pop("A", "M") == pytest.approx(40.0, abs=1)
         assert _pop("B", "M") == pytest.approx(60.0, abs=1)
-        # Zone R (x=250..400): PUMA B only
         assert _pop("B", "R") == pytest.approx(180.0, abs=1)
 
-    def test_total_population_conserved(self, grid_4x4):
-        """Cross-tab total must equal sum of all cell values."""
-        result = grid_4x4["result"]
-        pop = grid_4x4["pop"]
-        assert result["population"].sum() == pytest.approx(float(pop.sum()), abs=1)
 
-    def test_allocation_weights(self, grid_4x4):
-        """Normalised weights per PUMA must match analytic values."""
-        result = grid_4x4["result"]
-
-        result = result.with_columns(
-            (pl.col("population") / pl.col("population").sum().over("source_id")).alias("w"),
-        )
-
-        def _w(source_id: str, target_id: str) -> float:
-            return result.filter(
-                (pl.col("source_id") == source_id) & (pl.col("target_id") == target_id)
-            )["w"].sum()
-
-        # PUMA A: 120/(120+40) = 0.75 to L, 0.25 to M
-        assert _w("A", "L") == pytest.approx(0.75, abs=0.02)
-        assert _w("A", "M") == pytest.approx(0.25, abs=0.02)
-        # PUMA B: 60/(60+180) = 0.25 to M, 0.75 to R
-        assert _w("B", "M") == pytest.approx(0.25, abs=0.02)
-        assert _w("B", "R") == pytest.approx(0.75, abs=0.02)
-
-
-# ---------------------------------------------------------------------------
-# Tests: control_data crosswalk integration
-# ---------------------------------------------------------------------------
 class TestControlDataCrosswalk:
-    """Verify PumaCrosswalk.allocate_pums_weights + build_control_totals."""
+    """Verify PumaCrosswalk.allocate_pums_incidence + aggregate_control_totals."""
 
     def test_crosswalk_redistributes_controls(self):
-        """Expanded PUMS totals should be split across target zones."""
-        # Synthetic PUMS data — 2 PUMAs, 3 households
+        """PUMA A splits 70/30 between zones T1 and T2, households and persons alike."""
         hh = pl.DataFrame(
             {
                 "SERIALNO": ["H1", "H2", "H3"],
                 "PUMA": ["A", "A", "B"],
-                "ST": ["06", "06", "06"],
-                "WGTP": [100, 200, 150],
+                "WGTP": [100.0, 200.0, 150.0],
                 "NP": [1, 3, 2],
-                "HINCP": [50000, 100000, 75000],
-                "VEH": [1, 2, 0],
-                "NOC": [0, 1, 0],
-                "TYPEHUGQ": [1, 1, 1],
             }
         )
         per = pl.DataFrame(
@@ -482,57 +540,49 @@ class TestControlDataCrosswalk:
                 "SERIALNO": ["H1", "H2", "H2", "H2", "H3", "H3"],
                 "SPORDER": [1, 1, 2, 3, 1, 2],
                 "PUMA": ["A", "A", "A", "A", "B", "B"],
-                "ST": ["06", "06", "06", "06", "06", "06"],
-                "PWGTP": [100, 200, 200, 200, 150, 150],
-                "AGEP": [35, 40, 10, 5, 55, 25],
-                "SEX": [1, 2, 1, 2, 1, 2],
-                "ESR": [1, 1, 0, 0, 1, 3],
-                "JWTRNS": [1, 1, None, None, 6, None],
-                "SCHG": [None, None, 2, 1, None, None],
-                "SCHL": [21, 22, None, None, 20, 19],
-                "RAC1P": [1, 1, 1, 1, 2, 2],
-                "HISP": [1, 1, 1, 1, 1, 1],
+                "PWGTP": [110.0, 190.0, 210.0, 200.0, 150.0, 150.0],
             }
         )
+        targets = ["h_total", "p_total", "h_size"]
+        bundle = build_incidence_table(
+            recode_pums_households(hh, per, targets),
+            recode_pums_persons(per, targets),
+            targets,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
+        )
+        persons = bundle.person_pivot.join(
+            per.select("SERIALNO", "SPORDER", "PUMA", "PWGTP"), on=["SERIALNO", "SPORDER"]
+        )
 
-        hh_recoded = recode_pums_households(hh, per, ["h_size"])
-        per_recoded = recode_pums_persons(per, ["h_size"])
-
-        # Crosswalk: PUMA A splits 70/30 between zones T1/T2; PUMA B is 100% T2
-        crosswalk_df = pl.DataFrame(
+        xw = object.__new__(PumaCrosswalk)
+        xw.crosswalk_df = pl.DataFrame(
             {
                 "puma_id": ["A", "A", "B"],
-                "study_geoid": ["T1", "T2", "T2"],
-                "ctrl_geoid": ["T1", "T2", "T2"],
+                "target_zone_id": ["T1", "T2", "T2"],
+                "zone_group_id": ["T1", "T2", "T2"],
                 "allocation_weight": [0.7, 0.3, 1.0],
             }
         )
-
-        # Use PumaCrosswalk.allocate_pums_weights via a minimal instance
-        xw = object.__new__(PumaCrosswalk)
-        xw.crosswalk_df = crosswalk_df
-        hh_xw, per_xw = xw.allocate_pums_weights(hh_recoded, per_recoded, geo_col="PUMA")
-
-        result = build_control_totals(
-            hh_xw,
-            per_xw,
-            [ControlSpec(name="h_size")],
-            geo_col="ctrl_geoid",
+        result = aggregate_control_totals(
+            xw.allocate_pums_incidence(bundle.incidence),
+            xw.allocate_pums_incidence(persons, weight_col="PWGTP"),
+            targets,
         )
 
-        assert isinstance(result, ControlTotals)
-        assert set(result.geo_ids) == {"T1", "T2"}
+        assert set(result.zone_group_ids) == {"T1", "T2"}
+        by_zone = {
+            (ctrl, geo): total
+            for geo, ctrl, _, total in result.totals.filter(
+                pl.col("control_name").is_in(["h_total", "p_total"])
+            ).iter_rows()
+        }
+        # PUMA A: WGTP 100 + 200 = 300; PWGTP 110 + 190 + 210 + 200 = 710
+        assert by_zone["h_total", "T1"] == pytest.approx(300 * 0.7)
+        assert by_zone["p_total", "T1"] == pytest.approx(710 * 0.7)
+        assert by_zone["p_total", "T2"] == pytest.approx(710 * 0.3 + 300)
 
-        # T1 should have 70% of PUMA A's totals
-        t1_total = result.totals.filter(pl.col("geo_id") == "T1")["target_total"].sum()
-        a_total = 100 + 200  # WGTP for HH1 + HH2 in PUMA A
-        expected_t1 = a_total * 0.7
-        assert abs(t1_total - expected_t1) < 1, f"T1 total {t1_total}, expected {expected_t1}"
 
-
-# ---------------------------------------------------------------------------
-# Tests: plot_crosswalk
-# ---------------------------------------------------------------------------
 class TestPlotCrosswalk:
     """Test crosswalk_figure produces valid Plotly HTML."""
 
@@ -545,16 +595,16 @@ class TestPlotCrosswalk:
             target_gdf=target_gdf,
             weight_gdf=uniform_blocks,
             source_id_col="puma_id",
-            target_id_col="study_geoid",
+            target_id_col="target_zone_id",
             weight_col="pop20",
             resolution=50,
-        ).rename({"source_id": "puma_id", "target_id": "study_geoid"})
+        ).rename({"source_id": "puma_id", "target_id": "target_zone_id"})
         return two_pumas, target_gdf, xw_df
 
     def test_produces_html(self, crosswalk_data):
         """The figure renders, with per-profile seeds and named zone groups on it."""
         puma_gdf, target_gdf, xw_df = crosswalk_data
-        hh = pl.DataFrame({"hh_id": [1, 2, 3], "ctrl_geoid": ["1", "2", "3"]})
+        hh = pl.DataFrame({"hh_id": [1, 2, 3], "zone_group_id": ["1", "2", "3"]})
         fig = crosswalk_figure(
             puma_gdf=puma_gdf,
             target_gdf=target_gdf,
@@ -567,12 +617,7 @@ class TestPlotCrosswalk:
         assert "north" in html.lower()
 
     def test_produces_html_without_zone_groups(self, crosswalk_data):
-        """Grouping is optional: ungrouped zones each get their own colour.
-
-        The grouped and ungrouped paths are separate branches in both the colour
-        index and the label builder, so rendering with groups does not exercise
-        rendering without them.
-        """
+        """Grouping is optional: ungrouped zones each get their own colour."""
         puma_gdf, target_gdf, xw_df = crosswalk_data
         fig = crosswalk_figure(
             puma_gdf=puma_gdf,
@@ -580,35 +625,21 @@ class TestPlotCrosswalk:
             crosswalk_df=xw_df,
         )
 
-        # Asserted on the traces, not the HTML: plotly's own bundled script
-        # contains the word "north" as a compass direction.
+        # on the traces, not the HTML: plotly's bundled script contains "north"
         assert len(fig.data) > 0
         assert "north" not in {trace.name for trace in fig.data if trace.name}
 
 
-# ===========================================================================
-# The bound on what the weighting can answer: households it cannot place
-#
-# The bound on what the weighting can answer: households it cannot place.
-#
-# Two region tests exist and are allowed to disagree. The model zones a usability
-# profile reads are assigned with a snap tolerance; the control geography is a
-# strict point-in-polygon. A household that passes the first and fails the second is
-# admitted by the profile and belongs to no balancing zone, so no fit can weight it.
-#
-# Left alone that produces a column of nulls and no explanation. These tests pin
-# that it is counted, and that a share large enough to mean a misconfigured
-# geography stops the run rather than being absorbed.
-# ===========================================================================
-
-
+# The model zones a profile reads are assigned with a snap tolerance and the
+# target zones by strict point-in-polygon, so a usable household can be in no
+# zone group, and no fit can weight it.
 def _seed(placed: int, unplaceable: int) -> pl.DataFrame:
     """A seed with the given split of placed and unplaceable households."""
     n = placed + unplaceable
     return pl.DataFrame(
         {
             "hh_id": list(range(1, n + 1)),
-            "ctrl_geoid": ["06001"] * placed + [None] * unplaceable,
+            "zone_group_id": ["06001"] * placed + [None] * unplaceable,
         }
     )
 
@@ -635,7 +666,6 @@ class TestCounting:
         assert coverage.n_placed == placed
         assert coverage.n_unplaceable == unplaceable
         assert coverage.unplaceable_share == pytest.approx(share)
-        # a report covering several fits has to say which one each row is
         assert coverage.profile == "analysis"
 
     def test_an_empty_seed_has_no_share_rather_than_dividing_by_zero(self):
@@ -657,12 +687,8 @@ class TestTheTolerance:
     """A boundary effect is expected; a geography that does not cover the survey is not."""
 
     def test_a_share_above_the_tolerance_raises(self):
-        """Half the survey outside the region is a geography, not a boundary.
-
-        The message names both layers, so the reader knows which to go and look
-        at, and names the setting that tolerates it.
-        """
-        with pytest.raises(ValueError, match="have no control geography") as excinfo:
+        """Half the survey outside the region; the message names both layers and the setting."""
+        with pytest.raises(ValueError, match="are in no target zone") as excinfo:
             check_control_geography_coverage(_seed(5, 5), profile="p", max_unplaceable_share=0.01)
         message = str(excinfo.value)
         assert "point-in-polygon" in message
@@ -677,26 +703,6 @@ class TestTheTolerance:
         assert coverage.n_unplaceable == 1
 
 
-# ===========================================================================
-# The Census API fails; asking it for less, and asking again, must not fail the run
-#
-# The Census API fails; asking it for less, and asking again, must not fail the run.
-#
-# The 2020 block-population request asks for every block in a state at once --
-# around 520,000 rows for California -- and the API returns 500 for it often
-# enough that it cannot be the only route. It killed a run that had already read
-# the survey, linked trips, built tours and weighted them.
-#
-# Two responses. A statewide failure falls through to the county-by-county walk
-# that the 2010 vintage requires anyway, which asks for far less at a time. And a
-# county request retries a server-side failure, since a run makes 58 of them and
-# one 500 should not end it.
-#
-# Retries are for server faults only. A 4xx is our request being wrong and will
-# fail identically however many times it is sent.
-# ===========================================================================
-
-
 def _http_error(status: int) -> requests.HTTPError:
     response = requests.Response()
     response.status_code = status
@@ -704,20 +710,7 @@ def _http_error(status: int) -> requests.HTTPError:
 
 
 class TestOnlyServerFaultsAreRetried:
-    """Retrying a request the server has correctly rejected just wastes time."""
-
-    @pytest.mark.parametrize(
-        ("status", "transient"),
-        [
-            # 5xx means the server faltered; the same request may yet succeed
-            *((s, True) for s in (500, 502, 503, 504)),
-            # 4xx means the request is wrong, and it will stay wrong
-            *((s, False) for s in (400, 401, 403, 404)),
-        ],
-    )
-    def test_server_errors_are_transient(self, status, transient):
-        """Only the server's own failures are worth asking again about."""
-        assert census_geo._is_transient(_http_error(status)) is transient
+    """A failure without a verdict from the server is retried; our own errors are not."""
 
     def test_connection_and_timeout_failures_are_transient(self):
         """The request never got a verdict, so it is worth asking again."""
@@ -729,8 +722,8 @@ class TestOnlyServerFaultsAreRetried:
         assert not census_geo._is_transient(ValueError("bad payload"))
 
 
-class TestACountyRequestRetries:
-    """One 500 among 58 counties must not end the run."""
+class TestACensusRequestRetries:
+    """A server error is retried, up to a limit; a client error is not."""
 
     def _serve(self, monkeypatch, outcomes):
         """Each call raises or returns the next outcome; sleeping is skipped."""
@@ -744,26 +737,28 @@ class TestACountyRequestRetries:
                 raise outcome
             return outcome
 
+        monkeypatch.setenv("CENSUS_KEY", "k")
         monkeypatch.setattr(census_geo.requests, "get", fake_get)
         monkeypatch.setattr(census_geo, "_census_json", lambda resp: resp)
-        monkeypatch.setattr(census_geo, "_parse_block_response", lambda payload, _var: payload)
         monkeypatch.setattr(census_geo.time, "sleep", lambda _s: None)
         return calls
 
+    PARAMS: ClassVar[dict[str, str]] = {"get": "P1_001N", "in": "state:06 county:001"}
+
     def test_it_recovers_after_a_server_error(self, monkeypatch):
-        """The case that ended a real run at step 8 of 12."""
-        calls = self._serve(monkeypatch, [_http_error(500), {"060010001": 42}])
+        """A 500, then the answer."""
+        calls = self._serve(monkeypatch, [_http_error(500), [["P1_001N"], ["42"]]])
 
-        result = census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+        result = census_geo._census_get("u", self.PARAMS, timeout=1)
 
-        assert result == {"060010001": 42}
+        assert result == [["P1_001N"], ["42"]]
         assert calls["n"] == 2
 
     def test_a_sound_response_is_not_retried(self, monkeypatch):
         """Retrying success would double 58 requests for nothing."""
-        calls = self._serve(monkeypatch, [{"060010001": 42}])
+        calls = self._serve(monkeypatch, [[["P1_001N"], ["42"]]])
 
-        census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+        census_geo._census_get("u", self.PARAMS, timeout=1)
 
         assert calls["n"] == 1
 
@@ -773,7 +768,7 @@ class TestACountyRequestRetries:
         calls = self._serve(monkeypatch, [_http_error(503)] * attempts)
 
         with pytest.raises(requests.HTTPError):
-            census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+            census_geo._census_get("u", self.PARAMS, timeout=1)
 
         assert calls["n"] == attempts
 
@@ -782,6 +777,6 @@ class TestACountyRequestRetries:
         calls = self._serve(monkeypatch, [_http_error(404)])
 
         with pytest.raises(requests.HTTPError):
-            census_geo._fetch_county_blocks("u", "P1_001N", "06", "001", "k")
+            census_geo._census_get("u", self.PARAMS, timeout=1)
 
         assert calls["n"] == 1

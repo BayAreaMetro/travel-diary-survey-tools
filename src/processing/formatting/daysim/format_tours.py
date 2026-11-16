@@ -7,7 +7,12 @@ import polars as pl
 from data_canon.codebook.tours import TourDirection, TourType
 from data_canon.codebook.trips import ModeType
 
-from .mappings import daysim_purpose, daysim_tour_number, determine_tour_mode
+from .mappings import (
+    daysim_purpose,
+    daysim_tour_number,
+    determine_tour_mode,
+    minutes_after_midnight,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +33,7 @@ def format_tours(
     - **Purpose Mapping**: Map canonical tour purposes to DaySim purpose codes (work,
       university, school, escort, shop, personal business, social, recreation, meal,
       change mode)
-    - **Timing**: Convert departure and arrival times to minutes after midnight, calculate
-      duration
+    - **Timing**: Convert departure and arrival times to minutes after midnight
     - **Location**: Map origin/destination to TAZ/MAZ, handle missing locations with -1
     - **Tour Mode**: Determine primary mode from trip-level modes within tour
     - **Parent Tours**: Link subtours to parent tour IDs for tour-based modeling
@@ -86,24 +90,11 @@ def format_tours(
         toadtyp=pl.col("o_location_type"),
         tdadtyp=pl.col("d_location_type"),
     )
-    # Convert times to DaySim format (minutes after midnight)
     tours_daysim = tours_daysim.with_columns(
-        tlvorig=(
-            pl.col("origin_depart_time").dt.hour().cast(pl.Int16) * 60
-            + pl.col("origin_depart_time").dt.minute().cast(pl.Int16)
-        ),
-        tardest=(
-            pl.col("dest_arrive_time").dt.hour().cast(pl.Int16) * 60
-            + pl.col("dest_arrive_time").dt.minute().cast(pl.Int16)
-        ),
-        tlvdest=(
-            pl.col("dest_depart_time").dt.hour().cast(pl.Int16) * 60
-            + pl.col("dest_depart_time").dt.minute().cast(pl.Int16)
-        ),
-        tarorig=(
-            pl.col("origin_arrive_time").dt.hour().cast(pl.Int16) * 60
-            + pl.col("origin_arrive_time").dt.minute()
-        ),
+        tlvorig=minutes_after_midnight("origin_depart_time"),
+        tardest=minutes_after_midnight("dest_arrive_time"),
+        tlvdest=minutes_after_midnight("dest_depart_time"),
+        tarorig=minutes_after_midnight("origin_arrive_time"),
     )
 
     # Set location coordinates and mode
@@ -137,16 +128,10 @@ def format_tours(
             ]
         )
     )
-    # Join on the canonical tour_id, which is what the trips carry. This used to
-    # rename tour_id to "tour" and join on that, matching it against DaySim's
-    # per-day tour number -- so tautotime/tautodist were null for all but the
-    # handful of tours whose canonical id happened to equal a small integer.
+    # On the canonical tour_id the trips carry, not DaySim's per-day tour number.
     tours_daysim = tours_daysim.join(auto_agg, on="tour_id", how="left")
 
-    # Count number of subtours per parent tour. Primary tours carry
-    # parent_tour_id == tour_id (self-reference), so only tours whose parent is a
-    # DIFFERENT tour are genuine subtours; counting non-null parents would tally every
-    # tour as its own subtour (subtrs == 1 for all).
+    # Subtours per parent. A home-based tour is its own parent, so it is not counted.
     subtour_counts = (
         tours_daysim.filter(pl.col("parent_tour_id") != pl.col("tour_id"))
         .group_by("parent_tour_id")
@@ -215,10 +200,8 @@ def format_tours(
         tautocost=pl.lit(-1.0),  # Auto cost
         tautodist=pl.col("tautodist").fill_null(-1.0),  # Auto distance
         tautotime=pl.col("tautotime").fill_null(-1.0),  # Auto time
-        # Trip-segment counts on each half tour. num_outbound_stops / num_inbound_stops
-        # already count the linked trips on the half tour, which IS the DaySim segment
-        # count -- so no +1 (that double-counted, yielding a minimum of 2 instead of 1).
-        # Floor at 1 to satisfy the schema's ge=1 for the rare tour with no matched trips.
+        # Linked trips on each half tour, which is DaySim's segment count; 1 when a
+        # half tour has no matched trips, for the schema's ge=1.
         tripsh1=pl.col("num_outbound_stops").fill_null(1),
         tripsh2=pl.col("num_inbound_stops").fill_null(1),
         # Half-tour indices (not used)

@@ -28,6 +28,24 @@ from utils.helpers import expr_haversine
 
 logger = logging.getLogger(__name__)
 
+# Junctions between consecutive trips farther apart than this are gaps; matches
+# the tour extractor's default spatial_gap_threshold_meters.
+_SPATIAL_GAP_THRESHOLD_M = 1000.0
+# Gap rate above which the coordinates are taken as broken, not merely noisy.
+_SPATIAL_GAP_MAX_RATE = 0.15
+# Below this many junctions the rate is noise, so the check only reports.
+_SPATIAL_GAP_MIN_JUNCTIONS = 1000
+
+# How far apart two copies of one reported place may be (about 0.1 m).
+_SAME_PLACE_DEGREES = 1e-6
+# The coordinate columns each reported primary location repeats:
+# (location type, table, lat column, lon column).
+_COORDINATE_COLUMNS = [
+    (LocationType.HOME, "households", "home_lat", "home_lon"),
+    (LocationType.WORK, "persons", "work_lat", "work_lon"),
+    (LocationType.SCHOOL, "persons", "school_lat", "school_lon"),
+]
+
 # Registry of custom validators
 # Format: {table_name: [check_function1, check_function2, ...]}
 # Each check function should return list[str] of error messages
@@ -41,48 +59,6 @@ CUSTOM_VALIDATORS: dict[str, list[Callable]] = {
     "habitual_locations": [],
     "habitual_location_days": [],
 }
-
-
-# Example check functions below:
-def check_for_teleports(unlinked_trips: pl.DataFrame) -> list[str]:
-    """Check for when trip destination is too far from next trip origin."""
-    errors = []
-    max_distance = 1000  # Define threshold distance in meters
-
-    # Compare o_lat/o_lon of the next trip to d_lat/d_lon of current trip
-    # Compute distance, and compare to threshold over person_id and person_day_id
-    teleports = (
-        unlinked_trips.with_columns(
-            pl.col("d_lat").alias("current_d_lat"),
-            pl.col("d_lon").alias("current_d_lon"),
-            pl.col("o_lat").shift(-1).over(["person_id", "person_day_id"]).alias("next_o_lat"),
-            pl.col("o_lon").shift(-1).over(["person_id", "person_day_id"]).alias("next_o_lon"),
-        )
-        .with_columns(
-            expr_haversine(
-                pl.col("current_d_lat"),
-                pl.col("current_d_lon"),
-                pl.col("next_o_lat"),
-                pl.col("next_o_lon"),
-            ).alias("distance_meters")
-        )
-        .filter(pl.col("distance_meters") > max_distance)
-        .select(
-            pl.col("unlinked_trip_id"),
-            pl.col("person_id"),
-            pl.col("person_day_id"),
-            pl.col("distance_meters"),
-        )
-    )
-
-    if len(teleports) > 0:
-        trip_ids = teleports["unlinked_trip_id"].to_list()[:5]
-        errors.append(
-            f"Found {len(teleports)} trips where destination "
-            f"is more than {max_distance}m away from next trip origin. "
-            f"Sample trip IDs: {trip_ids}"
-        )
-    return errors
 
 
 def check_trip_count_matches_quality(tours: pl.DataFrame, linked_trips: pl.DataFrame) -> list[str]:
@@ -184,24 +160,6 @@ def check_valid_tours_are_complete(tours: pl.DataFrame) -> list[str]:
     return errors
 
 
-# Distance (meters) above which a junction between consecutive trips is a gap.
-# Matches the tour extractor's default spatial_gap_threshold_meters so this
-# tripwire and the SPATIAL_GAP drop-flag agree on what counts as discontinuous.
-_SPATIAL_GAP_THRESHOLD_M = 1000.0
-
-# Fraction of junctions that may be discontinuous before this is treated as a
-# systemic failure rather than normal survey noise. Real BATS-2023 runs sit near
-# ~1% at 1 km; this ceiling only trips on a broken coordinate system (e.g.
-# swapped lat/lon making every trip teleport), which is what we want to catch.
-_SPATIAL_GAP_MAX_RATE = 0.15
-
-# Minimum junctions before the rate ceiling is enforced. A rate over a handful of
-# junctions is noise (one genuine gap in a 4-trip fixture is already 25%), so
-# below this the check only reports and never fails. A systemic break shows a
-# high rate at any scale, so real full-survey runs still trip the ceiling.
-_SPATIAL_GAP_MIN_JUNCTIONS = 1000
-
-
 def check_trip_spatial_continuity(linked_trips: pl.DataFrame) -> list[str]:
     """Report spatially discontinuous trip junctions (missing legs / teleports).
 
@@ -215,6 +173,10 @@ def check_trip_spatial_continuity(linked_trips: pl.DataFrame) -> list[str]:
     and only raises when the rate exceeds ``_SPATIAL_GAP_MAX_RATE``, which
     signals a systemic problem (e.g. a swapped/rescaled coordinate column) rather
     than ordinary respondent gaps.
+
+    Below ``_SPATIAL_GAP_MIN_JUNCTIONS`` the rate is not enforced: one genuine
+    gap in a 4-trip fixture is already 25%. A systemic break shows a high rate
+    at any scale, so full-survey runs still trip the ceiling.
 
     Args:
         linked_trips: Linked trips with person_id, person_day_id, depart_time and
@@ -277,22 +239,6 @@ def check_trip_spatial_continuity(linked_trips: pl.DataFrame) -> list[str]:
     return errors
 
 
-# The survey's reported coordinate columns that each primary location repeats:
-# (location type, table, lat column, lon column).
-# How far apart the two copies of one place may be: about 0.1 m, far below
-# any distance that changes an answer. They are copies of the same value, so
-# they normally agree exactly; the tolerance absorbs a float round-trip (a
-# column stored at single precision, a CSV written and read back) without
-# admitting a genuinely different place.
-_SAME_PLACE_DEGREES = 1e-6
-
-_COORDINATE_COLUMNS = [
-    (LocationType.HOME, "households", "home_lat", "home_lon"),
-    (LocationType.WORK, "persons", "work_lat", "work_lon"),
-    (LocationType.SCHOOL, "persons", "school_lat", "school_lon"),
-]
-
-
 def check_reported_locations_match_coordinates(
     habitual_locations: pl.DataFrame,
     households: pl.DataFrame,
@@ -304,7 +250,9 @@ def check_reported_locations_match_coordinates(
     coordinate columns (``home_lat/lon`` on households, ``work_*``/``school_*``
     on persons) that other steps still read. Every such pair must have its row,
     and every row its pair, within ``_SAME_PLACE_DEGREES``, so the two can never
-    drift apart.
+    drift apart. The copies normally agree exactly; the tolerance absorbs a float
+    round-trip (single precision, a CSV written and read back) without admitting
+    a genuinely different place.
 
     Args:
         habitual_locations: Habitual locations.

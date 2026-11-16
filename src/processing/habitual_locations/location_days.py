@@ -23,20 +23,6 @@ DAY_COLUMNS = [
 ]
 
 
-def day_schema() -> dict[str, pl.DataType]:
-    """Column types for an empty habitual_location_days table."""
-    return {
-        "habitual_location_id": pl.Int64,
-        "person_id": pl.Int64,
-        "person_day_id": pl.Int64,
-        "location_type": pl.Int64,
-        "dwell_minutes": pl.Float64,
-        "n_visits": pl.Int64,
-        "is_day_start": pl.Boolean,
-        "is_day_end": pl.Boolean,
-    }
-
-
 def build_location_days(
     episodes: pl.DataFrame,
     locations: pl.DataFrame,

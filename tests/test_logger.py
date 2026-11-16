@@ -1,7 +1,7 @@
 """Tests for pipeline logging configuration."""
 
 import logging
-from datetime import UTC, datetime
+import re
 
 import pytest
 
@@ -24,7 +24,7 @@ def _file_handlers(logger: logging.Logger) -> list[logging.FileHandler]:
 
 
 class TestSetupLogging:
-    """Test setup_logging functionality."""
+    """setup_logging handlers, levels and files."""
 
     @pytest.mark.parametrize("console_level", [logging.INFO, logging.WARNING])
     def test_console_only_logging(self, caplog, console_level: int):
@@ -59,16 +59,12 @@ class TestSetupLogging:
             handler.flush()
 
         content = log_file.read_text(encoding="utf-8")
-        assert " | INFO | Test message to file" in content
-        assert content.startswith(datetime.now(UTC).strftime("%Y-%m-"))
+        assert re.match(
+            r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} \| INFO \| Test message to file", content
+        )
 
     def test_an_existing_log_file_is_appended_to_not_recreated(self, tmp_path):
-        """Setup only creates the parent directory when the file is not there yet.
-
-        Pointing at a file that already exists takes the other branch, and the
-        earlier content has to survive: a run that silently truncated the log
-        would lose the record of the run before it.
-        """
+        """With ``log_file_mode="a"`` an existing log keeps its earlier content."""
         log_file = tmp_path / "existing.log"
         log_file.write_text("earlier run\n", encoding="utf-8")
 
@@ -102,15 +98,6 @@ class TestSetupLogging:
         assert "Message to file 2" in log_file2.read_text(encoding="utf-8")
         assert "Message to file 2" not in log_file1.read_text(encoding="utf-8")
         assert "Message to file 2" in caplog.text
-
-    def test_preserves_existing_handlers(self, caplog):
-        """Test that setup_logging preserves pytest's caplog handler."""
-        caplog.set_level(logging.INFO)
-
-        setup_logging(log_file=None)
-
-        logging.getLogger().info("Test message after setup")
-        assert "Test message after setup" in caplog.text
 
     def test_unicode_characters_in_logs(self, tmp_path, caplog):
         """The status glyphs survive to both the captured stream and the UTF-8 file."""

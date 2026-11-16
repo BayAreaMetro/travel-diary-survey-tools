@@ -8,24 +8,25 @@ Orchestrates the full weighting pipeline in the following stages:
    crosswalk (translating between Census PUMAs and the project's custom
    weighting geography using block-group population as the intermediary),
    and prepare the sample plan.
+2. **Zone assignment** -- assign survey households to weighting zones via
+   the geographic crosswalk. Done before recoding, as ``h_puma`` reads the
+   home PUMA.
 
 **B. [Control Data Preparation][weighting-data-preparation]**
 
-2. **PUMS recoding** -- load PUMS 1-year microdata and recode into the
+3. **PUMS recoding** -- load PUMS 1-year microdata and recode into the
    YAML-configured variable bins used by the controls.
-3. **Merges** -- apply any user-specified category merges (global or
+4. **Merges** -- apply any user-specified category merges (global or
    zone-specific) to both controls and the survey incidence table.
-4. **Control aggregation** -- apply the crosswalk to PUMS and aggregate
+5. **Control aggregation** -- apply the crosswalk to PUMS and aggregate
    into marginal control totals per zone.
 
 **C. [Survey Seed Preparation][weighting-data-preparation]**
 
-5. **Survey recoding** -- recode canonical survey variables into the same
+6. **Survey recoding** -- recode canonical survey variables into the same
    bin / group categories as the PUMS controls.
-6. **Null imputation** -- fill null-induced zeros in the survey incidence
+7. **Null imputation** -- fill null-induced zeros in the survey incidence
    table with RF-predicted fractional class probabilities.
-7. **Zone assignment** -- assign survey households to weighting zones via
-   the geographic crosswalk.
 
 **D. [Maximum-Entropy Balancing][weighting-balancing]**
 
@@ -50,13 +51,14 @@ Orchestrates the full weighting pipeline in the following stages:
 """
 
 import logging
+from pathlib import Path
 
 import polars as pl
 
 from data_canon.core.dataclass import CanonicalData
-from pipeline.cache import PipelineCache
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.weighting.core.hierarchy import (
+    SEED_TABLE,
     describe_weight_columns,
     seed_col_for,
     weight_col_for,
@@ -68,24 +70,27 @@ from processing.weighting.core.specs import (
     CensusConfig,
     ControlRegistryConfig,
     DiagnosticsConfig,
-    ImportanceConfig,
     WeightingConfig,
+    resolve_fitted_profiles,
 )
 from processing.weighting.data_prep.crosswalk import GeographyConfig
 from processing.weighting.validation.weight_checks import weight_sanity_checks
 
 logger = logging.getLogger(__name__)
 
-# Geography the balancer works from. It rides on ``households`` through the run
-# because zone assignment, balancing and diagnostics all read it, then moves to
-# its own table before the tables are handed back. Profile-independent: where a
-# household is does not depend on which universe was fitted.
-_GEOGRAPHY_COLUMNS = ("study_geoid", "ctrl_geoid", "bg_geo_id")
+_GEOGRAPHY_COLUMNS = ("target_zone_id", "zone_group_id", "home_puma", "bg_geo_id")
+"""Geography the balancer works from.
+
+It rides on ``households`` through the run because zone assignment, balancing
+and diagnostics all read it, then moves to its own table before the tables are
+handed back. Profile-independent: where a household is does not depend on which
+universe was fitted.
+"""
 
 
 def _split_weighting_columns(
     tables: dict[str, pl.DataFrame],
-    profiles: tuple[str | None, ...],
+    profiles: tuple[str, ...],
 ) -> None:
     """Move the weighting's working columns off ``households`` in place.
 
@@ -94,10 +99,7 @@ def _split_weighting_columns(
     seed weight lets an expansion factor be read off one table. The table stays
     one row per household, so several profiles widen it rather than lengthen it.
     """
-    hh = tables.get("households")
-    if hh is None:
-        return
-
+    hh = tables["households"]
     geography = [c for c in _GEOGRAPHY_COLUMNS if c in hh.columns]
     seed_weights = [col for p in profiles if (col := seed_col_for("base_weight", p)) in hh.columns]
     if not geography and not seed_weights:
@@ -105,13 +107,18 @@ def _split_weighting_columns(
 
     carried = [col for p in profiles if (col := weight_col_for("hh_weight", p)) in hh.columns]
     moved = geography + seed_weights
-    tables["household_weights"] = hh.select("hh_id", *moved, *carried)
+    tables[SEED_TABLE] = hh.select("hh_id", *moved, *carried)
     tables["households"] = hh.drop(moved)
 
 
 # ===========================================================================
 # Pipeline step entry point
 # ===========================================================================
+
+
+def weight_columns(weight_profiles: list[str]) -> dict[str, dict]:
+    """The suffixed weight columns `compute_weights` writes, described, per table."""
+    return describe_weight_columns(resolve_fitted_profiles(weight_profiles))
 
 
 @step(
@@ -125,18 +132,18 @@ def _split_weighting_columns(
             "survey_complete",
             "usable_<profile>",
             "income_bin",  # h_income
-            "num_vehicles",  # h_vehicles
+            "num_vehicles",  # h_vehicles, h_vehicles_per_driver
         },
         "persons": {
             "person_id",
             "hh_id",  # also h_size
             "employment",  # h_workers, p_employment
-            "age",  # h_children, p_age, p_student
+            "age",  # h_children, h_vehicles_per_driver, p_age, p_student, p_education
             "student",  # p_student
             "school_type",  # p_student
             "gender",  # p_gender
-            "race",  # p_race
-            "ethnicity",  # p_ethnicity
+            "race",  # p_race_ethnicity
+            "ethnicity",  # p_race_ethnicity
             "education",  # p_education
             "work_mode",  # p_commute_mode
             "job_type",  # p_commute_mode
@@ -159,18 +166,20 @@ def _split_weighting_columns(
         "tours": {"tour_weight_<profile>"},
         "joint_trips": {"joint_trip_weight_<profile>"},
         "joint_tours": {"joint_tour_weight_<profile>"},
-        "household_weights": {
+        SEED_TABLE: {
             "hh_id",
-            "study_geoid",
-            "ctrl_geoid",
+            "target_zone_id",
+            "zone_group_id",
+            "home_puma",
             "bg_geo_id",
             "base_weight_<profile>",
             "hh_weight_<profile>",
         },
     },
+    generated_columns=weight_columns,
 )
-def compute_weights(  # noqa: PLR0913
-    # -- Settings (from YAML) -------------------------------------------
+def compute_weights(
+    tables: Tables,
     census: CensusConfig,
     geography: GeographyConfig,
     balancing: BalancingConfig,
@@ -179,20 +188,8 @@ def compute_weights(  # noqa: PLR0913
     weight_profiles: list[str],
     max_unplaceable_share: float,
     sample_plan: str | None,
+    use_imputed_values: bool,
     strict_survey_nulls: bool = False,
-    *,
-    # -- Pipeline plumbing (auto-injected by @step decorator) -----------
-    pipeline_cache: PipelineCache | None = None,
-    # -- Canonical tables (auto-injected by pipeline) -------------------
-    canonical_data: CanonicalData | None = None,
-    households: pl.DataFrame | None = None,
-    persons: pl.DataFrame | None = None,
-    person_days: pl.DataFrame | None = None,
-    unlinked_trips: pl.DataFrame | None = None,
-    linked_trips: pl.DataFrame | None = None,
-    joint_trips: pl.DataFrame | None = None,
-    tours: pl.DataFrame | None = None,
-    joint_tours: pl.DataFrame | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Compute expansion weights from PUMS controls and propagate to all tables.
 
@@ -211,82 +208,58 @@ def compute_weights(  # noqa: PLR0913
         weight_profiles: Usability profiles to weight, one fit each; a single
             profile is a list of one.
         max_unplaceable_share: The most of the survey whose homes may fall
-            outside the control geography before the step raises.
+            outside the target zones before the step raises.
         sample_plan: Path to the sample plan for base weights; null for none.
+        use_imputed_values: Fit to the imputation step's values. When false,
+            weighting reads each ``<column>_preimputed`` instead and fills the
+            blanks itself; the published columns stay imputed.
         strict_survey_nulls: Raise on survey nulls in control variables rather
             than imputing them.
-        pipeline_cache: Supplied by the pipeline.
-        canonical_data: Supplied by the pipeline.
-        households: Households.
-        persons: Persons.
-        person_days: Days.
-        unlinked_trips: Unlinked trips.
-        linked_trips: Linked trips.
-        joint_trips: Joint trips.
-        tours: Tours.
-        joint_tours: Joint tours.
+        tables: The eight canonical tables in ``requires``.
     """
-    if households is None or persons is None:
-        msg = "Weighting requires at least households and persons tables."
-        raise ValueError(msg)
-
-    # Prepare our data for the weighting pipeline
-    # We reused the canonical data handler :)
-    data = CanonicalData(
-        households=households,
-        persons=persons,
-        person_days=person_days,
-        unlinked_trips=unlinked_trips,
-        linked_trips=linked_trips,
-        tours=tours,
-        joint_trips=joint_trips,
-        joint_tours=joint_tours,
-    )
+    data = CanonicalData(**tables)
     wt_config = WeightingConfig(
         geography=geography,
         state_fips=census.state_fips,
         pums_year=census.pums_year,
-        pums_households=census.pums_households,  # local files take precedence over the API
-        pums_persons=census.pums_persons,
+        pums_weights=census.pums_weights,
+        household_income=census.household_income,
         sample_plan=sample_plan,
-        cache_dir=pipeline_cache.cache_dir if pipeline_cache else None,
+        census_dir=Path(census.census_dir),
         expansion_factor_grid=diagnostics.expansion_factor_grid,
         strict_survey_nulls=strict_survey_nulls,
+        use_imputed_values=use_imputed_values,
         weight_profiles=tuple(weight_profiles),
         max_unplaceable_share=max_unplaceable_share,
-    )
-    # Importance for controls without their own; per-control overrides come from controls.
-    importance_cfg = ImportanceConfig(
-        moe_based=balancing.moe_based_importance,
-        default=balancing.default_importance,
     )
     wt_pipeline = WeightingPipeline(
         controls=ControlRegistryConfig.from_yaml(controls),
         config=wt_config,
         data=data,
         balancing=balancing,
-        importance=importance_cfg,
     )
 
-    # 1. Setup — register controls, build crosswalk, fetch PUMS
+    # Setup — register controls, build crosswalk, fetch PUMS
     wt_pipeline.setup()
     wt_pipeline.fetch_pums()
 
-    # 2. Incidence prep — recode both PUMS and survey, pivot, fill nulls
+    # Place households first: h_puma's recode reads their home PUMA
+    wt_pipeline.place_households()
+
+    # Incidence prep — recode both PUMS and survey, pivot
     wt_pipeline.recode_and_pivot()
 
-    # 3. Zone assignment and merges are intertwined — merges may depend on zone groups
-    wt_pipeline.assign_zones()
+    # Zone allocation before merges — merges may depend on zone groups
+    wt_pipeline.allocate_pums()
 
-    # 4. Merge controls, must be applied after zone assignment and before total aggregation
+    # Merges go after zone allocation and before total aggregation
     wt_pipeline.apply_merges()
 
-    # 5. Control aggregation
     wt_pipeline.aggregate_totals()
     wt_pipeline.resolve_importance()
 
-    # 6. One fit per profile: balance, propagate, and report each in turn
-    profiles = wt_config.fitted_profiles
+    # One fit per profile: balance, propagate, and report each in turn
+    profiles = wt_config.weight_profiles
     logger.info(
         "Weighting: %d balancing run(s), one per profile (%s). Each is fitted to the "
         "controls over its own universe and writes its own columns; nothing is derived "
@@ -310,12 +283,6 @@ def compute_weights(  # noqa: PLR0913
         )
 
     drop_unsuffixed_weights(result_tables)
-
-    # The suffixed names come from config, so they cannot be model fields; without
-    # registering them the delivered output would drop them.
-    if canonical_data is not None:
-        for table, described in describe_weight_columns(profiles).items():
-            canonical_data.register_generated_columns(table, described)
 
     # After the checks, which still read the seed off households.
     _split_weighting_columns(result_tables, profiles)

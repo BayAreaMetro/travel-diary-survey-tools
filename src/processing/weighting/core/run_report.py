@@ -4,7 +4,6 @@ One self-contained HTML document per run, written after every profile is fitted.
 See ``generate_diagnostics`` for its sections.
 """
 
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,6 +12,7 @@ from processing.weighting.core.specs import (
     DiagnosticsConfig,
     ReferenceWeightSetConfig,
 )
+from processing.weighting.data_prep.census_geo import get_county_names
 from processing.weighting.diagnostics import generate_report
 from processing.weighting.diagnostics.comparison import (
     Comparison,
@@ -23,8 +23,6 @@ from processing.weighting.diagnostics.comparison import (
 
 if TYPE_CHECKING:
     from processing.weighting.core.pipeline import WeightingPipeline
-
-logger = logging.getLogger(__name__)
 
 
 def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: DiagnosticsConfig) -> None:
@@ -49,11 +47,9 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
     2. **Crosswalk Map** — choropleth showing how PUMAs overlap the target
        zones, with allocation weights per PUMA-zone pair and each profile's
        seed count in the zone tooltip.
-    3. **Weight Cascade** — per level, what the profile admitted and what
-       carries weight, every profile side by side; the redistribution each
-       survivor absorbs, how each weight set's lower levels descend from
-       the level above, the day-split identity, and control-geography
-       coverage.
+    3. **Weight Cascade** — per level, the records each profile keeps,
+       every profile side by side; the records the cleaner excluded, by
+       reason; and the weight each kept record carries for dropped ones.
     4. **Weight Set Comparer** *(optional)* — any two weight sets compared
        pairwise at any level, this run's fits against each other or against
        sets named in ``diagnostics.compare_weights``. Omitted when there is
@@ -64,7 +60,7 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
     6. **Balancer Performance** *(per profile)* — per-zone convergence,
        target fit (MAPE, P90, Max), CV and ESS%.
     7. **Weight Quality** *(per profile)* — per-zone weight and expansion
-       factor statistics, with violin plots.
+       factor statistics, with a chart of each zone's household weights.
     8. **Expansion Factor Calibration** *(per profile, optional)* — MAPE vs
        CV across the ``expansion_factor_grid`` values. Only included when
        the grid was set in the weighting config.
@@ -83,44 +79,38 @@ def generate_diagnostics(pipeline: "WeightingPipeline", diagnostics: Diagnostics
         The ``diagnostics`` block of the weighting config.
 
         ``output_path`` is the destination for the HTML file, a string
-        (including template paths from the YAML). When null the file is
-        written to ``<cache_dir>/diagnostics.html`` (or
-        ``./weighting/diagnostics.html`` if no cache directory is
-        configured).  No profile suffix: a run writes one file however many
-        profiles it fits.
+        (including template paths from the YAML). No profile suffix: a run
+        writes one file however many profiles it fits.
 
         ``compare_weights`` names weight sets that arrived with the survey,
         to compare this run's fits against.  See
         [`reference_weight_sets`][processing.weighting.diagnostics.comparison
         .reference_weight_sets] for why they are named rather than found.
     """
-    if not pipeline.fits:
-        logger.warning("No completed fits to report on; skipping diagnostics.")
-        return
-
-    if diagnostics.output_path is not None:
-        resolved_path = Path(diagnostics.output_path)
-    else:
-        report_dir = pipeline.cache_dir or Path.cwd() / "weighting"
-        resolved_path = report_dir / "diagnostics.html"
-
-    zone_groups = pipeline.config.geography.zone_groups
     generate_report(
         fits=pipeline.fits,
         control_totals=pipeline.control_totals,
         target_names=pipeline.controls.target_names,
         tables=pipeline.data.as_dict(),
-        output_path=resolved_path,
+        output_path=Path(diagnostics.output_path),
         run_meta=_run_meta(pipeline),
         puma_gdf=pipeline.crosswalk.puma_gdf,
         target_gdf=pipeline.crosswalk.target_gdf,
         crosswalk_df=pipeline.crosswalk.crosswalk_df,
-        zone_groups=zone_groups,
-        merge_specs=pipeline.controls.all_merges,
+        zone_groups=pipeline.config.geography.zone_groups,
+        zone_counties=pipeline.crosswalk.zone_counties(
+            get_county_names(
+                pipeline.config.state_fips, pipeline.config.pums_year, pipeline.config.census_dir
+            )
+        ),
+        merge_specs=pipeline.controls.merges_1d,
         control_moe=pipeline.control_moe,
+        moe_importance=pipeline.moe_importance,
+        importance_used=pipeline.importance_used,
         pums_incidence=pipeline.pums_incidence,
         max_expansion_factor=pipeline.balancing.max_expansion_factor,
         comparison=_weight_comparisons(pipeline, diagnostics.compare_weights),
+        survey_shares=pipeline.survey_shares,
     )
 
 
@@ -147,7 +137,7 @@ def _run_meta(pipeline: "WeightingPipeline") -> dict[str, str]:
     Reports get shared around detached from the run that made them, so the
     file has to say which run it describes.
     """
-    profiles = ", ".join(p or "the survey" for p in pipeline.fits)
+    profiles = ", ".join(pipeline.fits)
     return {
         "Run": datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
         "PUMS": f"{pipeline.config.pums_year} &middot; FIPS {pipeline.config.state_fips}",

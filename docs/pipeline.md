@@ -1,6 +1,6 @@
 # Pipeline
 
-The pipeline module provides the execution framework for running sequential data processing steps with configuration, caching, and logging support.
+The pipeline module provides the execution framework for running sequential data processing steps with configuration and logging support.
 
 <!-- include architecture and diagram from top level readme -->
 {%
@@ -56,16 +56,16 @@ A step's settings models set `extra="forbid"`, so a misspelt key inside a block 
 caught too. Two models in one step may not share a field name; that fails when the
 step is defined, not when it runs.
 
-The step-level keys beside `params:` are `validate_input`, `validate_output` and
-`cache`. Each overrides the step's `@step()` value only when given.
+The step-level keys beside `params:` are `validate_input` and `validate_output`.
+Each overrides the step's `@step()` value only when given; any other key stops the
+run. Every step runs every time: nothing is cached between runs.
 
 The pipeline system allows you to:
 
 - Define processing steps as Python functions
 - Configure pipeline execution via YAML files
-- Cache intermediate results for faster re-runs
 - Track and log processing progress
 - Validate data between steps
 
-The `Pipeline` class, caching, logging and the `@step()` decorator are in the
+The `Pipeline` class, logging and the `@step()` decorator are in the
 [Developer Reference](reference/pipeline.md).

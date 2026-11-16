@@ -111,7 +111,7 @@ def profile_of(usability_flag_col: str) -> str | None:
 # SPATIAL_GAP appear nowhere: they are not open ends but missing data -- no
 # tolerance for a tour that stops somewhere unexpected makes a missing leg
 # present, or an activity that never happened happen.
-_ADMITTED_QUALITY: dict[TourClosesAt, tuple[TourDataQuality, ...]] = {
+ADMITTED_QUALITY: dict[TourClosesAt, tuple[TourDataQuality, ...]] = {
     TourClosesAt.PRIMARY_HOME: (TourDataQuality.VALID,),
     TourClosesAt.ANY_HOME: (TourDataQuality.VALID, TourDataQuality.OTHER_HOME),
     TourClosesAt.ANYWHERE: (
@@ -152,16 +152,9 @@ class UsabilityProfile:
     name: str
     tour_closes_at: TourClosesAt
     household_day_needs: HouseholdDayNeeds
-    # Config must state this like any other axis -- ``_one_profile`` rejects a
-    # profile that omits it. The default serves in-process construction only,
-    # where saying nothing about geography means asking nothing of it.
-    zone_coverage: str = NO_ZONE_COVERAGE
-    # Same standing as zone_coverage: config must say it, in-process callers may
-    # leave it, and leaving it asks nothing of the survey's joint groups.
-    joint_tours: JointTours = JointTours.PARTIAL
-    # Same standing again: config must list the days, in-process callers may
-    # leave it, and leaving it takes every day.
-    travel_days: tuple[TravelDow, ...] = ALL_DAYS
+    zone_coverage: str
+    joint_tours: JointTours
+    travel_days: tuple[TravelDow, ...]
 
     @property
     def flag(self) -> str:
@@ -182,11 +175,6 @@ class UsabilityProfile:
     def joint_trip_id(self) -> str:
         """``joint_trip_id`` as this profile sees it: the id where the trip is on it, else null."""
         return f"joint_trip_id_{self.name}"
-
-    @property
-    def admitted_quality(self) -> tuple[TourDataQuality, ...]:
-        """Tour quality codes this profile's closure setting admits."""
-        return _ADMITTED_QUALITY[TourClosesAt(self.tour_closes_at)]
 
     @property
     def needs_whole_household_day(self) -> bool:
@@ -214,10 +202,6 @@ _AXES: dict[str, type[StrEnum]] = {
 # The axis whose values come from the zone step's configuration rather than a
 # vocabulary fixed here, so it is required and typed but not membership-checked.
 _ZONE_AXIS = "zone_coverage"
-
-# Columns the reporting cascade owns. A profile taking one of these names would
-# overwrite a survey fact with a modelling judgement.
-_RESERVED_NAMES = ("survey_complete",)
 
 
 def parse_usability_profiles(spec: dict[str, dict[str, str]]) -> list[UsabilityProfile]:
@@ -261,11 +245,13 @@ def _one_profile(name: str, axes: dict[str, str]) -> UsabilityProfile:
         ValueError: If the name is reserved, or any axis is missing, unknown, or
             given a value outside its vocabulary.
     """
-    if name in _RESERVED_NAMES:
+    # A profile named survey_complete would overwrite a survey fact with a
+    # modelling judgement.
+    if name == SURVEY_COMPLETE:
         msg = (
-            f"usability_profile '{name}' collides with a column the reporting "
-            f"cascade owns ({', '.join(_RESERVED_NAMES)}). Those record what the "
-            "survey collected, not what a model will take; pick another name."
+            f"usability_profile '{name}' collides with a column the completeness "
+            f"cascade owns ({SURVEY_COMPLETE}). It records what the survey "
+            "collected, not what a model will take; pick another name."
         )
         raise ValueError(msg)
     if not isinstance(axes, dict):

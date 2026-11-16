@@ -59,8 +59,8 @@ def _main_observed_workplace(
 
 def fill_usual_workplace(
     persons: pl.DataFrame,
-    habitual_locations: pl.DataFrame | None,
-    habitual_location_days: pl.DataFrame | None,
+    habitual_locations: pl.DataFrame,
+    habitual_location_days: pl.DataFrame,
     *,
     zone_names: list[str],
 ) -> pl.DataFrame:
@@ -70,8 +70,7 @@ def fill_usual_workplace(
         persons: Persons with ``employment``, ``work_lat``, ``work_lon`` and
             ``work_<zone>``.
         habitual_locations: Habitual locations with ``lat``, ``lon`` and a column
-            per zone in *zone_names* (see ``add_zone_ids``). None leaves
-            *persons* as they are.
+            per zone in *zone_names* (see ``add_zone_ids``).
         habitual_location_days: Time spent at each location per day.
         zone_names: The zone systems to fill, e.g. ``["TAZ1454"]`` fills
             ``work_TAZ1454``.
@@ -79,9 +78,6 @@ def fill_usual_workplace(
     Returns:
         *persons* with the workplace columns filled where the rule applies.
     """
-    if habitual_locations is None or habitual_location_days is None:
-        return persons
-
     observed = _main_observed_workplace(habitual_locations, habitual_location_days, zone_names)
     takes = (
         pl.col("work_lat").is_null()

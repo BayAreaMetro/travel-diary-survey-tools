@@ -1,17 +1,10 @@
 """The bats_2023 cleaner's survey technology, and the persons it excludes by it."""
 
-import importlib.util
-from pathlib import Path
-
 import polars as pl
 import pytest
 
 from data_canon.codebook.persons import SurveyTech
-
-_PATH = Path(__file__).parents[1] / "projects" / "bats_2023" / "clean_bats_2023.py"
-_spec = importlib.util.spec_from_file_location("clean_bats_2023", _PATH)
-cleaner = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cleaner)
+from projects.bats_2023 import clean_bats_2023 as cleaner
 
 
 def _persons(platforms: list[str | None]) -> pl.DataFrame:
@@ -26,7 +19,7 @@ def test_each_platform_maps_to_its_technology():
     out = cleaner.survey_tech(_persons(["rmove", "browser", "call"]))
     assert out["survey_tech"].to_list() == [
         SurveyTech.GPS.value,
-        SurveyTech.FORM.value,
+        SurveyTech.BROWSER.value,
         SurveyTech.CALL_CENTER.value,
     ]
 
@@ -46,10 +39,10 @@ def test_an_unknown_platform_stops_the_run():
 def test_listed_technologies_get_a_reason_and_the_rest_none():
     """The reason names the technology, so a dropped person can be traced."""
     persons = cleaner.survey_tech(_persons(["rmove", "browser", "call"]))
-    out = cleaner.exclude_by_survey_tech(persons, ["call_center", "form"])
+    out = cleaner.exclude_by_survey_tech(persons, ["call_center", "browser"])
     assert out["exclusion_reason"].to_list() == [
         None,
-        "survey_tech excluded: form",
+        "survey_tech excluded: browser",
         "survey_tech excluded: call_center",
     ]
 
@@ -62,7 +55,7 @@ def test_an_empty_list_excludes_no_one():
 
 
 def test_an_unknown_technology_name_stops_the_run():
-    """A vendor word in the config (browser) is not one of ours (form)."""
+    """A vendor word in the config (call) is not one of ours (call_center)."""
     persons = cleaner.survey_tech(_persons(["rmove"]))
     with pytest.raises(ValueError, match="not one of"):
-        cleaner.exclude_by_survey_tech(persons, ["browser"])
+        cleaner.exclude_by_survey_tech(persons, ["call"])

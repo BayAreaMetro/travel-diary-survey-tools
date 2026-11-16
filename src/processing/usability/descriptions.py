@@ -10,29 +10,9 @@ import logging
 
 import polars as pl
 
-from data_canon.core.dataclass import CanonicalData
-
-from .profiles import TourClosesAt, UsabilityProfile
+from .profiles import TourClosesAt, UsabilityProfile, parse_usability_profiles
 
 logger = logging.getLogger(__name__)
-
-
-def suggest_usability_columns(frame: pl.DataFrame) -> str:
-    """A "did you mean" line naming the boolean columns *frame* actually has.
-
-    For a consumer that was pointed at a usability column which is not there.
-    The names come from config, so there is no pattern to match on: a rule like
-    "ends in _usable" only holds until a project picks a name that does not fit
-    it, and then the hint reports none rather than admitting it cannot tell.
-    Every boolean column is offered instead. Some will be unrelated, which costs
-    a reader one glance; a confident empty answer costs them a debugging session
-    in the wrong step.
-    """
-    boolean = sorted(name for name, dtype in frame.schema.items() if dtype == pl.Boolean)
-    if not boolean:
-        return "It carries no boolean columns at all."
-    return f"Did you mean one of these boolean columns? {', '.join(boolean)}."
-
 
 _CLOSURE_TEXT = {
     TourClosesAt.PRIMARY_HOME: "returning to the home it left",
@@ -81,7 +61,7 @@ def _describe(profile: UsabilityProfile) -> dict[str, str]:
         f"Usable under the '{profile.name}' profile: survey-complete, a tour "
         f"{_CLOSURE_TEXT[profile.tour_closes_at]}, and {household}{coverage}{joint}{days}. "
         "Never admits a tour with a missing leg or no activity to anchor on, "
-        "or a person the cleaner excluded (exclusion_reason)."
+        "or a household, person or day the cleaner excluded (exclusion_reason)."
     )
     joint_tour_id = (
         f"joint_tour_id as the '{profile.name}' profile sees it: the id where this "
@@ -126,8 +106,8 @@ def _describe_household_day(profile: UsabilityProfile) -> str:
     )
 
 
-def _log_gate_summary(
-    tables: dict[str, pl.DataFrame | None],
+def log_gate_summary(
+    tables: dict[str, pl.DataFrame],
     profiles: list[UsabilityProfile],
 ) -> None:
     """Log, per table, how many records each profile admits."""
@@ -140,37 +120,44 @@ def _log_gate_summary(
             f"{profile.flag:>18}{'newly unusable':>16}",
         ]
         for name, df in tables.items():
-            if df is None or profile.flag not in df.columns:
-                continue
-            n = df.height
-            n_complete = df.filter(pl.col("survey_complete").fill_null(value=False)).height
             n_usable = df.filter(pl.col(profile.flag)).height
+            # A joint table built from members without survey_complete has none.
+            if "survey_complete" not in df.columns:
+                lines.append(f"  {name:<16}{df.height:>10,}{'-':>12}{n_usable:>18,}{'-':>16}")
+                continue
+            n_complete = df.filter(pl.col("survey_complete").fill_null(value=False)).height
             # Survey data that reported fine and the model still cannot use,
             # which is the column worth reading: the loss this gate adds alone.
             newly_unusable = n_complete - n_usable
             lines.append(
-                f"  {name:<16}{n:>10,}{n_complete:>12,}{n_usable:>18,}{newly_unusable:>16,}"
+                f"  {name:<16}{df.height:>10,}{n_complete:>12,}{n_usable:>18,}{newly_unusable:>16,}"
             )
         logger.info("\n".join(lines))
 
 
-def _register_profile_columns(
-    tables: dict[str, pl.DataFrame | None],
-    profiles: list[UsabilityProfile],
-    canonical_data: CanonicalData,
-) -> None:
-    """Declare each stamped column to the writer, with what it means."""
-    for profile in profiles:
+def profile_columns(usability_profiles: dict | None) -> dict[str, dict[str, str]]:
+    """The per-profile columns `cascade_usability` writes, with what each admits.
+
+    Every profile column is listed for every stamped table, a few more than any one
+    table carries; the writer keeps only those a table has.
+    """
+    if usability_profiles is None:
+        return {}  # the step itself raises, with the reason
+    # household_days gets only each profile's flag, below
+    stamped = (
+        "households",
+        "persons",
+        "person_days",
+        "unlinked_trips",
+        "linked_trips",
+        "joint_trips",
+        "tours",
+        "joint_tours",
+    )
+    out: dict[str, dict[str, str]] = {}
+    for profile in parse_usability_profiles(usability_profiles):
         described = _describe(profile)
-        for name, df in tables.items():
-            if df is None:
-                continue
-            if name == "household_days":
-                if profile.flag in df.columns:
-                    canonical_data.register_generated_columns(
-                        name, {profile.flag: _describe_household_day(profile)}
-                    )
-                continue
-            present = {col: text for col, text in described.items() if col in df.columns}
-            if present:
-                canonical_data.register_generated_columns(name, present)
+        for table in stamped:
+            out.setdefault(table, {}).update(described)
+        out.setdefault("household_days", {})[profile.flag] = _describe_household_day(profile)
+    return out

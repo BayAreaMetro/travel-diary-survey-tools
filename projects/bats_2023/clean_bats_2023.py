@@ -15,7 +15,7 @@ from data_canon.codebook.households import (
 )
 from data_canon.codebook.persons import Ethnicity, Race, SurveyTech
 from data_canon.core.labeled_enum import LabeledEnum
-from pipeline.decoration import step
+from pipeline.decoration import Tables, step
 from processing.habitual_locations import reported_habitual_locations
 from utils.create_ids import create_household_days
 from utils.helpers import add_time_columns, expr_haversine, get_income_midpoint
@@ -59,14 +59,6 @@ def second_homes(persons: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-# The vendor's diary_platform, as the technology that collected each person's travel.
-_DIARY_PLATFORM_TECH = {
-    "rmove": SurveyTech.GPS,
-    "browser": SurveyTech.FORM,
-    "call": SurveyTech.CALL_CENTER,
-}
-
-
 def survey_tech(persons: pl.DataFrame) -> pl.DataFrame:
     """Add ``survey_tech`` from the vendor's ``diary_platform``.
 
@@ -77,13 +69,16 @@ def survey_tech(persons: pl.DataFrame) -> pl.DataFrame:
     Raises:
         ValueError: If ``diary_platform`` holds a value the mapping does not know.
     """
-    unknown = sorted(
-        set(persons["diary_platform"].drop_nulls().unique()) - set(_DIARY_PLATFORM_TECH)
-    )
+    techs = {
+        "rmove": SurveyTech.GPS,
+        "browser": SurveyTech.BROWSER,
+        "call": SurveyTech.CALL_CENTER,
+    }
+    unknown = sorted(set(persons["diary_platform"].drop_nulls().unique()) - set(techs))
     if unknown:
         msg = f"diary_platform has values with no survey_tech: {unknown}"
         raise ValueError(msg)
-    codes = {platform: tech.value for platform, tech in _DIARY_PLATFORM_TECH.items()}
+    codes = {platform: tech.value for platform, tech in techs.items()}
     return persons.with_columns(
         pl.col("diary_platform")
         .replace_strict(codes, default=None, return_dtype=pl.Int64)
@@ -112,6 +107,27 @@ def exclude_by_survey_tech(persons: pl.DataFrame, excluded: list[str]) -> pl.Dat
         .replace_strict(reasons, default=None, return_dtype=pl.String)
         .alias("exclusion_reason")
     )
+
+
+def race_from_boxes() -> pl.Expr:
+    """One ``race`` from the vendor's race boxes, each 1 when ticked.
+
+    Two or more boxes is MULTI, as the census counts "two or more races"; one
+    box is that race; none (or only "prefer not to answer") is null.
+    """
+    boxes = {
+        "race_1": Race.AFAM,
+        "race_2": Race.NATIVE,
+        "race_3": Race.ASIAN,
+        "race_4": Race.PACIFIC,
+        "race_5": Race.WHITE,
+        "race_997": Race.OTHER,
+    }
+    ticked = pl.sum_horizontal([(pl.col(box) == 1).fill_null(value=False) for box in boxes])
+    expr = pl.when(ticked > 1).then(pl.lit(Race.MULTI.value))
+    for box, race in boxes.items():
+        expr = expr.when(pl.col(box) == 1).then(pl.lit(race.value))
+    return expr.otherwise(None).alias("race")
 
 
 def trip_survey_verdict(col: str) -> pl.Expr:
@@ -182,28 +198,29 @@ def day_survey_complete(
     )
 
 
-@step()
+@step(
+    requires={"households": set(), "persons": set(), "person_days": set(), "unlinked_trips": set()}
+)
 def clean_2023_bats(
-    households: pl.DataFrame,
-    persons: pl.DataFrame,
-    person_days: pl.DataFrame,
-    unlinked_trips: pl.DataFrame,
+    tables: Tables,
     child_day_complete: Literal["vendor", "observed_trips"],
     exclude_survey_tech: list[str],
 ) -> dict[str, pl.DataFrame]:
     """Custom cleaning steps go here, not in the main pipeline.
 
     Args:
-        households: Vendor households.
-        persons: Vendor persons.
-        person_days: Vendor person-days.
-        unlinked_trips: Vendor trips.
+        tables: The delivered households, persons, person-days and trips.
         child_day_complete: How a child's day is judged complete; see
             :func:`day_survey_complete`. Required, so every config says which.
         exclude_survey_tech: Technologies whose persons are dropped from every
             usability profile; see :func:`exclude_by_survey_tech`. Required, so
             every config says which (an empty list drops no one).
     """
+    households = tables["households"]
+    persons = tables["persons"]
+    person_days = tables["person_days"]
+    unlinked_trips = tables["unlinked_trips"]
+
     # CLEANUP UNLINKED TRIPS =================================
     # Much wow...
     logger.info("Cleaning 2023 trip data")
@@ -416,34 +433,7 @@ def clean_2023_bats(
                 .alias(col)
             ).with_columns(pl.col(col).fill_null(0))
 
-    # Need to create a single "race" columns instead of the multiple binary columns
-    # race_1 - Race: African American or Black
-    # race_2 - Race: American Indian or Alaska Native
-    # race_3 - Race: Asian
-    # race_4 - Race: Native Hawaiian or other Pacific Islander
-    # race_5 - Race: White
-    # race_997 - Race: Other race
-    # race_999 - Race: Prefer not to answer
-    persons = persons.with_columns(
-        pl.when(pl.col("race_1") == 1)
-        .then(pl.lit(Race.AFAM.value))
-        .when(pl.col("race_2") == 1)
-        .then(pl.lit(Race.NATIVE.value))
-        .when(pl.col("race_3") == 1)
-        .then(pl.lit(Race.ASIAN.value))
-        .when(pl.col("race_4") == 1)
-        .then(pl.lit(Race.PACIFIC.value))
-        .when(pl.col("race_5") == 1)
-        .then(pl.lit(Race.WHITE.value))
-        .when(pl.col("race_997") == 1)
-        .then(pl.lit(Race.OTHER.value))
-        .when(pl.sum_horizontal(pl.col(race_cols)) > 1)
-        .then(pl.lit(Race.MULTI.value))
-        .when(pl.col("race_999") == 1)
-        .then(pl.lit(None))
-        .otherwise(None)
-        .alias("race")
-    )
+    persons = persons.with_columns(race_from_boxes())
 
     # Need to create a single "ethnicity" column instead of the multiple binary columns
     # ethnicity_1 - Ethnicity: Not of Hispanic, Latino, or Spanish origin
@@ -487,7 +477,7 @@ def clean_2023_bats(
     logger.info("Excluded %d of %d persons by survey_tech", n_excluded, persons.height)
 
     # ASSIGN COMPLETION STATUS =========================================
-    # Person and household completeness are rolled up later by cascade_completeness,
+    # Person and household completeness are rolled up later by cascade_usability,
     # so their is_complete here is only a placeholder.
     unlinked_trips = unlinked_trips.rename(
         {"trip_survey_complete": "survey_complete"}

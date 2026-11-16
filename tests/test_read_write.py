@@ -1,4 +1,4 @@
-"""Tests for read_write module."""
+"""load_data and write_data: formats by extension, directories, and canonical-only output."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -84,15 +84,12 @@ class TestLoadData:
         assert "Possibly broken at" in str(excinfo.value)
 
     def test_load_unsupported_format_raises_error(self, tmp_path):
-        """Test that unsupported file format raises ValueError."""
-        # Create a file with unsupported extension
+        """An unknown extension raises."""
         unsupported_path = tmp_path / "test.xlsx"
         unsupported_path.write_text("dummy content")
 
-        input_paths = {"test": str(unsupported_path)}
-
         with pytest.raises(ValueError, match="Unsupported file format"):
-            load_data(input_paths=input_paths)
+            load_data(input_paths={"test": str(unsupported_path)})
 
 
 class TestWriteData:
@@ -159,14 +156,13 @@ class TestWriteData:
         assert read_back(output_path) == [1, 2, 3]
 
     def test_write_creates_directories(self, tmp_path):
-        """Test that write_data creates parent directories."""
+        """With create_dirs, missing parent directories are made."""
         output_path = tmp_path / "subdir1" / "subdir2" / "output.csv"
         canonical_data = CanonicalData()
         canonical_data.trips = pl.DataFrame({"id": [1]})  # pyright: ignore[reportAttributeAccessIssue]
 
-        output_paths = {"trips": str(output_path)}
         write_data(
-            output_paths=output_paths,
+            output_paths={"trips": str(output_path)},
             canonical_data=canonical_data,
             validate_input=False,
             create_dirs=True,
@@ -174,22 +170,18 @@ class TestWriteData:
         )
 
         assert output_path.exists()
-        assert output_path.parent.exists()
 
     def test_write_without_creating_directories_fails(self, tmp_path):
-        """Test that write fails if directories don't exist and create_dirs=False."""
+        """Without create_dirs, a missing directory raises."""
         output_path = tmp_path / "nonexistent" / "output.csv"
         canonical_data = CanonicalData()
         canonical_data.households = pl.DataFrame({"id": [1]})
 
-        output_paths = {"households": str(output_path)}
-
-        # Will raise OS error for missing directory
         with pytest.raises(
             OSError, match=r"No such file or directory|cannot find the path specified"
         ):
             write_data(
-                output_paths=output_paths,
+                output_paths={"households": str(output_path)},
                 canonical_data=canonical_data,
                 validate_input=False,
                 create_dirs=False,
@@ -197,17 +189,76 @@ class TestWriteData:
             )
 
     def test_write_unsupported_format_raises_error(self, tmp_path):
-        """Test that unsupported output format raises ValueError."""
+        """An unknown output extension raises."""
         output_path = tmp_path / "output.xlsx"
         canonical_data = CanonicalData()
         canonical_data.households = pl.DataFrame({"id": [1]})
 
-        output_paths = {"households": str(output_path)}
-
         with pytest.raises(ValueError, match="Unsupported file format"):
             write_data(
-                output_paths=output_paths,
+                output_paths={"households": str(output_path)},
                 canonical_data=canonical_data,
                 validate_input=False,
                 write_only_canonical=False,
             )
+
+
+class TestWriteOnlyCanonical:
+    """``write_only_canonical`` narrows a written table to its declared and registered columns."""
+
+    @pytest.fixture
+    def canon(self) -> CanonicalData:
+        """Households with declared fields, undeclared columns and a generated zone id."""
+        data = CanonicalData()
+        data.households = pl.DataFrame(
+            {
+                "hh_id": [1, 2],
+                "home_lat": [37.7, 37.8],
+                "home_lon": [-122.4, -122.5],
+                "bicycle_type_1": [1, 0],  # undeclared input columns
+                "num_complete_tue_a": [3, 4],
+                "home_taz": [101, 202],  # named from config by add_zone_ids
+            }
+        )
+        return data
+
+    @staticmethod
+    def _written_columns(canon, tmp_path, **kwargs) -> list[str]:
+        out = tmp_path / "hh.csv"
+        write_data(
+            output_paths={"households": str(out)},
+            canonical_data=canon,
+            validate_input=False,
+            **kwargs,
+        )
+        return pl.read_csv(out).columns
+
+    def test_requires_an_explicit_choice(self, canon, tmp_path):
+        """Neither default is safe, so leaving it unset is an error."""
+        with pytest.raises(ValueError, match="write_only_canonical"):
+            self._written_columns(canon, tmp_path)
+
+    def test_canonical_only_drops_undeclared_columns(self, canon, tmp_path):
+        """Declared fields stay; undeclared and unregistered generated columns go."""
+        written = self._written_columns(canon, tmp_path, write_only_canonical=True)
+
+        assert "hh_id" in written
+        assert "home_lat" in written
+        assert "bicycle_type_1" not in written
+        assert "num_complete_tue_a" not in written
+        assert "home_taz" not in written
+
+    def test_registered_generated_columns_survive_in_order(self, canon, tmp_path):
+        """A registered zone id is kept, and narrowing does not reorder the columns."""
+        canon.register_generated_columns("households", ["home_taz"])
+
+        written = self._written_columns(canon, tmp_path, write_only_canonical=True)
+
+        assert "home_taz" in written
+        assert written == [c for c in canon.households.columns if c in written]
+
+    def test_dump_everything_when_asked(self, canon, tmp_path):
+        """False writes every column, which debugging needs."""
+        written = self._written_columns(canon, tmp_path, write_only_canonical=False)
+
+        assert written == canon.households.columns

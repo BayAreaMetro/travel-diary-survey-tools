@@ -12,32 +12,14 @@ from data_canon.codebook.ctramp import (
 from data_canon.codebook.persons import EMPLOYED, SchoolType
 from data_canon.codebook.trips import WORK_PURPOSE_CATEGORIES, PurposeCategory
 
-
-def is_employed(employment: pl.Expr) -> pl.Expr:
-    """Whether the person has a job (see ``EMPLOYED``)."""
-    return employment.is_in([e.value for e in EMPLOYED]).fill_null(value=False)
-
-
-def is_work_purpose(purpose_category: pl.Expr, employment: pl.Expr) -> pl.Expr:
-    """Whether CT-RAMP takes a tour of this purpose, by this person, as work.
-
-    An employed person's work-related tour is work: the survey separates the
-    workplace from a meeting, jobsite or volunteering, and the model does not.
-    Employment decides, not person type, so a student with a job counts too.
-    Anyone else's work-related tour stays non-mandatory -- a retiree's is
-    volunteering, and a child's is a parent's purpose copied onto a shared trip.
-    A reported workplace visit is work for everyone, as it always was.
-    """
-    return (purpose_category == PurposeCategory.WORK.value) | (
-        purpose_category.is_in([p.value for p in WORK_PURPOSE_CATEGORIES]) & is_employed(employment)
-    )
-
+from .ctramp_config import CTRAMPConfig
 
 # A joint record is no one person, so it has no employment of its own: a
 # work-related purpose on it is never work.
 NO_EMPLOYMENT = pl.lit(None, dtype=pl.Int64)
 
-
+# Joint tour frequency group of each tour purpose: S(hopping), M(aintenance),
+# E(ating out), V(isiting/social) or D(iscretionary).
 PURPOSECATEGORY_TO_JTF_GROUP = {
     # Shopping
     PurposeCategory.SHOP.value: "S",
@@ -67,15 +49,42 @@ PURPOSECATEGORY_TO_JTF_GROUP = {
     PurposeCategory.NOT_IMPUTABLE.value: "D",
 }
 
+# Every PurposeCategory must have a JTF group, and nothing else may.
+_missing_categories = {pc.value for pc in PurposeCategory} - set(PURPOSECATEGORY_TO_JTF_GROUP)
+if _missing_categories:
+    msg = f"Missing PurposeCategory mappings in PURPOSECATEGORY_TO_JTF_GROUP: {_missing_categories}"
+    raise ValueError(msg)
+if len(PURPOSECATEGORY_TO_JTF_GROUP) != len(PurposeCategory):
+    msg = "PURPOSECATEGORY_TO_JTF_GROUP has keys that are not PurposeCategory values"
+    raise ValueError(msg)
+
+
+def is_employed(employment: pl.Expr) -> pl.Expr:
+    """Whether the person has a job (see ``EMPLOYED``)."""
+    return employment.is_in([e.value for e in EMPLOYED]).fill_null(value=False)
+
+
+def is_work_purpose(purpose_category: pl.Expr, employment: pl.Expr) -> pl.Expr:
+    """Whether CT-RAMP takes a tour of this purpose, by this person, as work.
+
+    An employed person's work-related tour is work: the survey separates the
+    workplace from a meeting, jobsite or volunteering, and the model does not.
+    Employment decides, not person type, so a student with a job counts too.
+    Anyone else's work-related tour stays non-mandatory -- a retiree's is
+    volunteering, and a child's is a parent's purpose copied onto a shared trip.
+    A reported workplace visit is work for everyone, as it always was.
+    """
+    return (purpose_category == PurposeCategory.WORK.value) | (
+        purpose_category.is_in([p.value for p in WORK_PURPOSE_CATEGORIES]) & is_employed(employment)
+    )
+
 
 def ctramp_purpose_category_expression(
     purpose_category: pl.Expr,
     income: pl.Expr,
     school_type: pl.Expr,
     employment: pl.Expr,
-    income_low_threshold: int,
-    income_med_threshold: int,
-    income_high_threshold: int,
+    config: CTRAMPConfig,
     parent_tour_purpose: pl.Expr | None = None,
     is_subtour: pl.Expr | None = None,
     purpose_kind: Literal["tour", "trip"] = "tour",
@@ -94,9 +103,7 @@ def ctramp_purpose_category_expression(
         employment: Polars expression for the canonical employment code. Whether
             the person has a job decides whether a work-related purpose is work
             (see :func:`is_work_purpose`).
-        income_low_threshold: Income threshold for low bracket
-        income_med_threshold: Income threshold for med bracket
-        income_high_threshold: Income threshold for high bracket
+        config: CT-RAMP settings; its income thresholds split the work purposes.
         parent_tour_purpose: Polars expression for parent tour purpose (if available)
         is_subtour: Polars expression for identifying subtours
         purpose_kind: Emit detailed tour purposes (CTRAMPTourPurpose) or the
@@ -160,11 +167,11 @@ def ctramp_purpose_category_expression(
 
     # Work purposes - segmented by income (only for primary work tours, not at-work subtours)
     work_income_segmentation = (
-        pl.when(income < income_low_threshold)
+        pl.when(income < config.income_low_threshold)
         .then(pl.lit(purpose_enum.WORK_LOW.value))
-        .when(income < income_med_threshold)
+        .when(income < config.income_med_threshold)
         .then(pl.lit(purpose_enum.WORK_MED.value))
-        .when(income < income_high_threshold)
+        .when(income < config.income_high_threshold)
         .then(pl.lit(purpose_enum.WORK_HIGH.value))
         .otherwise(pl.lit(purpose_enum.WORK_VERY_HIGH.value))
     )
@@ -289,15 +296,3 @@ def ctramp_purpose_category_expression(
         .then(pl.lit(CTRAMPTripPurpose.ESCORT.value))
         .otherwise(tour_purpose_expr)
     )
-
-
-# Validate mapping completeness at module load time.
-_all_purpose_categories = {pc.value for pc in PurposeCategory}
-_mapped_categories = set(PURPOSECATEGORY_TO_JTF_GROUP)
-_missing_categories = _all_purpose_categories - _mapped_categories
-if _missing_categories:
-    msg = f"Missing PurposeCategory mappings in PURPOSECATEGORY_TO_JTF_GROUP: {_missing_categories}"
-    raise ValueError(msg)
-if len(PURPOSECATEGORY_TO_JTF_GROUP) != len(_all_purpose_categories):
-    msg = "Duplicate keys found in PURPOSECATEGORY_TO_JTF_GROUP mapping"
-    raise ValueError(msg)

@@ -1,17 +1,12 @@
-"""The survey and PUMS recodes, side by side.
+"""The survey and PUMS recodes, which must land in the same control categories."""
 
-Both sides have to land in the same control categories or the balancer is
-fitting a seed to targets built from a different definition, so the two are read
-together. Both use small synthetic frames and no Census API. The survey side
-also validates target-driven behaviour: only requested controls are produced,
-and a missing source field raises immediately.
-"""
+from types import SimpleNamespace
 
 import polars as pl
 import pytest
 
 from data_canon.codebook.households import IncomeBroad
-from data_canon.codebook.persons import AgeCategory, Ethnicity
+from data_canon.codebook.persons import AgeCategory, Education, Ethnicity, Race
 from processing.weighting.controls.enums import (
     CommuteModeCategory,
     EmploymentCategory,
@@ -19,21 +14,34 @@ from processing.weighting.controls.enums import (
     HHChildrenCategory,
     HHSizeCategory,
     HHVehiclesCategory,
+    HHVehiclesPerDriverCategory,
     HHWorkersCategory,
+    RaceEthnicityCategory,
     StudentCategory,
 )
-from processing.weighting.controls.registry import CONTROLS
+from processing.weighting.controls.registry import (
+    CONTROLS,
+    register_puma_control,
+    register_target_zone_control,
+)
+from processing.weighting.core.pipeline import WeightingPipeline
+from processing.weighting.core.specs import ControlRegistryConfig
 from processing.weighting.data_prep.control_data import (
+    recode_allocated_pums,
     recode_pums_households,
     recode_pums_persons,
 )
-from processing.weighting.data_prep.incidence import build_incidence_table
+from processing.weighting.data_prep.fractional_impute import fill_null_incidence
+from processing.weighting.data_prep.incidence import (
+    build_incidence_table,
+    pivot_allocated_controls,
+)
 from processing.weighting.data_prep.seed_data import (
     recode_survey_households,
     recode_survey_persons,
 )
+from processing.weighting.validation.checksums import check_incidence_sums
 
-# Convenience target lists used across multiple tests
 HH_TARGETS = ["h_size", "h_income", "h_workers", "h_children"]
 PERSON_TARGETS = [
     "p_gender",
@@ -44,20 +52,15 @@ PERSON_TARGETS = [
 ]
 ALL_TARGETS = [*HH_TARGETS, *PERSON_TARGETS]
 
-# Short names for the student outcomes, so the parametrized table reads as a table
+# Short names so the parametrized tables read as tables
 _NOT_STUDENT = int(StudentCategory.NOT_STUDENT)
 _K12 = int(StudentCategory.STUDENT_K12)
 _COLLEGE = int(StudentCategory.STUDENT_COLLEGE)
-
-# ... and for the commute-mode outcomes
 _REMOTE = int(CommuteModeCategory.MOSTLY_REMOTE)
 _WALK = int(CommuteModeCategory.WALK)
 _NA = int(CommuteModeCategory.NA)
 
 
-# ---------------------------------------------------------------------------
-# Fixtures — synthetic canonical survey data
-# ---------------------------------------------------------------------------
 @pytest.fixture
 def survey_households() -> pl.DataFrame:
     """Minimal canonical households."""
@@ -66,7 +69,7 @@ def survey_households() -> pl.DataFrame:
             "hh_id": [1, 2, 3],
             "income_bin": [1, 5, 3],  # Under 25k, $100-200k, $50-75k
             "hh_weight": [1.5, 2.0, 1.0],
-            "ctrl_geoid": ["00100", "00100", "00200"],
+            "zone_group_id": ["00100", "00100", "00200"],
         }
     )
 
@@ -92,48 +95,53 @@ def survey_persons() -> pl.DataFrame:
     )
 
 
-# ---------------------------------------------------------------------------
-# recode_survey_households
-# ---------------------------------------------------------------------------
 class TestRecodeSurveyHouseholds:
     """Tests for recoding survey households into control categories."""
 
-    def test_hh_size_from_person_count(self, survey_households, survey_persons):
-        """Household size control is derived from person count, not a household field."""
-        result = recode_survey_households(
-            survey_households,
-            survey_persons,
-            ["h_size"],
-        )
-        sizes = result.sort("hh_id")["h_size"].to_list()
-        # HH1: 2 persons → SIZE_2, HH2: 3 persons → SIZE_3, HH3: 1 person → SIZE_1
-        assert sizes == [
-            int(HHSizeCategory.SIZE_2),
-            int(HHSizeCategory.SIZE_3),
-            int(HHSizeCategory.SIZE_1),
-        ]
-
-    def test_hh_income_from_broad(self, survey_households, survey_persons):
-        """Household income control is derived from broad income categories."""
-        result = recode_survey_households(
-            survey_households,
-            survey_persons,
-            ["h_income"],
-        )
-        incomes = result.sort("hh_id")["h_income"].to_list()
-        # income_bin: 1=Under 25k, 5=$100-200k, 3=$50-75k
-        assert incomes == [
-            IncomeBroad.INCOME_UNDER25.value,
-            IncomeBroad.INCOME_100TO200.value,
-            IncomeBroad.INCOME_50TO75.value,
-        ]
+    @pytest.mark.parametrize(
+        ("column", "expected"),
+        [
+            pytest.param(
+                "h_size",
+                # persons per household: 2, 3, 1
+                [HHSizeCategory.SIZE_2, HHSizeCategory.SIZE_3, HHSizeCategory.SIZE_1],
+                id="h_size_from_person_count",
+            ),
+            pytest.param(
+                "h_income",
+                [
+                    IncomeBroad.INCOME_UNDER25,
+                    IncomeBroad.INCOME_100TO200,
+                    IncomeBroad.INCOME_50TO75,
+                ],
+                id="h_income_from_income_bin",
+            ),
+            pytest.param(
+                "h_children",
+                # ages 16-17 and under 5 are the two children, both in household 2
+                [
+                    HHChildrenCategory.CHILDREN_0,
+                    HHChildrenCategory.CHILDREN_2,
+                    HHChildrenCategory.CHILDREN_0,
+                ],
+                id="h_children_from_person_age",
+            ),
+            pytest.param(
+                "h_vehicles",
+                # num_vehicles: 0, 2, 1
+                [HHVehiclesCategory.VEH_0, HHVehiclesCategory.VEH_2, HHVehiclesCategory.VEH_1],
+                id="h_vehicles_from_num_vehicles",
+            ),
+        ],
+    )
+    def test_household_recode(self, survey_households, survey_persons, column, expected):
+        """Each household control, for all three households, in hh_id order."""
+        hh = survey_households.with_columns(pl.Series("num_vehicles", [0, 2, 1]))
+        result = recode_survey_households(hh, survey_persons, [column])
+        assert result.sort("hh_id")[column].to_list() == [v.value for v in expected]
 
     def test_hh_workers_derived(self):
-        """Number of workers is counted from person-level employment.
-
-        The four households resolve to four different categories, so a
-        constant — or a plain person count — fails.
-        """
+        """Workers are counted from person employment; four households, four categories."""
         households = pl.DataFrame({"hh_id": [1, 2, 3, 4]})
         persons = pl.DataFrame(
             {
@@ -153,40 +161,55 @@ class TestRecodeSurveyHouseholds:
             int(HHWorkersCategory.WORKERS_3),
         ]
 
-    def test_hh_children_derived(self, survey_households, survey_persons):
-        """Number of children is derived from person-level age."""
-        result = recode_survey_households(
-            survey_households,
-            survey_persons,
-            ["h_children"],
-        )
-        children = result.sort("hh_id")["h_children"].to_list()
-        # Child age categories: 1=Under 5, 2=5-15, 3=16-17 → counted as children
-        # HH1: age=[5,4] → AgeCategory 5=25-34, 4=18-24 → 0 children
-        # HH2: age=[6,3,1] → AgeCategory 6=35-44, 3=16-17, 1=Under 5 → 2 children
-        # HH3: age=[9] → AgeCategory 9=65-74 → 0 children
-        assert children == [
-            int(HHChildrenCategory.CHILDREN_0),
-            int(HHChildrenCategory.CHILDREN_2),
-            int(HHChildrenCategory.CHILDREN_0),
-        ]
+    def test_hh_workers_count_employed_on_leave(self):
+        """A person employed but on leave is a worker, as PUMS ESR counts them.
 
-    def test_vehicles_recode(self, survey_households, survey_persons):
-        """Number of vehicles control is derived from num_vehicles field."""
-        hh = survey_households.with_columns(
-            pl.Series("num_vehicles", [0, 2, 1]),
+        Unpaid volunteers and interns stay out on both sides.
+        """
+        households = pl.DataFrame({"hh_id": [1, 2]})
+        persons = pl.DataFrame(
+            {
+                # HH1: one on leave.  HH2: an unpaid intern and a full-timer.
+                "hh_id": [1, 1, 2, 2],
+                "person_id": [101, 102, 201, 202],
+                "employment": [8, 5, 7, 1],
+            }
         )
-        result = recode_survey_households(
-            hh,
-            survey_persons,
-            ["h_vehicles"],
-        )
-        vehs = result.sort("hh_id")["h_vehicles"].to_list()
-        assert vehs == [
-            int(HHVehiclesCategory.VEH_0),
-            int(HHVehiclesCategory.VEH_2),
-            int(HHVehiclesCategory.VEH_1),
-        ]
+        result = recode_survey_households(households, persons, ["h_workers"])
+        workers = result.sort("hh_id")["h_workers"].to_list()
+        assert workers == [int(HHWorkersCategory.WORKERS_1), int(HHWorkersCategory.WORKERS_1)]
+
+    @pytest.mark.parametrize(
+        ("num_vehicles", "expected"),
+        [
+            pytest.param(
+                [0, 2, 3],
+                [
+                    HHVehiclesPerDriverCategory.NONE,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                    HHVehiclesPerDriverCategory.MORE_THAN_DRIVERS,
+                ],
+                id="none_one_to_one_more",
+            ),
+            pytest.param(
+                [1, 1, 1],
+                [
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                ],
+                id="less_than_drivers",
+            ),
+        ],
+    )
+    def test_vehicles_per_driver_recode(
+        self, survey_households, survey_persons, num_vehicles, expected
+    ):
+        """Drivers are 16+: household 2 has two (a 16-17 counts, an under-5 does not)."""
+        hh = survey_households.with_columns(pl.Series("num_vehicles", num_vehicles))
+        result = recode_survey_households(hh, survey_persons, ["h_vehicles_per_driver"])
+        got = result.sort("hh_id")["h_vehicles_per_driver"].to_list()
+        assert got == [int(c) for c in expected]
 
     @pytest.mark.parametrize(
         ("target", "drop_field", "missing_field"),
@@ -220,43 +243,70 @@ class TestRecodeSurveyHouseholds:
         assert [c for c in result.columns if c.startswith("h_")] == expected
 
 
-# ---------------------------------------------------------------------------
-# recode_survey_persons
-# ---------------------------------------------------------------------------
 class TestRecodeSurveyPersons:
     """Tests for recoding survey persons into control categories."""
 
-    def test_gender_recode(self, survey_persons):
-        """Gender."""
-        result = recode_survey_persons(survey_persons, ["p_gender"])
-        genders = result.sort("person_id")["p_gender"].to_list()
-        # gender: [2, 1, 2, 1, 4, 2] → [MALE, FEMALE, MALE, FEMALE, None, MALE]
-        expected = [
-            int(GenderCategory.MALE),
-            int(GenderCategory.FEMALE),
-            int(GenderCategory.MALE),
-            int(GenderCategory.FEMALE),
-            None,  # gender=4 (NON_BINARY) has no PUMS mapping → null
-            int(GenderCategory.MALE),
-        ]
-        assert genders == expected
-
-    def test_employment_recode(self, survey_persons):
-        """Employment status."""
-        result = recode_survey_persons(survey_persons, ["p_employment"])
-        emps = result.sort("person_id")["p_employment"].to_list()
-        # employment: [1, 5, 2, 5, 5, 3]
-        # 1=FT→EMPLOYED_FULL, 5=not looking→NOT_EMPLOYED, 2=PT→EMPLOYED_PART,
-        # 3=self-emp→EMPLOYED_FULL
-        expected = [
-            int(EmploymentCategory.EMPLOYED_FULL),
-            int(EmploymentCategory.NOT_EMPLOYED),
-            int(EmploymentCategory.EMPLOYED_PART),
-            int(EmploymentCategory.NOT_EMPLOYED),
-            int(EmploymentCategory.NOT_EMPLOYED),
-            int(EmploymentCategory.EMPLOYED_FULL),
-        ]
-        assert emps == expected
+    @pytest.mark.parametrize(
+        ("column", "expected"),
+        [
+            pytest.param(
+                "p_gender",
+                # non-binary (person 5) has no PUMS category
+                [
+                    GenderCategory.MALE,
+                    GenderCategory.FEMALE,
+                    GenderCategory.MALE,
+                    GenderCategory.FEMALE,
+                    None,
+                    GenderCategory.MALE,
+                ],
+                id="p_gender_from_gender",
+            ),
+            pytest.param(
+                "p_employment",
+                # full-time, not looking, part-time, not looking x 2, self-employed
+                [
+                    EmploymentCategory.EMPLOYED_FULL,
+                    EmploymentCategory.NOT_EMPLOYED,
+                    EmploymentCategory.EMPLOYED_PART,
+                    EmploymentCategory.NOT_EMPLOYED,
+                    EmploymentCategory.NOT_EMPLOYED,
+                    EmploymentCategory.EMPLOYED_FULL,
+                ],
+                id="p_employment_from_employment",
+            ),
+            pytest.param(
+                "p_age",
+                [
+                    AgeCategory.AGE_25_TO_34,
+                    AgeCategory.AGE_18_TO_24,
+                    AgeCategory.AGE_35_TO_44,
+                    AgeCategory.AGE_16_TO_17,
+                    AgeCategory.AGE_UNDER_5,
+                    AgeCategory.AGE_65_TO_74,
+                ],
+                id="p_age_from_age",
+            ),
+            pytest.param(
+                "p_commute_mode",
+                # work_mode: walk, none, borrowed bike, none, none, household vehicle
+                [
+                    CommuteModeCategory.WALK,
+                    CommuteModeCategory.NA,
+                    CommuteModeCategory.BIKE,
+                    CommuteModeCategory.NA,
+                    CommuteModeCategory.NA,
+                    CommuteModeCategory.DRIVE_ALONE,
+                ],
+                id="p_commute_mode_from_work_mode",
+            ),
+        ],
+    )
+    def test_person_recode(self, survey_persons, column, expected):
+        """Each person control, for all six persons, in person_id order."""
+        result = recode_survey_persons(survey_persons, [column])
+        got = result.sort("person_id")[column].to_list()
+        assert got == [None if v is None else v.value for v in expected]
 
     @pytest.mark.parametrize(
         ("student", "school_type", "age", "expected"),
@@ -304,38 +354,53 @@ class TestRecodeSurveyPersons:
         result = persons.select(CONTROLS["p_student"].survey_expr())
         assert result.to_series().to_list() == [expected]
 
-    def test_age_recode(self, survey_persons):
-        """Age category recode should map canonical AgeCategory values to control categories."""
-        result = recode_survey_persons(survey_persons, ["p_age"])
-        ages = result.sort("person_id")["p_age"].to_list()
-        # age (AgeCategory values): [5, 4, 6, 3, 1, 9]
-        # 5=25-34, 4=18-24, 6=35-44, 3=16-17, 1=Under 5, 9=65-74
-        expected = [
-            AgeCategory.AGE_25_TO_34.value,
-            AgeCategory.AGE_18_TO_24.value,
-            AgeCategory.AGE_35_TO_44.value,
-            AgeCategory.AGE_16_TO_17.value,
-            AgeCategory.AGE_UNDER_5.value,
-            AgeCategory.AGE_65_TO_74.value,
-        ]
-        assert ages == expected
+    @pytest.mark.parametrize(
+        ("education", "age", "expected"),
+        [
+            pytest.param(995, 1, Education.LESS_HIGH_SCHOOL.value, id="under_5_no_answer"),
+            pytest.param(None, 3, Education.LESS_HIGH_SCHOOL.value, id="age_16_to_17_no_answer"),
+            pytest.param(995, 4, None, id="adult_no_answer_stays_null"),
+            pytest.param(999, 6, None, id="adult_prefer_not_stays_null"),
+            pytest.param(3, 3, Education.SOME_COLLEGE.value, id="child_answer_kept"),
+            pytest.param(6, 5, Education.BACHELORS.value, id="adult_answer_kept"),
+        ],
+    )
+    def test_education_recode(self, education, age, expected):
+        """Children with no answer are less than high school; adults are left to imputation."""
+        persons = pl.DataFrame(
+            {"education": pl.Series([education], dtype=pl.Int64), "age": [age]},
+        )
+        result = persons.select(CONTROLS["p_education"].survey_expr())
+        assert result.to_series().to_list() == [expected]
 
-    def test_commute_mode_recode(self, survey_persons):
-        """Commute mode recode should map canonical work_mode values to control categories."""
-        result = recode_survey_persons(survey_persons, ["p_commute_mode"])
-        modes = result.sort("person_id")["p_commute_mode"].to_list()
-        # work_mode: [1, None, 3, None, None, 11]
-        # Mode.WALK=1 → WALK, None → NA, Mode.BIKE_BORROWED=3 → BIKE,
-        # Mode.HOUSEHOLD_VEHICLE_6=11 → DRIVE_ALONE
-        expected = [
-            int(CommuteModeCategory.WALK),
-            int(CommuteModeCategory.NA),
-            int(CommuteModeCategory.BIKE),
-            int(CommuteModeCategory.NA),
-            int(CommuteModeCategory.NA),
-            int(CommuteModeCategory.DRIVE_ALONE),
-        ]
-        assert modes == expected
+    @pytest.mark.parametrize(
+        ("ethnicity", "race", "expected"),
+        [
+            pytest.param(
+                Ethnicity.NOT_HISPANIC, Race.WHITE, RaceEthnicityCategory.WHITE, id="not_hispanic"
+            ),
+            pytest.param(
+                Ethnicity.MEXICAN,
+                Race.WHITE,
+                RaceEthnicityCategory.HISPANIC_ALLRACES,
+                id="hispanic_whatever_the_race",
+            ),
+            pytest.param(
+                Ethnicity.OTHER,
+                Race.MISSING,
+                RaceEthnicityCategory.HISPANIC_ALLRACES,
+                id="hispanic_no_race",
+            ),
+            pytest.param(Ethnicity.NOT_HISPANIC, Race.PNTA, None, id="not_hispanic_no_race"),
+            pytest.param(Ethnicity.MISSING, Race.WHITE, None, id="origin_missing"),
+            pytest.param(Ethnicity.PNTA, Race.ASIAN, None, id="origin_prefer_not"),
+        ],
+    )
+    def test_race_ethnicity_recode(self, ethnicity, race, expected):
+        """Hispanic origin decides first; race only counts for persons not Hispanic."""
+        persons = pl.DataFrame({"ethnicity": [ethnicity.value], "race": [race.value]})
+        result = persons.select(CONTROLS["p_race_ethnicity"].survey_expr())
+        assert result.to_series().to_list() == [expected if expected is None else expected.value]
 
     @pytest.mark.parametrize(
         ("work_mode", "job_type", "telework_freq", "commute_freq", "expected"),
@@ -431,9 +496,6 @@ def test_unknown_target_raises(survey_households, survey_persons, recode):
         call()
 
 
-# ---------------------------------------------------------------------------
-# build_incidence_table
-# ---------------------------------------------------------------------------
 @pytest.fixture
 def recoded(survey_households, survey_persons) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Both survey tables recoded against every target."""
@@ -450,12 +512,12 @@ class TestBuildIncidenceTable:
         """One row per household, hh_id kept, and extra_cols carried through."""
         hh_recoded, per_recoded = recoded
         seed = build_incidence_table(
-            hh_recoded, per_recoded, ALL_TARGETS, extra_cols=["ctrl_geoid"]
+            hh_recoded, per_recoded, ALL_TARGETS, extra_cols=["zone_group_id"]
         ).incidence
 
-        assert seed.height == 3  # one row per household
+        assert seed.height == 3
         assert seed.sort("hh_id")["hh_id"].to_list() == [1, 2, 3]
-        assert seed.sort("hh_id")["ctrl_geoid"].to_list() == ["00100", "00100", "00200"]
+        assert seed.sort("hh_id")["zone_group_id"].to_list() == ["00100", "00100", "00200"]
 
     def test_incidence_sums_match_hh_size(self, recoded):
         """Gender incidence sums to the household's size, and every value is a count."""
@@ -467,14 +529,12 @@ class TestBuildIncidenceTable:
 
         gender_inc_cols = [c for c in seed.columns if c.startswith("p_gender__")]
         assert gender_inc_cols
-        # For our fixtures, person with gender=4 (non-binary) maps to null,
-        # so they are not counted in any gender incidence column.
         hh_sizes = (
             seed.sort("hh_id")
             .select(pl.sum_horizontal(gender_inc_cols).alias("gender_total"))["gender_total"]
             .to_list()
         )
-        # HH1: 2 persons, HH2: 2 of 3 mapped (gender=4 excluded), HH3: 1 person
+        # household 2's non-binary member is in no gender column
         assert hh_sizes == [2, 2, 1]
 
         for col in (c for c in seed.columns if "__" in c):
@@ -482,17 +542,6 @@ class TestBuildIncidenceTable:
             assert all(isinstance(v, int) and v >= 0 for v in vals), f"Bad incidence in {col}"
 
 
-# ===========================================================================
-# The PUMS side of the same recodes
-#
-# The seed and the control totals have to agree on what a category means, so
-# the survey recode above and the PUMS recode below are read together.
-# ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# recode_pums_households
-# ---------------------------------------------------------------------------
 class TestRecodePumsHouseholds:
     """Tests for recoding PUMS household controls.
 
@@ -526,6 +575,16 @@ class TestRecodePumsHouseholds:
                 id="h_vehicles_from_veh",
             ),
             pytest.param(
+                "h_vehicles_per_driver",
+                # VEH: 1, 2, 0 against drivers 16+: [35,33], [40,38] (not 10, 7), [65]
+                [
+                    HHVehiclesPerDriverCategory.LESS_THAN_DRIVERS,
+                    HHVehiclesPerDriverCategory.ONE_TO_ONE,
+                    HHVehiclesPerDriverCategory.NONE,
+                ],
+                id="h_vehicles_per_driver_from_veh_and_agep",
+            ),
+            pytest.param(
                 "h_workers",
                 # ESR per household: [1,1], [1,6,0,0], [6]
                 [
@@ -549,13 +608,29 @@ class TestRecodePumsHouseholds:
     )
     def test_household_recode(self, pums_households, pums_persons, column, expected):
         """Each household control, for all three households, in SERIALNO order."""
-        result = recode_pums_households(pums_households, pums_persons)
+        result = recode_pums_households(pums_households, pums_persons, [column])
         assert result.sort("SERIALNO")[column].to_list() == [v.value for v in expected]
 
+    def test_vehicles_na_is_not_zero_vehicles(self):
+        """VEH = -1 (N/A) stays null, so it stops the run instead of becoming 0 vehicles."""
+        hh = pl.DataFrame({"VEH": pl.Series([-1, None, 0, 3, 8], dtype=pl.Int32)})
+        got = hh.select(CONTROLS["h_vehicles"].pums_expr()).to_series().to_list()
+        assert got == [None, None, 0, 3, 6]
 
-# ---------------------------------------------------------------------------
-# recode_pums_persons
-# ---------------------------------------------------------------------------
+    def test_vehicles_per_driver_na_is_not_a_category(self):
+        """Not "none" (0 vehicles), and not "more than drivers", where a null would fall."""
+        hh = pl.DataFrame(
+            {"VEH": pl.Series([-1, None, 0, 2], dtype=pl.Int32), "_n_drivers": [2, 2, 2, 2]}
+        )
+        got = hh.select(CONTROLS["h_vehicles_per_driver"].pums_expr()).to_series().to_list()
+        assert got == [
+            None,
+            None,
+            HHVehiclesPerDriverCategory.NONE,
+            HHVehiclesPerDriverCategory.ONE_TO_ONE,
+        ]
+
+
 class TestRecodePumsPersons:
     """Tests for recoding PUMS person controls.
 
@@ -595,18 +670,18 @@ class TestRecodePumsPersons:
                 id="p_age_from_agep",
             ),
             pytest.param(
-                "p_ethnicity",
-                # HISP: 1, 1, 1, 3, 1, 1, 2
+                "p_race_ethnicity",
+                # RAC1P: 1, 6, 2, 1, 1, 1, 9; HISP: 1, 1, 1, 3, 1, 1, 2
                 [
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.PUERTO_RICAN,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.NOT_HISPANIC,
-                    Ethnicity.MEXICAN,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.ASIAN,
+                    RaceEthnicityCategory.AFAM,
+                    RaceEthnicityCategory.HISPANIC_ALLRACES,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.WHITE,
+                    RaceEthnicityCategory.HISPANIC_ALLRACES,
                 ],
-                id="p_ethnicity_from_hisp",
+                id="p_race_ethnicity_from_rac1p_and_hisp",
             ),
             pytest.param(
                 "p_commute_mode",
@@ -640,6 +715,180 @@ class TestRecodePumsPersons:
     )
     def test_person_recode(self, pums_persons, column, expected):
         """Each person control, for all seven persons, in (SERIALNO, SPORDER) order."""
-        result = recode_pums_persons(pums_persons)
+        result = recode_pums_persons(pums_persons, [column])
         got = result.sort(["SERIALNO", "SPORDER"])[column].to_list()
         assert got == [v.value for v in expected]
+
+    def test_education_na_schl_is_less_than_high_school(self):
+        """SCHL is N/A (0, or blank) under age 3; they count with the other children."""
+        persons = pl.DataFrame({"SCHL": pl.Series([0, None, 1, 21], dtype=pl.Int64)})
+        result = persons.select(CONTROLS["p_education"].pums_expr())
+        assert result.to_series().to_list() == [
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.LESS_HIGH_SCHOOL.value,
+            Education.BACHELORS.value,
+        ]
+
+
+class TestPumaControl:
+    """The home-PUMA target, registered for this run's PUMAs and never imputed."""
+
+    @pytest.fixture
+    def puma_ctrl(self, _clean_registry):
+        """``h_puma`` for the two PUMAs the PUMS fixtures live in."""
+        register_puma_control(["00100", "00200"])
+        return CONTROLS["h_puma"]
+
+    def test_one_category_per_puma_plus_outside(self, puma_ctrl):
+        """Numbered from 1 in the order given; 0 is outside the region."""
+        assert puma_ctrl.valid_members == [
+            (0, "OUTSIDE_REGION"),
+            (1, "PUMA_00100"),
+            (2, "PUMA_00200"),
+        ]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_registering_again_replaces_and_none_removes(self):
+        """A second geography never keeps the first one's PUMAs."""
+        register_puma_control(["00300"])
+        assert [m for _, m in CONTROLS["h_puma"].valid_members] == ["OUTSIDE_REGION", "PUMA_00300"]
+        register_puma_control(None)
+        assert "h_puma" not in CONTROLS
+
+    def test_survey_recode(self, puma_ctrl):
+        """A home in no region PUMA, or in none at all, has no category."""
+        hh = pl.DataFrame({"home_puma": ["00200", "00100", "09999", None]})
+        assert hh.select(puma_ctrl.survey_expr()).to_series().to_list() == [2, 1, None, None]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_pums_recode(self, pums_households, pums_persons):
+        """Each PUMS household lands in its PUMA; one outside the region in OUTSIDE_REGION."""
+        outside = pums_households.head(1).with_columns(
+            pl.lit("HH4").alias("SERIALNO"), pl.lit("09999").alias("PUMA")
+        )
+        result = recode_pums_households(
+            pl.concat([pums_households, outside]), pums_persons, ["h_puma"]
+        )
+        assert result.sort("SERIALNO")["h_puma"].to_list() == [1, 1, 2, 0]
+
+    @pytest.mark.usefixtures("puma_ctrl")
+    def test_a_household_with_no_puma_is_not_imputed(
+        self, survey_households, survey_persons, pums_households, pums_persons
+    ):
+        """Imputation leaves it empty, so the seed's sum check stops the run."""
+        names = ["h_total", "p_total", "h_size", "h_puma"]
+        hh = survey_households.with_columns(pl.Series("home_puma", ["00100", "00200", None]))
+        survey = build_incidence_table(
+            recode_survey_households(hh, survey_persons, names),
+            recode_survey_persons(survey_persons, names),
+            names,
+        )
+        pums = build_incidence_table(
+            recode_pums_households(pums_households, pums_persons, names),
+            recode_pums_persons(pums_persons, names),
+            names,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
+            person_extra_cols=["PWGTP", "PUMA"],
+        )
+        one_zone = pl.lit("z1").alias("zone_group_id")
+        seed, _ = fill_null_incidence(
+            survey,
+            pums.incidence.with_columns(one_zone),
+            pums.person_pivot.with_columns(one_zone),
+            survey.incidence.select("hh_id").with_columns(one_zone),
+            names,
+        )
+        puma_cols = [c for c in seed.columns if c.startswith("h_puma__")]
+        assert seed.sort("hh_id").select(pl.sum_horizontal(puma_cols))[:, 0].to_list() == [1, 1, 0]
+        with pytest.raises(ValueError, match="h_puma"):
+            check_incidence_sums(seed, names, source_label="survey", tolerance=0.01)
+
+
+class TestTargetZoneControl:
+    """The home target-zone target: survey from the home, PUMS from each allocated copy."""
+
+    @pytest.fixture
+    def zone_ctrl(self, _clean_registry):
+        """``h_target_zone`` for three target zones."""
+        register_target_zone_control(["001", "013", "081"])
+        return CONTROLS["h_target_zone"]
+
+    def test_one_category_per_target_zone(self, zone_ctrl):
+        """Numbered from 1 in the order given, named by the zone ID."""
+        assert zone_ctrl.valid_members == [(1, "001"), (2, "013"), (3, "081")]
+
+    def test_survey_recode(self, zone_ctrl):
+        """A home's own zone; one in no zone has no category."""
+        hh = pl.DataFrame({"target_zone_id": ["013", "001", None]})
+        assert hh.select(zone_ctrl.survey_expr()).to_series().to_list() == [2, 1, None]
+
+    @pytest.mark.usefixtures("zone_ctrl")
+    def test_pums_recode_leaves_it_for_after_allocation(self, pums_households, pums_persons):
+        """Before allocation a PUMS record has no zone, so recode skips the control."""
+        result = recode_pums_households(pums_households, pums_persons, ["h_total", "h_target_zone"])
+        assert "h_target_zone" not in result.columns
+
+    @pytest.mark.usefixtures("zone_ctrl")
+    def test_each_allocated_copy_gets_its_own_zone(self):
+        """A PUMA split across two zones: one record, two copies, one column each."""
+        allocated = pl.DataFrame(
+            {"SERIALNO": ["S1", "S1"], "target_zone_id": ["013", "001"], "WGTP": [90.0, 10.0]}
+        )
+        out = pivot_allocated_controls(allocated, ["h_total", "h_target_zone"])
+        assert out.select(
+            "h_target_zone__001", "h_target_zone__013", "h_target_zone__081"
+        ).rows() == [
+            (0, 1, 0),
+            (1, 0, 0),
+        ]
+        coded = recode_allocated_pums(allocated, ["h_total", "h_target_zone"])
+        assert coded["h_target_zone"].to_list() == [2, 1]
+
+    @pytest.mark.usefixtures("zone_ctrl")
+    def test_targets_per_zone_and_none_where_a_group_is_one_zone(self):
+        """Group A holds zones 001 and 013; group B is zone 081 alone, so it gets none."""
+        pipeline = object.__new__(WeightingPipeline)
+        pipeline.controls = ControlRegistryConfig.from_yaml(
+            [{"name": "h_total"}, {"name": "p_total"}, {"name": "h_target_zone"}]
+        )
+        pipeline.crosswalk = SimpleNamespace(
+            crosswalk_df=pl.DataFrame(
+                {"target_zone_id": ["001", "013", "081"], "zone_group_id": ["A", "A", "B"]}
+            )
+        )
+        allocated = pl.DataFrame(
+            {
+                "SERIALNO": ["S1", "S1", "S2"],
+                "target_zone_id": ["013", "001", "081"],
+                "zone_group_id": ["A", "A", "B"],
+                "WGTP": [90.0, 10.0, 50.0],
+                "h_total": [1, 1, 1],
+            }
+        )
+        pipeline.pums_incidence = pivot_allocated_controls(
+            allocated, pipeline.controls.target_names
+        )
+        pipeline.pums_person_incidence = pl.DataFrame(
+            {
+                "SERIALNO": ["S1"],
+                "SPORDER": [1],
+                "zone_group_id": ["A"],
+                "PWGTP": [10.0],
+                "p_total": [1],
+            }
+        )
+        pipeline.aggregate_totals()
+
+        zones = pipeline.control_totals.totals.filter(
+            (pl.col("control_name") == "h_target_zone") & (pl.col("target_total") > 0)
+        )
+        assert {
+            (r["zone_group_id"], r["category"]): r["target_total"]
+            for r in zones.iter_rows(named=True)
+        } == {
+            ("A", "001"): 10.0,
+            ("A", "013"): 90.0,
+        }
+        assert zones.filter(pl.col("zone_group_id") == "B").is_empty()

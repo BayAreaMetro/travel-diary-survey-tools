@@ -1,35 +1,22 @@
-"""The controls a weighting run fits to, from definition to checksum.
-
-Four things, read together because each consumes the last. Cross-tab targets are
-registered from YAML config and recoded into a composite key, then pivoted into
-an incidence table and collapsed by N-D merges. Control totals are aggregated
-from the recoded PUMS frames and may be pooled across zone groups. Zone-targeted
-1-D merges layer on top of the global ones, and the fit report reads its labels
-off them. The checksums then assert the incidence table against its own
-structural totals.
-"""
+"""The controls a weighting run fits to: cross-tabs, totals, merges and checksums."""
 
 import logging
 import re
 
-import numpy as np
 import polars as pl
 import pytest
 
 from data_canon.codebook.households import IncomeBroad
-from processing.weighting.balancing.merges import apply_category_merges
+from data_canon.codebook.persons import Gender
 from processing.weighting.controls.base import ControlLevel, CrosstabControlTarget
-from processing.weighting.controls.enums import HHSizeCategory
 from processing.weighting.controls.registry import CONTROLS, register_crosstab
+from processing.weighting.core.pipeline import WeightingPipeline
 from processing.weighting.core.specs import (
     ControlRegistryConfig,
-    ControlSpec,
     ControlTotals,
     MergeSpec,
 )
 from processing.weighting.data_prep.control_data import (
-    apply_zone_groups,
-    build_control_totals,
     recode_pums_households,
     recode_pums_persons,
 )
@@ -37,48 +24,40 @@ from processing.weighting.data_prep.incidence import (
     aggregate_control_totals,
     build_incidence_table,
 )
-from processing.weighting.data_prep.merges import apply_1d_merges, apply_crosstab_merges
-from processing.weighting.data_prep.seed_data import recode_survey_households
+from processing.weighting.data_prep.merges import (
+    apply_1d_merges,
+    merge_control_totals,
+)
+from processing.weighting.data_prep.seed_data import (
+    recode_survey_households,
+    recode_survey_persons,
+    restore_original_answers,
+)
 from processing.weighting.diagnostics.data import apply_fit_merges
 from processing.weighting.validation.checksums import check_incidence_sums, check_recode_nulls
 from processing.weighting.validation.control_validation import warn_crosstab_sparsity
 
-# The merge every test in this file uses: income collapsed to three bins
-# (under 100k, 100-200k, 200k+) and size to three (1, 2, 3 or more), so the
-# 10 x 6 cartesian product becomes 3 x 3 = 9 cells.
+# A person table for tests with household targets only.
+_NO_PERSONS = pl.DataFrame(schema={"SERIALNO": pl.Utf8, "SPORDER": pl.Int64})
+
+# Income to three bins (under 100k, 100-200k, 200k+) and size to three (1, 2,
+# 3 or more), so the 10 x 6 cartesian product becomes 3 x 3 = 9 cells.
 PREMERGE_GROUPS = {
     "h_income": {
-        "income_under_100": [
-            "income_under25",
-            "income_25to50",
-            "income_50to75",
-            "income_75to100",
-        ],
+        "income_under_100": ["income_under25", "income_25to50", "income_50to75", "income_75to100"]
     },
     "h_size": {
-        "size_3_plus": [
-            "size_3",
-            "size_4",
-            "size_5",
-            "size_6",
-            "size_7",
-            "size_8",
-            "size_9",
-            "size_10_plus",
-        ],
+        "size_3_plus": [f"size_{n}" for n in range(3, 10)] + ["size_10_plus"],
     },
 }
 
 
 @pytest.fixture(autouse=True)
 def _isolate_registry(_clean_registry):
-    """Every test here registers cross-tabs, so every test cleans up after itself.
+    """Clean the registry after every test.
 
-    Autouse, not a ``usefixtures`` mark: autouse fixtures are set up before the
-    ones a test asks for, so the cleanup's snapshot is taken before a fixture
-    like ``size_income_xtab`` registers anything. Under a mark the order flips,
-    the new cross-tab is mistaken for a pre-existing one, and the next test
-    fails with "already exists in registry".
+    Autouse so the cleanup's snapshot is taken before fixtures such as
+    ``size_income_xtab`` register anything.
     """
 
 
@@ -88,38 +67,39 @@ def size_income_xtab():
     return register_crosstab("h_size_x_income", ["h_size", "h_income"])
 
 
+def _incidence(households: pl.DataFrame, persons: pl.DataFrame, targets: list[str]):
+    """The survey incidence table for *targets*."""
+    hh_recoded = recode_survey_households(households, persons, targets)
+    return build_incidence_table(hh_recoded, persons, targets).incidence
+
+
 @pytest.fixture
 def households() -> pl.DataFrame:
-    """Synthetic canonical households (3 HHs, 2 zones)."""
+    """Four households in two zones."""
     return pl.DataFrame(
         {
             "hh_id": [1, 2, 3, 4],
             "income_bin": [1, 5, 3, 2],  # UNDER25, 100TO200, 50TO75, 25TO50
-            "ctrl_geoid": ["Z1", "Z1", "Z2", "Z2"],
+            "zone_group_id": ["Z1", "Z1", "Z2", "Z2"],
         }
     )
 
 
 @pytest.fixture
 def persons() -> pl.DataFrame:
-    """Synthetic persons — defines household size."""
+    """Persons, which set household size: 1, 2, 3 and 1."""
     return pl.DataFrame(
         {
             "hh_id": [1, 2, 2, 3, 3, 3, 4],
             "person_id": [101, 201, 202, 301, 302, 303, 401],
-            "age": [5, 5, 5, 5, 5, 5, 5],  # adult ages (AgeCategory values)
-            "gender": [2, 1, 2, 1, 2, 1, 2],  # canonical Gender values
-            "employment": [5, 5, 5, 5, 5, 5, 5],  # not employed
-            "student": [2, 2, 2, 2, 2, 2, 2],  # non-student
-            "school_type": [None, None, None, None, None, None, None],
-            "work_mode": [None, None, None, None, None, None, None],
+            "age": [5] * 7,  # adults
+            "gender": [2, 1, 2, 1, 2, 1, 2],
+            "employment": [5] * 7,  # not employed
+            "student": [2] * 7,  # not a student
+            "school_type": [None] * 7,
+            "work_mode": [None] * 7,
         }
     )
-
-
-# ---------------------------------------------------------------------------
-# Registration
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("size_income_xtab")
@@ -132,80 +112,29 @@ class TestCrosstabRegistration:
         assert isinstance(ctrl, CrosstabControlTarget)
         assert [d.name for d in ctrl.dim_controls] == ["h_size", "h_income"]
 
-    def test_register_creates_composite_enum(self):
-        """Composite enum has full cartesian product of dimension members."""
-        ctrl = CONTROLS["h_size_x_income"]
-        n_size = len(list(HHSizeCategory))
-        n_income = len([m for m in IncomeBroad if m.name not in ("MISSING", "PNTA")])
-        assert len(ctrl.valid_members) == n_size * n_income
-
     def test_register_duplicate_raises(self):
         """Re-registering the same name raises ValueError."""
         with pytest.raises(ValueError, match="already exists"):
             register_crosstab("h_size_x_income", ["h_size", "h_income"])
 
-    def test_register_with_merges_reduces_cell_count(self):
-        """Pre-merge at registration reduces the enum to effective cell count."""
-        xtab = register_crosstab(
-            "h_size_income_merged",
-            ["h_size", "h_income"],
-            merges=PREMERGE_GROUPS,
-        )
-        # 3 size bins x 3 income bins = 9 cells
-        assert len(xtab.valid_members) == 9
-        # and the merged groups name themselves in the composite members
-        member_names = [name for _, name in xtab.valid_members]
-        assert "SIZE_3_PLUS_INCOME_UNDER_100" in member_names
-
-    def test_from_yaml_parses_dimensions(self):
-        """Cross-tab specs parse dimensions from YAML config."""
-        config = [
-            {"name": "h_size"},
-            {"name": "h_income"},
-            {"name": "h_size_by_income", "dimensions": ["h_size", "h_income"]},
-        ]
-        parsed = ControlRegistryConfig.from_yaml(config)
-        xtab_spec = next(s for s in parsed.specs if s.name == "h_size_by_income")
-        assert xtab_spec.dimensions == ["h_size", "h_income"]
-        # Non-crosstab specs have None
-        size_spec = next(s for s in parsed.specs if s.name == "h_size")
-        assert size_spec.dimensions is None
-
-    def test_from_yaml_stores_merges_on_spec(self):
-        """Cross-tab merges are stored on ControlSpec, not in crosstab_merges list.
-
-        They are applied at registration time, not post-pivot.
-        """
+    def test_from_yaml_parses_dimensions_and_keeps_merges_on_the_spec(self):
+        """A cross-tab spec carries its dimensions and its own merges, not 1-D merges."""
         config = [
             {"name": "h_size"},
             {"name": "h_income"},
             {
                 "name": "h_size_by_income",
                 "dimensions": ["h_size", "h_income"],
-                "merges": {
-                    "h_income": {
-                        "income_under_100": [
-                            "income_under25",
-                            "income_25to50",
-                            "income_50to75",
-                            "income_75to100",
-                        ]
-                    }
-                },
+                "merges": {"h_income": PREMERGE_GROUPS["h_income"]},
             },
         ]
         parsed = ControlRegistryConfig.from_yaml(config)
-        # Cross-tab merges are NOT added to crosstab_merges (pre-merge at registration)
-        assert len(parsed.crosstab_merges) == 0
-        # Instead, merges are stored on the ControlSpec itself
         xtab_spec = next(s for s in parsed.specs if s.name == "h_size_by_income")
+        assert xtab_spec.dimensions == ["h_size", "h_income"]
+        assert next(s for s in parsed.specs if s.name == "h_size").dimensions is None
+        assert parsed.merges_1d == []
         assert xtab_spec.merges is not None
         assert "h_income" in xtab_spec.merges
-
-
-# ---------------------------------------------------------------------------
-# Composite expression
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("size_income_xtab")
@@ -244,32 +173,21 @@ class TestCrosstabExpression:
         assert sorted(result["xtab"].to_list()) == list(range(len(ctrl.valid_members)))
 
     def test_merged_expression_maps_multiple_values(self):
-        """Merged groups correctly map multiple original values to one index."""
+        """Pre-merged groups map several values to one of 3 x 3 = 9 named cells."""
         xtab = register_crosstab(
             "size_income_expr_test",
             ["h_size", "h_income"],
             merges=PREMERGE_GROUPS,
         )
-        # All income values 1-4 should map to the same cell when paired
-        # with the same size value
-        df = pl.DataFrame(
-            {
-                "h_size": [1, 1, 1, 1],
-                "h_income": [1, 2, 3, 4],  # All under 100
-            }
-        ).cast({"h_size": pl.Int16, "h_income": pl.Int16})
+        df = pl.DataFrame({"h_size": [1, 1, 1, 1], "h_income": [1, 2, 3, 4]}).cast(
+            {"h_size": pl.Int16, "h_income": pl.Int16}
+        )
 
         result = df.with_columns(xtab.survey_expr().alias("xtab"))
         assert result["xtab"].null_count() == 0
-        assert result["xtab"].n_unique() == 1  # All map to same cell
-
-        # Total should be 9 valid indices
+        assert result["xtab"].n_unique() == 1
         assert len(xtab.valid_members) == 9
-
-
-# ---------------------------------------------------------------------------
-# Incidence pivot
-# ---------------------------------------------------------------------------
+        assert "SIZE_3_PLUS_INCOME_UNDER_100" in [name for _, name in xtab.valid_members]
 
 
 @pytest.mark.usefixtures("size_income_xtab")
@@ -279,14 +197,11 @@ class TestCrosstabIncidence:
     def test_incidence_crosstab_is_binary(self, households, persons):
         """Each household belongs to exactly one cross-tab cell: 0/1 indicators."""
         ctrl = CONTROLS["h_size_x_income"]
-        targets = ["h_size", "h_income", "h_size_x_income"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
+        incidence = _incidence(households, persons, ["h_size", "h_income", "h_size_x_income"])
         xtab_cols = [c for c in incidence.columns if c.startswith("h_size_x_income__")]
 
-        # one column per composite member
         assert len(xtab_cols) == len(ctrl.valid_members)
-        # Row sums should be 0 (null recode) or 1 (exactly one cell)
+        # 0 for a null recode, else exactly one cell
         row_sums = incidence.select(pl.sum_horizontal(*xtab_cols).alias("row_sum"))["row_sum"]
         assert (row_sums <= 1).all()
 
@@ -297,94 +212,28 @@ class TestCrosstabIncidence:
             ["h_size", "h_income"],
             merges=PREMERGE_GROUPS,
         )
-        targets = ["h_size", "h_income", "h_size_income_pre"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
+        incidence = _incidence(households, persons, ["h_size", "h_income", "h_size_income_pre"])
         xtab_cols = [c for c in incidence.columns if c.startswith("h_size_income_pre__")]
-        # 3 size bins x 3 income bins = 9 incidence columns
         assert len(xtab_cols) == 9
-
-
-# ---------------------------------------------------------------------------
-# Cross-tab merges
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("size_income_xtab")
 class TestCrosstabMerges:
-    """Tests for N-D merge operations on cross-tab incidence columns."""
-
-    def test_merge_preserves_row_sums(self, households, persons):
-        """Merging doesn't change the total incidence per household."""
-        targets = ["h_size", "h_income", "h_size_x_income"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
-
-        before_cols = [c for c in incidence.columns if c.startswith("h_size_x_income__")]
-        before_sums = incidence.select(pl.sum_horizontal(*before_cols).alias("s"))["s"]
-
-        merge_spec = MergeSpec(
-            control="h_size_x_income",
-            groups={"h_income": PREMERGE_GROUPS["h_income"]},
-        )
-        merged = apply_crosstab_merges(incidence, [merge_spec])
-        after_cols = [c for c in merged.columns if c.startswith("h_size_x_income__")]
-        after_sums = merged.select(pl.sum_horizontal(*after_cols).alias("s"))["s"]
-
-        assert before_sums.to_list() == after_sums.to_list()
-
-    def test_multi_dim_merge(self, households, persons):
-        """Merging both dimensions simultaneously produces expected cell count."""
-        targets = ["h_size", "h_income", "h_size_x_income"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
-
-        # Merge: 4 income -> 1 merged + 2 kept = 3 income bins
-        # Merge: 8 size -> 1 merged + 2 kept = 3 size bins
-        # Result: 3 x 3 = 9 cells
-        merge_spec = MergeSpec(
-            control="h_size_x_income",
-            groups=PREMERGE_GROUPS,
-        )
-        merged = apply_crosstab_merges(incidence, [merge_spec])
-        after_cols = [c for c in merged.columns if c.startswith("h_size_x_income__")]
-
-        # 3 size bins (size_1, size_2, size_3_plus) x 3 income bins
-        # (income_under_100, income_100to200, income_200_or_more) = 9
-        assert len(after_cols) == 9
+    """1-D merges alongside cross-tab incidence columns."""
 
     def test_1d_merges_independent_of_crosstab(self, households, persons):
         """Global 1-D merges on h_size don't affect cross-tab columns."""
-        targets = ["h_size", "h_income", "h_size_x_income"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
-
+        incidence = _incidence(households, persons, ["h_size", "h_income", "h_size_x_income"])
         xtab_before = sorted(c for c in incidence.columns if c.startswith("h_size_x_income__"))
 
-        # Apply a 1-D merge on h_size (should not touch cross-tab columns)
         merge_1d = MergeSpec(
             control="h_size",
-            groups={
-                "size_4_plus": [
-                    "size_4",
-                    "size_5",
-                    "size_6",
-                    "size_7",
-                    "size_8",
-                    "size_9",
-                    "size_10_plus",
-                ]
-            },
+            groups={"size_4_plus": [f"size_{n}" for n in range(4, 10)] + ["size_10_plus"]},
         )
         merged = apply_1d_merges(incidence, [merge_1d])
         xtab_after = sorted(c for c in merged.columns if c.startswith("h_size_x_income__"))
 
         assert xtab_before == xtab_after
-
-
-# ---------------------------------------------------------------------------
-# PUMS-style aggregation
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("size_income_xtab")
@@ -394,263 +243,106 @@ class TestCrosstabAggregation:
     def test_aggregate_includes_crosstab_totals(self, households, persons):
         """Aggregated control totals include cross-tab categories."""
         targets = ["h_size", "h_income", "h_size_x_income"]
-        hh_recoded = recode_survey_households(households, persons, targets)
-        incidence = build_incidence_table(hh_recoded, persons, targets).incidence
-
-        # Add a weight column and geo column (simulate PUMS incidence)
-        pums_inc = incidence.with_columns(
-            pl.lit(1.0).alias("WGTP"),
-            pl.col("hh_id").cast(pl.Utf8).alias("SERIALNO"),
-        ).join(
-            households.select("hh_id", "ctrl_geoid"),
-            on="hh_id",
-            how="left",
+        # the survey incidence, given a weight and a zone, stands in for PUMS
+        pums_inc = (
+            _incidence(households, persons, targets)
+            .with_columns(
+                pl.lit(1.0).alias("WGTP"),
+                pl.col("hh_id").cast(pl.Utf8).alias("SERIALNO"),
+            )
+            .join(
+                households.select("hh_id", "zone_group_id"),
+                on="hh_id",
+                how="left",
+            )
         )
 
-        totals = aggregate_control_totals(
-            pums_inc, targets, weight_col="WGTP", geo_col="ctrl_geoid"
-        )
+        totals = aggregate_control_totals(pums_inc, _NO_PERSONS, targets, geo_col="zone_group_id")
         xtab_rows = totals.totals.filter(pl.col("control_name") == "h_size_x_income")
         assert len(xtab_rows) > 0
-
-
-# ---------------------------------------------------------------------------
-# Sparsity warnings
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("size_income_xtab")
 class TestCrosstabSparsity:
     """Tests for cross-tab cell sparsity warnings."""
 
-    def test_no_warning_when_all_cells_above_threshold(self, caplog):
-        """No warning when every cross-tab cell has enough records."""
+    @pytest.mark.parametrize(
+        ("n_rows", "other_cells", "warned"),
+        [
+            pytest.param(50, 1, False, id="every_cell_above_threshold"),
+            pytest.param(5, 0, True, id="cells_below_threshold"),
+        ],
+    )
+    def test_warns_only_below_threshold(self, caplog, n_rows, other_cells, warned):
+        """A cross-tab cell with fewer than *threshold* records is named."""
         ctrl = CONTROLS["h_size_x_income"]
-        prefix = f"{ctrl.name}__"
-        cols = [
-            f"{prefix}{m.name.lower()}"
-            for m in ctrl.categories
-            if m.name not in ("MISSING", "PNTA")
-        ]
-        data: dict[str, list] = {"ctrl_geoid": ["Z1"] * 50}
-        for col in cols:
-            data[col] = [1] * 50  # 50 records per cell
-        seed = pl.DataFrame(data)
-
-        with caplog.at_level("WARNING"):
-            warn_crosstab_sparsity(seed, [ctrl], threshold=30)
-        assert "sparse" not in caplog.text.lower()
-
-    def test_warning_when_cells_below_threshold(self, caplog):
-        """Warning logged when cross-tab cells have fewer than threshold records."""
-        ctrl = CONTROLS["h_size_x_income"]
-        prefix = f"{ctrl.name}__"
         members = [m for m in ctrl.categories if m.name not in ("MISSING", "PNTA")]
-        cols = [f"{prefix}{m.name.lower()}" for m in members]
-
-        data: dict[str, list] = {"ctrl_geoid": ["Z1"] * 5}
-        for i, col in enumerate(cols):
-            # First cell has only 5 records (sparse), rest have 0
-            data[col] = [1 if i == 0 else 0] * 5
-        seed = pl.DataFrame(data)
+        seed = pl.DataFrame(
+            {
+                "zone_group_id": ["Z1"] * n_rows,
+                **{
+                    f"{ctrl.name}__{m.name.lower()}": [1 if i == 0 else other_cells] * n_rows
+                    for i, m in enumerate(members)
+                },
+            }
+        )
 
         with caplog.at_level("WARNING"):
             warn_crosstab_sparsity(seed, [ctrl], threshold=30)
-        assert "sparse" in caplog.text.lower()
-        assert ctrl.name in caplog.text
+        assert ("sparse" in caplog.text.lower()) is warned
+        assert (ctrl.name in caplog.text) is warned
 
     def test_no_warning_for_1d_controls(self, caplog):
         """1-D controls are not checked by warn_crosstab_sparsity."""
-        ctrl = CONTROLS["h_size"]
-        data: dict[str, list] = {
-            "ctrl_geoid": ["Z1"],
-            "h_size__size_1": [1],
-        }
-        seed = pl.DataFrame(data)
+        seed = pl.DataFrame({"zone_group_id": ["Z1"], "h_size__size_1": [1]})
 
         with caplog.at_level("WARNING"):
-            warn_crosstab_sparsity(seed, [ctrl], threshold=30)
+            warn_crosstab_sparsity(seed, [CONTROLS["h_size"]], threshold=30)
         assert "sparse" not in caplog.text.lower()
 
 
-# ===========================================================================
-# Control totals, aggregated from the recoded PUMS frames
-# ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# build_control_totals
-# ---------------------------------------------------------------------------
-class TestBuildControlTotals:
-    """Tests for building control totals from recoded PUMS data."""
-
-    def test_basic_aggregation(self, pums_households, pums_persons):
-        """Basic aggregation should produce totals DataFrame, over the PUMS geographies."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        controls = [ControlSpec(name="h_size")]
-        result = build_control_totals(hh_recoded, per_recoded, controls)
-
-        assert isinstance(result, ControlTotals)
-        assert result.pums_hh_count == 3
-        assert result.pums_person_count == 7
-        assert "target_total" in result.totals.columns
-        assert "control_name" in result.totals.columns
-        assert set(result.geo_ids) == {"00100", "00200"}
-        # without merges the categories stay the granular enum values
-        assert all(isinstance(c, int) for c in result.totals["category"].to_list())
-
-    def test_totals_sum_to_weight(self, pums_households, pums_persons):
-        """Control totals should sum to total WGTP within each PUMA."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        controls = [ControlSpec(name="h_size")]
-        result = build_control_totals(hh_recoded, per_recoded, controls)
-
-        # Sum of totals per geo should equal sum of WGTP for that geo
-        total_by_geo = result.totals.group_by("geo_id").agg(pl.col("target_total").sum())
-        # PUMA 00100: WGTP 100 + 200 = 300
-        # PUMA 00200: WGTP 150
-        puma_100 = total_by_geo.filter(pl.col("geo_id") == "00100")["target_total"][0]
-        puma_200 = total_by_geo.filter(pl.col("geo_id") == "00200")["target_total"][0]
-        assert puma_100 == pytest.approx(300.0)
-        assert puma_200 == pytest.approx(150.0)
-
-    def test_multiple_controls(self, pums_households, pums_persons):
-        """Household and person controls land side by side, each on its own weights."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        controls = [ControlSpec(name="h_size"), ControlSpec(name="p_gender")]
-        result = build_control_totals(hh_recoded, per_recoded, controls)
-
-        control_names = result.totals["control_name"].unique().sort().to_list()
-        assert control_names == ["h_size", "p_gender"]
-        # person controls are expanded on PWGTP: 100+100 + 200*4 + 150 = 1150
-        person_total = result.totals.filter(pl.col("control_name") == "p_gender")[
-            "target_total"
-        ].sum()
-        assert person_total == pytest.approx(1150.0)
-
-    @pytest.mark.parametrize(
-        ("controls", "match"),
-        [
-            pytest.param([ControlSpec(name="bogus")], "Unknown control name", id="unknown_name"),
-            pytest.param([], "No controls specified", id="no_controls"),
-        ],
-    )
-    def test_bad_control_list_raises(self, pums_households, pums_persons, controls, match):
-        """A name the registry does not know, and an empty list, are both refused."""
-        hh_recoded = recode_pums_households(pums_households, pums_persons)
-        per_recoded = recode_pums_persons(pums_persons)
-
-        with pytest.raises(ValueError, match=match):
-            build_control_totals(hh_recoded, per_recoded, controls)
-
-
-# ---------------------------------------------------------------------------
-# Zone grouping
-# ---------------------------------------------------------------------------
-class TestApplyZoneGroups:
-    """Tests for apply_zone_groups."""
+class TestAggregateControlTotals:
+    """Household targets sum household weights; person targets sum person weights."""
 
     @pytest.fixture
-    def control_totals(self) -> ControlTotals:
-        """Minimal ControlTotals fixture with 3 zones and 2 categories each."""
-        totals = pl.DataFrame(
-            {
-                "geo_id": ["A", "A", "B", "B", "C", "C"],
-                "control_name": ["ctrl"] * 6,
-                "category": [1, 2, 1, 2, 1, 2],
-                "target_total": [100.0, 200.0, 30.0, 40.0, 50.0, 60.0],
-            }
+    def totals(self, pums_households, pums_persons) -> ControlTotals:
+        """Totals for one household and one person target, each PUMA its own zone."""
+        targets = ["h_total", "p_total", "h_size", "p_gender"]
+        bundle = build_incidence_table(
+            recode_pums_households(pums_households, pums_persons, targets),
+            recode_pums_persons(pums_persons, targets),
+            targets,
+            hh_id_col="SERIALNO",
+            extra_cols=["WGTP", "PUMA"],
         )
-        return ControlTotals(
-            totals=totals, pums_hh_count=10, pums_person_count=20, geo_ids=["A", "B", "C"]
+        persons = bundle.person_pivot.join(
+            pums_persons.select("SERIALNO", "SPORDER", "PUMA", "PWGTP"),
+            on=["SERIALNO", "SPORDER"],
         )
+        return aggregate_control_totals(bundle.incidence, persons, targets, geo_col="PUMA")
 
-    @pytest.fixture
-    def seed(self) -> pl.DataFrame:
-        """Minimal seed DataFrame with hh_id and ctrl_geoid matching control_totals."""
-        return pl.DataFrame(
-            {
-                "hh_id": [1, 2, 3],
-                "ctrl_geoid": ["A", "B", "C"],
-            }
-        )
+    @staticmethod
+    def _by_zone(totals: ControlTotals, control: str) -> dict[str, float]:
+        rows = totals.totals.filter(pl.col("control_name") == control)
+        return dict(rows.group_by("zone_group_id").agg(pl.col("target_total").sum()).iter_rows())
 
-    def test_merges_zones(self, control_totals, seed):
-        """Grouped zones should merge in both totals and seed."""
-        groups = {"AB": ["A", "B"]}
-        new_ct, new_seed = apply_zone_groups(control_totals, seed, groups)
+    @pytest.mark.parametrize("control", ["h_total", "h_size"])
+    def test_household_targets_sum_household_weights(self, totals, control):
+        """PUMA 00100: WGTP 100 + 200; PUMA 00200: WGTP 150."""
+        assert self._by_zone(totals, control) == pytest.approx({"00100": 300.0, "00200": 150.0})
 
-        new_ids = sorted(new_ct.geo_ids)
-        assert new_ids == ["AB", "C"]
+    @pytest.mark.parametrize("control", ["p_total", "p_gender"])
+    def test_person_targets_sum_person_weights(self, totals, control):
+        """PUMA 00100: PWGTP sums to 1040, where WGTP x members would give 1000."""
+        assert self._by_zone(totals, control) == pytest.approx({"00100": 1040.0, "00200": 160.0})
 
-        # Targets should sum
-        ab_cat1 = new_ct.totals.filter((pl.col("geo_id") == "AB") & (pl.col("category") == 1))[
-            "target_total"
-        ].item()
-        assert ab_cat1 == pytest.approx(130.0)  # 100 + 30
-
-        # Seed geo_id remapped
-        assert new_seed.filter(pl.col("hh_id") == 1)["ctrl_geoid"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 2)["ctrl_geoid"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 3)["ctrl_geoid"].item() == "C"
-
-        # Original zone IDs preserved
-        assert "_orig_ctrl_geoid" in new_seed.columns
-        assert new_seed.filter(pl.col("hh_id") == 1)["_orig_ctrl_geoid"].item() == "A"
-        assert new_seed.filter(pl.col("hh_id") == 2)["_orig_ctrl_geoid"].item() == "B"
-        assert new_seed.filter(pl.col("hh_id") == 3)["_orig_ctrl_geoid"].item() == "C"
-
-        # Zone group labels
-        assert "zone_group" in new_seed.columns
-        assert new_seed.filter(pl.col("hh_id") == 1)["zone_group"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 2)["zone_group"].item() == "AB"
-        assert new_seed.filter(pl.col("hh_id") == 3)["zone_group"].item() is None
-
-        # Zone C is in no group, so its target is untouched
-        c_total = new_ct.totals.filter((pl.col("geo_id") == "C") & (pl.col("category") == 2))[
-            "target_total"
-        ].item()
-        assert c_total == pytest.approx(60.0)
-
-        # and the PUMS counts are carried forward unchanged
-        assert new_ct.pums_hh_count == 10
-        assert new_ct.pums_person_count == 20
-
-    def test_duplicate_zone_raises(self, control_totals, seed):
-        """A zone in two groups should raise ValueError."""
-        groups = {"AB": ["A", "B"], "AC": ["A", "C"]}
-        with pytest.raises(ValueError, match="multiple groups"):
-            apply_zone_groups(control_totals, seed, groups)
+    def test_pums_counts(self, totals):
+        """Counted once each, whatever the weights."""
+        assert (totals.pums_hh_count, totals.pums_person_count) == (3, 7)
 
 
-# ===========================================================================
-# Zone-targeted 1-D merges, and the labels the fit report reads off them
-# ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# ControlRegistryConfig.from_yaml — zone_merges config key
-# ---------------------------------------------------------------------------
 class TestParseControlsZoneMerges:
     """ControlRegistryConfig.from_yaml should emit MergeSpecs for zone_merges entries."""
-
-    def test_no_zone_merges(self):
-        """Controls without zone_merges produce only global MergeSpecs."""
-        controls = [
-            {
-                "name": "h_size",
-                "merge": {"size_5_plus": ["size_5", "size_6"]},
-            },
-        ]
-        cfg = ControlRegistryConfig.from_yaml(controls)
-        assert len(cfg.merges_1d) == 1
-        assert cfg.merges_1d[0].zones is None
 
     def test_zone_merges_appended(self):
         """zone_merges produce zone-specific MergeSpecs after the global one."""
@@ -667,13 +359,25 @@ class TestParseControlsZoneMerges:
         cfg = ControlRegistryConfig.from_yaml(controls)
         merges = cfg.merges_1d
         assert len(merges) == 3
-        # Global first
         assert merges[0].zones is None
         assert "size_5_plus" in merges[0].groups
-        # Then one MergeSpec per zone key, in config order
+        # then one per zone key, in config order
         assert [m.zones for m in merges[1:]] == [["Z1"], ["Z2"]]
         assert "size_4_plus" in merges[1].groups
         assert "size_3_plus" in merges[2].groups
+
+    def test_labels_and_members_are_lower_case(self):
+        """A label written AAPI is aapi, as every downstream table names its groups."""
+        controls = [
+            {
+                "name": "p_race_ethnicity",
+                "merge": {"AAPI": ["Asian", "pacific"]},
+                "zone_merges": {"Z1": {"AAPI_Other": ["AAPI", "other"]}},
+            },
+        ]
+        merges = ControlRegistryConfig.from_yaml(controls).merges_1d
+        assert merges[0].groups == {"aapi": ["asian", "pacific"]}
+        assert merges[1].groups == {"aapi_other": ["aapi", "other"]}
 
     def test_zone_merges_without_global_merge(self):
         """A control with only zone_merges (no global merge) still works."""
@@ -692,217 +396,179 @@ class TestParseControlsZoneMerges:
         assert merges[0].control == "h_size"
 
 
-# ---------------------------------------------------------------------------
-# apply_category_merges — targeted merge layered on global merge
-# ---------------------------------------------------------------------------
-def _make_arrays(labels, targets_list):
-    """Helper: build incidence, targets, importance arrays from row labels."""
-    n_hh = 3
-    incidence = np.ones((len(labels), n_hh), dtype=np.float64)
-    # Give each row distinct values so we can verify summation
-    for i in range(len(labels)):
-        incidence[i] = np.array([i + 1, i + 2, i + 3], dtype=np.float64)
-    targets = np.array(targets_list, dtype=np.float64)
-    importance = np.ones(len(labels), dtype=np.float64)
-    master_idx = next(i for i, (c, _) in enumerate(labels) if c == "h_total")
-    return incidence, targets, master_idx, importance
+class TestZoneMergeTargets:
+    """A zone merge is one target in its own areas and none elsewhere."""
 
-
-class TestApplyMergesTargeted:
-    """Targeted merges should be able to reference labels produced by global merges."""
-
-    def test_global_then_targeted_merge(self):
-        """A targeted merge can reference a label created by a preceding global merge."""
-        # Row labels: h_total + h_size with 4 categories
-        labels = [
-            ("h_total", "total"),
-            ("h_size", "size_3"),
-            ("h_size", "size_4"),
-            ("h_size", "size_5"),
-            ("h_size", "size_6"),
-        ]
-        targets = [100.0, 30.0, 25.0, 25.0, 20.0]
-        incidence, tgt, master_idx, imp = _make_arrays(labels, targets)
-
-        # Global: merge 5+6 → size_5_plus
-        global_merge = MergeSpec(
-            control="h_size",
-            groups={"size_5_plus": ["size_5", "size_6"]},
-            zones=None,
-        )
-        # Targeted: further merge 4 + size_5_plus → size_4_plus (zone Z1 only)
-        targeted_merge = MergeSpec(
-            control="h_size",
-            groups={"size_4_plus": ["size_4", "size_5_plus"]},
-            zones=["Z1"],
-        )
-
-        # Apply both in order (global first)
-        incidence, tgt, master_idx, imp = apply_category_merges(
-            incidence, tgt, labels, master_idx, [global_merge, targeted_merge], imp
-        )
-
-        # After global: size_5,size_6→size_5_plus  (target=25+20=45)
-        # After targeted: size_4+size_5_plus→size_4_plus  (target=25+45=70)
-        remaining_members = {member for _, member in labels}
-        assert "size_5" not in remaining_members
-        assert "size_6" not in remaining_members
-        assert "size_4" not in remaining_members
-        assert "size_5_plus" not in remaining_members
-        assert "size_4_plus" in remaining_members
-        assert "size_3" in remaining_members
-
-        # Find the merged target
-        idx_4_plus = next(i for i, (c, m) in enumerate(labels) if m == "size_4_plus")
-        assert tgt[idx_4_plus] == pytest.approx(70.0)
-
-    def test_targeted_merge_unknown_label_raises(self):
-        """Referencing a label that doesn't exist should raise ValueError."""
-        labels = [
-            ("h_total", "total"),
-            ("h_size", "size_3"),
-            ("h_size", "size_4"),
-        ]
-        targets = [100.0, 50.0, 50.0]
-        incidence, tgt, master_idx, imp = _make_arrays(labels, targets)
-
-        bad_merge = MergeSpec(
-            control="h_size",
-            groups={"merged": ["size_4", "nonexistent"]},
-            zones=["Z1"],
-        )
-
-        with pytest.raises(ValueError, match="unknown categories"):
-            apply_category_merges(incidence, tgt, labels, master_idx, [bad_merge], imp)
-
-
-# ---------------------------------------------------------------------------
-# apply_fit_merges — diagnostics table labelling
-# ---------------------------------------------------------------------------
-
-
-def _make_fit(zones: list[str], categories: list[str], control: str = "h_size") -> pl.DataFrame:
-    """Build a minimal fit DataFrame with string categories for testing."""
-    rows = []
-    for zi, z in enumerate(zones):
-        for ci, cat in enumerate(categories):
-            # deterministic, and distinct per (zone, category)
-            t = float(10 + 10 * ci + zi)
-            w = t + 1.0  # small diff
-            rows.append(
+    def test_one_target_row_per_group(self):
+        """Merged area A: 0 / 2+; area B keeps 0 / 2 / 3. No duplicates, no extra 2+ in B."""
+        pipeline = object.__new__(WeightingPipeline)
+        pipeline.controls = ControlRegistryConfig.from_yaml(
+            [
+                {"name": "h_total"},
+                {"name": "p_total"},
                 {
-                    "geo_id": z,
-                    "control_name": control,
-                    "category": cat,
-                    "target_total": t,
-                    "weighted_total": w,
-                    "diff": w - t,
-                    "diff_pct": (w - t) / t * 100 if t else 0.0,
+                    "name": "h_workers",
+                    "zone_merges": {"A": {"w2_plus": ["workers_2", "workers_3"]}},
+                },
+            ]
+        )
+        pipeline.pums_incidence = pl.DataFrame(
+            {
+                "SERIALNO": ["1", "2", "3", "4"],
+                "zone_group_id": ["A", "A", "B", "B"],
+                "WGTP": [10.0, 20.0, 30.0, 40.0],
+                "h_total": [1, 1, 1, 1],
+                "h_workers__workers_0": [1, 0, 1, 0],
+                "h_workers__workers_2": [0, 1, 0, 0],
+                "h_workers__workers_3": [0, 0, 0, 1],
+            }
+        )
+        pipeline.pums_person_incidence = pl.DataFrame(
+            {
+                "SERIALNO": ["1"],
+                "SPORDER": [1],
+                "zone_group_id": ["A"],
+                "PWGTP": [10.0],
+                "p_total": [1],
+            }
+        )
+
+        pipeline.apply_merges()
+        pipeline.aggregate_totals()
+
+        workers = pipeline.control_totals.totals.filter(pl.col("control_name") == "h_workers")
+        got = {
+            (r["zone_group_id"], r["category"]): r["target_total"]
+            for r in workers.iter_rows(named=True)
+        }
+        assert workers.height == len(got)
+        assert {k: v for k, v in got.items() if v} == {
+            ("A", "workers_0"): 10.0,
+            ("A", "w2_plus"): 20.0,
+            ("B", "workers_0"): 30.0,
+            ("B", "workers_3"): 40.0,
+        }
+        assert ("B", "w2_plus") not in got
+        assert ("A", "workers_2") not in got
+
+    def test_a_group_of_one_renames_its_category(self):
+        """A one-member group, such as a county of one PUMA, is a target under its own name."""
+        incidence = pl.DataFrame({"zone_group_id": ["A"], "h_puma__puma_05500": [1.0]})
+        spec = MergeSpec(control="h_puma", groups={"napa": ["puma_05500"]}, zones=["A"])
+        assert "h_puma__napa" in apply_1d_merges(incidence, [spec]).columns
+
+        totals = ControlTotals(
+            totals=pl.DataFrame(
+                {
+                    "zone_group_id": ["A"],
+                    "control_name": ["h_puma"],
+                    "category": ["puma_05500"],
+                    "target_total": [51167.0],
                 }
-            )
-    return pl.DataFrame(rows)
+            ),
+            pums_hh_count=1,
+            pums_person_count=0,
+            zone_group_ids=["A"],
+        )
+        merged = merge_control_totals(totals, [spec]).totals
+        assert merged["category"].to_list() == ["napa"]
+        assert merged["target_total"].to_list() == [51167.0]
 
 
-class TestApplyFitMergesLabel:
-    """apply_fit_merges should add a label column from enum definitions."""
+def _fit(rows: list[tuple[str, str, float, float]]) -> pl.DataFrame:
+    """A fit table for h_size from (zone, category, target, weighted) rows."""
+    return pl.DataFrame(
+        [
+            {
+                "zone_group_id": z,
+                "control_name": "h_size",
+                "category": c,
+                "target_total": t,
+                "weighted_total": w,
+                "diff": w - t,
+                "diff_pct": (w - t) / t * 100 if t else 0.0,
+            }
+            for z, c, t, w in rows
+        ]
+    )
 
-    def test_adds_label_column(self):
-        """A label column should be added based on the control and category."""
-        fit = _make_fit(["Z1"], ["size_1", "size_2", "size_3"])
+
+def test_zone_merge_labels_present_in_every_zone():
+    """Zone Z1 shows its merged label, Z2 its originals, and every zone has every label."""
+    # Z1 arrives merged and Z2 not, as merge_control_totals leaves them upstream
+    fit = _fit(
+        [
+            ("Z1", "size_3", 10.0, 11.0),
+            ("Z1", "size_4_plus", 20.0, 21.0),
+            ("Z2", "size_3", 10.0, 11.0),
+            ("Z2", "size_4", 20.0, 21.0),
+            ("Z2", "size_5_plus", 30.0, 31.0),
+        ]
+    )
+    global_merge = MergeSpec(
+        control="h_size", groups={"size_5_plus": ["size_5", "size_6"]}, zones=None
+    )
+    zone_merge = MergeSpec(
+        control="h_size", groups={"size_4_plus": ["size_4", "size_5_plus"]}, zones=["Z1"]
+    )
+    result = apply_fit_merges(fit, [global_merge, zone_merge], ["h_size"])
+
+    def labels(zone: str) -> list[str]:
+        rows = result.filter(
+            (pl.col("zone_group_id") == zone) & pl.col("target_total").is_not_null()
+        )
+        return rows["label"].to_list()
+
+    assert {"Size 4 Plus", "Size 3"} <= set(labels("Z1"))
+    assert {"Size 4", "Size 5 Plus"} <= set(labels("Z2"))
+    z1_merged = result.filter(
+        (pl.col("zone_group_id") == "Z1") & (pl.col("label") == "Size 4 Plus")
+    )
+    assert z1_merged.height == 1
+    assert z1_merged["target_total"].item() is not None
+
+    all_labels = result["label"].unique().sort().to_list()
+    for z in ["Z1", "Z2"]:
+        zone_labels = result.filter(pl.col("zone_group_id") == z)["label"].unique().sort()
+        assert zone_labels.to_list() == all_labels, f"Zone {z} missing some labels"
+
+
+class TestApplyFitMergesEmptyCategories:
+    """A category with no target and no weight anywhere gets no row."""
+
+    def test_category_merged_away_in_every_zone_is_dropped(self):
+        """Each zone merged size_3 into its own group, so size_3 is 0 everywhere."""
+        fit = _fit(
+            [
+                ("Z1", "size_3", 0.0, 0.0),
+                ("Z1", "size_3_plus", 50.0, 51.0),
+                ("Z2", "size_3", 0.0, 0.0),
+                ("Z2", "size_3_plus", 40.0, 39.0),
+            ]
+        )
         result = apply_fit_merges(fit, None, ["h_size"])
-        assert "label" in result.columns
-        labels = result["label"].to_list()
-        assert "Size 1" in labels
-        assert "Size 2" in labels
+        assert set(result["category"]) == {"size_3_plus"}
 
-    def test_merged_category_gets_label(self):
-        """A merged category string gets a title-cased label from the merge spec."""
-        fit = _make_fit(["Z1"], ["size_3", "size_5_plus"])
-        merge = MergeSpec(
-            control="h_size",
-            groups={"size_5_plus": ["size_5", "size_6"]},
-            zones=None,
+    def test_category_with_a_target_in_one_zone_is_kept_and_padded(self):
+        """size_3 is a target in Z2 only, so Z1 keeps a placeholder row for it."""
+        fit = _fit(
+            [
+                ("Z1", "size_3", 0.0, 0.0),
+                ("Z1", "size_3_plus", 50.0, 51.0),
+                ("Z2", "size_3", 30.0, 31.0),
+                ("Z2", "size_3_plus", 40.0, 39.0),
+            ]
         )
-        result = apply_fit_merges(fit, [merge], ["h_size"])
-        labels = result["label"].to_list()
-        assert "Size 5 Plus" in labels
-        assert "Size 3" in labels
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert result.filter(pl.col("category") == "size_3").height == 2
+
+    def test_weight_with_no_target_is_kept(self):
+        """Weight where the target is 0 is a miss, so the row stays."""
+        fit = _fit([("Z1", "size_3", 0.0, 5.0), ("Z1", "size_3_plus", 50.0, 45.0)])
+        result = apply_fit_merges(fit, None, ["h_size"])
+        assert "size_3" in set(result["category"])
 
 
-class TestApplyFitMergesZoneAware:
-    """Zone merge labels should appear correctly in the fit table."""
-
-    def test_zone_merge_labels_present(self):
-        """Zone-specific merged categories get proper labels."""
-        # Simulate a fit table where zone Z1 has the merged category
-        # and zone Z2 has the originals (this is how the data arrives
-        # after apply_zone_merges + merge_control_totals upstream).
-        z1_data = _make_fit(["Z1"], ["size_3", "size_4_plus"])
-        z2_data = _make_fit(["Z2"], ["size_3", "size_4", "size_5_plus"])
-        fit = pl.concat([z1_data, z2_data])
-
-        global_merge = MergeSpec(
-            control="h_size",
-            groups={"size_5_plus": ["size_5", "size_6"]},
-            zones=None,
-        )
-        zone_merge = MergeSpec(
-            control="h_size",
-            groups={"size_4_plus": ["size_4", "size_5_plus"]},
-            zones=["Z1"],
-        )
-        result = apply_fit_merges(fit, [global_merge, zone_merge], ["h_size"])
-
-        # Z1 should have the merged label
-        z1 = result.filter((pl.col("geo_id") == "Z1") & pl.col("target_total").is_not_null())
-        z1_labels = z1["label"].to_list()
-        assert "Size 4 Plus" in z1_labels
-        assert "Size 3" in z1_labels
-
-        # Z2 should have the original labels
-        z2 = result.filter((pl.col("geo_id") == "Z2") & pl.col("target_total").is_not_null())
-        z2_labels = z2["label"].to_list()
-        assert "Size 4" in z2_labels
-        assert "Size 5 Plus" in z2_labels
-
-        # and the merged row keeps the target total the upstream merge gave it
-        z1_merged = result.filter((pl.col("geo_id") == "Z1") & (pl.col("label") == "Size 4 Plus"))
-        assert z1_merged.height == 1
-        assert z1_merged["target_total"].item() is not None
-
-    def test_null_placeholders_for_consistency(self):
-        """Every zone should have every label (real or null placeholder)."""
-        # Simulate post-merge data: Z1 has merged, Z2 has originals
-        z1_data = _make_fit(["Z1"], ["size_3", "size_4_plus"])
-        z2_data = _make_fit(["Z2"], ["size_3", "size_4", "size_5_plus"])
-        fit = pl.concat([z1_data, z2_data])
-
-        global_merge = MergeSpec(
-            control="h_size",
-            groups={"size_5_plus": ["size_5", "size_6"]},
-            zones=None,
-        )
-        zone_merge = MergeSpec(
-            control="h_size",
-            groups={"size_4_plus": ["size_4", "size_5_plus"]},
-            zones=["Z1"],
-        )
-        result = apply_fit_merges(fit, [global_merge, zone_merge], ["h_size"])
-
-        all_labels = result["label"].unique().sort().to_list()
-        for z in ["Z1", "Z2"]:
-            zone_labels = result.filter(pl.col("geo_id") == z)["label"].unique().sort().to_list()
-            assert zone_labels == all_labels, f"Zone {z} missing some labels"
-
-
-# ===========================================================================
-# Checksums: the incidence table against its own structural totals
-# ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 @pytest.fixture
 def good_seed() -> pl.DataFrame:
     """Seed table where all controls are properly accounted for.
@@ -928,29 +594,6 @@ def good_seed() -> pl.DataFrame:
     )
 
 
-@pytest.fixture
-def overcount_seed() -> pl.DataFrame:
-    """Seed where p_gender incidence sums > p_total for HH3 (double-classified)."""
-    return pl.DataFrame(
-        {
-            "hh_id": [1, 2, 3],
-            "p_total": [1, 3, 2],
-            "h_income__low": [1, 0, 0],
-            "h_income__mid": [0, 1, 0],
-            "h_income__high": [0, 0, 1],
-            # HH3: 3 gender incidence but only 2 persons (double-classified)
-            "p_gender__male": [1, 1, 2],
-            "p_gender__female": [0, 2, 1],
-            "p_employment__employed_full": [1, 1, 0],
-            "p_employment__employed_part": [0, 1, 0],
-            "p_employment__not_employed": [0, 1, 2],
-        },
-    )
-
-
-# ---------------------------------------------------------------------------
-# check_incidence_sums
-# ---------------------------------------------------------------------------
 class TestCheckIncidenceSums:
     """Tests for incidence-sum validation on the seed table."""
 
@@ -971,7 +614,7 @@ class TestCheckIncidenceSums:
         assert "failure" not in caplog.text
 
     def test_undercount_raises(self, good_seed):
-        """Undercount (< p_total) now raises — nulls should be filled."""
+        """An undercount (below p_total) raises."""
         seed = good_seed.with_columns(
             # HH2 employment sums to 2 instead of 3 (undercount)
             pl.when(pl.col("hh_id") == 2)
@@ -981,11 +624,6 @@ class TestCheckIncidenceSums:
         )
         with pytest.raises(ValueError, match="p_employment"):
             check_incidence_sums(seed, ["p_employment"], source_label="test")
-
-    def test_fails_on_person_overcount(self, overcount_seed):
-        """Overcount in person control should raise ValueError."""
-        with pytest.raises(ValueError, match="p_gender"):
-            check_incidence_sums(overcount_seed, ["p_gender"], source_label="test")
 
     def test_fails_on_hh_control_mismatch(self):
         """HH-level control with wrong sum raises ValueError (no h_total needed)."""
@@ -1011,12 +649,13 @@ class TestCheckIncidenceSums:
         # Passes with tolerance
         check_incidence_sums(seed, ["p_gender"], source_label="test", tolerance=0.01)
 
-    def test_error_shows_hh_id_and_counts(self, overcount_seed):
-        """The error names the source, the one bad household, and both counts.
+    def test_error_shows_hh_id_and_counts(self, good_seed):
+        """An overcount names the source, the one bad household, and both counts.
 
-        Only HH3 is double-classified: its two gender columns sum to 3
-        against a ``p_total`` of 2.  HH1 and HH2 must not appear.
+        HH3 is double-classified: its gender columns sum to 3 against a
+        ``p_total`` of 2. HH1 and HH2 must not appear.
         """
+        overcount_seed = good_seed.with_columns(pl.Series("p_gender__male", [1, 1, 2]))
         with pytest.raises(ValueError, match="p_gender") as exc_info:
             check_incidence_sums(overcount_seed, ["p_gender"], source_label="survey")
         msg = str(exc_info.value)
@@ -1042,9 +681,54 @@ class TestCheckIncidenceSums:
         assert "p_total column missing" in caplog.text
 
 
-# ---------------------------------------------------------------------------
-# check_recode_nulls
-# ---------------------------------------------------------------------------
+class TestRestoreOriginalAnswers:
+    """Weighting can set aside the imputation step's values."""
+
+    # Person 1 answered male, person 2 chose not to say and was imputed male.
+    PERSONS = pl.DataFrame(
+        {
+            "person_id": [1, 2],
+            "hh_id": [10, 10],
+            "gender": [Gender.MALE.value, Gender.MALE.value],
+            "gender_preimputed": [Gender.MALE.value, Gender.PNTA.value],
+        }
+    )
+    HOUSEHOLDS = pl.DataFrame(
+        {
+            "hh_id": [10, 20],
+            "income_bin": [IncomeBroad.INCOME_UNDER25.value, IncomeBroad.INCOME_UNDER25.value],
+            "income_bin_preimputed": [IncomeBroad.INCOME_UNDER25.value, None],
+        }
+    )
+
+    def test_each_table_gets_its_original_values(self):
+        """Every stashed column is restored, in both tables."""
+        households, persons = restore_original_answers(self.HOUSEHOLDS, self.PERSONS)
+        assert households["income_bin"].to_list() == [IncomeBroad.INCOME_UNDER25.value, None]
+        assert persons["gender"].to_list() == [Gender.MALE.value, Gender.PNTA.value]
+
+    def test_prefer_not_to_answer_reaches_the_control_as_a_blank(self):
+        """A restored sentinel recodes to null, so weighting fills it."""
+        _, persons = restore_original_answers(self.HOUSEHOLDS, self.PERSONS)
+        recoded = recode_survey_persons(persons, ["p_gender"])
+        assert recoded["p_gender"].null_count() == 1
+        assert recoded.filter(pl.col("person_id") == 2)["p_gender"].item() is None
+
+    def test_one_stashed_table_is_enough(self):
+        """A table with nothing imputed passes through unchanged."""
+        households = self.HOUSEHOLDS.drop("income_bin_preimputed")
+        restored, _ = restore_original_answers(households, self.PERSONS)
+        assert restored.equals(households)
+
+    def test_stops_when_nothing_was_stashed(self):
+        """With no original values to read, the setting cannot do what it says."""
+        with pytest.raises(ValueError, match="use_imputed_values is false"):
+            restore_original_answers(
+                self.HOUSEHOLDS.drop("income_bin_preimputed"),
+                self.PERSONS.drop("gender_preimputed"),
+            )
+
+
 class TestCheckRecodeNulls:
     """Tests for null-detection on recoded DataFrames (pre-aggregation)."""
 
@@ -1126,7 +810,5 @@ class TestCheckRecodeNulls:
                 id_col="hh_id",
                 source_label="test",
             )
-        # h_workers is HH → should be flagged
         assert "h_workers" in caplog.text
-        # p_gender is person → should NOT appear (wrong level)
         assert "p_gender" not in caplog.text

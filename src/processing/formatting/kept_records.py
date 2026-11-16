@@ -18,21 +18,17 @@ a record the filter excludes is weight the output would lose.
 """
 
 import logging
-from dataclasses import dataclass, field
 
 import polars as pl
 
 from data_canon.core.dataclass import CANONICAL_MODELS
 from data_canon.validation.relational import foreign_key_edges
-
-from .descriptions import suggest_usability_columns
-from .joint_groupings import MIN_JOINT_PARTICIPANTS
+from processing.usability import MIN_JOINT_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
 
-# Every table the gate can apply to; a formatter passes the ones it holds.
-# All are stamped by the cascade, so a
-# missing verdict is a broken frame rather than a table that opted out.
+# Every table the gate can apply to; a formatter passes the ones it holds. All are
+# stamped by the cascade, so a missing verdict is a broken frame, not an opt-out.
 GATED_TABLES = (
     "households",
     "persons",
@@ -44,10 +40,8 @@ GATED_TABLES = (
     "joint_tours",
 )
 
-# The declared references between canonical tables, derived rather than listed.
-# There are three dozen, denormalised across the trip tables, and a
-# hand-maintained subset omits whichever one matters next -- which is how a
-# person outlived their household, and a trip outlived its joint tour.
+# The declared references between canonical tables, derived from the schema so
+# that none is left out.
 _EDGES = foreign_key_edges(CANONICAL_MODELS)
 
 # The joint groupings, as (id column, table whose surviving rows are its members,
@@ -57,38 +51,54 @@ _GROUPINGS = (
     ("joint_trip_id", "linked_trips", "joint_trips"),
 )
 
+# Each gated table's weight column.
+WEIGHT_COLUMNS = {
+    "households": "hh_weight",
+    "persons": "person_weight",
+    "person_days": "person_day_weight",
+    "tours": "tour_weight",
+    "linked_trips": "linked_trip_weight",
+    "unlinked_trips": "unlinked_trip_weight",
+    "joint_trips": "joint_trip_weight",
+    "joint_tours": "joint_tour_weight",
+}
+
 # Every column a profile writes its own copy of, per table: the weight, and
 # the joint ids saying which joint tour or joint trip a record is on.
+_JOINT_ID_COLUMNS = {
+    "tours": ("joint_tour_id",),
+    "linked_trips": ("joint_tour_id", "joint_trip_id"),
+    "unlinked_trips": ("joint_tour_id",),
+}
 _PROFILE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "households": ("hh_weight",),
-    "persons": ("person_weight",),
-    "person_days": ("person_day_weight",),
-    "tours": ("tour_weight", "joint_tour_id"),
-    "linked_trips": ("linked_trip_weight", "joint_tour_id", "joint_trip_id"),
-    "unlinked_trips": ("unlinked_trip_weight", "joint_tour_id"),
-    "joint_trips": ("joint_trip_weight",),
-    "joint_tours": ("joint_tour_weight",),
+    name: (weight, *_JOINT_ID_COLUMNS.get(name, ())) for name, weight in WEIGHT_COLUMNS.items()
 }
 
 # Rows of a failing check to name before summarising the rest.
 _MAX_REPORTED = 5
 
 
-@dataclass
-class KeepLedger:
-    """How many rows each table lost to the profile's verdict."""
+def suggest_usability_columns(frame: pl.DataFrame) -> str:
+    """A "did you mean" line naming the boolean columns *frame* actually has.
 
-    excluded: dict[str, int] = field(default_factory=dict)
-
-    def add(self, bucket: dict[str, int], key: str, n: int) -> None:
-        """Add *n* to *key* in *bucket*."""
-        bucket[key] = bucket.get(key, 0) + n
+    For a consumer that was pointed at a usability column which is not there.
+    The names come from config, so there is no pattern to match on: a rule like
+    "ends in _usable" only holds until a project picks a name that does not fit
+    it, and then the hint reports none rather than admitting it cannot tell.
+    Every boolean column is offered instead. Some will be unrelated, which costs
+    a reader one glance; a confident empty answer costs them a debugging session
+    in the wrong step.
+    """
+    boolean = sorted(name for name, dtype in frame.schema.items() if dtype == pl.Boolean)
+    if not boolean:
+        return "It carries no boolean columns at all."
+    return f"Did you mean one of these boolean columns? {', '.join(boolean)}."
 
 
 def keep_records(
     tables: dict[str, pl.DataFrame],
     usability_flag_col: str,
-) -> tuple[dict[str, pl.DataFrame], KeepLedger]:
+) -> tuple[dict[str, pl.DataFrame], dict[str, int]]:
     """Keep the records *usability_flag_col* admits, and prove nothing dangles.
 
     Args:
@@ -97,12 +107,12 @@ def keep_records(
         usability_flag_col: The stamped verdict to gate on.
 
     Returns:
-        The kept tables, and a ledger of what each lost. Tables absent from the
+        The kept tables, and how many rows each lost. Tables absent from the
         input stay absent.
 
     Raises:
         ValueError: If a gated table carries no verdict, which means
-            `cascade_completeness` did not run or stamped a different profile;
+            `cascade_usability` did not run or stamped a different profile;
             or if the kept records do not agree with one another, which means
             the cascade did.
     """
@@ -115,7 +125,7 @@ def keep_records(
         sample = tables[missing[0]]
         msg = (
             f"{', '.join(missing)} carry no '{usability_flag_col}' column, so there "
-            f"is nothing to gate on. Declare it in cascade_completeness's "
+            f"is nothing to gate on. Declare it in cascade_usability's "
             f"usability_profiles. {suggest_usability_columns(sample)}"
         )
         raise ValueError(msg)
@@ -124,17 +134,17 @@ def keep_records(
     # licence to guess a criterion of our own.
     keep = pl.col(usability_flag_col).fill_null(value=False)
 
-    ledger = KeepLedger()
+    excluded: dict[str, int] = {}
     kept: dict[str, pl.DataFrame] = dict(tables)
     for name in GATED_TABLES:
         if name not in kept:
             continue
         before = kept[name]
         kept[name] = before.filter(keep)
-        ledger.add(ledger.excluded, name, before.height - kept[name].height)
+        excluded[name] = before.height - kept[name].height
 
     check_kept_records_agree(kept, usability_flag_col)
-    return kept, ledger
+    return kept, excluded
 
 
 def select_profile_columns(
@@ -191,7 +201,7 @@ def select_profile_columns(
                     msg = (
                         f"{name} carries {what} for {found} but not for "
                         f"{usability_profile!r}, the profile this consumer reads. Add it to "
-                        f"the weighting step's weight_profiles and cascade_completeness's "
+                        f"the weighting step's weight_profiles and cascade_usability's "
                         f"usability_profiles; falling back to {base!r} would publish another "
                         "universe's expansion factors or joint tours, or none."
                     )
