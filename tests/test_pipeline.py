@@ -1,7 +1,6 @@
 """Tests for the Pipeline runner: step args and run()."""
 
 import sys
-from pathlib import Path
 
 import polars as pl
 import pytest
@@ -304,13 +303,21 @@ class TestRun:
 
     @pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
     def test_pipeline_run_with_log_file(self, tmp_path, monkeypatch, absolute: bool):
-        """A log path is taken as given: an absolute one as is, a relative one from the cwd."""
-        monkeypatch.chdir(tmp_path)
-        log_file = tmp_path / "test.log" if absolute else Path("pipeline.log")
+        """An absolute log path is taken as is; a relative one is read from the config's folder.
+
+        The run is launched from elsewhere, so a relative path read from the
+        launch folder would land in the wrong place.
+        """
+        project = tmp_path / "project"
+        project.mkdir()
+        launched_from = tmp_path / "elsewhere"
+        launched_from.mkdir()
+        monkeypatch.chdir(launched_from)
+        log_file = tmp_path / "test.log" if absolute else project / "pipeline.log"
         configured = str(log_file) if absolute else "pipeline.log"
 
         config_path = _write_config(
-            tmp_path,
+            project,
             {"log_file": configured, "steps": [{"name": "test_step"}]},
         )
 

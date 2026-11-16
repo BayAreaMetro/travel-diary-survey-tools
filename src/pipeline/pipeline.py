@@ -3,10 +3,12 @@
 import importlib.util
 import inspect
 import logging
+import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +106,17 @@ def _build_settings(
         raise ValueError(msg) from e
 
 
+@contextmanager
+def _in_folder(folder: Path) -> Iterator[None]:
+    """Work from *folder*, so a relative path in the config is read from there."""
+    before = Path.cwd()
+    os.chdir(folder)
+    try:
+        yield
+    finally:
+        os.chdir(before)
+
+
 def _steps_from_files(step_entries: list[dict], config_dir: Path) -> list[Callable]:
     """The project steps the config names a ``file`` for, each file imported once.
 
@@ -188,6 +201,9 @@ class Pipeline:
     ) -> None:
         """Initialize the Pipeline with configuration and custom steps.
 
+        A relative path anywhere in the config is read from the config's folder,
+        wherever the run is launched from.
+
         Every built-in step (``processing.__all__``) is available without being
         passed. A project's own step names its file on its step entry
         (``file: clean_bats_2023.py``, relative to the config's folder); *steps*
@@ -205,15 +221,16 @@ class Pipeline:
             ValueError: If a project step has a built-in step's name, or two
                 project steps share a name.
         """
-        self.config_path = config_path
-        self.config = self._load_config()
-        self.data = CanonicalData()
-        from_files = _steps_from_files(self.config.get("steps", []), Path(config_path).parent)
-        self.steps = _with_builtins([*(steps or []), *from_files])
+        self.config_path = Path(config_path).resolve()
+        with _in_folder(self.config_path.parent):
+            self.config = self._load_config()
+            self.data = CanonicalData()
+            from_files = _steps_from_files(self.config.get("steps", []), self.config_path.parent)
+            self.steps = _with_builtins([*(steps or []), *from_files])
 
-        # A log file gets console + file logging; none gets console only
-        log_filename = self.config.get("log_file") or None
-        setup_logging(log_file=log_filename, log_file_mode=log_file_mode)
+            # A log file gets console + file logging; none gets console only
+            log_filename = self.config.get("log_file") or None
+            setup_logging(log_file=log_filename, log_file_mode=log_file_mode)
         if log_filename:
             logger.info("Log file: %s", log_filename)
         else:
@@ -370,8 +387,31 @@ class Pipeline:
         raise ValueError(msg)
 
     def run(self) -> CanonicalData:
-        """Run a data processing pipeline based on a configuration file."""
+        """Run the configured steps, from the config's folder, and return the data."""
+        with _in_folder(self.config_path.parent):
+            return self._run_steps()
+
+    def _save_resolved_config(self) -> None:
+        """Write the config as resolved into ``output_dir``, for the record of what ran.
+
+        The resolved config, not the file: the file says ``{{ MTC_DATA }}/Data/...``,
+        a template rather than the path this run read. Named after the project
+        folder and the config file, so two projects writing to one folder, or two
+        configs in one project, keep separate copies.
+        """
+        output_dir = self.config.get("output_dir")
+        if not output_dir:
+            return
+        name = f"{self.config_path.parent.name}_{self.config_path.stem}.yaml"
+        saved = Path(output_dir) / name
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(yaml.safe_dump(self.config, sort_keys=False), encoding="utf-8")
+        logger.info("Saved the resolved config to %s", saved)
+
+    def _run_steps(self) -> CanonicalData:
+        """Run each configured step in order."""
         self._validate_steps()
+        self._save_resolved_config()
         self._log_git_version()
         n_steps = len(self.config["steps"])
         for i, step_cfg in enumerate(self.config["steps"], start=1):
